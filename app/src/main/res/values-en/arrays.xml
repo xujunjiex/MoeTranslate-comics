@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="menu_item_auto_off">
+        <item>Select Translation Area</item>
+        <item>Adjust Translation Result Position</item>
+        <item>Close Translation Result</item>
+        <item>Set Font Size</item>
+        <item>Turn On Automatic Translation</item>
+        <item>Close Floating Ball</item>
+        <item>Return to MoeTranslate Main Page</item>
+    </string-array>
+
+    <string-array name="menu_item_auto_on">
+        <item>Select Translation Area</item>
+        <item>Adjust Translation Result Position</item>
+        <item>Close Translation Result</item>
+        <item>Set Font Size</item>
+        <item>Turn Off Automatic Translation</item>
+        <item>Close Floating Ball</item>
+        <item>Return to MoeTranslate Main Page</item>
+    </string-array>
+
+    <string-array name="ocr_merge_mode_entries">
+        <item>No merging</item>
+        <item>Segmented merging</item>
+        <item>Direct merging</item>
+    </string-array>
+
+
+    <string-array name="ocr_merge_mode_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+
+    <string-array name="show_source_text_entries">
+        <item>Not shown</item>
+        <item>Above the result text</item>
+        <item>Below the result text</item>
+    </string-array>
+
+
+    <string-array name="show_source_text_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+
+    <string-array name="manga_menu_items">
+        <item>Fullscreen</item>
+        <item>Translation Area</item>
+        <item>Text Direction</item>
+        <item>Font Size</item>
+        <item>Auto Translate</item>
+        <item>Close Ball</item>
+        <item>Main Page</item>
+    </string-array>
+
+    <string-array name="manga_menu_items_auto_on">
+        <item>Fullscreen</item>
+        <item>Translation Area</item>
+        <item>Text Direction</item>
+        <item>Font Size</item>
+        <item>Stop Auto</item>
+        <item>Close Ball</item>
+        <item>Main Page</item>
+    </string-array>
+
+    <string-array name="request_methods">
+        <item>GET</item>
+        <item>POST</item>
+    </string-array>
+
+    <string-array name="content_types">
+        <item>application/json</item>
+        <item>multipart/form-data</item>
+    </string-array>
+
+    <string-array name="language_entries">
+        <item>Follow System</item>
+        <item>简体中文</item>
+        <item>English</item>
+    </string-array>
+
+    <string-array name="language_values">
+        <item>system</item>
+        <item>zh</item>
+        <item>en</item>
+    </string-array>
+</resources>

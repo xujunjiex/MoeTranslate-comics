@@ -1,0 +1,51 @@
+/*
+ * Copyright (C) 2024 murangogo
+ *
+ * This library is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation; either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * This library is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License along
+ * with this library; if not, write to the Free Software Foundation, Inc.,
+ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ */
+
+package com.moe.moetranslator.bridge
+
+import android.graphics.Bitmap
+import android.graphics.Point
+import com.moe.moetranslator.translate.AccessibilityServiceManager
+import com.moe.moetranslator.translate.ScreenshotManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+
+object ScreenshotBridge {
+
+    /**
+     * Collect screenshots emitted by the accessibility service.
+     * @param scope The coroutine scope to collect in.
+     * @param callback Called on each screenshot bitmap.
+     * @return The collection Job, can be cancelled to stop collecting.
+     */
+    fun collectScreenshot(scope: CoroutineScope, callback: (Bitmap) -> Unit): Job {
+        return scope.launch {
+            ScreenshotManager.screenshotFlow.collect { bitmap ->
+                callback(bitmap)
+            }
+        }
+    }
+
+    /**
+     * Trigger a screenshot via the accessibility service.
+     * Full-screen screenshot (no crop region).
+     */
+    fun takeScreenshot() {
+        AccessibilityServiceManager.takeScreenshot(null, Point(0, 0))
+    }
+}
