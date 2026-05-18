@@ -32,8 +32,7 @@ Requires: JDK 17, Android SDK (compileSdk 35), NDK 25.2.9519653, CMake 3.22.1.
 **Package structure** (`app/src/main/java/com/moe/moetranslator/`):
 
 - `translate/` — Core translation engine: `FloatingBallService` (main service, ~840 lines), `ScreenShotAccessibilityService` (screenshot capture), `OCRTextRecognizer` (ML Kit OCR), `TranslationTextAPI`/`TranslationPicAPI` (translation interfaces), `AccessibilityServiceManager` (singleton service reference)
-- `manga/` — **Extension module** (added, not part of original project): manga speech bubble translation with vertical text rendering
-- `game/` — **Extension module**: game dialog box translation with subtitle/overlay modes
+- `manga/` — **Extension module**: manga speech bubble translation with vertical text rendering
 - `bridge/` — **Extension module**: bridge layer calling original project APIs (`OCRBridge`, `TranslateBridge`, `ScreenshotBridge`)
 - `me/` — Settings and API configuration UI fragments
 - `geminiapi/` — Gemini AI chat feature
@@ -57,14 +56,28 @@ Each subdirectory implements `TranslationTextAPI` interface: `openaitranslation/
 
 **Build variants:** Single module `:app` + `:framework` (Live2D SDK). Native code via CMake in `app/src/main/cpp/`.
 
-## Extension Modules (manga/, game/, bridge/)
+## Extension Modules (manga/, bridge/)
 
-Added as independent modules — zero modification to original project files. Bridge layer pattern:
+Added as independent modules. Modifies original project files: `AndroidManifest.xml` (service declarations), `strings.xml`/`arrays.xml` (manga UI text).
+
+### Bridge Layer
 - `ScreenshotBridge` wraps `ScreenshotManager.screenshotFlow` + `AccessibilityServiceManager.takeScreenshot()`
 - `OCRBridge` calls ML Kit directly for position-aware OCR (original `OCRTextRecognizer` returns plain text only)
 - `TranslateBridge` reads config from `CustomPreference` and instantiates the appropriate `TranslationTextAPI`
 
-Services: `MangaFloatingService`, `GameFloatingService` — independent foreground services with own floating balls.
+### Manga Module
+**Files:** `MangaFloatingService.kt`, `MangaModeConfig.kt`, `VerticalTextRenderer.kt`, `OverlayRenderer.kt`, `BubbleDetector.kt`, `BackgroundAnalyzer.kt`
+
+**Translation pipeline:** Screenshot → OCR (ML Kit with position) → Bubble Detection (clustering text blocks) → Translation (parallel per bubble) → Overlay Rendering (semi-transparent background + vertical/horizontal text)
+
+**Key types:**
+- `TextDirection` enum: `VERTICAL_RL` (right→left), `VERTICAL_LR` (left→right), `HORIZONTAL`
+- `MangaModeConfig`: textDirection, fontSize, autoFontSize, smartBackground, autoDetectBubble, sourceLang, targetLang
+- `TranslatedBubble`: rect, originalText, translatedText, backgroundColor
+
+**Features:** Crop/fullscreen translate, auto-translate (timer + OCR similarity detection), auto-fit font size (shrinks to fit region), menu dialog with dynamic mode labels.
+
+Service: `MangaFloatingService` — independent foreground service with its own floating ball.
 
 ## Key Constraints
 
