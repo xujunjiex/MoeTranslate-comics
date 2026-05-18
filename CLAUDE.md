@@ -1,88 +1,102 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code (claude.ai/code) 提供项目上下文。
 
-## Project Overview
+## 项目概述
 
-MoeTranslate (萌译) is an Android screenshot translation app targeting Android 11+ (API 29+). It uses Accessibility Service for screen capture and ML Kit for local OCR, then routes recognized text through various translation APIs.
+MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11+（API 29+）。使用 Accessibility Service 截屏，ML Kit 本地 OCR 识别文字，然后调用各种翻译 API 进行翻译。
 
-## Build
+## 构建命令
 
 ```bash
-# Build debug APK
+# 构建 debug APK
 ./gradlew assembleDebug
 
-# Build release APK
+# 构建 release APK
 ./gradlew assembleRelease
 
-# Clean build
+# 清理构建
 ./gradlew clean assembleDebug
 
-# Run unit tests
+# 运行单元测试
 ./gradlew test
 
-# Run instrumented tests
+# 运行仪器测试
 ./gradlew connectedAndroidTest
 ```
 
-Requires: JDK 17, Android SDK (compileSdk 35), NDK 25.2.9519653, CMake 3.22.1.
+环境要求：JDK 17、Android SDK（compileSdk 35）、NDK 25.2.9519653、CMake 3.22.1。
 
-## Architecture
+## 架构
 
-**Package structure** (`app/src/main/java/com/moe/moetranslator/`):
+**包结构** (`app/src/main/java/com/moe/moetranslator/`):
 
-- `translate/` — Core translation engine: `FloatingBallService` (main service, ~840 lines), `ScreenShotAccessibilityService` (screenshot capture), `OCRTextRecognizer` (ML Kit OCR), `TranslationTextAPI`/`TranslationPicAPI` (translation interfaces), `AccessibilityServiceManager` (singleton service reference)
-- `manga/` — **Extension module**: manga speech bubble translation with vertical text rendering
-- `bridge/` — **Extension module**: bridge layer calling original project APIs (`OCRBridge`, `TranslateBridge`, `ScreenshotBridge`)
-- `me/` — Settings and API configuration UI fragments
-- `geminiapi/` — Gemini AI chat feature
-- `madoka/` — Live2D viewer feature
-- `launch/` — First launch / onboarding
-- `utils/` — Shared utilities, `Constants` enum definitions
+- `translate/` — 核心翻译引擎：`FloatingBallService`（主服务）、`ScreenShotAccessibilityService`（截屏）、`OCRTextRecognizer`（ML Kit OCR）、`TranslationTextAPI`/`TranslationPicAPI`（翻译接口）、`AccessibilityServiceManager`（单例服务引用）
+- `manga/` — **扩展模块**：漫画气泡翻译，支持竖排文字渲染
+- `bridge/` — **扩展模块**：桥接层，调用原项目 API（`OCRBridge`、`TranslateBridge`、`ScreenshotBridge`）
+- `me/` — 设置和 API 配置界面
+- `geminiapi/` — Gemini AI 聊天功能
+- `madoka/` — Live2D 查看器
+- `launch/` — 首次启动引导
+- `utils/` — 工具类、`Constants` 枚举定义
 
-**Translation API implementations** (`app/src/main/java/translationapi/`):
-Each subdirectory implements `TranslationTextAPI` interface: `openaitranslation/`, `bingtranslation/`, `mlkittranslation/`, `nllbtranslation/`, `niutrans/`, `volctranslation/`, `deepltranslation/`, `baidutranslation/`, `tencentcloud/`, `azuretranslation/`, `customtranslation/`
+**翻译 API 实现** (`app/src/main/java/translationapi/`):
+每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`mlkittranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`
 
-**Key interfaces:**
-- `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — text translation
-- `TranslationPicAPI.getTranslation(bitmap, sourceLanguage, targetLanguage, callback)` — image translation
-- `OCRTextRecognizer.getPicText(language, bitmap, mergeMode)` — returns plain text only (no position info)
+**关键接口：**
+- `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — 文本翻译
+- `TranslationPicAPI.getTranslation(bitmap, sourceLanguage, targetLanguage, callback)` — 图片翻译
+- `OCRTextRecognizer.getPicText(language, bitmap, mergeMode)` — 返回纯文本（无位置信息）
 
-**Screenshot flow:** `ScreenShotAccessibilityService` → `ScreenshotManager.screenshotFlow` (SharedFlow) → `FloatingBallService` collects and processes
+**截图流程：** `ScreenShotAccessibilityService` → `ScreenshotManager.screenshotFlow`（SharedFlow）→ `FloatingBallService` 接收处理
 
-**Config storage:** `CustomPreference` singleton wrapping `SharedPreferences` (default prefs). API keys stored encrypted via `KeystoreManager`.
+**配置存储：** `CustomPreference` 单例封装 `SharedPreferences`。API 密钥通过 `KeystoreManager` 加密存储。
 
-**UI:** Traditional Android Views + ViewBinding (NOT Jetpack Compose). Navigation via Navigation Component fragments.
+**UI：** 传统 Android Views + ViewBinding（非 Jetpack Compose）。导航使用 Navigation Component。
 
-**Build variants:** Single module `:app` + `:framework` (Live2D SDK). Native code via CMake in `app/src/main/cpp/`.
+**构建模块：** `:app` + `:framework`（Live2D SDK）。原生代码通过 CMake 构建（`app/src/main/cpp/`）。
 
-## Extension Modules (manga/, bridge/)
+## 扩展模块（manga/、bridge/）
 
-Added as independent modules. Modifies original project files: `AndroidManifest.xml` (service declarations), `strings.xml`/`arrays.xml` (manga UI text).
+作为独立模块添加。已修改原项目文件：`AndroidManifest.xml`、`strings.xml`、`arrays.xml`。
 
-### Bridge Layer
-- `ScreenshotBridge` wraps `ScreenshotManager.screenshotFlow` + `AccessibilityServiceManager.takeScreenshot()`
-- `OCRBridge` calls ML Kit directly for position-aware OCR (original `OCRTextRecognizer` returns plain text only)
-- `TranslateBridge` reads config from `CustomPreference` and instantiates the appropriate `TranslationTextAPI`
+### 桥接层
+- `ScreenshotBridge` 封装 `ScreenshotManager.screenshotFlow` + `AccessibilityServiceManager.takeScreenshot()`
+- `OCRBridge` 直接调用 ML Kit 实现带位置信息的 OCR（原项目的 `OCRTextRecognizer` 仅返回纯文本）
+- `TranslateBridge` 从 `CustomPreference` 读取配置，实例化对应的 `TranslationTextAPI`
 
-### Manga Module
-**Files:** `MangaFloatingService.kt`, `MangaModeConfig.kt`, `VerticalTextRenderer.kt`, `OverlayRenderer.kt`, `BubbleDetector.kt`, `BackgroundAnalyzer.kt`
+### 漫画模块
+**文件：** `MangaFloatingService.kt`、`MangaModeConfig.kt`、`VerticalTextRenderer.kt`、`OverlayRenderer.kt`、`BubbleDetector.kt`、`BackgroundAnalyzer.kt`
 
-**Translation pipeline:** Screenshot → OCR (ML Kit with position) → Bubble Detection (clustering text blocks) → Translation (parallel per bubble) → Overlay Rendering (semi-transparent background + vertical/horizontal text)
+**翻译流程：** 截图 → OCR（ML Kit 带位置信息）→ 气泡检测（聚类文字块）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
 
-**Key types:**
-- `TextDirection` enum: `VERTICAL_RL` (right→left), `VERTICAL_LR` (left→right), `HORIZONTAL`
-- `MangaModeConfig`: textDirection, fontSize, autoFontSize, smartBackground, autoDetectBubble, sourceLang, targetLang
-- `TranslatedBubble`: rect, originalText, translatedText, backgroundColor
+**关键类型：**
+- `TextDirection` 枚举：`VERTICAL_RL`（右→左）、`VERTICAL_LR`（左→右）、`HORIZONTAL`
+- `MangaModeConfig`：textDirection、fontSize、autoFontSize、smartBackground、autoDetectBubble、sourceLang、targetLang
+- `TranslatedBubble`：rect、originalText、translatedText、backgroundColor
 
-**Features:** Crop/fullscreen translate, auto-translate (timer + OCR similarity detection), auto-fit font size (shrinks to fit region), menu dialog with dynamic mode labels.
+**功能：** 框选/全屏翻译、自动翻译（定时器 + OCR 相似度检测）、自适应字体大小（自动缩小以适应区域）、菜单对话框（动态模式标签）
 
-Service: `MangaFloatingService` — independent foreground service with its own floating ball.
+**服务：** `MangaFloatingService` — 独立前台服务，拥有自己的悬浮球。
 
-## Key Constraints
+## 修改过的原项目文件
 
-- **minSdk 29** (Android 10+), **targetSdk 35**
-- **arm64-v8a only** — no 32-bit support
-- Accessibility Service required for screenshot capture (not MediaProjection)
-- `FloatingBallService` uses `foregroundServiceType="mediaProjection"`
-- License: LGPL (original project)
+| 文件 | 修改内容 |
+|------|----------|
+| `app/src/main/AndroidManifest.xml` | 添加 `MangaFloatingService` 服务声明、权限声明 |
+| `app/src/main/res/values-zh/strings.xml` | 添加漫画翻译相关中文字符串（菜单、模式标签等） |
+| `app/src/main/res/values/strings.xml` | 添加漫画翻译相关默认字符串 |
+| `app/src/main/res/values-en/strings.xml` | 添加漫画翻译相关英文字符串 |
+| `app/src/main/res/values-zh/arrays.xml` | 添加漫画菜单项数组（中文） |
+| `app/src/main/res/values/arrays.xml` | 添加漫画菜单项数组（默认） |
+| `app/src/main/res/values-en/arrays.xml` | 添加漫画菜单项数组（英文） |
+| `app/src/main/res/layout/dialog_manga_menu.xml` | 漫画菜单对话框布局 |
+| `app/src/main/res/drawable/fullscreen_translate.xml` | 全屏翻译图标 |
+
+## 关键约束
+
+- **minSdk 29**（Android 10+），**targetSdk 35**
+- **仅支持 arm64-v8a** — 不支持 32 位
+- 需要 Accessibility Service 进行截屏（非 MediaProjection）
+- `FloatingBallService` 使用 `foregroundServiceType="mediaProjection"`
+- 许可证：LGPL（原项目）
