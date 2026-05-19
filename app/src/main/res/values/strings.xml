@@ -172,6 +172,8 @@
     <string name="penetrability">Permeability</string>
     <string name="penetrability_summary">When turned on, the translation result box will be transparent, but the transparency will increase</string>
     <string name="translate_result_box">Translation results box</string>
+    <string name="translate_result_box_with_hint">Translation results box (Not applicable to manga translation)</string>
+    <string name="ocr_category_with_hint">OCR (Not applicable to manga translation)</string>
     <string name="merge_ocr">Merge multi-line OCR results</string>
     <string name="merge_ocr_summary">Current mode：%s\nThe default OCR result will split a piece of text into multiple lines, which greatly reduces the translation effect. It is recommended to choose \"Direct merging\" to get the best results in most cases</string>
     <string name="no_merge">No merging</string>
@@ -435,5 +437,23 @@
     <string name="manga_mode_horizontal">横排</string>
     <string name="manga_mode_crop">框选</string>
     <string name="manga_mode_fullscreen">全屏</string>
+    <string name="manga_crop_toggle">Translation Area</string>
+    <string name="manga_direction_switched_short">Text Direction</string>
+    <string name="manga_menu_auto_translate">Auto Translate</string>
+    <string name="manga_menu_stop_auto">Stop Auto</string>
     <string name="manga_translating">Translating…</string>
+    <string name="manga_auto_detecting">Auto-detecting…</string>
+    <string name="manga_translate_failed">Translation failed: %s</string>
+    <string name="manga_font_size_auto">Auto</string>
+    <string name="stop_service_first">Please stop the translation service before changing settings</string>
+    <string name="not_applies_to_manga">(Not applicable to manga translation)</string>
+    <string name="manga_result_setting_title">Manga Translation Result Settings</string>
+    <string name="manga_text_color">Manga Text Color</string>
+    <string name="manga_bg_color">Manga Background Color</string>
+    <string name="manga_text_color_summary">Text color for manga translation results</string>
+    <string name="manga_bg_color_summary">Background color for manga translation results</string>
+    <string name="auto_translate_dismiss_delay">Re-detect Delay After Dismiss (Manga only)</string>
+    <string name="auto_translate_dismiss_delay_summary">Current delay: %s ms\nIn manga auto-translate mode, after tapping to dismiss the result, wait this duration before resuming detection</string>
+    <string name="set_dismiss_delay">Set manga re-detect delay after dismissing result</string>
+    <string name="current_dismiss_delay">Current delay: %s ms</string>
 </resources>

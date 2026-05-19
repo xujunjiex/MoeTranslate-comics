@@ -33,6 +33,7 @@ import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentAboutMeBinding
 import com.moe.moetranslator.translate.FloatingBallService
+import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.UpdateChecker
 import com.moe.moetranslator.utils.UpdateResult
 import kotlinx.coroutines.launch
@@ -62,7 +63,7 @@ class AboutMe : Fragment() {
 
     private fun setupButton(){
         binding.translateModeBtn.setOnClickListener{
-            if (isServiceRunning(FloatingBallService::class.java)){
+            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
                 showToast(getString(R.string.still_running))
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)
@@ -71,7 +72,7 @@ class AboutMe : Fragment() {
             }
         }
         binding.apiConfigBtn.setOnClickListener {
-            if (isServiceRunning(FloatingBallService::class.java)){
+            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
                 showToast(getString(R.string.still_running))
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)
@@ -80,7 +81,7 @@ class AboutMe : Fragment() {
             }
         }
         binding.personalizationBtn.setOnClickListener {
-            if (isServiceRunning(FloatingBallService::class.java)){
+            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
                 showToast(getString(R.string.still_running))
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)

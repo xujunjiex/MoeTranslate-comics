@@ -8,22 +8,21 @@ import android.graphics.Rect
 
 object OverlayRenderer {
 
-    // 半透明白色背景，替代逐像素采样
-    private val DEFAULT_BG_COLOR = Color.argb(200, 255, 255, 255)
-
     fun renderOverlay(
         original: Bitmap,
         regions: List<TranslatedBubble>,
         direction: TextDirection,
         fontSize: Float = 16f,
-        autoFit: Boolean = true
+        autoFit: Boolean = true,
+        textColor: Int = Color.BLACK,
+        bgColor: Int = Color.argb(200, 255, 255, 255)
     ): Bitmap {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
 
         for (region in regions) {
             val bgPaint = Paint().apply {
-                color = DEFAULT_BG_COLOR
+                color = bgColor
                 style = Paint.Style.FILL
             }
             canvas.drawRect(region.rect, bgPaint)
@@ -34,7 +33,7 @@ object OverlayRenderer {
                 region = region.rect,
                 direction = direction,
                 fontSize = fontSize,
-                textColor = Color.BLACK,
+                textColor = textColor,
                 autoFit = autoFit
             )
         }

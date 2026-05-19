@@ -398,8 +398,20 @@ class FloatingBallService : LifecycleService() {
 
     private fun handleLongPress() {
         currentGesture = GestureType.LongPress
+        // 长按震动反馈动画（缩放+透明度）
+        floatingBallView.animate()
+            .scaleX(1.2f).scaleY(1.2f)
+            .alpha(0.7f)
+            .setDuration(100)
+            .withEndAction {
+                floatingBallView.animate()
+                    .scaleX(1f).scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(100)
+                    .start()
+            }
+            .start()
         lifecycleScope.launch {
-            // 处理长按事件，显示菜单
             showLongPressMenu()
         }
     }
@@ -572,6 +584,18 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun handleClick() {
+        // 点击脉冲动画
+        floatingBallView.animate()
+            .scaleX(0.85f).scaleY(0.85f)
+            .setDuration(80)
+            .withEndAction {
+                floatingBallView.animate()
+                    .scaleX(1f).scaleY(1f)
+                    .setDuration(80)
+                    .start()
+            }
+            .start()
+
         when (currentBallStatus){
             is BallStatus.Normal -> {
                 if (AccessibilityServiceManager.getService() == null) {

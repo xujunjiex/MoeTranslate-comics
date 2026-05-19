@@ -47,7 +47,6 @@
     </string-array>
 
     <string-array name="manga_menu_items">
-        <item>全屏翻译</item>
         <item>翻译区域</item>
         <item>文字方向</item>
         <item>字体大小</item>
@@ -57,7 +56,6 @@
     </string-array>
 
     <string-array name="manga_menu_items_auto_on">
-        <item>全屏翻译</item>
         <item>翻译区域</item>
         <item>文字方向</item>
         <item>字体大小</item>

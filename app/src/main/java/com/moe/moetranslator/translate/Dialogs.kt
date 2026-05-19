@@ -108,14 +108,13 @@ object Dialogs {
         // 动态拼接当前模式
         val strlist = Array(baseItems.size) { i ->
             when (i) {
-                1 -> "${baseItems[1]}：$cropLabel"
-                2 -> "${baseItems[2]}：$directionLabel"
+                0 -> "${baseItems[0]}：$cropLabel"
+                1 -> "${baseItems[1]}：$directionLabel"
                 else -> baseItems[i]
             }
         }
         val imglist = if (isAutoTranslating) {
             arrayOf(
-                R.drawable.fullscreen_translate,
                 R.drawable.crop_screen,
                 R.drawable.result_position,
                 R.drawable.result_size,
@@ -125,7 +124,6 @@ object Dialogs {
             )
         } else {
             arrayOf(
-                R.drawable.fullscreen_translate,
                 R.drawable.crop_screen,
                 R.drawable.result_position,
                 R.drawable.result_size,

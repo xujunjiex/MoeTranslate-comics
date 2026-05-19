@@ -172,6 +172,8 @@
     <string name="penetrability">可穿透性</string>
     <string name="penetrability_summary">开启后翻译结果框将可穿透，但透明度会增加</string>
     <string name="translate_result_box">翻译结果框</string>
+    <string name="translate_result_box_with_hint">翻译结果框（不适用于漫画翻译）</string>
+    <string name="ocr_category_with_hint">OCR（不适用于漫画翻译）</string>
     <string name="merge_ocr">合并多行OCR结果</string>
     <string name="merge_ocr_summary">当前模式：%s\n默认OCR结果会将一段文字分成多行，大大降低翻译效果。建议选择“直接合并”以获得绝大多数情况下的最佳效果</string>
     <string name="no_merge">不合并</string>
@@ -435,5 +437,23 @@
     <string name="manga_mode_horizontal">横排</string>
     <string name="manga_mode_crop">框选</string>
     <string name="manga_mode_fullscreen">全屏</string>
+    <string name="manga_crop_toggle">翻译区域</string>
+    <string name="manga_direction_switched_short">文字方向</string>
+    <string name="manga_menu_auto_translate">自动翻译</string>
+    <string name="manga_menu_stop_auto">停止自动翻译</string>
     <string name="manga_translating">正在翻译…</string>
+    <string name="manga_auto_detecting">自动检测中…</string>
+    <string name="manga_translate_failed">翻译失败：%s</string>
+    <string name="manga_font_size_auto">自动</string>
+    <string name="stop_service_first">请先关闭翻译服务再修改设置</string>
+    <string name="not_applies_to_manga">（不适用于漫画翻译）</string>
+    <string name="manga_result_setting_title">漫画翻译结果设置</string>
+    <string name="manga_text_color">漫画翻译文字颜色</string>
+    <string name="manga_bg_color">漫画翻译背景颜色</string>
+    <string name="manga_text_color_summary">当前漫画翻译结果的文字颜色</string>
+    <string name="manga_bg_color_summary">当前漫画翻译结果的背景颜色</string>
+    <string name="auto_translate_dismiss_delay">翻译结果消失后重新检测延迟（漫画翻译专用）</string>
+    <string name="auto_translate_dismiss_delay_summary">当前延迟：%s ms\n漫画翻译自动翻译模式下，点击消除翻译结果后等待该时间再重新开始检测翻译</string>
+    <string name="set_dismiss_delay">设置漫画翻译消除翻译结果后的重新检测延迟</string>
+    <string name="current_dismiss_delay">当前延迟：%s ms</string>
 </resources>

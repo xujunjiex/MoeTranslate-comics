@@ -47,23 +47,21 @@
     </string-array>
 
     <string-array name="manga_menu_items">
-        <item>全屏翻译</item>
-        <item>翻译区域</item>
-        <item>文字方向</item>
-        <item>字体大小</item>
-        <item>自动翻译</item>
-        <item>关闭悬浮球</item>
-        <item>返回主界面</item>
+        <item>Translation Area</item>
+        <item>Text Direction</item>
+        <item>Font Size</item>
+        <item>Auto Translate</item>
+        <item>Close Ball</item>
+        <item>Main Page</item>
     </string-array>
 
     <string-array name="manga_menu_items_auto_on">
-        <item>全屏翻译</item>
-        <item>翻译区域</item>
-        <item>文字方向</item>
-        <item>字体大小</item>
-        <item>停止自动翻译</item>
-        <item>关闭悬浮球</item>
-        <item>返回主界面</item>
+        <item>Translation Area</item>
+        <item>Text Direction</item>
+        <item>Font Size</item>
+        <item>Stop Auto</item>
+        <item>Close Ball</item>
+        <item>Main Page</item>
     </string-array>
 
     <string-array name="request_methods">

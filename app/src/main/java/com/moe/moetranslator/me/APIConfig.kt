@@ -17,6 +17,7 @@
 
 package com.moe.moetranslator.me
 
+import android.app.ActivityManager
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -25,6 +26,9 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import com.moe.moetranslator.R
+import com.moe.moetranslator.translate.AccessibilityServiceManager
+import com.moe.moetranslator.translate.FloatingBallService
+import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
 
@@ -57,6 +61,10 @@ class APIConfig : PreferenceFragmentCompat() {
         allTranslationKeys.forEach { key ->
             findPreference<SwitchPreferenceCompat>(key)?.setOnPreferenceChangeListener { _, newValue ->
                 if (newValue as Boolean) {
+                    if (isAnyTranslationServiceRunning()) {
+                        Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
+                        return@setOnPreferenceChangeListener false
+                    }
                     // 如果打开了这个选项，关闭其他所有选项
                     changeCustomPreferences(key)
                     setKey(key)
@@ -458,5 +466,18 @@ class APIConfig : PreferenceFragmentCompat() {
         allTranslationKeys.filter { it != key }.forEach { otherKey ->
             findPreference<SwitchPreferenceCompat>(otherKey)?.isChecked = false
         }
+    }
+
+    private fun isAnyTranslationServiceRunning(): Boolean {
+        return AccessibilityServiceManager.getService() != null &&
+                (isServiceRunning(FloatingBallService::class.java) ||
+                 isServiceRunning(MangaFloatingService::class.java))
+    }
+
+    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
+        val manager = requireContext().getSystemService(ActivityManager::class.java)
+        @Suppress("DEPRECATION")
+        return manager.getRunningServices(Integer.MAX_VALUE)
+            .any { it.service.className == serviceClass.name }
     }
 }

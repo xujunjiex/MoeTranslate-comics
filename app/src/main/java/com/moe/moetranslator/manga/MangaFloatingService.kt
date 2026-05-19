@@ -30,21 +30,31 @@ import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.MainActivity
 import com.moe.moetranslator.R
 import com.moe.moetranslator.bridge.OCRBridge
-import com.moe.moetranslator.bridge.TranslateBridge
+import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CropView
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.ScreenshotManager
 import com.moe.moetranslator.translate.TranslationResult
+import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.KeystoreManager
 import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import translationapi.bingtranslation.BingTranslation
+import translationapi.niutrans.NiuTranslation
+import translationapi.openaitranslation.OpenAITranslation
+import translationapi.volctranslation.VolcTranslation
+import translationapi.azuretranslation.AzureTranslation
+import translationapi.deepltranslation.DeepLTranslation
+import translationapi.baidutranslation.BaiduTranslationText
+import translationapi.tencentcloud.TencentTranslationText
+import translationapi.customtranslation.CustomTranslationText
+import translationapi.mlkittranslation.MLKitTranslation
+import translationapi.nllbtranslation.NLLBTranslation
 import kotlin.math.abs
 
 class MangaFloatingService : LifecycleService() {
@@ -56,7 +66,6 @@ class MangaFloatingService : LifecycleService() {
 
         private const val CLICK_SLOP = 5f
         private const val LONG_PRESS_SLOP = 10f
-        private const val LONG_PRESS_DELAY = 500L
 
         fun start(context: Context) {
             androidx.core.content.ContextCompat.startForegroundService(
@@ -68,6 +77,8 @@ class MangaFloatingService : LifecycleService() {
             context.stopService(Intent(context, MangaFloatingService::class.java))
         }
     }
+
+    private var longPressDelay = 500L
 
     private lateinit var windowManager: WindowManager
     private lateinit var floatingBallView: View
@@ -83,6 +94,7 @@ class MangaFloatingService : LifecycleService() {
 
     private var isProcessing = false
     private var isResultShowing = false
+    private var isMenuShowing = false
 
     // Progress overlay
     private lateinit var progressOverlayView: android.widget.TextView
@@ -102,7 +114,7 @@ class MangaFloatingService : LifecycleService() {
         override fun run() {
             if (isAutoTranslating) {
                 // 如果翻译结果正在显示，跳过本次触发，避免截到翻译图层
-                if (!isResultShowing) {
+                if (!isResultShowing && !isMenuShowing) {
                     triggerTranslation()
                 }
                 autoTranslateHandler.postDelayed(this, prefs.getLong("Auto_Translate_Interval", 3000L))
@@ -119,6 +131,10 @@ class MangaFloatingService : LifecycleService() {
 
     private lateinit var prefs: CustomPreference
     private lateinit var config: MangaModeConfig
+    private var translatorText: TranslationTextAPI? = null
+
+    private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
+    private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     private sealed class GestureType {
         object Click : GestureType()
@@ -132,7 +148,7 @@ class MangaFloatingService : LifecycleService() {
         super.onCreate()
         prefs = CustomPreference.getInstance(this)
         config = loadConfig()
-        TranslateBridge.initFromPreferences(this)
+        initTranslator()
 
         // 互斥：停止普通翻译服务
         try {
@@ -153,7 +169,7 @@ class MangaFloatingService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         removeAllViews()
-        TranslateBridge.release()
+        translatorText?.release()
         autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
         // 发送广播通知 UI 更新按钮状态
         val stopIntent = Intent("action_manga_floating_service_stopped")
@@ -162,6 +178,52 @@ class MangaFloatingService : LifecycleService() {
     }
 
     // ---------- Initialization ----------
+
+    private fun reloadConfig() {
+        config = loadConfig()
+        translatorText?.release()
+        initTranslator()
+    }
+
+    private fun initTranslator() {
+        Log.d(TAG, "initTranslator: Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
+        try {
+            when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
+                Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)) {
+                    Constants.TextAI.MLKIT.id -> translatorText = MLKitTranslation()
+                    Constants.TextAI.NLLB.id -> translatorText = NLLBTranslation(this)
+                    else -> { showToast("Unknown Translator.") }
+                }
+                Constants.TextApi.BING.id -> translatorText = BingTranslation()
+                Constants.TextApi.NIUTRANS.id -> translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
+                Constants.TextApi.OPENAI.id -> translatorText = OpenAITranslation(
+                    apiKey = prefs.getString("OpenAI_Api_Key", ""),
+                    baseUrl = prefs.getString("OpenAI_Base_Url", ""),
+                    model = prefs.getString("OpenAI_Model_Name", ""),
+                    systemPrompt = prefs.getString("OpenAI_System_Prompt", defaultSystemPrompt),
+                    userPrompt = prefs.getString("OpenAI_User_Prompt", defaultUserPrompt)
+                )
+                Constants.TextApi.VOLC.id -> translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)
+                Constants.TextApi.AZURE.id -> translatorText = AzureTranslation(KeystoreManager.retrieveKey(this, "Azure")!!)
+                Constants.TextApi.DEEPL.id -> translatorText = DeepLTranslation(KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST")!!, KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY")!!)
+                Constants.TextApi.BAIDU.id -> translatorText = BaiduTranslationText(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
+                Constants.TextApi.TENCENT.id -> translatorText = TencentTranslationText(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
+                Constants.TextApi.CUSTOM_TEXT.id -> {
+                    val textConfig = ConfigurationStorage.loadTextConfig(prefs, prefs.getInt("Custom_Text_API", 0))
+                    if (textConfig != null) {
+                        translatorText = CustomTranslationText(textConfig)
+                    } else {
+                        showToast("No Custom Text API Config Found.")
+                    }
+                }
+                else -> { showToast("Unknown Translator.") }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "initTranslator: Exception", e)
+            showToast("Initialize Error: ${e.message}")
+        }
+        Log.d(TAG, "initTranslator: result translatorText=${translatorText?.javaClass?.simpleName}")
+    }
 
     private fun loadConfig(): MangaModeConfig {
         val directionIndex = prefs.getInt("Manga_Text_Direction", 0)
@@ -174,7 +236,9 @@ class MangaFloatingService : LifecycleService() {
             fontSize = prefs.getFloat("Manga_Font_Size", 16f),
             autoFontSize = prefs.getBoolean("Manga_Auto_Font_Size", true),
             sourceLang = prefs.getString("Source_Language", "ja"),
-            targetLang = prefs.getString("Target_Language", "zh")
+            targetLang = prefs.getString("Target_Language", "zh"),
+            textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
+            bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
         )
     }
 
@@ -197,6 +261,25 @@ class MangaFloatingService : LifecycleService() {
         }
 
         windowManager.addView(floatingBallView, floatingBallParams)
+
+        // 加载自定义悬浮球图标
+        val customPicName = prefs.getString("Custom_Floating_Pic", "")
+        if (customPicName.isNotEmpty()) {
+            try {
+                val iconFile = java.io.File(getExternalFilesDir(null), "icon/$customPicName")
+                if (iconFile.exists()) {
+                    val bitmap = android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
+                    floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
+                        .setImageBitmap(bitmap)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load custom icon", e)
+            }
+        }
+
+        // 加载长按判定时间
+        longPressDelay = prefs.getLong("Custom_Long_Press_Delay", 500L)
+
         setupTouchListener()
 
         // Result overlay (initially not added)
@@ -260,7 +343,7 @@ class MangaFloatingService : LifecycleService() {
                     ballInitialTouchY = event.rawY
 
                     // Start long press detection
-                    handler.postDelayed(longPressRunnable, LONG_PRESS_DELAY)
+                    handler.postDelayed(longPressRunnable, longPressDelay)
                     currentGesture = null
                     true
                 }
@@ -339,25 +422,70 @@ class MangaFloatingService : LifecycleService() {
         val (dialog, listView) = Dialogs.mangaMenuDialog(
             applicationContext, isAutoTranslating, directionLabel, cropLabel
         )
+
+        isMenuShowing = true
+
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
-            dialog.dismiss()
             when (which) {
-                0 -> clearCropAndTranslate()
-                1 -> startCropSelection()
-                2 -> switchTextDirection()
-                3 -> showFontSizeDialog()
-                4 -> {
-                    // 延迟启动，等菜单关闭动画完成
-                    handler.postDelayed({ toggleAutoTranslate() }, 200)
+                0 -> {
+                    // 切换全屏/框选
+                    if (cropRect != null) {
+                        // 当前是框选模式，切换到全屏
+                        cropRect = null
+                        showToast(getString(R.string.manga_mode_fullscreen))
+                        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                        adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
+                    } else {
+                        // 当前是全屏模式，切换到框选 - 关闭菜单后再框选
+                        dialog.dismiss()
+                        handler.postDelayed({ startCropSelection() }, 200)
+                    }
                 }
-                5 -> stopSelf()
-                6 -> backToMainActivity()
+                1 -> {
+                    // 切换文字方向（不关闭菜单）
+                    switchTextDirection()
+                    val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                    val newDirLabel = when (config.textDirection) {
+                        TextDirection.VERTICAL_RL -> getString(R.string.manga_mode_vertical_rl)
+                        TextDirection.VERTICAL_LR -> getString(R.string.manga_mode_vertical_lr)
+                        TextDirection.HORIZONTAL -> getString(R.string.manga_mode_horizontal)
+                    }
+                    adapter.updateLabel(1, "${getString(R.string.manga_direction_switched_short)}：$newDirLabel")
+                }
+                2 -> {
+                    // 字体大小（不关闭菜单，打开子对话框）
+                    showFontSizeDialog()
+                }
+                3 -> {
+                    // 自动翻译切换（不关闭菜单）
+                    toggleAutoTranslate()
+                    val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                    if (isAutoTranslating) {
+                        adapter.updateLabel(3, getString(R.string.manga_menu_stop_auto))
+                    } else {
+                        adapter.updateLabel(3, getString(R.string.manga_menu_auto_translate))
+                    }
+                }
+                4 -> {
+                    // 关闭悬浮球
+                    dialog.dismiss()
+                    stopSelf()
+                }
+                5 -> {
+                    // 返回主界面
+                    dialog.dismiss()
+                    backToMainActivity()
+                }
             }
         }
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        dialog.setOnDismissListener {
+            isMenuShowing = false
+        }
     }
 
     private fun backToMainActivity() {
@@ -369,9 +497,9 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- Fullscreen translate ----------
 
-    private fun clearCropAndTranslate() {
+    private fun clearCrop() {
         cropRect = null
-        triggerTranslation()
+        showToast(getString(R.string.manga_mode_fullscreen))
     }
 
     // ---------- Menu actions ----------
@@ -393,16 +521,31 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun showFontSizeDialog() {
-        val sizes = arrayOf("12", "14", "16", "18", "20", "24", "28", "32")
-        val currentIndex = sizes.indexOf(config.fontSize.toInt().toString()).coerceAtLeast(2)
+        val sizes = arrayOf(
+            getString(R.string.manga_font_size_auto),
+            "12", "14", "16", "18", "20", "24", "28", "32"
+        )
+        val currentIndex = if (config.autoFontSize) {
+            0
+        } else {
+            val idx = sizes.indexOf(config.fontSize.toInt().toString())
+            if (idx < 0) 3 else idx
+        }
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(getString(R.string.manga_font_size_title))
             .setSingleChoiceItems(sizes, currentIndex) { d, which ->
-                val newSize = sizes[which].toFloat()
-                config = config.copy(fontSize = newSize)
-                prefs.setFloat("Manga_Font_Size", newSize)
-                showToast("${sizes[which]}sp")
+                if (which == 0) {
+                    config = config.copy(autoFontSize = true)
+                    prefs.setBoolean("Manga_Auto_Font_Size", true)
+                    showToast(getString(R.string.manga_font_size_auto))
+                } else {
+                    val newSize = sizes[which].toFloat()
+                    config = config.copy(fontSize = newSize, autoFontSize = false)
+                    prefs.setFloat("Manga_Font_Size", newSize)
+                    prefs.setBoolean("Manga_Auto_Font_Size", false)
+                    showToast("${sizes[which]}sp")
+                }
                 d.dismiss()
             }
             .create()
@@ -527,114 +670,154 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun triggerTranslation() {
-        if (isProcessing) return
-        if (isCropActive) return
+        Log.d(TAG, "========== triggerTranslation START ==========")
+        if (isProcessing) {
+            Log.d(TAG, "triggerTranslation: already processing, skipping")
+            showToast(getString(R.string.is_translating))
+            return
+        }
+        if (isCropActive) {
+            Log.d(TAG, "triggerTranslation: crop is active, skipping")
+            return
+        }
 
         val service = AccessibilityServiceManager.getService()
+        Log.d(TAG, "triggerTranslation: accessibilityService=$service")
         if (service == null) {
             showToast(getString(R.string.accessibility_recycle))
             return
         }
 
+        // 只重新加载视觉配置（文字方向、字体等），不重新初始化翻译API
+        config = loadConfig()
+
         isProcessing = true
 
         // 先关闭结果overlay再截图，避免截到翻译结果
         dismissResultOverlay()
-        showProgressOverlay()
 
+        // 根据模式显示不同的进度文本
+        if (isAutoTranslating) {
+            showProgressOverlay(getString(R.string.manga_auto_detecting))
+        } else {
+            showProgressOverlay(getString(R.string.manga_translating))
+        }
+
+        Log.d(TAG, "triggerTranslation: translatorText=${translatorText?.javaClass?.simpleName}")
+        Log.d(TAG, "triggerTranslation: cropRect=$cropRect")
         if (cropRect != null) {
+            Log.d(TAG, "triggerTranslation: taking cropped screenshot")
             AccessibilityServiceManager.takeScreenshot(cropRect, cropView.absolutePointOffset)
         } else {
+            Log.d(TAG, "triggerTranslation: taking full screenshot")
             AccessibilityServiceManager.takeScreenshot(null, android.graphics.Point(0, 0))
         }
+        Log.d(TAG, "========== triggerTranslation END ==========")
     }
 
     // ---------- Screenshot collection ----------
 
     private fun setupScreenshotCollector() {
+        Log.d(TAG, "setupScreenshotCollector: starting collector coroutine")
         lifecycleScope.launch {
+            Log.d(TAG, "Screenshot collector: coroutine started, waiting for screenshots...")
             ScreenshotManager.screenshotFlow.collect { bitmap ->
+                Log.d(TAG, "Screenshot collector: BITMAP RECEIVED! ${bitmap.width}x${bitmap.height}")
                 try {
-                    Log.d(TAG, "Screenshot received, starting manga pipeline")
                     processMangaScreenshot(bitmap)
+                    Log.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Manga pipeline failed", e)
-                    showToast("Manga translation failed: ${e.message}")
+                    Log.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
+                    showToast(getString(R.string.translation_failed, e.message ?: "Unknown error"))
                     isProcessing = false
+                    dismissProgressOverlay()
                 }
             }
+            Log.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
         }
     }
 
     // ---------- Manga translation pipeline ----------
 
-    private fun processMangaScreenshot(bitmap: Bitmap) {
-        lifecycleScope.launch {
-            try {
-                // Step 1: OCR with location
-                val textBlocks = withContext(Dispatchers.IO) {
-                    OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+    private suspend fun processMangaScreenshot(bitmap: Bitmap) {
+        try {
+            Log.d(TAG, "processMangaScreenshot: START")
+            // Step 1: OCR with location
+            Log.d(TAG, "processMangaScreenshot: Step 1 - OCR starting, sourceLang=${config.sourceLang}")
+            val textBlocks = withContext(Dispatchers.IO) {
+                OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+            }
+            Log.d(TAG, "processMangaScreenshot: Step 1 - OCR done, found ${textBlocks.size} text blocks")
+
+            if (textBlocks.isEmpty()) {
+                Log.d(TAG, "processMangaScreenshot: No text found, returning early")
+                bitmap.recycle()
+                if (!isAutoTranslating) {
+                    showToast(getString(R.string.no_text_found))
                 }
-                Log.d(TAG, "OCR found ${textBlocks.size} text blocks")
+                return
+            }
 
-                if (textBlocks.isEmpty()) {
-                    bitmap.recycle()
-                    if (!isAutoTranslating) {
-                        showToast(getString(R.string.no_text_found))
-                    }
-                    return@launch
-                }
+            // 自动翻译模式下，检查文本是否变化
+            val currentOcrText = textBlocks.joinToString("\n") { it.text }
+            if (isAutoTranslating && !shouldTranslateText(currentOcrText)) {
+                Log.d(TAG, "processMangaScreenshot: Auto-translate text unchanged, skipping")
+                bitmap.recycle()
+                return
+            }
+            lastOcrText = currentOcrText
 
-                // 自动翻译模式下，检查文本是否变化
-                val currentOcrText = textBlocks.joinToString("\n") { it.text }
-                if (isAutoTranslating && !shouldTranslateText(currentOcrText)) {
-                    Log.d(TAG, "Auto-translate: text unchanged, skipping")
-                    bitmap.recycle()
-                    return@launch
-                }
-                lastOcrText = currentOcrText
+            // 更新进度文本为"正在翻译…"
+            if (isAutoTranslating) {
+                showProgressOverlay(getString(R.string.manga_translating))
+            }
 
-                // Step 2: Detect bubbles (or use raw blocks)
-                val bubbles = if (config.autoDetectBubble) {
-                    BubbleDetector.detectBubbles(textBlocks)
-                } else {
-                    textBlocks.filter { it.boundingBox != null }.map { block ->
-                        BubbleRegion(
-                            rect = block.boundingBox!!,
-                            texts = listOf(block.text)
-                        )
-                    }
-                }
-                Log.d(TAG, "Detected ${bubbles.size} bubbles")
-
-                // Step 3: Translate each bubble and build TranslatedBubble list
-                val translatedBubbles = translateBubbles(bubbles)
-
-                // Step 4: Render overlay
-                val resultBitmap = withContext(Dispatchers.Default) {
-                    OverlayRenderer.renderOverlay(
-                        original = bitmap,
-                        regions = translatedBubbles,
-                        direction = config.textDirection,
-                        fontSize = config.fontSize,
-                        autoFit = config.autoFontSize
+            // Step 2: Detect bubbles (or use raw blocks)
+            Log.d(TAG, "processMangaScreenshot: Step 2 - Detecting bubbles, autoDetect=${config.autoDetectBubble}")
+            val bubbles = if (config.autoDetectBubble) {
+                BubbleDetector.detectBubbles(textBlocks)
+            } else {
+                textBlocks.filter { it.boundingBox != null }.map { block ->
+                    BubbleRegion(
+                        rect = block.boundingBox!!,
+                        texts = listOf(block.text)
                     )
                 }
-
-                // Step 5: Show result overlay
-                withContext(Dispatchers.Main) {
-                    showResultOverlay(resultBitmap)
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Pipeline error", e)
-                if (!isAutoTranslating) {
-                    showToast("Error: ${e.message}")
-                }
-            } finally {
-                isProcessing = false
-                dismissProgressOverlay()
             }
+            Log.d(TAG, "processMangaScreenshot: Step 2 - Detected ${bubbles.size} bubbles")
+
+            // Step 3: Translate each bubble
+            Log.d(TAG, "processMangaScreenshot: Step 3 - Starting translateBubbles")
+            val translatedBubbles = translateBubbles(bubbles)
+            Log.d(TAG, "processMangaScreenshot: Step 3 - translateBubbles done, got ${translatedBubbles.size} results")
+
+            // Step 4: Render overlay
+            Log.d(TAG, "processMangaScreenshot: Step 4 - Rendering overlay")
+            val resultBitmap = withContext(Dispatchers.Default) {
+                OverlayRenderer.renderOverlay(
+                    original = bitmap,
+                    regions = translatedBubbles,
+                    direction = config.textDirection,
+                    fontSize = config.fontSize,
+                    autoFit = config.autoFontSize,
+                    textColor = config.textColor,
+                    bgColor = config.bgColor
+                )
+            }
+            Log.d(TAG, "processMangaScreenshot: Step 4 - Render done")
+
+            // Step 5: Show result overlay
+            Log.d(TAG, "processMangaScreenshot: Step 5 - Showing result overlay")
+            withContext(Dispatchers.Main) {
+                showResultOverlay(resultBitmap)
+            }
+            Log.d(TAG, "processMangaScreenshot: Step 5 - DONE")
+
+        } finally {
+            bitmap.recycle()
+            Log.d(TAG, "processMangaScreenshot: FINALLY - dismissing progress, isProcessing=false")
+            isProcessing = false
+            dismissProgressOverlay()
         }
     }
 
@@ -659,43 +842,185 @@ class MangaFloatingService : LifecycleService() {
     private suspend fun translateBubbles(
         bubbles: List<BubbleRegion>
     ): List<TranslatedBubble> {
-        return coroutineScope {
-            bubbles.map { bubble ->
-                val cleaned = bubble.texts.map { cleanOcrText(it) }.filter { it.isNotBlank() }
-                bubble to cleaned
-            }.filter { it.second.isNotEmpty() }.map { (bubble, cleanedTexts) ->
-                async {
-                    val combinedText = cleanedTexts.joinToString("")
-                    val translatedText = translateSingleText(combinedText)
-                    TranslatedBubble(
-                        rect = bubble.rect,
-                        originalText = combinedText,
-                        translatedText = translatedText,
-                        backgroundColor = Color.TRANSPARENT
-                    )
-                }
-            }.awaitAll()
+        Log.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translatorText=${translatorText?.javaClass?.simpleName}")
+        if (translatorText == null) {
+            Log.e(TAG, "translateBubbles: translatorText is NULL!")
+            throw RuntimeException("Translation API not initialized")
+        }
+
+        // 准备气泡数据：清理文本，过滤空的
+        val preparedBubbles = bubbles.mapNotNull { bubble ->
+            val cleaned = bubble.texts.map { cleanOcrText(it) }.filter { it.isNotBlank() }
+            if (cleaned.isEmpty()) null
+            else bubble to cleaned.joinToString("")
+        }
+        if (preparedBubbles.isEmpty()) return emptyList()
+
+        // AI翻译（OpenAI兼容）用批量请求，机器翻译用逐个请求
+        val isAI = translatorText is translationapi.openaitranslation.OpenAITranslation
+                || translatorText?.javaClass?.simpleName?.contains("Custom") == true
+
+        return if (isAI && preparedBubbles.size > 1) {
+            translateBubblesBatch(preparedBubbles)
+        } else {
+            translateBubblesSequential(preparedBubbles)
         }
     }
 
-    private suspend fun translateSingleText(text: String): String {
-        return suspendCancellableCoroutine { continuation ->
-            TranslateBridge.translateText(
-                text = text,
-                sourceLang = config.sourceLang,
-                targetLang = config.targetLang
-            ) { result ->
-                when (result) {
-                    is TranslationResult.Success -> {
-                        continuation.resume(result.translatedText) {}
-                    }
-                    is TranslationResult.Error -> {
-                        Log.e(TAG, "Translation error: ${result.error.message}")
-                        continuation.resume("[Error: ${result.error.message}]") {}
-                    }
+    /**
+     * AI翻译：所有气泡合并为一次请求，用编号分隔
+     */
+    private suspend fun translateBubblesBatch(
+        bubbles: List<Pair<BubbleRegion, String>>
+    ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
+        Log.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request")
+
+        // 构建带编号的文本，前置格式约束保证 AI 按编号返回
+        val formatInstruction = "请逐条翻译以下文本，保持每条的[N]编号格式不变，只输出翻译结果，不要添加额外解释：\n"
+        val numberedText = formatInstruction + bubbles.mapIndexed { index, (_, text) ->
+            "[${index + 1}] $text"
+        }.joinToString("\n")
+
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var resultText: String? = null
+        var errorMsg: String? = null
+
+        // 直接调用翻译API，使用用户在设置页面配置的系统提示词和用户提示词
+        // numberedText 会替换用户提示词中的 usesourcetext 占位符
+        translatorText?.getTranslation(
+            numberedText,
+            config.sourceLang,
+            config.targetLang
+        ) { result ->
+            when (result) {
+                is TranslationResult.Success -> {
+                    resultText = result.translatedText
+                }
+                is TranslationResult.Error -> {
+                    errorMsg = result.error.message ?: "Unknown error"
+                }
+            }
+            latch.countDown()
+        } ?: run {
+            errorMsg = "translatorText is null"
+            latch.countDown()
+        }
+
+        val completed = latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
+        if (!completed) {
+            throw RuntimeException("AI batch translation timeout (60s)")
+        }
+        if (errorMsg != null) {
+            throw RuntimeException("AI batch translation failed: $errorMsg")
+        }
+
+        // 按编号解析结果
+        val translations = parseNumberedTranslations(resultText!!, bubbles.size)
+        Log.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
+
+        bubbles.mapIndexed { index, (bubble, originalText) ->
+            TranslatedBubble(
+                rect = bubble.rect,
+                originalText = originalText,
+                translatedText = translations.getOrElse(index) { originalText },
+                backgroundColor = Color.TRANSPARENT
+            )
+        }
+    }
+
+    /**
+     * 解析带编号的翻译结果
+     * 支持格式: "[1] 翻译文本" 或 "1. 翻译文本" 或 "1、翻译文本"
+     */
+    private fun parseNumberedTranslations(text: String, expectedCount: Int): List<String> {
+        val results = mutableListOf<String>()
+        // 匹配 [N] 或 N. 或 N、开头的行
+        val pattern = Regex("""\[(\d+)]\s*([\s\S]*?)(?=\[\d+]|$)""")
+        val matches = pattern.findAll(text).toList()
+
+        if (matches.size >= expectedCount) {
+            for (match in matches.take(expectedCount)) {
+                results.add(match.groupValues[2].trim())
+            }
+        } else {
+            // 降级：按行拆分
+            val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
+            for (line in lines) {
+                val cleaned = line.replace(Regex("""^\[?\d+]?[.、\s]*"""), "").trim()
+                if (cleaned.isNotBlank()) {
+                    results.add(cleaned)
                 }
             }
         }
+
+        // 补齐不足的部分
+        while (results.size < expectedCount) {
+            results.add("")
+        }
+        return results.take(expectedCount)
+    }
+
+    /**
+     * 机器翻译：逐个气泡请求
+     */
+    private suspend fun translateBubblesSequential(
+        bubbles: List<Pair<BubbleRegion, String>>
+    ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
+        Log.d(TAG, "translateBubblesSequential: ${bubbles.size} bubbles, sequential")
+
+        val results = mutableListOf<TranslatedBubble>()
+        val errors = mutableListOf<String>()
+        for ((bubble, combinedText) in bubbles) {
+            Log.d(TAG, "translateBubblesSequential: translating '$combinedText'")
+
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var successResult: TranslatedBubble? = null
+            var errorMsg: String? = null
+
+            translatorText?.getTranslation(
+                combinedText,
+                config.sourceLang,
+                config.targetLang
+            ) { result ->
+                when (result) {
+                    is TranslationResult.Success -> {
+                        Log.d(TAG, "translateBubblesSequential: SUCCESS for '$combinedText'")
+                        successResult = TranslatedBubble(
+                            rect = bubble.rect,
+                            originalText = combinedText,
+                            translatedText = result.translatedText,
+                            backgroundColor = Color.TRANSPARENT
+                        )
+                    }
+                    is TranslationResult.Error -> {
+                        errorMsg = result.error.message ?: "Unknown error"
+                        Log.e(TAG, "translateBubblesSequential: ERROR: $errorMsg")
+                    }
+                }
+                latch.countDown()
+            } ?: run {
+                errorMsg = "translatorText is null"
+                latch.countDown()
+            }
+
+            val completed = latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
+            if (!completed) {
+                errorMsg = "Translation timeout (30s)"
+            }
+
+            if (successResult != null) {
+                results.add(successResult!!)
+            } else if (errorMsg != null) {
+                errors.add(errorMsg!!)
+            }
+        }
+
+        Log.d(TAG, "translateBubblesSequential: ${results.size} successful out of ${bubbles.size}")
+        if (results.isEmpty() && bubbles.isNotEmpty()) {
+            val errorDetail = errors.distinct().joinToString("; ")
+            throw RuntimeException("All bubbles failed to translate: $errorDetail")
+        }
+        results
     }
 
     // ---------- Result overlay ----------
@@ -755,17 +1080,22 @@ class MangaFloatingService : LifecycleService() {
             }
             isResultShowing = false
 
-            // 重置自动翻译定时器，给用户 1 秒时间翻页/滑动
+            // 重置自动翻译定时器，给用户时间翻页/滑动
             if (isAutoTranslating) {
+                val delay = prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L)
                 autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
-                autoTranslateHandler.postDelayed(autoTranslateRunnable, 1000L)
+                autoTranslateHandler.postDelayed(autoTranslateRunnable, delay)
             }
         }
     }
 
-    private fun showProgressOverlay() {
-        if (isProgressShowing) return
+    private fun showProgressOverlay(text: String = getString(R.string.manga_translating)) {
+        if (isProgressShowing) {
+            progressOverlayView.text = text
+            return
+        }
         try {
+            progressOverlayView.text = text
             windowManager.addView(progressOverlayView, progressOverlayParams)
             isProgressShowing = true
             // Keep floating ball on top

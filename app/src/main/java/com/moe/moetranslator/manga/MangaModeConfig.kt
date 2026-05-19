@@ -14,5 +14,7 @@ data class MangaModeConfig(
     val fontSize: Float = 16f,
     val autoFontSize: Boolean = true,
     val sourceLang: String = "ja",
-    val targetLang: String = "zh"
+    val targetLang: String = "zh",
+    val textColor: Int = android.graphics.Color.BLACK,
+    val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255)
 )

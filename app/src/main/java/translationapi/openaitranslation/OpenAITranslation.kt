@@ -102,34 +102,49 @@ class OpenAITranslation(
         val systemPrompt = buildSystemPrompt()
         val userPrompt = buildUserPrompt(text, from, to)
 
-        // 构建请求体
-        val requestBody = buildRequestBody(systemPrompt, userPrompt)
-
+        // 先尝试禁用推理的请求（豆包等推理模型需要）
+        var requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = true)
         Log.d(TAG, "Request: $requestBody")
 
-        // 构建请求
-        val request = Request.Builder()
+        var request = Request.Builder()
             .url("$baseUrl/chat/completions")
             .post(requestBody.toRequestBody(JSON))
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .build()
 
-        // 执行请求
-        client.newCall(request).execute().use { response ->
+        var response = client.newCall(request).execute()
+        ensureActive()
+
+        // 如果失败，去掉 thinking 参数重试（兼容不支持该参数的厂商）
+        if (!response.isSuccessful) {
+            response.close()
+            Log.d(TAG, "Request with thinking:disabled failed (${response.code}), retrying without it")
+            requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = false)
+            Log.d(TAG, "Retry Request: $requestBody")
+
+            request = Request.Builder()
+                .url("$baseUrl/chat/completions")
+                .post(requestBody.toRequestBody(JSON))
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Content-Type", "application/json")
+                .build()
+
+            response = client.newCall(request).execute()
             ensureActive()
 
             if (!response.isSuccessful) {
                 throw IOException("Unexpected response ${response.code}: ${response.message}")
             }
-
-            // 解析响应
-            val responseBody = response.body?.string()
-                ?: throw IOException("Empty response body")
-
-            Log.d(TAG, "Response: $responseBody")
-            parseResponse(responseBody)
         }
+
+        // 解析响应
+        val responseBody = response.body?.string()
+            ?: throw IOException("Empty response body")
+        response.close()
+
+        Log.d(TAG, "Response: $responseBody")
+        parseResponse(responseBody)
     }
 
     private fun buildSystemPrompt(): String {
@@ -150,7 +165,7 @@ class OpenAITranslation(
         return fullUserPrompt
     }
 
-    private fun buildRequestBody(systemPrompt: String, userPrompt: String): String {
+    private fun buildRequestBody(systemPrompt: String, userPrompt: String, disableThinking: Boolean = false): String {
         val messages = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
@@ -168,6 +183,11 @@ class OpenAITranslation(
             put("max_tokens", maxTokens)
             put("temperature", temperature)
             put("stream", false)
+            if (disableThinking) {
+                put("thinking", JSONObject().apply {
+                    put("type", "disabled")
+                })
+            }
         }.toString()
     }
 

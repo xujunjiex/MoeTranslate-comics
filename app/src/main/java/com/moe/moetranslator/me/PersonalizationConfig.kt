@@ -17,6 +17,7 @@
 
 package com.moe.moetranslator.me
 
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
@@ -33,9 +34,12 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
 import com.jaredrummler.android.colorpicker.ColorPreferenceCompat
 import com.moe.moetranslator.R
+import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CustomLocale
 import com.moe.moetranslator.translate.DecimalDigitsInputFilter
 import com.moe.moetranslator.translate.Dialogs
+import com.moe.moetranslator.translate.FloatingBallService
+import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LanguageManager
 import java.io.File
@@ -57,6 +61,9 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var autoStrLength: Preference
     private lateinit var autoStrSimilarity: Preference
     private lateinit var showSource: ListPreference
+    private lateinit var mangaTextColor: ColorPreferenceCompat
+    private lateinit var mangaBgColor: ColorPreferenceCompat
+    private lateinit var dismissDelay: Preference
 
     private lateinit var languagePreference: ListPreference
 
@@ -88,32 +95,59 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
         // 字体相关
         resultFont.setOnPreferenceClickListener {
-            showFontOptionsDialog()
+            if (isAnyTranslationServiceRunning()) {
+                showToast(getString(R.string.stop_service_first), true)
+            } else {
+                showFontOptionsDialog()
+            }
             true
         }
 
         // 字体大小
         resultFontSize.setOnPreferenceClickListener {
-            showFontSizeDialog()
+            if (isAnyTranslationServiceRunning()) {
+                showToast(getString(R.string.stop_service_first), true)
+            } else {
+                showFontSizeDialog()
+            }
             true
         }
 
         // 字体颜色
-        findPreference<ColorPreferenceCompat>("result_view_font_color")?.setOnPreferenceChangeListener { preference, newValue ->
-            prefs.setInt("Custom_Result_Font_Color", newValue as Int)
-            true
+        findPreference<ColorPreferenceCompat>("result_view_font_color")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                if (isAnyTranslationServiceRunning()) {
+                    showToast(getString(R.string.stop_service_first), true)
+                    false
+                } else {
+                    prefs.setInt("Custom_Result_Font_Color", newValue as Int)
+                    true
+                }
+            }
+            summary = getString(R.string.font_color_summary)
         }
 
         // 背景颜色
-        findPreference<ColorPreferenceCompat>("result_view_background_color")?.setOnPreferenceChangeListener { preference, newValue ->
-            prefs.setInt("Custom_Result_Background_Color", newValue as Int)
-            true
+        findPreference<ColorPreferenceCompat>("result_view_background_color")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                if (isAnyTranslationServiceRunning()) {
+                    showToast(getString(R.string.stop_service_first), true)
+                    false
+                } else {
+                    prefs.setInt("Custom_Result_Background_Color", newValue as Int)
+                    true
+                }
+            }
+            summary = getString(R.string.result_background_color_summary)
         }
 
         // 可穿透性
-        findPreference<SwitchPreference>("result_penetrability")?.setOnPreferenceChangeListener { preference, newValue ->
-            prefs.setBoolean("Custom_Result_Penetrability", newValue as Boolean)
-            true
+        findPreference<SwitchPreference>("result_penetrability")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                prefs.setBoolean("Custom_Result_Penetrability", newValue as Boolean)
+                true
+            }
+            summary = getString(R.string.penetrability_summary)
         }
 
         // OCR合并模式
@@ -121,7 +155,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             prefs.setInt("Custom_OCR_Merge_Mode", newValue.toString().toInt())
             true
         }
-        ocrMergeMode.summaryProvider = Preference.SummaryProvider<ListPreference> { preference ->
+        ocrMergeMode.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
             getString(R.string.merge_ocr_summary, ocrMergeMode.entry)
         }
 
@@ -130,8 +164,28 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             prefs.setInt("Custom_Show_Source_Mode", newValue.toString().toInt())
             true
         }
-        showSource.summaryProvider = Preference.SummaryProvider<ListPreference> { preference ->
+        showSource.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
             getString(R.string.show_source_text_summary, showSource.entry)
+        }
+
+        // 漫画翻译结果颜色
+        mangaTextColor = findPreference("manga_text_color")!!
+        mangaBgColor = findPreference("manga_bg_color")!!
+        dismissDelay = findPreference("auto_translate_dismiss_delay")!!
+
+        mangaTextColor.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setInt("Manga_Text_Color", newValue as Int)
+            true
+        }
+
+        mangaBgColor.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setInt("Manga_BG_Color", newValue as Int)
+            true
+        }
+
+        dismissDelay.setOnPreferenceClickListener {
+            showDismissDelayDialog()
+            true
         }
 
         // 自动翻译时间间隔
@@ -166,6 +220,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         updateStrSimilaritySummary()
         updateFontSummary()
         updateFontSizeSummary()
+        updateDismissDelaySummary()
         setupLanguagePreference()
     }
 
@@ -252,15 +307,48 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     }
 
     private fun updateFontSummary() {
-        if (prefs.getString("Custom_Result_Font", "") == "") {
-            resultFont.summary = getString(R.string.font_summary, getString(R.string.font_default))
+        val base = if (prefs.getString("Custom_Result_Font", "") == "") {
+            getString(R.string.font_summary, getString(R.string.font_default))
         } else {
-            resultFont.summary = getString(R.string.font_summary, prefs.getString("Custom_Result_Font", ""))
+            getString(R.string.font_summary, prefs.getString("Custom_Result_Font", ""))
         }
+        resultFont.summary = base
     }
 
     private fun updateFontSizeSummary() {
         resultFontSize.summary = getString(R.string.font_size_summary, prefs.getFloat("Custom_Result_Font_Size", 16f).toString())
+    }
+
+    private fun updateDismissDelaySummary() {
+        dismissDelay.summary = getString(R.string.auto_translate_dismiss_delay_summary, prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L).toString())
+    }
+
+    private fun showDismissDelayDialog() {
+        val customView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_message_edittext, null)
+        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
+            text = getString(R.string.int_only)
+        }
+        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
+            hint = getString(R.string.current_dismiss_delay, prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L).toString())
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.set_dismiss_delay)
+            .setView(customView)
+            .setPositiveButton(R.string.save) { _, _ ->
+                try {
+                    val value = input.text.toString().toLong()
+                    prefs.setLong("Auto_Translate_Dismiss_Delay", value)
+                    updateDismissDelaySummary()
+                } catch (e: Exception) {
+                    showToast(getString(R.string.font_size_invalid), true)
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun showBallOptionsDialog(){
@@ -559,6 +647,19 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         } else {
             Toast.makeText(requireContext(), str, Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun isAnyTranslationServiceRunning(): Boolean {
+        return AccessibilityServiceManager.getService() != null &&
+                (isServiceRunning(FloatingBallService::class.java) ||
+                 isServiceRunning(MangaFloatingService::class.java))
+    }
+
+    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
+        val manager = requireContext().getSystemService(ActivityManager::class.java)
+        @Suppress("DEPRECATION")
+        return manager.getRunningServices(Integer.MAX_VALUE)
+            .any { it.service.className == serviceClass.name }
     }
 
 }

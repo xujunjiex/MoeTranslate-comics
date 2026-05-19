@@ -47,7 +47,6 @@
     </string-array>
 
     <string-array name="manga_menu_items">
-        <item>Fullscreen</item>
         <item>Translation Area</item>
         <item>Text Direction</item>
         <item>Font Size</item>
@@ -57,7 +56,6 @@
     </string-array>
 
     <string-array name="manga_menu_items_auto_on">
-        <item>Fullscreen</item>
         <item>Translation Area</item>
         <item>Text Direction</item>
         <item>Font Size</item>

@@ -50,4 +50,11 @@ class MenuDialogAdapter(ctx: Context, private var str: Array<String>, private va
         im.setImageResource(img[position])
         return newView
     }
+
+    fun updateLabel(position: Int, newLabel: String) {
+        if (position in str.indices) {
+            str[position] = newLabel
+            notifyDataSetChanged()
+        }
+    }
 }

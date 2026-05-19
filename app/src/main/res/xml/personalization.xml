@@ -37,7 +37,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:title="@string/translate_result_box"
+        android:title="@string/translate_result_box_with_hint"
         app:iconSpaceReserved="false">
 
         <Preference
@@ -78,7 +78,31 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:title="OCR"
+        android:title="@string/manga_result_setting_title"
+        app:iconSpaceReserved="false">
+
+        <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
+            android:key="manga_text_color"
+            app:iconSpaceReserved="false"
+            android:defaultValue="-16777216"
+            app:cpv_dialogTitle="@string/manga_text_color"
+            android:title="@string/manga_text_color"
+            android:summary="@string/manga_text_color_summary"
+            app:cpv_showAlphaSlider="false" />
+
+        <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
+            android:key="manga_bg_color"
+            app:iconSpaceReserved="false"
+            android:defaultValue="-1"
+            app:cpv_dialogTitle="@string/manga_bg_color"
+            android:title="@string/manga_bg_color"
+            android:summary="@string/manga_bg_color_summary"
+            app:cpv_showAlphaSlider="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/ocr_category_with_hint"
         app:iconSpaceReserved="false">
 
         <ListPreference
@@ -116,6 +140,11 @@
         <Preference
             android:key="auto_translate_str_similarity"
             android:title="@string/auto_translate_str_similarity"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
+            android:key="auto_translate_dismiss_delay"
+            android:title="@string/auto_translate_dismiss_delay"
             app:iconSpaceReserved="false"/>
 
     </PreferenceCategory>
