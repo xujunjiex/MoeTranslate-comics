@@ -138,7 +138,7 @@ object VerticalTextRenderer {
         }
     }
 
-    private fun calculateFitFontSize(
+    fun calculateFitFontSize(
         text: String,
         region: Rect,
         direction: TextDirection,
@@ -148,15 +148,29 @@ object VerticalTextRenderer {
         val regionHeight = region.height().toFloat()
         if (regionWidth <= 0 || regionHeight <= 0 || text.isEmpty()) return maxFontSize
 
-        var fontSize = maxFontSize
-        val minFontSize = 8f
-        while (fontSize > minFontSize) {
-            if (doesTextFit(text, region, direction, fontSize)) {
-                return fontSize
-            }
-            fontSize -= 1f
+        // 字体上限不能超过矩形本身能容纳的大小
+        val rectLimit = when (direction) {
+            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> regionHeight / 1.4f
+            TextDirection.HORIZONTAL -> regionWidth / 1.4f
         }
-        return minFontSize
+        val cappedMax = minOf(maxFontSize, rectLimit)
+
+        val minFontSize = 8f
+        // 二分查找最优字体大小
+        var lo = minFontSize
+        var hi = cappedMax
+        var best = minFontSize
+
+        while (hi - lo >= 0.5f) {
+            val mid = (lo + hi) / 2
+            if (doesTextFit(text, region, direction, mid)) {
+                best = mid
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+        return best
     }
 
     private fun doesTextFit(

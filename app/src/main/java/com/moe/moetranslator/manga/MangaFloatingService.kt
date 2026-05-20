@@ -777,7 +777,7 @@ class MangaFloatingService : LifecycleService() {
             // Step 2: Detect bubbles (or use raw blocks)
             Log.d(TAG, "processMangaScreenshot: Step 2 - Detecting bubbles, autoDetect=${config.autoDetectBubble}")
             val bubbles = if (config.autoDetectBubble) {
-                BubbleDetector.detectBubbles(textBlocks)
+                BubbleDetector.detectBubbles(textBlocks, config)
             } else {
                 textBlocks.filter { it.boundingBox != null }.map { block ->
                     BubbleRegion(
@@ -925,7 +925,8 @@ class MangaFloatingService : LifecycleService() {
                 rect = bubble.rect,
                 originalText = originalText,
                 translatedText = translations.getOrElse(index) { originalText },
-                backgroundColor = Color.TRANSPARENT
+                backgroundColor = Color.TRANSPARENT,
+                fontSize = bubble.fontSize
             )
         }
     }
@@ -991,7 +992,8 @@ class MangaFloatingService : LifecycleService() {
                             rect = bubble.rect,
                             originalText = combinedText,
                             translatedText = result.translatedText,
-                            backgroundColor = Color.TRANSPARENT
+                            backgroundColor = Color.TRANSPARENT,
+                            fontSize = bubble.fontSize
                         )
                     }
                     is TranslationResult.Error -> {

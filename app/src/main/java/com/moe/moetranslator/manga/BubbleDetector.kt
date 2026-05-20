@@ -4,82 +4,74 @@ import android.graphics.Rect
 import com.moe.moetranslator.bridge.TextBlockInfo
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sqrt
 
 data class BubbleRegion(
     val rect: Rect,
-    val texts: List<String>
+    val texts: List<String>,
+    val fontSize: Float = 16f
 )
 
+/**
+ * 气泡检测器。
+ * 流程：TextBlockInfo → TextLine → 多条件合并 → MST 分割 → 阅读排序。
+ */
 object BubbleDetector {
 
-    private const val CLUSTER_DISTANCE_THRESHOLD = 80f
     private const val BUBBLE_EXPAND_PX = 20
 
-    fun detectBubbles(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
+    /**
+     * 检测气泡区域。
+     * @param textBlocks ML Kit 识别的文字块
+     * @param config 漫画模式配置（方向等）
+     * @return 按阅读顺序排列的气泡列表
+     */
+    fun detectBubbles(textBlocks: List<TextBlockInfo>, config: MangaModeConfig): List<BubbleRegion> {
         if (textBlocks.isEmpty()) return emptyList()
-        val validBlocks = textBlocks.filter { it.boundingBox != null }
-        if (validBlocks.isEmpty()) return emptyList()
 
-        val clusters = clusterTextBlocks(validBlocks)
+        // 1. TextBlockInfo → TextLine
+        val textLines = textBlocks.mapNotNull { it.toTextLine(config) }
+        if (textLines.isEmpty()) return emptyList()
 
-        return clusters.map { cluster ->
-            val boundingRect = computeBoundingRect(cluster)
+        // 2. 多条件合并（方向感知、字体大小、对齐、宽高比）
+        val mergedGroups = BubbleMerger.merge(textLines, config)
+
+        // 3. MST 分割（过大的区域拆分）
+        val splitGroups = mergedGroups.flatMap { TextRegionSplitter.split(it) }
+
+        // 4. 构建 BubbleRegion，文本按阅读顺序拼接
+        val bubbles = splitGroups.map { group ->
+            val sorted = ReadingOrderSorter.sortTextLines(group, config.textDirection)
+            val boundingRect = computeBoundingRect(sorted)
             val expandedRect = expandRect(boundingRect, BUBBLE_EXPAND_PX)
+            val avgFontSize = sorted.map { it.fontSize }.average().toFloat()
             BubbleRegion(
                 rect = expandedRect,
-                texts = cluster.map { it.text }
+                texts = sorted.map { it.text },
+                fontSize = avgFontSize
             )
         }
+
+        // 5. 阅读顺序排序
+        return ReadingOrderSorter.sort(bubbles, config)
     }
 
-    private fun clusterTextBlocks(blocks: List<TextBlockInfo>): List<List<TextBlockInfo>> {
-        val clusters = mutableListOf<MutableList<TextBlockInfo>>()
-        for (block in blocks) {
-            var merged = false
-            for (cluster in clusters) {
-                if (isNearCluster(block, cluster)) {
-                    cluster.add(block)
-                    merged = true
-                    break
-                }
-            }
-            if (!merged) {
-                clusters.add(mutableListOf(block))
-            }
-        }
-        return clusters
+    /**
+     * 兼容旧接口：不传 config 时使用默认行为。
+     */
+    fun detectBubbles(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
+        return detectBubbles(textBlocks, MangaModeConfig())
     }
 
-    private fun isNearCluster(block: TextBlockInfo, cluster: List<TextBlockInfo>): Boolean {
-        val blockCenter = getCenter(block.boundingBox!!)
-        return cluster.any { other ->
-            val otherCenter = getCenter(other.boundingBox!!)
-            distance(blockCenter, otherCenter) < CLUSTER_DISTANCE_THRESHOLD
-        }
-    }
-
-    private fun getCenter(rect: Rect): Pair<Float, Float> {
-        return Pair(rect.centerX().toFloat(), rect.centerY().toFloat())
-    }
-
-    private fun distance(a: Pair<Float, Float>, b: Pair<Float, Float>): Float {
-        val dx = a.first - b.first
-        val dy = a.second - b.second
-        return sqrt(dx * dx + dy * dy)
-    }
-
-    private fun computeBoundingRect(blocks: List<TextBlockInfo>): Rect {
+    private fun computeBoundingRect(textLines: List<TextLine>): Rect {
         var left = Int.MAX_VALUE
         var top = Int.MAX_VALUE
         var right = Int.MIN_VALUE
         var bottom = Int.MIN_VALUE
-        for (block in blocks) {
-            val box = block.boundingBox!!
-            left = min(left, box.left)
-            top = min(top, box.top)
-            right = max(right, box.right)
-            bottom = max(bottom, box.bottom)
+        for (line in textLines) {
+            left = min(left, line.rect.left)
+            top = min(top, line.rect.top)
+            right = max(right, line.rect.right)
+            bottom = max(bottom, line.rect.bottom)
         }
         return Rect(left, top, right, bottom)
     }
