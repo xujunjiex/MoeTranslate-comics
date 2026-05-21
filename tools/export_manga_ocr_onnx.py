@@ -27,7 +27,12 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def export_encoder(model, output_path: Path):
-    """导出 ViT Encoder（支持动态 batch_size）"""
+    """导出 ViT Encoder（支持动态 batch_size）
+
+    两步导出：
+    1. 使用 dynamo=False（旧版 TorchScript tracer）正确处理 CLS token expand
+    2. 将内嵌权重拆分到外部 .onnx.data 文件（减小 .onnx 文件大小）
+    """
     print("导出 ViT Encoder...")
 
     class EncoderWrapper(nn.Module):
@@ -44,6 +49,7 @@ def export_encoder(model, output_path: Path):
 
     dummy_input = torch.randn(1, 3, 224, 224)
 
+    # Step 1: 导出（权重内嵌，dynamo=False 正确处理 CLS token）
     torch.onnx.export(
         wrapper,
         dummy_input,
@@ -57,7 +63,20 @@ def export_encoder(model, output_path: Path):
             "pixel_values": {0: "batch_size"},
             "last_hidden_state": {0: "batch_size"},
         },
+        dynamo=False,
     )
+
+    # Step 2: 将内嵌权重拆分到外部文件
+    import onnx
+    from onnx.external_data_helper import convert_model_to_external_data
+    onnx_model = onnx.load(str(output_path))
+    convert_model_to_external_data(
+        onnx_model,
+        all_tensors_to_one_file=True,
+        location=output_path.name + ".data",
+        size_threshold=1024,
+    )
+    onnx.save(onnx_model, str(output_path))
 
     print(f"  Encoder 导出完成: {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
 
