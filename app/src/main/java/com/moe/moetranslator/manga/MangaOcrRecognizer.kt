@@ -58,16 +58,14 @@ object MangaOcrRecognizer {
                 setIntraOpNumThreads(2)
             }
 
-            // 加载 encoder（多个 session）
+            // 加载 encoder（1 个 session，支持动态 batch_size）
             val encoderPath = if (useAssets) {
                 copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
             } else {
                 "$modelDir/manga_ocr_encoder.onnx"
             }
-            encoderSessions = (1..sessionCount).map {
-                ortEnv!!.createSession(encoderPath, sessionOptions)
-            }
-            LogCollector.d(TAG, "Encoder 加载完成 ($sessionCount sessions)")
+            encoderSessions = listOf(ortEnv!!.createSession(encoderPath, sessionOptions))
+            LogCollector.d(TAG, "Encoder 加载完成 (1 session, 支持动态 batch)")
 
             // 加载 decoder（多个 session）
             val decoderPath = if (useAssets) {
@@ -138,10 +136,10 @@ object MangaOcrRecognizer {
     }
 
     /**
-     * 批量识别图片中的文字（并行推理）。
+     * 批量识别图片中的文字（真正 batch 推理）。
      *
-     * 使用多个 ONNX Session 并行处理，每个 bitmap 分配到不同的 session。
-     * 当模型 batch_size=1 时，这是在 Android 端实现并行推理的最佳方式。
+     * Encoder 一次处理 N 张图片（[N,3,224,224] → [N,197,768]），
+     * 然后 Decoder 逐个/并行解码每个 hidden states。
      *
      * @param bitmaps 待识别的裁剪图片列表
      * @return 识别结果列表，与输入顺序一一对应
@@ -153,13 +151,41 @@ object MangaOcrRecognizer {
         if (bitmaps.isEmpty()) return emptyList()
         if (bitmaps.size == 1) return listOf(recognize(bitmaps[0]))
 
-        // 并行推理：每个 bitmap 分配到不同的 session
-        return coroutineScope {
-            bitmaps.mapIndexed { index, bitmap ->
-                async(Dispatchers.Default) {
-                    recognizeWithSession(bitmap, index)
-                }
-            }.awaitAll()
+        val encSession = encoderSessions[0]
+        val tok = tokenizer!!
+
+        try {
+            // 1. 批量预处理：堆叠为 [N, 3, 224, 224] tensor
+            val inputTensor = preprocessImages(bitmaps)
+
+            // 2. Encoder 一次推理：[N, 3, 224, 224] → [N, 197, 768]
+            LogCollector.d(TAG, "Encoder batch 推理: ${bitmaps.size} 张图片")
+            val t0 = System.currentTimeMillis()
+            val encoderResults = encSession.run(Collections.singletonMap("pixel_values", inputTensor))
+            val encoderOutputs = encoderResults.get("last_hidden_state").get() as OnnxTensor
+            inputTensor.close()
+            LogCollector.d(TAG, "Encoder batch 完成: ${System.currentTimeMillis() - t0}ms")
+
+            // 3. 逐个 Decoder 解码（多 Session 并行）
+            val t1 = System.currentTimeMillis()
+            val results = coroutineScope {
+                (0 until bitmaps.size).map { i ->
+                    async(Dispatchers.Default) {
+                        val singleHidden = extractSingleBatch(encoderOutputs, i)
+                        val tokenIds = runDecoderWithSession(decoderSessions[i % decoderSessions.size], singleHidden)
+                        singleHidden.close()
+                        tok.decode(tokenIds)
+                    }
+                }.awaitAll()
+            }
+            LogCollector.d(TAG, "Decoder 并行完成: ${System.currentTimeMillis() - t1}ms, 共 ${bitmaps.size} 个")
+
+            encoderOutputs.close()
+            return results
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "批量识别失败，回退到逐个识别", e)
+            return bitmaps.map { recognize(it) }
         }
     }
 
@@ -191,6 +217,68 @@ object MangaOcrRecognizer {
         if (resized != bitmap) resized.recycle()
 
         return OnnxTensor.createTensor(ortEnv!!, floatBuffer, longArrayOf(1, 3, IMAGE_SIZE.toLong(), IMAGE_SIZE.toLong()))
+    }
+
+    /**
+     * 批量预处理：将 N 张图片堆叠为 [N, 3, 224, 224] tensor。
+     * 所有图片按 CHW 格式排列，归一化到 [-1, 1]。
+     */
+    private fun preprocessImages(bitmaps: List<Bitmap>): OnnxTensor {
+        val N = bitmaps.size
+        val channelSize = IMAGE_SIZE * IMAGE_SIZE
+        val floatBuffer = FloatBuffer.allocate(N * 3 * channelSize)
+
+        for (bitmap in bitmaps) {
+            val resized = Bitmap.createScaledBitmap(bitmap, IMAGE_SIZE, IMAGE_SIZE, true)
+            val pixels = IntArray(channelSize)
+            resized.getPixels(pixels, 0, IMAGE_SIZE, 0, 0, IMAGE_SIZE, IMAGE_SIZE)
+
+            // CHW 格式，RGB 通道，归一化到 [-1, 1]
+            for (c in 0 until 3) {
+                for (i in pixels.indices) {
+                    val pixel = pixels[i]
+                    val value = when (c) {
+                        0 -> ((pixel shr 16 and 0xFF) / 255.0f - 0.5f) / 0.5f  // R
+                        1 -> ((pixel shr 8 and 0xFF) / 255.0f - 0.5f) / 0.5f   // G
+                        2 -> ((pixel and 0xFF) / 255.0f - 0.5f) / 0.5f         // B
+                        else -> 0f
+                    }
+                    floatBuffer.put(value)
+                }
+            }
+
+            if (resized !== bitmap) resized.recycle()
+        }
+
+        floatBuffer.rewind()
+        return OnnxTensor.createTensor(
+            ortEnv!!, floatBuffer,
+            longArrayOf(N.toLong(), 3, IMAGE_SIZE.toLong(), IMAGE_SIZE.toLong())
+        )
+    }
+
+    /**
+     * 从 batched encoder outputs 中提取第 i 个 batch 的 hidden states。
+     * 输入: [N, 197, 768] OnnxTensor
+     * 输出: [1, 197, 768] OnnxTensor
+     */
+    private fun extractSingleBatch(batchedOutput: OnnxTensor, index: Int): OnnxTensor {
+        val shape = batchedOutput.info.shape  // [N, 197, 768]
+        val seqLen = shape[1].toInt()
+        val hiddenSize = shape[2].toInt()
+
+        val count: Int = seqLen * hiddenSize
+        val buffer = FloatBuffer.allocate(count)
+        val fullBuffer = batchedOutput.floatBuffer
+        val offset: Int = index * count
+
+        // 安全读取：支持 direct buffer 和 heap buffer
+        for (i in 0 until count) {
+            buffer.put(fullBuffer.get(offset + i))
+        }
+        buffer.rewind()
+
+        return OnnxTensor.createTensor(ortEnv!!, buffer, longArrayOf(1, seqLen.toLong(), hiddenSize.toLong()))
     }
 
     /**

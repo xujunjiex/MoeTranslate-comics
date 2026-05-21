@@ -134,28 +134,15 @@ object DetectionBridge {
     }
 
     /**
-     * 使用 manga-ocr 批量识别，按 BATCH_SIZE 分块调用。
+     * 使用 manga-ocr 批量识别。
      *
-     * 对齐 manga-image-translator 的 max_chunk_size=16 批处理逻辑。
-     * 每个 chunk 内部使用多 Session 并行推理。
+     * recognizeBatch 内部使用真正的 batch Encoder（一次处理 N 张图片），
+     * 按 BATCH_SIZE 分块避免单次 batch 过大导致 OOM。
      */
     private suspend fun recognizeMangaOcrBatched(bitmaps: List<Bitmap>): List<String> {
         val results = mutableListOf<String>()
         for (chunk in bitmaps.chunked(BATCH_SIZE)) {
-            try {
-                results.addAll(MangaOcrRecognizer.recognizeBatch(chunk))
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "manga-ocr 批量识别失败，回退到逐个识别", e)
-                // 回退：逐个识别
-                for (bmp in chunk) {
-                    try {
-                        results.add(MangaOcrRecognizer.recognize(bmp))
-                    } catch (e2: Exception) {
-                        LogCollector.e(TAG, "manga-ocr 单个识别失败", e2)
-                        results.add("")
-                    }
-                }
-            }
+            results.addAll(MangaOcrRecognizer.recognizeBatch(chunk))
         }
         return results
     }

@@ -27,7 +27,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def export_encoder(model, output_path: Path):
-    """导出 ViT Encoder"""
+    """导出 ViT Encoder（支持动态 batch_size）"""
     print("导出 ViT Encoder...")
 
     class EncoderWrapper(nn.Module):
@@ -53,6 +53,10 @@ def export_encoder(model, output_path: Path):
         do_constant_folding=True,
         input_names=["pixel_values"],
         output_names=["last_hidden_state"],
+        dynamic_axes={
+            "pixel_values": {0: "batch_size"},
+            "last_hidden_state": {0: "batch_size"},
+        },
     )
 
     print(f"  Encoder 导出完成: {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
@@ -61,6 +65,10 @@ def export_encoder(model, output_path: Path):
 def export_decoder(model, output_path: Path):
     """
     导出 BERT-like Decoder (简化版，无 KV cache)
+
+    注意: Decoder 不支持动态 batch_size，因为 BERT 内部的 Reshape/Attention
+    节点会硬编码 batch 维度。Decoder 始终以 batch_size=1 运行，
+    通过多 Session 并行实现吞吐量提升。
 
     输入: input_ids + encoder_hidden_states
     输出: logits
