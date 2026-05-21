@@ -329,42 +329,34 @@ object MangaOcrRecognizer {
     }
 
     /**
-     * 将 assets 文件复制到缓存目录
-     * 如果是 .onnx 文件，同时复制对应的 .onnx.data 文件
+     * 将 assets 文件复制到缓存目录（每次启动都覆盖，确保使用最新模型）。
+     * 如果是 .onnx 文件，同时复制对应的 .onnx.data 文件。
      */
     private fun copyAssetToCache(context: Context, assetPath: String): String {
         val fileName = assetPath.substringAfterLast("/")
         val cacheFile = context.cacheDir.resolve(fileName)
-        if (!cacheFile.exists()) {
-            LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
-            context.assets.open(assetPath).use { input ->
-                cacheFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+        // 始终覆盖，确保模型版本与 APK 一致
+        LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
+        context.assets.open(assetPath).use { input ->
+            cacheFile.outputStream().use { output ->
+                input.copyTo(output)
             }
-            LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
-        } else {
-            LogCollector.d(TAG, "文件已存在: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
         }
+        LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
         // 复制外部数据文件 (.onnx.data)
         if (assetPath.endsWith(".onnx")) {
             val dataAssetPath = "$assetPath.data"
             val dataFileName = dataAssetPath.substringAfterLast("/")
             val dataCacheFile = context.cacheDir.resolve(dataFileName)
-            if (!dataCacheFile.exists()) {
-                LogCollector.d(TAG, "复制外部数据文件: $dataAssetPath")
-                try {
-                    context.assets.open(dataAssetPath).use { input ->
-                        dataCacheFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
+            try {
+                context.assets.open(dataAssetPath).use { input ->
+                    dataCacheFile.outputStream().use { output ->
+                        input.copyTo(output)
                     }
-                    LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
-                } catch (e: Exception) {
-                    LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
                 }
-            } else {
-                LogCollector.d(TAG, "外部数据文件已存在: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
+                LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
+            } catch (e: Exception) {
+                LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
             }
         }
         return cacheFile.absolutePath
