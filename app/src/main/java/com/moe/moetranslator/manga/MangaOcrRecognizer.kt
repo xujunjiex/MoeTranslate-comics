@@ -329,35 +329,48 @@ object MangaOcrRecognizer {
     }
 
     /**
-     * 将 assets 文件复制到缓存目录（每次启动都覆盖，确保使用最新模型）。
+     * 将 assets 文件复制到缓存目录。
+     * 通过 APK 版本号判断是否需要更新：APK 升级后才重新复制，避免每次启动都复制大文件。
      * 如果是 .onnx 文件，同时复制对应的 .onnx.data 文件。
      */
     private fun copyAssetToCache(context: Context, assetPath: String): String {
         val fileName = assetPath.substringAfterLast("/")
         val cacheFile = context.cacheDir.resolve(fileName)
-        // 始终覆盖，确保模型版本与 APK 一致
-        LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
-        context.assets.open(assetPath).use { input ->
-            cacheFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
-        // 复制外部数据文件 (.onnx.data)
-        if (assetPath.endsWith(".onnx")) {
-            val dataAssetPath = "$assetPath.data"
-            val dataFileName = dataAssetPath.substringAfterLast("/")
-            val dataCacheFile = context.cacheDir.resolve(dataFileName)
-            try {
-                context.assets.open(dataAssetPath).use { input ->
-                    dataCacheFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+
+        // 检查 APK 版本，只在升级后才重新复制
+        val prefs = context.getSharedPreferences("manga_ocr_cache", Context.MODE_PRIVATE)
+        val currentVersion = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        } catch (e: Exception) { 0L }
+        val cachedVersion = prefs.getLong("version_code", 0)
+
+        if (cacheFile.exists() && cachedVersion == currentVersion) {
+            LogCollector.d(TAG, "模型已缓存且版本一致，跳过复制: ${cacheFile.absolutePath}")
+        } else {
+            LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
+            context.assets.open(assetPath).use { input ->
+                cacheFile.outputStream().use { output ->
+                    input.copyTo(output)
                 }
-                LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
-            } catch (e: Exception) {
-                LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
             }
+            LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
+            // 复制外部数据文件 (.onnx.data)
+            if (assetPath.endsWith(".onnx")) {
+                val dataAssetPath = "$assetPath.data"
+                val dataFileName = dataAssetPath.substringAfterLast("/")
+                val dataCacheFile = context.cacheDir.resolve(dataFileName)
+                try {
+                    context.assets.open(dataAssetPath).use { input ->
+                        dataCacheFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
+                } catch (e: Exception) {
+                    LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
+                }
+            }
+            prefs.edit().putLong("version_code", currentVersion).apply()
         }
         return cacheFile.absolutePath
     }
