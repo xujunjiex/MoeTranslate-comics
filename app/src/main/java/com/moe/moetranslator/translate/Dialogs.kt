@@ -97,8 +97,9 @@ object Dialogs {
     fun mangaMenuDialog(
         ctx: Context,
         isAutoTranslating: Boolean,
-        directionLabel: String,
-        cropLabel: String
+        cropLabel: String,
+        detModelLabel: String = ctx.getString(R.string.manga_det_mlkit),
+        ocrEngineLabel: String = ctx.getString(R.string.manga_ocr_mlkit)
     ): DialogResult {
         val baseItems = if (isAutoTranslating) {
             ctx.resources.getStringArray(R.array.manga_menu_items_auto_on)
@@ -109,15 +110,17 @@ object Dialogs {
         val strlist = Array(baseItems.size) { i ->
             when (i) {
                 0 -> "${baseItems[0]}：$cropLabel"
-                1 -> "${baseItems[1]}：$directionLabel"
+                2 -> "${baseItems[2]}：$detModelLabel"
+                3 -> "${baseItems[3]}：$ocrEngineLabel"
                 else -> baseItems[i]
             }
         }
         val imglist = if (isAutoTranslating) {
             arrayOf(
                 R.drawable.crop_screen,
-                R.drawable.result_position,
                 R.drawable.result_size,
+                R.drawable.model_manage,
+                R.drawable.ocr_engine,
                 R.drawable.stop_auto,
                 R.drawable.close_service,
                 R.drawable.back_home
@@ -125,8 +128,9 @@ object Dialogs {
         } else {
             arrayOf(
                 R.drawable.crop_screen,
-                R.drawable.result_position,
                 R.drawable.result_size,
+                R.drawable.model_manage,
+                R.drawable.ocr_engine,
                 R.drawable.start_auto,
                 R.drawable.close_service,
                 R.drawable.back_home

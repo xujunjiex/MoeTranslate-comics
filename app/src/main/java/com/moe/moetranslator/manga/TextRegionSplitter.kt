@@ -12,8 +12,8 @@ import kotlin.math.sqrt
  */
 object TextRegionSplitter {
 
-    private const val GAMMA = 0.5f   // 距离容差系数
-    private const val SIGMA = 2f     // 标准差倍数
+    private const val GAMMA = 0.5f   // 距离容差系数（匹配参考项目）
+    private const val SIGMA = 2f     // 标准差倍数（匹配参考项目）
 
     /**
      * 对一组 TextLine 进行分割，返回分割后的多个组。
@@ -22,13 +22,15 @@ object TextRegionSplitter {
     fun split(textLines: List<TextLine>): List<List<TextLine>> {
         if (textLines.size <= 1) return listOf(textLines)
 
-        // Case 2: 两个节点
+        // Case 2: 两个节点（参考项目 split_text_region 第 26-39 行）
         if (textLines.size == 2) {
             val fs = max(textLines[0].fontSize, textLines[1].fontSize)
             val dist = rectDistance(textLines[0].rect, textLines[1].rect)
-            val sameDirection = textLines[0].direction == textLines[1].direction
+            val threshold = (1 + GAMMA) * fs
 
-            if (dist < (1 + GAMMA) * fs && sameDirection) {
+            // 参考项目检查 angle 差 < 0.2*PI（36度）
+            // ML Kit 不提供角度，用 sameDirection 替代
+            if (textLines[0].direction == textLines[1].direction && dist < threshold) {
                 return listOf(textLines)
             }
             return listOf(listOf(textLines[0]), listOf(textLines[1]))
@@ -47,7 +49,6 @@ object TextRegionSplitter {
     private fun splitByMST(textLines: List<TextLine>): List<List<TextLine>> {
         val n = textLines.size
 
-        // 构建所有边
         data class Edge(val u: Int, val v: Int, val weight: Float)
 
         val edges = mutableListOf<Edge>()
@@ -57,7 +58,6 @@ object TextRegionSplitter {
             }
         }
 
-        // Kruskal MST
         edges.sortBy { it.weight }
         val parent = IntArray(n) { it }
         val rank = IntArray(n) { 0 }
@@ -94,7 +94,6 @@ object TextRegionSplitter {
             }
         }
 
-        // 按边权降序排列
         mstEdges.sortByDescending { it.weight }
 
         val distances = mstEdges.map { it.weight.toDouble() }
@@ -103,10 +102,8 @@ object TextRegionSplitter {
         val distancesMean = distances.average()
         val stdThreshold = max(0.3 * fontSize + 5, 5.0)
 
-        // 检查最大边是否需要切断
         val maxDist = distances.firstOrNull() ?: 0.0
 
-        // 检查最大边两端的对齐情况
         val maxEdge = mstEdges.firstOrNull()
         val maxCentroidAlignment = if (maxEdge != null) {
             min(
@@ -124,7 +121,6 @@ object TextRegionSplitter {
             return listOf(textLines)
         }
 
-        // 切断最大边，递归分割
         val remainingEdges = mstEdges.drop(1)
         val uf = UnionFind(n)
         for (edge in remainingEdges) {
@@ -137,7 +133,6 @@ object TextRegionSplitter {
             groups.getOrPut(root) { mutableListOf() }.add(textLines[i])
         }
 
-        // 递归分割每个子组
         val result = mutableListOf<List<TextLine>>()
         for (group in groups.values) {
             result.addAll(split(group))
@@ -153,9 +148,6 @@ object TextRegionSplitter {
     }
 }
 
-/**
- * Union-Find 数据结构。
- */
 private class UnionFind(val size: Int) {
     private val parent = IntArray(size) { it }
     private val rank = IntArray(size) { 0 }

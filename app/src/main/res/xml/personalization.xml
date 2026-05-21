@@ -102,6 +102,30 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/manga_model_settings_title"
+        app:iconSpaceReserved="false">
+
+        <ListPreference
+            android:key="manga_det_model"
+            app:iconSpaceReserved="false"
+            android:defaultValue="0"
+            android:title="@string/manga_det_model_title"
+            android:summary="@string/manga_det_model_summary"
+            android:entries="@array/manga_det_model_entries"
+            android:entryValues="@array/manga_det_model_values" />
+
+        <ListPreference
+            android:key="manga_rec_model"
+            app:iconSpaceReserved="false"
+            android:defaultValue="0"
+            android:title="@string/manga_rec_model_title"
+            android:summary="@string/manga_rec_model_summary"
+            android:entries="@array/manga_rec_model_entries"
+            android:entryValues="@array/manga_rec_model_values" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/ocr_category_with_hint"
         app:iconSpaceReserved="false">
 

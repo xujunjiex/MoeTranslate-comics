@@ -8,16 +8,15 @@ import kotlin.math.min
 data class BubbleRegion(
     val rect: Rect,
     val texts: List<String>,
-    val fontSize: Float = 16f
+    val fontSize: Float = 16f,
+    val direction: TextDirection = TextDirection.VERTICAL_RL
 )
 
 /**
  * 气泡检测器。
- * 流程：TextBlockInfo → TextLine → 多条件合并 → MST 分割 → 阅读排序。
+ * 流程：TextBlockInfo → TextLine → 多条件合并 → MST 分割 → majority vote 方向 → 阅读排序。
  */
 object BubbleDetector {
-
-    private const val BUBBLE_EXPAND_PX = 20
 
     /**
      * 检测气泡区域。
@@ -38,21 +37,25 @@ object BubbleDetector {
         // 3. MST 分割（过大的区域拆分）
         val splitGroups = mergedGroups.flatMap { TextRegionSplitter.split(it) }
 
-        // 4. 构建 BubbleRegion，文本按阅读顺序拼接
+        // 4. 构建 BubbleRegion，majority vote 确定方向（参考项目 merge_bboxes_text_region 第 158-172 行）
         val bubbles = splitGroups.map { group ->
             val sorted = ReadingOrderSorter.sortTextLines(group, config.textDirection)
             val boundingRect = computeBoundingRect(sorted)
-            val expandedRect = expandRect(boundingRect, BUBBLE_EXPAND_PX)
-            val avgFontSize = sorted.map { it.fontSize }.average().toFloat()
+            val avgFontSize = sorted.maxOf { it.fontSize }
+
+            // majority vote 方向
+            val majorityDir = determineDirection(sorted, config.textDirection)
+
             BubbleRegion(
-                rect = expandedRect,
+                rect = boundingRect,
                 texts = sorted.map { it.text },
-                fontSize = avgFontSize
+                fontSize = avgFontSize,
+                direction = majorityDir
             )
         }
 
-        // 5. 阅读顺序排序
-        return ReadingOrderSorter.sort(bubbles, config)
+        // 5. 按 per-bubble 方向排序
+        return ReadingOrderSorter.sort(bubbles)
     }
 
     /**
@@ -60,6 +63,26 @@ object BubbleDetector {
      */
     fun detectBubbles(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
         return detectBubbles(textBlocks, MangaModeConfig())
+    }
+
+    /**
+     * Majority vote 确定方向（参考项目 merge_bboxes_text_region 第 158-172 行）。
+     * 平票时取 aspectRatio 最大的 textline 的方向。
+     */
+    private fun determineDirection(textLines: List<TextLine>, fallback: TextDirection): TextDirection {
+        if (textLines.isEmpty()) return fallback
+        if (textLines.size == 1) return textLines[0].direction
+
+        val dirCounts = textLines.groupBy { it.direction }
+        if (dirCounts.size == 1) return dirCounts.keys.first()
+
+        val top2 = dirCounts.entries.sortedByDescending { it.value.size }
+        return if (top2[0].value.size == top2[1].value.size) {
+            // 平票：取 aspectRatio 最大的
+            textLines.maxByOrNull { max(it.aspectRatio, 1f / it.aspectRatio) }?.direction ?: fallback
+        } else {
+            top2[0].key
+        }
     }
 
     private fun computeBoundingRect(textLines: List<TextLine>): Rect {
@@ -74,14 +97,5 @@ object BubbleDetector {
             bottom = max(bottom, line.rect.bottom)
         }
         return Rect(left, top, right, bottom)
-    }
-
-    private fun expandRect(rect: Rect, px: Int): Rect {
-        return Rect(
-            maxOf(0, rect.left - px),
-            maxOf(0, rect.top - px),
-            rect.right + px,
-            rect.bottom + px
-        )
     }
 }

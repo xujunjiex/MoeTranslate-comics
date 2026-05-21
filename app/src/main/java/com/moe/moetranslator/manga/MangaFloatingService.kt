@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.moe.moetranslator.utils.LogCollector
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -23,13 +24,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.ImageView
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.MainActivity
 import com.moe.moetranslator.R
 import com.moe.moetranslator.bridge.OCRBridge
+import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CropView
@@ -101,6 +102,12 @@ class MangaFloatingService : LifecycleService() {
     private var progressOverlayParams: WindowManager.LayoutParams? = null
     private var isProgressShowing = false
 
+    // Toast overlay (替代系统 Toast，不受系统限制)
+    private var toastOverlayView: android.widget.TextView? = null
+    private var toastOverlayParams: WindowManager.LayoutParams? = null
+    private var isToastShowing = false
+    private val toastDismissRunnable = Runnable { dismissToastOverlay() }
+
     // Long press detection
     private val handler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { handleLongPress() }
@@ -154,7 +161,7 @@ class MangaFloatingService : LifecycleService() {
         try {
             stopService(Intent(this, com.moe.moetranslator.translate.FloatingBallService::class.java))
         } catch (e: Exception) {
-            Log.w(TAG, "Could not stop FloatingBallService", e)
+            LogCollector.w(TAG, "Could not stop FloatingBallService", e)
         }
 
         createNotificationChannel()
@@ -163,7 +170,19 @@ class MangaFloatingService : LifecycleService() {
         initializeViews()
         setupScreenshotCollector()
 
-        Log.d(TAG, "MangaFloatingService created")
+        // 初始化 manga-ocr（如果启用）
+        if (config.useMangaOcr) {
+            initMangaOcr()
+        }
+
+        // 初始化检测引擎
+        when (config.detEngine) {
+            DetEngine.DBNET -> initDBNet()
+            DetEngine.CTD -> initCTD()
+            DetEngine.MLKIT -> {}
+        }
+
+        LogCollector.d(TAG, "MangaFloatingService created")
     }
 
     override fun onDestroy() {
@@ -171,10 +190,23 @@ class MangaFloatingService : LifecycleService() {
         removeAllViews()
         translatorText?.release()
         autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
+
+        // 释放 manga-ocr 资源
+        if (config.useMangaOcr) {
+            releaseMangaOcr()
+        }
+
+        // 释放检测引擎资源
+        when (config.detEngine) {
+            DetEngine.DBNET -> releaseDBNet()
+            DetEngine.CTD -> releaseCTD()
+            DetEngine.MLKIT -> {}
+        }
+
         // 发送广播通知 UI 更新按钮状态
         val stopIntent = Intent("action_manga_floating_service_stopped")
         androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).sendBroadcast(stopIntent)
-        Log.d(TAG, "MangaFloatingService destroyed")
+        LogCollector.d(TAG, "MangaFloatingService destroyed")
     }
 
     // ---------- Initialization ----------
@@ -186,7 +218,7 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun initTranslator() {
-        Log.d(TAG, "initTranslator: Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
+        LogCollector.d(TAG, "initTranslator: Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
         try {
             when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
                 Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)) {
@@ -219,18 +251,151 @@ class MangaFloatingService : LifecycleService() {
                 else -> { showToast("Unknown Translator.") }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "initTranslator: Exception", e)
+            LogCollector.e(TAG, "initTranslator: Exception", e)
             showToast("Initialize Error: ${e.message}")
         }
-        Log.d(TAG, "initTranslator: result translatorText=${translatorText?.javaClass?.simpleName}")
+        LogCollector.d(TAG, "initTranslator: result translatorText=${translatorText?.javaClass?.simpleName}")
+    }
+
+    private fun initMangaOcr() {
+        lifecycleScope.launch {
+            try {
+                LogCollector.d(TAG, "initMangaOcr: 开始初始化 manga-ocr")
+                val modelDir = MangaOcrModelManager.getModelDir()
+                MangaOcrRecognizer.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+                LogCollector.d(TAG, "initMangaOcr: manga-ocr 初始化完成")
+                showToast(getString(R.string.manga_ocr_init_complete))
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "initMangaOcr: 初始化失败", e)
+                showToast(getString(R.string.manga_ocr_init_failed, e.message ?: "未知错误"))
+            }
+        }
+    }
+
+    private fun releaseMangaOcr() {
+        try {
+            LogCollector.d(TAG, "releaseMangaOcr: 释放 manga-ocr 资源")
+            MangaOcrRecognizer.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releaseMangaOcr: 释放失败", e)
+        }
+    }
+
+    private fun initDBNet() {
+        lifecycleScope.launch {
+            try {
+                LogCollector.d(TAG, "initDBNet: 开始初始化 DBNet")
+                val modelDir = DBNetModelManager.getModelDir()
+                DBNetDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+                LogCollector.d(TAG, "initDBNet: DBNet 初始化完成")
+                showToast(getString(R.string.manga_det_init_complete))
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "initDBNet: 初始化失败", e)
+                showToast(getString(R.string.manga_det_init_failed, e.message ?: "未知错误"))
+            }
+        }
+    }
+
+    private fun releaseDBNet() {
+        try {
+            LogCollector.d(TAG, "releaseDBNet: 释放 DBNet 资源")
+            DBNetDetector.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releaseDBNet: 释放失败", e)
+        }
+    }
+
+    private fun initCTD() {
+        lifecycleScope.launch {
+            try {
+                LogCollector.d(TAG, "initCTD: 开始初始化 CTD")
+                val modelDir = CTDModelManager.getModelDir()
+                CTDDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+                LogCollector.d(TAG, "initCTD: CTD 初始化完成")
+                showToast("CTD 初始化完成")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "initCTD: 初始化失败", e)
+                showToast("CTD 初始化失败: ${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    private fun releaseCTD() {
+        try {
+            LogCollector.d(TAG, "releaseCTD: 释放 CTD 资源")
+            CTDDetector.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releaseCTD: 释放失败", e)
+        }
+    }
+
+    /**
+     * 同步初始化 DBNet（如果需要），在 processMangaScreenshot 中调用。
+     */
+    private suspend fun initDBNetIfNeeded() {
+        if (DBNetDetector.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initDBNetIfNeeded: 开始初始化 DBNet")
+            withContext(Dispatchers.IO) {
+                val modelDir = DBNetModelManager.getModelDir()
+                DBNetDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+            }
+            LogCollector.d(TAG, "initDBNetIfNeeded: DBNet 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initDBNetIfNeeded: 初始化失败", e)
+            withContext(Dispatchers.Main) {
+                showToast("DBNet 初始化失败: ${e.message}")
+            }
+            throw e
+        }
+    }
+
+    /**
+     * 同步初始化 CTD（如果需要），在 processMangaScreenshot 中调用。
+     */
+    private suspend fun initCTDIfNeeded() {
+        if (CTDDetector.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initCTDIfNeeded: 开始初始化 CTD")
+            withContext(Dispatchers.IO) {
+                val modelDir = CTDModelManager.getModelDir()
+                CTDDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+            }
+            LogCollector.d(TAG, "initCTDIfNeeded: CTD 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initCTDIfNeeded: 初始化失败", e)
+            withContext(Dispatchers.Main) {
+                showToast("CTD 初始化失败: ${e.message}")
+            }
+            throw e
+        }
+    }
+
+    /**
+     * 同步初始化 manga-ocr（如果需要），在 processMangaScreenshot 中调用。
+     */
+    private suspend fun initMangaOcrIfNeeded() {
+        if (MangaOcrRecognizer.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initMangaOcrIfNeeded: 开始初始化 manga-ocr")
+            withContext(Dispatchers.IO) {
+                val modelDir = MangaOcrModelManager.getModelDir()
+                MangaOcrRecognizer.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+            }
+            LogCollector.d(TAG, "initMangaOcrIfNeeded: manga-ocr 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initMangaOcrIfNeeded: 初始化失败", e)
+            withContext(Dispatchers.Main) {
+                showToast("manga-ocr 初始化失败: ${e.message}")
+            }
+            throw e
+        }
     }
 
     private fun loadConfig(): MangaModeConfig {
-        val directionIndex = prefs.getInt("Manga_Text_Direction", 0)
-        val direction = TextDirection.entries.getOrElse(directionIndex) { TextDirection.VERTICAL_RL }
         return MangaModeConfig(
             enabled = true,
-            textDirection = direction,
+            textDirection = TextDirection.VERTICAL_RL,
             smartBackground = prefs.getBoolean("Manga_Smart_Background", true),
             autoDetectBubble = prefs.getBoolean("Manga_Auto_Detect_Bubble", true),
             fontSize = prefs.getFloat("Manga_Font_Size", 16f),
@@ -238,7 +403,9 @@ class MangaFloatingService : LifecycleService() {
             sourceLang = prefs.getString("Source_Language", "ja"),
             targetLang = prefs.getString("Target_Language", "zh"),
             textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
-            bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
+            bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
+            useMangaOcr = prefs.getInt("Manga_Rec_Model", 0) == 1,
+            detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", 0))
         )
     }
 
@@ -273,7 +440,7 @@ class MangaFloatingService : LifecycleService() {
                         .setImageBitmap(bitmap)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to load custom icon", e)
+                LogCollector.w(TAG, "Failed to load custom icon", e)
             }
         }
 
@@ -316,6 +483,24 @@ class MangaFloatingService : LifecycleService() {
             height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = 100
+        }
+
+        // Toast overlay (底部弹出提示，替代系统 Toast)
+        toastOverlayView = android.widget.TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setBackgroundColor(Color.argb(220, 50, 50, 50))
+            setPadding(40, 24, 40, 24)
+            gravity = android.view.Gravity.CENTER
+        }
+        toastOverlayParams = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.RGBA_8888
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = 200
         }
 
         // Crop view (initially not added)
@@ -408,19 +593,24 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun showMenu() {
-        val directionLabel = when (config.textDirection) {
-            TextDirection.VERTICAL_RL -> getString(R.string.manga_mode_vertical_rl)
-            TextDirection.VERTICAL_LR -> getString(R.string.manga_mode_vertical_lr)
-            TextDirection.HORIZONTAL -> getString(R.string.manga_mode_horizontal)
-        }
         val cropLabel = if (cropRect != null) {
             getString(R.string.manga_mode_crop)
         } else {
             getString(R.string.manga_mode_fullscreen)
         }
+        val detModelLabel = when (config.detEngine) {
+            DetEngine.CTD -> "CTD"
+            DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
+            DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
+        }
+        val ocrEngineLabel = if (config.useMangaOcr) {
+            getString(R.string.manga_ocr_manga_ocr)
+        } else {
+            getString(R.string.manga_ocr_mlkit)
+        }
 
         val (dialog, listView) = Dialogs.mangaMenuDialog(
-            applicationContext, isAutoTranslating, directionLabel, cropLabel
+            applicationContext, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel
         )
 
         isMenuShowing = true
@@ -430,50 +620,45 @@ class MangaFloatingService : LifecycleService() {
                 0 -> {
                     // 切换全屏/框选
                     if (cropRect != null) {
-                        // 当前是框选模式，切换到全屏
                         cropRect = null
                         showToast(getString(R.string.manga_mode_fullscreen))
                         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                         adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
                     } else {
-                        // 当前是全屏模式，切换到框选 - 关闭菜单后再框选
                         dialog.dismiss()
                         handler.postDelayed({ startCropSelection() }, 200)
                     }
                 }
                 1 -> {
-                    // 切换文字方向（不关闭菜单）
-                    switchTextDirection()
-                    val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
-                    val newDirLabel = when (config.textDirection) {
-                        TextDirection.VERTICAL_RL -> getString(R.string.manga_mode_vertical_rl)
-                        TextDirection.VERTICAL_LR -> getString(R.string.manga_mode_vertical_lr)
-                        TextDirection.HORIZONTAL -> getString(R.string.manga_mode_horizontal)
-                    }
-                    adapter.updateLabel(1, "${getString(R.string.manga_direction_switched_short)}：$newDirLabel")
-                }
-                2 -> {
                     // 字体大小（不关闭菜单，打开子对话框）
                     showFontSizeDialog()
                 }
+                2 -> {
+                    // 切换检测模型（不关闭菜单）
+                    toggleDetModel(dialog, listView)
+                }
                 3 -> {
+                    // 切换 OCR 引擎（不关闭菜单）
+                    toggleOcrEngine(dialog, listView)
+                }
+                4 -> {
                     // 自动翻译切换（不关闭菜单）
                     toggleAutoTranslate()
                     val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                     if (isAutoTranslating) {
-                        adapter.updateLabel(3, getString(R.string.manga_menu_stop_auto))
-                        adapter.updateIcon(3, R.drawable.stop_auto)
+                        adapter.updateLabel(4, getString(R.string.manga_menu_stop_auto))
+                        adapter.updateIcon(4, R.drawable.stop_auto)
                     } else {
-                        adapter.updateLabel(3, getString(R.string.manga_menu_auto_translate))
-                        adapter.updateIcon(3, R.drawable.start_auto)
+                        adapter.updateLabel(4, getString(R.string.manga_menu_auto_translate))
+                        adapter.updateIcon(4, R.drawable.start_auto)
                     }
                 }
-                4 -> {
+                5 -> {
                     // 关闭悬浮球
                     dialog.dismiss()
                     stopSelf()
                 }
-                5 -> {
+                6 -> {
                     // 返回主界面
                     dialog.dismiss()
                     backToMainActivity()
@@ -506,20 +691,61 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- Menu actions ----------
 
-    private fun switchTextDirection() {
-        val newDirection = when (config.textDirection) {
-            TextDirection.VERTICAL_RL -> TextDirection.VERTICAL_LR
-            TextDirection.VERTICAL_LR -> TextDirection.HORIZONTAL
-            TextDirection.HORIZONTAL -> TextDirection.VERTICAL_RL
+    private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
+        val newUseMangaOcr = !config.useMangaOcr
+        config = config.copy(useMangaOcr = newUseMangaOcr)
+        prefs.setInt("Manga_Rec_Model", if (newUseMangaOcr) 1 else 0)
+
+        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+        if (newUseMangaOcr) {
+            // 切换到 manga-ocr，需要初始化
+            adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：${getString(R.string.manga_ocr_manga_ocr)}")
+            showToast(getString(R.string.manga_ocr_initializing))
+            initMangaOcr()
+        } else {
+            // 切换到 ML Kit，释放 manga-ocr
+            adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：${getString(R.string.manga_ocr_mlkit)}")
+            releaseMangaOcr()
+            showToast(getString(R.string.manga_ocr_mlkit))
         }
-        config = config.copy(textDirection = newDirection)
-        prefs.setInt("Manga_Text_Direction", newDirection.ordinal)
-        val label = when (newDirection) {
-            TextDirection.VERTICAL_RL -> getString(R.string.manga_mode_vertical_rl)
-            TextDirection.VERTICAL_LR -> getString(R.string.manga_mode_vertical_lr)
-            TextDirection.HORIZONTAL -> getString(R.string.manga_mode_horizontal)
+    }
+
+    private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
+        // 循环切换：MLKIT -> DBNET -> CTD -> MLKIT
+        val newEngine = when (config.detEngine) {
+            DetEngine.MLKIT -> DetEngine.DBNET
+            DetEngine.DBNET -> DetEngine.CTD
+            DetEngine.CTD -> DetEngine.MLKIT
         }
-        showToast("${getString(R.string.manga_direction_switched)}：$label")
+        config = config.copy(detEngine = newEngine)
+        prefs.setInt("Manga_Det_Model", newEngine.value)
+
+        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+        val label = when (newEngine) {
+            DetEngine.CTD -> "CTD"
+            DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
+            DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
+        }
+        adapter.updateLabel(2, "${getString(R.string.manga_det_toggle)}：$label")
+
+        // 释放旧引擎，初始化新引擎
+        when (newEngine) {
+            DetEngine.DBNET -> {
+                releaseCTD()  // 确保 CTD 已释放
+                showToast(getString(R.string.manga_det_initializing))
+                initDBNet()
+            }
+            DetEngine.CTD -> {
+                releaseDBNet()  // 确保 DBNet 已释放
+                showToast("CTD 初始化中...")
+                initCTD()
+            }
+            DetEngine.MLKIT -> {
+                releaseDBNet()
+                releaseCTD()
+                showToast(getString(R.string.manga_det_mlkit))
+            }
+        }
     }
 
     private fun showFontSizeDialog() {
@@ -636,12 +862,12 @@ class MangaFloatingService : LifecycleService() {
         try {
             windowManager.removeView(cropView)
         } catch (e: Exception) {
-            Log.e(TAG, "Error removing crop view", e)
+            LogCollector.e(TAG, "Error removing crop view", e)
         }
         try {
             cropConfirmView?.let { windowManager.removeView(it) }
         } catch (e: Exception) {
-            Log.e(TAG, "Error removing confirm button", e)
+            LogCollector.e(TAG, "Error removing confirm button", e)
         }
         cropConfirmView = null
 
@@ -672,19 +898,19 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun triggerTranslation() {
-        Log.d(TAG, "========== triggerTranslation START ==========")
+        LogCollector.d(TAG, "========== triggerTranslation START ==========")
         if (isProcessing) {
-            Log.d(TAG, "triggerTranslation: already processing, skipping")
+            LogCollector.d(TAG, "triggerTranslation: already processing, skipping")
             showToast(getString(R.string.is_translating))
             return
         }
         if (isCropActive) {
-            Log.d(TAG, "triggerTranslation: crop is active, skipping")
+            LogCollector.d(TAG, "triggerTranslation: crop is active, skipping")
             return
         }
 
         val service = AccessibilityServiceManager.getService()
-        Log.d(TAG, "triggerTranslation: accessibilityService=$service")
+        LogCollector.d(TAG, "triggerTranslation: accessibilityService=$service")
         if (service == null) {
             showToast(getString(R.string.accessibility_recycle))
             return
@@ -705,37 +931,37 @@ class MangaFloatingService : LifecycleService() {
             showProgressOverlay(getString(R.string.manga_translating))
         }
 
-        Log.d(TAG, "triggerTranslation: translatorText=${translatorText?.javaClass?.simpleName}")
-        Log.d(TAG, "triggerTranslation: cropRect=$cropRect")
+        LogCollector.d(TAG, "triggerTranslation: translatorText=${translatorText?.javaClass?.simpleName}")
+        LogCollector.d(TAG, "triggerTranslation: cropRect=$cropRect")
         if (cropRect != null) {
-            Log.d(TAG, "triggerTranslation: taking cropped screenshot")
+            LogCollector.d(TAG, "triggerTranslation: taking cropped screenshot")
             AccessibilityServiceManager.takeScreenshot(cropRect, cropView.absolutePointOffset)
         } else {
-            Log.d(TAG, "triggerTranslation: taking full screenshot")
+            LogCollector.d(TAG, "triggerTranslation: taking full screenshot")
             AccessibilityServiceManager.takeScreenshot(null, android.graphics.Point(0, 0))
         }
-        Log.d(TAG, "========== triggerTranslation END ==========")
+        LogCollector.d(TAG, "========== triggerTranslation END ==========")
     }
 
     // ---------- Screenshot collection ----------
 
     private fun setupScreenshotCollector() {
-        Log.d(TAG, "setupScreenshotCollector: starting collector coroutine")
+        LogCollector.d(TAG, "setupScreenshotCollector: starting collector coroutine")
         lifecycleScope.launch {
-            Log.d(TAG, "Screenshot collector: coroutine started, waiting for screenshots...")
+            LogCollector.d(TAG, "Screenshot collector: coroutine started, waiting for screenshots...")
             ScreenshotManager.screenshotFlow.collect { bitmap ->
-                Log.d(TAG, "Screenshot collector: BITMAP RECEIVED! ${bitmap.width}x${bitmap.height}")
+                LogCollector.d(TAG, "Screenshot collector: BITMAP RECEIVED! ${bitmap.width}x${bitmap.height}")
                 try {
                     processMangaScreenshot(bitmap)
-                    Log.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
+                    LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
+                    LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
                     showToast(getString(R.string.translation_failed, e.message ?: "Unknown error"))
                     isProcessing = false
                     dismissProgressOverlay()
                 }
             }
-            Log.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
+            LogCollector.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
         }
     }
 
@@ -743,16 +969,43 @@ class MangaFloatingService : LifecycleService() {
 
     private suspend fun processMangaScreenshot(bitmap: Bitmap) {
         try {
-            Log.d(TAG, "processMangaScreenshot: START")
-            // Step 1: OCR with location
-            Log.d(TAG, "processMangaScreenshot: Step 1 - OCR starting, sourceLang=${config.sourceLang}")
-            val textBlocks = withContext(Dispatchers.IO) {
-                OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+            LogCollector.d(TAG, "processMangaScreenshot: START")
+
+            // 确保选中的模型已初始化
+            when (config.detEngine) {
+                DetEngine.DBNET -> initDBNetIfNeeded()
+                DetEngine.CTD -> initCTDIfNeeded()
+                DetEngine.MLKIT -> {}
             }
-            Log.d(TAG, "processMangaScreenshot: Step 1 - OCR done, found ${textBlocks.size} text blocks")
+            if (config.useMangaOcr) initMangaOcrIfNeeded()
+
+            // Step 1: 文字检测 + 识别
+            LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR starting, sourceLang=${config.sourceLang}, useMangaOcr=${config.useMangaOcr}, detEngine=${config.detEngine}")
+            val textBlocks: List<TextBlockInfo> = withContext(Dispatchers.IO) {
+                when (config.detEngine) {
+                    DetEngine.CTD -> {
+                        LogCollector.d(TAG, "使用 CTD 检测 + ${if (config.useMangaOcr) "manga-ocr" else "ML Kit"} 识别")
+                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, config.useMangaOcr)
+                    }
+                    DetEngine.DBNET -> {
+                        LogCollector.d(TAG, "使用 DBNet 检测 + ${if (config.useMangaOcr) "manga-ocr" else "ML Kit"} 识别")
+                        DetectionBridge.detectWithDBNet(bitmap, config.sourceLang, config.useMangaOcr)
+                    }
+                    DetEngine.MLKIT -> {
+                        if (config.useMangaOcr) {
+                            LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr 识别")
+                            MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
+                        } else {
+                            LogCollector.d(TAG, "使用 ML Kit 检测 + 识别")
+                            OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+                        }
+                    }
+                }
+            }
+            LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR done, found ${textBlocks.size} text blocks")
 
             if (textBlocks.isEmpty()) {
-                Log.d(TAG, "processMangaScreenshot: No text found, returning early")
+                LogCollector.d(TAG, "processMangaScreenshot: No text found, returning early")
                 bitmap.recycle()
                 if (!isAutoTranslating) {
                     showToast(getString(R.string.no_text_found))
@@ -763,7 +1016,7 @@ class MangaFloatingService : LifecycleService() {
             // 自动翻译模式下，检查文本是否变化
             val currentOcrText = textBlocks.joinToString("\n") { it.text }
             if (isAutoTranslating && !shouldTranslateText(currentOcrText)) {
-                Log.d(TAG, "processMangaScreenshot: Auto-translate text unchanged, skipping")
+                LogCollector.d(TAG, "processMangaScreenshot: Auto-translate text unchanged, skipping")
                 bitmap.recycle()
                 return
             }
@@ -775,7 +1028,7 @@ class MangaFloatingService : LifecycleService() {
             }
 
             // Step 2: Detect bubbles (or use raw blocks)
-            Log.d(TAG, "processMangaScreenshot: Step 2 - Detecting bubbles, autoDetect=${config.autoDetectBubble}")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 2 - Detecting bubbles, autoDetect=${config.autoDetectBubble}")
             val bubbles = if (config.autoDetectBubble) {
                 BubbleDetector.detectBubbles(textBlocks, config)
             } else {
@@ -786,38 +1039,37 @@ class MangaFloatingService : LifecycleService() {
                     )
                 }
             }
-            Log.d(TAG, "processMangaScreenshot: Step 2 - Detected ${bubbles.size} bubbles")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 2 - Detected ${bubbles.size} bubbles")
 
             // Step 3: Translate each bubble
-            Log.d(TAG, "processMangaScreenshot: Step 3 - Starting translateBubbles")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Starting translateBubbles")
             val translatedBubbles = translateBubbles(bubbles)
-            Log.d(TAG, "processMangaScreenshot: Step 3 - translateBubbles done, got ${translatedBubbles.size} results")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 3 - translateBubbles done, got ${translatedBubbles.size} results")
 
             // Step 4: Render overlay
-            Log.d(TAG, "processMangaScreenshot: Step 4 - Rendering overlay")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 4 - Rendering overlay")
             val resultBitmap = withContext(Dispatchers.Default) {
                 OverlayRenderer.renderOverlay(
                     original = bitmap,
                     regions = translatedBubbles,
-                    direction = config.textDirection,
                     fontSize = config.fontSize,
                     autoFit = config.autoFontSize,
                     textColor = config.textColor,
                     bgColor = config.bgColor
                 )
             }
-            Log.d(TAG, "processMangaScreenshot: Step 4 - Render done")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 4 - Render done")
 
             // Step 5: Show result overlay
-            Log.d(TAG, "processMangaScreenshot: Step 5 - Showing result overlay")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 5 - Showing result overlay")
             withContext(Dispatchers.Main) {
                 showResultOverlay(resultBitmap)
             }
-            Log.d(TAG, "processMangaScreenshot: Step 5 - DONE")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 5 - DONE")
 
         } finally {
             bitmap.recycle()
-            Log.d(TAG, "processMangaScreenshot: FINALLY - dismissing progress, isProcessing=false")
+            LogCollector.d(TAG, "processMangaScreenshot: FINALLY - dismissing progress, isProcessing=false")
             isProcessing = false
             dismissProgressOverlay()
         }
@@ -841,32 +1093,75 @@ class MangaFloatingService : LifecycleService() {
             .trim()
     }
 
+    /**
+     * 检查文本是否仅包含符号/标点（不含实际文字内容）。
+     * 用于过滤漫画中的纯符号表达，避免提交给翻译模型导致文字被缩小。
+     */
+    private fun isSymbolOnlyText(text: String): Boolean {
+        if (text.isBlank()) return true
+        val stripped = text.replace(Regex("\\s+"), "")
+        if (stripped.isEmpty()) return true
+        return stripped.all { ch ->
+            val type = Character.getType(ch).toByte()
+            type == Character.START_PUNCTUATION ||
+            type == Character.END_PUNCTUATION ||
+            type == Character.DASH_PUNCTUATION ||
+            type == Character.OTHER_PUNCTUATION ||
+            type == Character.MATH_SYMBOL ||
+            type == Character.CURRENCY_SYMBOL ||
+            type == Character.MODIFIER_SYMBOL ||
+            type == Character.OTHER_SYMBOL ||
+            ch == '♡' || ch == '♥' || ch == '♪' || ch == '♫' ||
+            ch == '〜' || ch == '～' || ch == '…' || ch == '─'
+        }
+    }
+
     private suspend fun translateBubbles(
         bubbles: List<BubbleRegion>
     ): List<TranslatedBubble> {
-        Log.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translatorText=${translatorText?.javaClass?.simpleName}")
+        LogCollector.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translatorText=${translatorText?.javaClass?.simpleName}")
         if (translatorText == null) {
-            Log.e(TAG, "translateBubbles: translatorText is NULL!")
+            LogCollector.e(TAG, "translateBubbles: translatorText is NULL!")
             throw RuntimeException("Translation API not initialized")
         }
 
-        // 准备气泡数据：清理文本，过滤空的
-        val preparedBubbles = bubbles.mapNotNull { bubble ->
+        // 准备气泡数据：清理文本，过滤空的，分离纯符号气泡
+        val preparedBubbles = mutableListOf<Pair<BubbleRegion, String>>()
+        val symbolOnlyBubbles = mutableListOf<TranslatedBubble>()
+
+        for (bubble in bubbles) {
             val cleaned = bubble.texts.map { cleanOcrText(it) }.filter { it.isNotBlank() }
-            if (cleaned.isEmpty()) null
-            else bubble to cleaned.joinToString("")
+            if (cleaned.isEmpty()) continue
+            val combinedText = cleaned.joinToString("")
+
+            if (isSymbolOnlyText(combinedText)) {
+                // 纯符号气泡：跳过翻译，保留原文
+                LogCollector.d(TAG, "translateBubbles: skipping symbol-only: '$combinedText'")
+                symbolOnlyBubbles.add(TranslatedBubble(
+                    rect = bubble.rect,
+                    originalText = combinedText,
+                    translatedText = combinedText,
+                    backgroundColor = Color.TRANSPARENT,
+                    fontSize = bubble.fontSize,
+                    direction = bubble.direction
+                ))
+            } else {
+                preparedBubbles.add(bubble to combinedText)
+            }
         }
-        if (preparedBubbles.isEmpty()) return emptyList()
+        if (preparedBubbles.isEmpty()) return symbolOnlyBubbles
 
         // AI翻译（OpenAI兼容）用批量请求，机器翻译用逐个请求
         val isAI = translatorText is translationapi.openaitranslation.OpenAITranslation
                 || translatorText?.javaClass?.simpleName?.contains("Custom") == true
 
-        return if (isAI && preparedBubbles.size > 1) {
+        val translatedResults = if (isAI && preparedBubbles.size > 1) {
             translateBubblesBatch(preparedBubbles)
         } else {
             translateBubblesSequential(preparedBubbles)
         }
+
+        return symbolOnlyBubbles + translatedResults
     }
 
     /**
@@ -875,7 +1170,7 @@ class MangaFloatingService : LifecycleService() {
     private suspend fun translateBubblesBatch(
         bubbles: List<Pair<BubbleRegion, String>>
     ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request")
+        LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request")
 
         // 构建带编号的文本，前置格式约束保证 AI 按编号返回
         val formatInstruction = "请逐条翻译以下文本，保持每条的[N]编号格式不变，只输出翻译结果，不要添加额外解释：\n"
@@ -918,7 +1213,7 @@ class MangaFloatingService : LifecycleService() {
 
         // 按编号解析结果
         val translations = parseNumberedTranslations(resultText!!, bubbles.size)
-        Log.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
+        LogCollector.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
 
         bubbles.mapIndexed { index, (bubble, originalText) ->
             TranslatedBubble(
@@ -926,7 +1221,8 @@ class MangaFloatingService : LifecycleService() {
                 originalText = originalText,
                 translatedText = translations.getOrElse(index) { originalText },
                 backgroundColor = Color.TRANSPARENT,
-                fontSize = bubble.fontSize
+                fontSize = bubble.fontSize,
+                direction = bubble.direction
             )
         }
     }
@@ -969,12 +1265,12 @@ class MangaFloatingService : LifecycleService() {
     private suspend fun translateBubblesSequential(
         bubbles: List<Pair<BubbleRegion, String>>
     ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "translateBubblesSequential: ${bubbles.size} bubbles, sequential")
+        LogCollector.d(TAG, "translateBubblesSequential: ${bubbles.size} bubbles, sequential")
 
         val results = mutableListOf<TranslatedBubble>()
         val errors = mutableListOf<String>()
         for ((bubble, combinedText) in bubbles) {
-            Log.d(TAG, "translateBubblesSequential: translating '$combinedText'")
+            LogCollector.d(TAG, "translateBubblesSequential: translating '$combinedText'")
 
             val latch = java.util.concurrent.CountDownLatch(1)
             var successResult: TranslatedBubble? = null
@@ -987,18 +1283,19 @@ class MangaFloatingService : LifecycleService() {
             ) { result ->
                 when (result) {
                     is TranslationResult.Success -> {
-                        Log.d(TAG, "translateBubblesSequential: SUCCESS for '$combinedText'")
+                        LogCollector.d(TAG, "translateBubblesSequential: SUCCESS for '$combinedText'")
                         successResult = TranslatedBubble(
                             rect = bubble.rect,
                             originalText = combinedText,
                             translatedText = result.translatedText,
                             backgroundColor = Color.TRANSPARENT,
-                            fontSize = bubble.fontSize
+                            fontSize = bubble.fontSize,
+                            direction = bubble.direction
                         )
                     }
                     is TranslationResult.Error -> {
                         errorMsg = result.error.message ?: "Unknown error"
-                        Log.e(TAG, "translateBubblesSequential: ERROR: $errorMsg")
+                        LogCollector.e(TAG, "translateBubblesSequential: ERROR: $errorMsg")
                     }
                 }
                 latch.countDown()
@@ -1019,7 +1316,7 @@ class MangaFloatingService : LifecycleService() {
             }
         }
 
-        Log.d(TAG, "translateBubblesSequential: ${results.size} successful out of ${bubbles.size}")
+        LogCollector.d(TAG, "translateBubblesSequential: ${results.size} successful out of ${bubbles.size}")
         if (results.isEmpty() && bubbles.isNotEmpty()) {
             val errorDetail = errors.distinct().joinToString("; ")
             throw RuntimeException("All bubbles failed to translate: $errorDetail")
@@ -1080,7 +1377,7 @@ class MangaFloatingService : LifecycleService() {
                 resultOverlayView.setOnTouchListener(null)
                 windowManager.removeView(resultOverlayView)
             } catch (e: Exception) {
-                Log.e(TAG, "Error dismissing overlay", e)
+                LogCollector.e(TAG, "Error dismissing overlay", e)
             }
             isResultShowing = false
 
@@ -1108,7 +1405,7 @@ class MangaFloatingService : LifecycleService() {
                 windowManager.addView(floatingBallView, floatingBallParams)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error showing progress", e)
+            LogCollector.e(TAG, "Error showing progress", e)
         }
     }
 
@@ -1117,7 +1414,7 @@ class MangaFloatingService : LifecycleService() {
             try {
                 windowManager.removeView(progressOverlayView)
             } catch (e: Exception) {
-                Log.e(TAG, "Error dismissing progress", e)
+                LogCollector.e(TAG, "Error dismissing progress", e)
             }
             isProgressShowing = false
         }
@@ -1140,10 +1437,11 @@ class MangaFloatingService : LifecycleService() {
                 windowManager.removeView(floatingBallView)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error removing floating ball", e)
+            LogCollector.e(TAG, "Error removing floating ball", e)
         }
         dismissResultOverlay()
         dismissProgressOverlay()
+        dismissToastOverlay()
         handler.removeCallbacks(longPressRunnable)
         autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
         // Remove crop view if active
@@ -1159,8 +1457,27 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun showToast(message: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+        handler.post {
+            try {
+                toastOverlayView?.text = message
+                if (!isToastShowing) {
+                    windowManager.addView(toastOverlayView, toastOverlayParams)
+                    isToastShowing = true
+                }
+                handler.removeCallbacks(toastDismissRunnable)
+                handler.postDelayed(toastDismissRunnable, 2500)
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "showToast failed: $message", e)
+            }
+        }
+    }
+
+    private fun dismissToastOverlay() {
+        if (isToastShowing) {
+            try {
+                windowManager.removeView(toastOverlayView)
+            } catch (_: Exception) {}
+            isToastShowing = false
         }
     }
 

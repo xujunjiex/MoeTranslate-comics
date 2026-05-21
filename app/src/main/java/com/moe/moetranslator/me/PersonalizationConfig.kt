@@ -64,6 +64,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
     private lateinit var dismissDelay: Preference
+    private lateinit var mangaDetModel: ListPreference
+    private lateinit var mangaRecModel: ListPreference
 
     private lateinit var languagePreference: ListPreference
 
@@ -186,6 +188,26 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         dismissDelay.setOnPreferenceClickListener {
             showDismissDelayDialog()
             true
+        }
+
+        // 漫画翻译模型设置
+        mangaDetModel = findPreference("manga_det_model")!!
+        mangaRecModel = findPreference("manga_rec_model")!!
+
+        mangaDetModel.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setInt("Manga_Det_Model", newValue.toString().toInt())
+            true
+        }
+        mangaDetModel.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
+            getString(R.string.manga_det_model_summary, mangaDetModel.entry)
+        }
+
+        mangaRecModel.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setInt("Manga_Rec_Model", newValue.toString().toInt())
+            true
+        }
+        mangaRecModel.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
+            getString(R.string.manga_rec_model_summary, mangaRecModel.entry)
         }
 
         // 自动翻译时间间隔

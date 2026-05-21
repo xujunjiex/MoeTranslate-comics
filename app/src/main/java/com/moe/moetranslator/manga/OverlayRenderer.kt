@@ -11,7 +11,6 @@ object OverlayRenderer {
     fun renderOverlay(
         original: Bitmap,
         regions: List<TranslatedBubble>,
-        direction: TextDirection,
         fontSize: Float = 16f,
         autoFit: Boolean = true,
         textColor: Int = Color.BLACK,
@@ -20,49 +19,65 @@ object OverlayRenderer {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
 
-        for (region in regions) {
-            val baseFontSize = if (autoFit) region.fontSize else fontSize
+        data class DrawInfo(val region: TranslatedBubble, val drawRect: Rect, val fitFontSize: Float)
 
-            // 1. 在原始矩形内计算最优字体大小（只缩不大）
+        val sortedRegions = regions.sortedByDescending { it.rect.width() * it.rect.height() }
+        val usedRects = mutableListOf<Rect>()
+        val drawInfoMap = mutableMapOf<TranslatedBubble, DrawInfo>()
+
+        for (region in sortedRegions) {
+            val baseFontSize = if (autoFit) region.fontSize else fontSize
             val fitFontSize = if (autoFit) {
                 VerticalTextRenderer.calculateFitFontSize(
-                    region.translatedText, region.rect, direction, baseFontSize
+                    region.translatedText, region.rect, region.direction, baseFontSize
                 )
             } else {
                 baseFontSize
             }
-
-            // 2. 用实际字体大小计算需要的绘制区域
-            val drawRect = calculateExpandedRect(region.rect, region.translatedText, direction, fitFontSize)
-
-            // 3. 绘制背景
-            val bgPaint = Paint().apply {
-                color = bgColor
-                style = Paint.Style.FILL
+            val neededRect = calculateExpandedRect(region.rect, region.translatedText, region.direction, fitFontSize)
+            val drawRect = if (hasOverlap(neededRect, usedRects)) {
+                region.rect
+            } else {
+                neededRect
             }
-            canvas.drawRect(drawRect, bgPaint)
+            usedRects.add(drawRect)
+            drawInfoMap[region] = DrawInfo(region, drawRect, fitFontSize)
+        }
 
-            // 4. 在扩展矩形内渲染文字，autoFit=false 因为字体已确定
+        val bgPaint = Paint().apply {
+            color = bgColor
+            style = Paint.Style.FILL
+        }
+        for (region in regions) {
+            val info = drawInfoMap[region] ?: continue
+            canvas.save()
+            canvas.clipRect(info.drawRect)
+            canvas.drawBitmap(original, 0f, 0f, null)
+            canvas.restore()
+
+            canvas.drawRect(info.drawRect, bgPaint)
+
+            canvas.save()
+            canvas.clipRect(info.drawRect)
             VerticalTextRenderer.drawText(
                 canvas = canvas,
-                text = region.translatedText,
-                region = drawRect,
-                direction = direction,
-                fontSize = fitFontSize,
+                text = info.region.translatedText,
+                region = info.drawRect,
+                direction = info.region.direction,
+                fontSize = info.fitFontSize,
                 textColor = textColor,
                 autoFit = false
             )
+            canvas.restore()
         }
 
         return result
     }
 
-    /**
-     * 计算扩展后的绘制区域。
-     * 翻译后文字可能比原文长，需要动态扩展：
-     * - 竖排：扩展宽度（列数增加）
-     * - 横排：扩展高度（行数增加）
-     */
+    private fun hasOverlap(rect: Rect, existing: List<Rect>): Boolean {
+        return existing.any { Rect.intersects(rect, it) }
+    }
+
     private fun calculateExpandedRect(
         rect: Rect,
         text: String,
@@ -72,33 +87,25 @@ object OverlayRenderer {
         val charHeight = fontSize * 1.4f
         val columnSpacing = fontSize * 1.2f
 
-        when (direction) {
+        val expanded = when (direction) {
             TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> {
-                // 竖排：计算需要的列数，扩展宽度
                 val charsPerColumn = maxOf(1, (rect.height() / charHeight).toInt())
                 val neededColumns = (text.length + charsPerColumn - 1) / charsPerColumn
                 val neededWidth = (neededColumns * columnSpacing).toInt()
                 val expandX = maxOf(0, neededWidth - rect.width())
-
-                return if (direction == TextDirection.VERTICAL_RL) {
-                    // 竖排右→左：向左扩展
+                if (direction == TextDirection.VERTICAL_RL) {
                     Rect(rect.left - expandX, rect.top, rect.right, rect.bottom)
                 } else {
-                    // 竖排左→右：向右扩展
                     Rect(rect.left, rect.top, rect.right + expandX, rect.bottom)
                 }
             }
             TextDirection.HORIZONTAL -> {
-                // 横排：计算需要的行数，扩展高度
                 val paint = Paint().apply { textSize = fontSize }
                 val maxLineWidth = rect.width().toFloat()
                 var lines = 0
                 val paragraphs = text.split("\n")
                 for (paragraph in paragraphs) {
-                    if (paragraph.isEmpty()) {
-                        lines++
-                        continue
-                    }
+                    if (paragraph.isEmpty()) { lines++; continue }
                     var remaining = paragraph
                     while (remaining.isNotEmpty()) {
                         val count = paint.breakText(remaining, true, maxLineWidth, null)
@@ -109,16 +116,16 @@ object OverlayRenderer {
                 }
                 val neededHeight = (lines * charHeight).toInt()
                 val expandY = maxOf(0, neededHeight - rect.height())
-                return Rect(rect.left, rect.top, rect.right, rect.bottom + expandY)
+                Rect(rect.left, rect.top, rect.right, rect.bottom + expandY)
             }
         }
-    }
 
-    private fun getContrastColor(backgroundColor: Int): Int {
-        val luminance = (0.299 * Color.red(backgroundColor) +
-                0.587 * Color.green(backgroundColor) +
-                0.114 * Color.blue(backgroundColor)) / 255
-        return if (luminance > 0.5) Color.BLACK else Color.WHITE
+        return Rect(
+            minOf(expanded.left, rect.left),
+            minOf(expanded.top, rect.top),
+            maxOf(expanded.right, rect.right),
+            maxOf(expanded.bottom, rect.bottom)
+        )
     }
 }
 
@@ -127,5 +134,6 @@ data class TranslatedBubble(
     val originalText: String,
     val translatedText: String,
     val backgroundColor: Int,
-    val fontSize: Float = 16f
+    val fontSize: Float = 16f,
+    val direction: TextDirection = TextDirection.VERTICAL_RL
 )

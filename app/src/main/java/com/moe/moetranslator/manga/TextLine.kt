@@ -38,11 +38,16 @@ fun TextBlockInfo.toTextLine(config: MangaModeConfig): TextLine? {
         TextDirection.HORIZONTAL
     }
 
+    // fontSize = 垂直于文字排列方向的维度（即字符大小）
+    // 竖排：字符宽度固定，高度随分组数量变化 → 用 w
+    // 横排：字符高度固定，宽度随分组数量变化 → 用 h
+    val fontSize = if (direction == TextDirection.HORIZONTAL) h else w
+
     return TextLine(
         rect = box,
         text = text,
         direction = direction,
-        fontSize = min(w, h),
+        fontSize = fontSize,
         centroidX = box.centerX().toFloat(),
         centroidY = box.centerY().toFloat(),
         aspectRatio = w / h
@@ -50,11 +55,13 @@ fun TextBlockInfo.toTextLine(config: MangaModeConfig): TextLine? {
 }
 
 /**
- * 计算两个轴对齐矩形之间的最短距离（像素）。
+ * 计算两个轴对齐矩形之间的距离（像素）。
+ * 使用 Chebyshev 距离（max of horizontal/vertical gaps），比欧氏距离更适合文字块合并判断。
+ * 参考项目 manga-image-translator 使用 polygon distance，Chebyshev 更接近其行为。
  * 如果重叠则返回 0。
  */
 fun rectDistance(a: Rect, b: Rect): Float {
     val dx = max(0, max(b.left - a.right, a.left - b.right))
     val dy = max(0, max(b.top - a.bottom, a.top - b.bottom))
-    return if (dx == 0 && dy == 0) 0f else kotlin.math.sqrt((dx * dx + dy * dy).toFloat())
+    return max(dx, dy).toFloat()
 }

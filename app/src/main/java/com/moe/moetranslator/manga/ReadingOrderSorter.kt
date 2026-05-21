@@ -8,24 +8,26 @@ package com.moe.moetranslator.manga
 object ReadingOrderSorter {
 
     /**
-     * 按阅读顺序排序气泡。
+     * 按阅读顺序排序气泡（使用每个气泡自身的方向）。
      */
-    fun sort(bubbles: List<BubbleRegion>, config: MangaModeConfig): List<BubbleRegion> {
+    fun sort(bubbles: List<BubbleRegion>): List<BubbleRegion> {
         if (bubbles.size <= 1) return bubbles
 
-        return when (config.textDirection) {
+        // 按每个气泡的方向分组排序
+        // 对于混合方向的漫画，先按方向分组，每组内排序，再合并
+        // 简化方案：统一按第一个气泡的方向排序（大多数漫画方向一致）
+        val primaryDir = bubbles.first().direction
+
+        return when (primaryDir) {
             TextDirection.VERTICAL_RL -> {
-                // 竖排右→左：x 降序（从右到左），同列 y 升序（从上到下）
                 bubbles.sortedWith(compareByDescending<BubbleRegion> { it.rect.centerX() }
                     .thenBy { it.rect.centerY() })
             }
             TextDirection.VERTICAL_LR -> {
-                // 竖排左→右：x 升序（从左到右），同列 y 升序（从上到下）
                 bubbles.sortedWith(compareBy<BubbleRegion> { it.rect.centerX() }
                     .thenBy { it.rect.centerY() })
             }
             TextDirection.HORIZONTAL -> {
-                // 横排：y 升序（从上到下），同行 x 升序（从左到右）
                 bubbles.sortedWith(compareBy<BubbleRegion> { it.rect.centerY() }
                     .thenBy { it.rect.centerX() })
             }

@@ -241,6 +241,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/lin2"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="20dp"
@@ -348,6 +349,51 @@
                     android:layout_marginStart="20dp"
                     android:layout_toEndOf="@id/developer"
                     android:text="@string/about_page"
+                    android:textColor="#6A6464"
+                    android:textSize="20sp"/>
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:src="@drawable/righticon"/>
+            </RelativeLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:layout_marginTop="30dp"
+            android:layout_marginEnd="20dp"
+            android:background="@drawable/setting_shape"
+            android:orientation="vertical"
+            android:padding="15dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/lin2">
+
+            <RelativeLayout
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:id="@+id/view_logs_btn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <ImageView
+                    android:id="@+id/logicon"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:src="@drawable/log_icon"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:layout_marginStart="20dp"
+                    android:layout_toEndOf="@id/logicon"
+                    android:text="@string/view_logs"
                     android:textColor="#6A6464"
                     android:textSize="20sp"/>
 
