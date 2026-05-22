@@ -1,0 +1,512 @@
+package com.moe.moetranslator.manga
+
+import android.graphics.PointF
+import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.clipper.Point64
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
+
+/**
+ * CTD (Comic Text Detector) 后处理器。
+ *
+ * 移植自 manga-image-translator 的 boxes_from_bitmap 逻辑（SegDetectorRepresenter）。
+ * 关键差异于 DBNetPostProcessor：
+ * - sside < 2 过滤（不是 minSize=3）
+ * - 无 post-unclip 尺寸检查（Python 代码中已注释掉）
+ * - 使用 box_score_fast 计算轮廓内平均概率
+ * - 使用 unclipPolygon 做多边形扩张
+ *
+ * 参数：textThreshold=0.3, boxThreshold=0.6, unclipRatio=1.5, maxCandidates=1000
+ */
+object CTDPostProcessor {
+
+    private const val TAG = "CTDPostProcessor"
+
+    // CTD 参数（对齐 manga-image-translator）
+    private const val TEXT_THRESHOLD = 0.3f
+    private const val BOX_THRESHOLD = 0.6f
+    private const val UNCLIP_RATIO = 1.5f
+    private const val MAX_CANDIDATES = 1000
+
+    /**
+     * 从概率图提取 QuadBox 列表。
+     * 完全对齐 Python boxes_from_bitmap 流程：
+     * 1. 阈值化 → 二值图
+     * 2. findContours（BFS 连通域）→ 收集 contours
+     * 3. 对每个 contour：get_mini_boxes → sside < 2 过滤 → box_score_fast → unclip → get_mini_boxes → scale → area 过滤
+     */
+    fun extractQuadBoxes(
+        probMap: FloatArray,
+        height: Int,
+        width: Int,
+        origWidth: Int,
+        origHeight: Int,
+        textThreshold: Float = TEXT_THRESHOLD,
+        boxThreshold: Float = BOX_THRESHOLD,
+        unclipRatio: Float = UNCLIP_RATIO,
+        maxCandidates: Int = MAX_CANDIDATES
+    ): List<QuadBox> {
+        // 1. 阈值化 → 二值图
+        val binary = BooleanArray(height * width)
+        for (i in probMap.indices) {
+            binary[i] = probMap[i] > textThreshold
+        }
+
+        // 2. findContours - BFS 连通域提取（等价于 cv2.findContours）
+        val contours = findContours(binary, width, height, maxCandidates)
+
+        LogCollector.d(TAG, "轮廓数量: ${contours.size}")
+
+        val quadBoxes = mutableListOf<QuadBox>()
+        var filteredByShortSide = 0
+        var filteredByArea = 0
+        var filteredByBoxScore = 0
+
+        for (contour in contours) {
+            // 3. get_mini_boxes: 计算 minAreaRect 和 short side
+            val (points, sside) = getMiniBoxes(contour)
+
+            // 4. sside < 2 过滤（只过滤原始轮廓，不过滤 unclip 后）
+            if (sside < 2f) {
+                filteredByShortSide++
+                continue
+            }
+
+            // 5. box_score_fast: 计算轮廓内平均概率
+            val score = boxScoreFast(probMap, width, height, contour)
+
+            // 6. unclipPolygon: 多边形扩张
+            val unclipped = unclipPolygon(contour, unclipRatio)
+
+            // 7. 扩张后重新计算 minAreaRect
+            val (unclippedPoints, _) = getMiniBoxes(unclipped)
+
+            // 8. 构建 QuadBox（尚未缩放）
+            val quadBox = QuadBox(
+                ptsInput = Array(4) { i ->
+                    PointF(unclippedPoints[i].x.toFloat(), unclippedPoints[i].y.toFloat())
+                },
+                text = "",
+                prob = score
+            )
+
+            // 9. area <= 16 过滤（在缩放前检查）
+            if (quadBox.area <= 16f) {
+                filteredByArea++
+                continue
+            }
+
+            quadBoxes.add(quadBox)
+        }
+
+        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, area<=16=$filteredByArea, boxScore<$boxThreshold=$filteredByBoxScore")
+        LogCollector.d(TAG, "unclip 后 QuadBox 数量: ${quadBoxes.size}")
+
+        // 10. 坐标缩放到原图尺寸
+        val scaleX = origWidth.toFloat() / width
+        val scaleY = origHeight.toFloat() / height
+
+        val result = quadBoxes.map { qb ->
+            QuadBox(
+                ptsInput = Array(4) { i ->
+                    PointF(
+                        (qb.pts[i].x * scaleX).coerceIn(0f, origWidth.toFloat()),
+                        (qb.pts[i].y * scaleY).coerceIn(0f, origHeight.toFloat())
+                    )
+                },
+                text = qb.text,
+                prob = qb.prob
+            )
+        }.filter { it.area > 0f }
+
+        LogCollector.d(TAG, "最终 QuadBox 数量: ${result.size}")
+        return result
+    }
+
+    // -----------------------------------------------------------------------
+    // findContours: BFS 连通域提取（等价于 cv2.findContours + RETR_LIST）
+    // -----------------------------------------------------------------------
+
+    /**
+     * BFS 连通域提取，返回轮廓列表（每个轮廓是一个 Path64，点按顺序排列）。
+     * 等价于 cv2.findContours(bitmap.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+     */
+    private fun findContours(
+        binary: BooleanArray,
+        width: Int,
+        height: Int,
+        maxCandidates: Int
+    ): List<Path64> {
+        val visited = BooleanArray(binary.size)
+        val contours = mutableListOf<Path64>()
+
+        // 4 邻域方向：右、下、左、上
+        val dx = intArrayOf(1, 0, -1, 0)
+        val dy = intArrayOf(0, 1, 0, -1)
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val idx = y * width + x
+                if (!binary[idx] || visited[idx]) continue
+
+                // BFS 收集连通域的所有像素
+                val componentPixels = mutableListOf<Point64>()
+                val queue = ArrayDeque<Int>()
+                queue.add(idx)
+                visited[idx] = true
+
+                while (queue.isNotEmpty()) {
+                    val cur = queue.removeFirst()
+                    componentPixels.add(Point64((cur % width).toLong(), (cur / width).toLong()))
+
+                    val curX = cur % width
+                    val curY = cur / width
+
+                    for (d in 0..3) {
+                        val nx = curX + dx[d]
+                        val ny = curY + dy[d]
+                        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
+                        val nidx = ny * width + nx
+                        if (!binary[nidx] || visited[nidx]) continue
+                        visited[nidx] = true
+                        queue.add(nidx)
+                    }
+                }
+
+                if (componentPixels.size >= 3) {
+                    // 计算凸包作为轮廓（等价于 cv2.CHAIN_APPROX_SIMPLE 的效果）
+                    val hull = convexHull(componentPixels)
+                    if (hull.size >= 3) {
+                        contours.add(hull)
+                    }
+                }
+
+                // 控制轮廓数量
+                if (contours.size >= maxCandidates) break
+            }
+            if (contours.size >= maxCandidates) break
+        }
+
+        return contours
+    }
+
+    // -----------------------------------------------------------------------
+    // getMiniBoxes: minAreaRect via rotating calipers on convex hull
+    // -----------------------------------------------------------------------
+
+    /**
+     * 计算点集的旋转最小外接矩形。
+     * 返回：Pair(4 个角点列表, short side长度)
+     *
+     * 等价于 cv2.minAreaRect(points) + cv2.boxPoints。
+     * sside = min(bounding_rect[1])，即宽高中较小的那个。
+     */
+    private fun getMiniBoxes(points: Path64): Pair<Path64, Float> {
+        if (points.size < 3) {
+            // 退化情况：不足 3 个点，退化为轴对齐矩形
+            var minX = Long.MAX_VALUE; var maxX = Long.MIN_VALUE
+            var minY = Long.MAX_VALUE; var maxY = Long.MIN_VALUE
+            for (p in points) {
+                if (p.x < minX) minX = p.x
+                if (p.x > maxX) maxX = p.x
+                if (p.y < minY) minY = p.y
+                if (p.y > maxY) maxY = p.y
+            }
+            val w = (maxX - minX).toFloat()
+            val h = (maxY - minY).toFloat()
+            return Pair(
+                mutableListOf(
+                    Point64(minX, minY),
+                    Point64(maxX, minY),
+                    Point64(maxX, maxY),
+                    Point64(minX, maxY)
+                ),
+                min(w, h)
+            )
+        }
+
+        // 凸包
+        val hull = convexHull(points)
+        if (hull.size < 3) {
+            var minX = Long.MAX_VALUE; var maxX = Long.MIN_VALUE
+            var minY = Long.MAX_VALUE; var maxY = Long.MIN_VALUE
+            for (p in hull) {
+                if (p.x < minX) minX = p.x
+                if (p.x > maxX) maxX = p.x
+                if (p.y < minY) minY = p.y
+                if (p.y > maxY) maxY = p.y
+            }
+            val w = (maxX - minX).toFloat()
+            val h = (maxY - minY).toFloat()
+            return Pair(
+                mutableListOf(
+                    Point64(minX, minY),
+                    Point64(maxX, minY),
+                    Point64(maxX, maxY),
+                    Point64(minX, maxY)
+                ),
+                min(w, h)
+            )
+        }
+
+        // 旋转卡壳找最小面积矩形
+        var minArea = Double.MAX_VALUE
+        var bestRect = mutableListOf<Point64>()
+        var bestSside = 0f
+
+        val n = hull.size
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            val edgeX = (hull[j].x - hull[i].x).toDouble()
+            val edgeY = (hull[j].y - hull[i].y).toDouble()
+            val edgeLen = sqrt(edgeX * edgeX + edgeY * edgeY)
+            if (edgeLen < 1e-10) continue
+
+            // 归一化边方向（u 轴）
+            val ux = edgeX / edgeLen
+            val uy = edgeY / edgeLen
+            // 垂直方向（v 轴）
+            val vx = -uy
+            val vy = ux
+
+            // 投影到 u, v 方向
+            var minU = Double.MAX_VALUE; var maxU = -Double.MAX_VALUE
+            var minV = Double.MAX_VALUE; var maxV = -Double.MAX_VALUE
+            for (k in 0 until n) {
+                val px = hull[k].x.toDouble() - hull[i].x.toDouble()
+                val py = hull[k].y.toDouble() - hull[i].y.toDouble()
+                val projU = px * ux + py * uy
+                val projV = px * vx + py * vy
+                if (projU < minU) minU = projU
+                if (projU > maxU) maxU = projU
+                if (projV < minV) minV = projV
+                if (projV > maxV) maxV = projV
+            }
+
+            val area = (maxU - minU) * (maxV - minV)
+            if (area < minArea) {
+                minArea = area
+                val w = maxU - minU
+                val h = maxV - minV
+                val sside = min(w.toFloat(), h.toFloat())
+
+                // 计算中心点
+                val midU = (minU + maxU) / 2
+                val midV = (minV + maxV) / 2
+                val cx = hull[i].x.toDouble() + midU * ux + midV * vx
+                val cy = hull[i].y.toDouble() + midU * uy + midV * vy
+
+                // 计算 4 个角点
+                val angle = atan2(uy, ux)
+                val cosA = cos(angle)
+                val sinA = sin(angle)
+                val hw = w / 2
+                val hh = h / 2
+
+                bestRect = mutableListOf(
+                    Point64((cx + cosA * (-hw) - sinA * (-hh)).toLong(),
+                            (cy + sinA * (-hw) + cosA * (-hh)).toLong()),
+                    Point64((cx + cosA * (hw) - sinA * (-hh)).toLong(),
+                            (cy + sinA * (hw) + cosA * (-hh)).toLong()),
+                    Point64((cx + cosA * (hw) - sinA * (hh)).toLong(),
+                            (cy + sinA * (hw) + cosA * (hh)).toLong()),
+                    Point64((cx + cosA * (-hw) - sinA * (hh)).toLong(),
+                            (cy + sinA * (-hw) + cosA * (hh)).toLong())
+                )
+                bestSside = sside
+            }
+        }
+
+        return Pair(bestRect, bestSside)
+    }
+
+    // -----------------------------------------------------------------------
+    // convexHull: Graham scan
+    // -----------------------------------------------------------------------
+
+    /**
+     * Graham scan 凸包算法。
+     */
+    private fun convexHull(points: Path64): Path64 {
+        if (points.size < 3) return points.toMutableList()
+
+        val sorted = points.sortedWith(compareBy({ it.x }, { it.y }))
+        val n = sorted.size
+
+        val lower = mutableListOf<Point64>()
+        for (p in sorted) {
+            while (lower.size >= 2 && cross(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
+                lower.removeAt(lower.size - 1)
+            }
+            lower.add(p)
+        }
+
+        val upper = mutableListOf<Point64>()
+        for (i in n - 1 downTo 0) {
+            val p = sorted[i]
+            while (upper.size >= 2 && cross(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
+                upper.removeAt(upper.size - 1)
+            }
+            upper.add(p)
+        }
+
+        // 去掉首尾重复点
+        lower.removeAt(lower.size - 1)
+        upper.removeAt(upper.size - 1)
+
+        return (lower + upper).toMutableList()
+    }
+
+    private fun cross(o: Point64, a: Point64, b: Point64): Long {
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+    }
+
+    // -----------------------------------------------------------------------
+    // box_score_fast: 计算轮廓内平均概率
+    // -----------------------------------------------------------------------
+
+    /**
+     * 计算轮廓内的平均概率。
+     * 等价于 Python 的 box_score_fast: fill contour with mask, compute mean prob.
+     */
+    private fun boxScoreFast(
+        probMap: FloatArray,
+        width: Int,
+        height: Int,
+        contour: Path64
+    ): Float {
+        // 获取轮廓的轴对齐外接矩形
+        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE
+        var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE
+        for (p in contour) {
+            val px = p.x.toInt(); val py = p.y.toInt()
+            if (px < minX) minX = px
+            if (py < minY) minY = py
+            if (px > maxX) maxX = px
+            if (py > maxY) maxY = py
+        }
+
+        // 裁剪到图像范围
+        minX = max(0, minX); minY = max(0, minY)
+        maxX = min(width - 1, maxX); maxY = min(height - 1, maxY)
+
+        if (minX > maxX || minY > maxY) return 0f
+
+        // 对 bbox 内每个像素，判断是否在轮廓内（射线法）
+        var sum = 0f
+        var count = 0
+        for (y in minY..maxY) {
+            for (x in minX..maxX) {
+                if (pointInPolygon(x.toLong(), y.toLong(), contour)) {
+                    sum += probMap[y * width + x]
+                    count++
+                }
+            }
+        }
+
+        return if (count > 0) sum / count else 0f
+    }
+
+    /**
+     * 射线法判断点是否在多边形内。
+     */
+    private fun pointInPolygon(px: Long, py: Long, polygon: Path64): Boolean {
+        var inside = false
+        val n = polygon.size
+        var j = n - 1
+        for (i in 0 until n) {
+            val yi = polygon[i].y
+            val yj = polygon[j].y
+            val xi = polygon[i].x
+            val xj = polygon[j].x
+
+            if ((yi > py) != (yj > py) &&
+                px < (xj - xi) * (py - yi) / (yj - yi) + xi
+            ) {
+                inside = !inside
+            }
+            j = i
+        }
+        return inside
+    }
+
+    // -----------------------------------------------------------------------
+    // unclipPolygon: 多边形扩张（使用法向量平均）
+    // -----------------------------------------------------------------------
+
+    /**
+     * 多边形扩张。
+     * 等价于 Python 的 unclip（基于 Vatti clipping 的偏移）。
+     * distance = area * unclip_ratio / perimeter，然后沿法向量方向扩展。
+     */
+    private fun unclipPolygon(contour: Path64, unclipRatio: Float): Path64 {
+        if (contour.size < 3) return contour
+
+        // 计算面积（多边形面积公式）
+        var area = 0.0
+        val n = contour.size
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            area += contour[i].x.toDouble() * contour[j].y.toDouble()
+            area -= contour[j].x.toDouble() * contour[i].y.toDouble()
+        }
+        area = abs(area) / 2.0
+
+        // 计算周长
+        var perimeter = 0.0
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            val dx = (contour[j].x - contour[i].x).toDouble()
+            val dy = (contour[j].y - contour[i].y).toDouble()
+            perimeter += sqrt(dx * dx + dy * dy)
+        }
+
+        if (perimeter < 1e-10) return contour
+
+        // 计算偏移距离
+        val distance = area * unclipRatio / perimeter
+
+        // 对每条边计算法向量方向，然后平均
+        // 简化实现：沿每个顶点的平均法向量方向偏移
+        val expanded = mutableListOf<Point64>()
+        for (i in 0 until n) {
+            val prev = contour[(i - 1 + n) % n]
+            val curr = contour[i]
+            val next = contour[(i + 1) % n]
+
+            // 前一条边的法向量
+            val dx1 = (curr.x - prev.x).toDouble()
+            val dy1 = (curr.y - prev.y).toDouble()
+            val len1 = sqrt(dx1 * dx1 + dy1 * dy1)
+            val nx1 = if (len1 > 1e-10) -dy1 / len1 else 0.0
+            val ny1 = if (len1 > 1e-10) dx1 / len1 else 0.0
+
+            // 后一条边的法向量
+            val dx2 = (next.x - curr.x).toDouble()
+            val dy2 = (next.y - curr.y).toDouble()
+            val len2 = sqrt(dx2 * dx2 + dy2 * dy2)
+            val nx2 = if (len2 > 1e-10) -dy2 / len2 else 0.0
+            val ny2 = if (len2 > 1e-10) dx2 / len2 else 0.0
+
+            // 平均法向量
+            val avgNx = (nx1 + nx2) / 2.0
+            val avgNy = (ny1 + ny2) / 2.0
+            val avgLen = sqrt(avgNx * avgNx + avgNy * avgNy)
+            val normNx = if (avgLen > 1e-10) avgNx / avgLen else 0.0
+            val normNy = if (avgLen > 1e-10) avgNy / avgLen else 0.0
+
+            // 沿法向量方向偏移
+            val newX = (curr.x + normNx * distance).toLong()
+            val newY = (curr.y + normNy * distance).toLong()
+            expanded.add(Point64(newX, newY))
+        }
+
+        return expanded
+    }
+}
