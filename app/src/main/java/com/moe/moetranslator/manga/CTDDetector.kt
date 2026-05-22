@@ -83,9 +83,9 @@ object CTDDetector {
 
             val (linesMap, contentH, contentW) = runInference(bitmap)
 
-            // 复用 DBNetPostProcessor 的 SegDetectorRepresenter 逻辑
-            // 参数对齐 Python ctd.py: thresh=0.3, box_thresh=0.6, unclip_ratio=1.5, min_size=2
-            val quadBoxes = DBNetPostProcessor.extractQuadBoxes(
+            // 使用 CTDPostProcessor 的 SegDetectorRepresenter 逻辑（对齐 Python ctd.py）
+            // 参数：textThreshold=0.3, boxThreshold=0.6, unclipRatio=1.5
+            val quadBoxes = CTDPostProcessor.extractQuadBoxes(
                 probMap = linesMap,
                 height = contentH,
                 width = contentW,
@@ -93,7 +93,6 @@ object CTDDetector {
                 origHeight = origHeight,
                 textThreshold = 0.3f,
                 boxThreshold = 0.6f,
-                minSize = 2,
                 unclipRatio = 1.5f
             )
 
@@ -118,26 +117,42 @@ object CTDDetector {
         inputTensor.close()
 
         // 3. 获取 lines_map 输出（det: [1, 2, H, W]，2 通道概率图）
+        //    注意：必须精确匹配 name="det"，不能依赖顺序！
+        //    因为 onnxruntime 遍历 session.outputNames 的顺序不固定，
+        //    seg([1,1,1024,1024]) 可能先于 det([1,2,1024,1024]) 被遍历到。
         var linesMapTensor: OnnxTensor? = null
-        val outputInfo = mutableListOf<String>()
         for (name in session!!.outputNames) {
             val value = results.get(name)
             if (value.isPresent && value.get() is OnnxTensor) {
                 val tensor = value.get() as OnnxTensor
                 val shape = tensor.info.shape
-                outputInfo.add("name=$name, shape=${shape.contentToString()}")
                 LogCollector.d(TAG, "输出: name=$name, shape=${shape.contentToString()}")
-                // 优先匹配 2 通道 4D tensor（det/lines_map），其次任意 4D tensor
-                if (shape.size == 4) {
-                    if (shape[1].toInt() == 2 || linesMapTensor == null) {
+                // 精确匹配 name="det"（2 通道概率图，形状 [1, 2, H, W]）
+                if (name == "det" && shape.size == 4 && shape[1].toInt() == 2) {
+                    linesMapTensor = tensor
+                    break
+                }
+            }
+        }
+        // 如果精确匹配失败（兼容部分 onnxruntime 变体），fallback 到之前的启发式逻辑
+        if (linesMapTensor == null) {
+            LogCollector.d(TAG, "精确匹配 det 失败，尝试 fallback 遍历")
+            for (name in session!!.outputNames) {
+                val value = results.get(name)
+                if (value.isPresent && value.get() is OnnxTensor) {
+                    val tensor = value.get() as OnnxTensor
+                    val shape = tensor.info.shape
+                    if (shape.size == 4 && shape[1].toInt() == 2) {
                         linesMapTensor = tensor
+                        LogCollector.d(TAG, "Fallback 选中: name=$name")
+                        break
                     }
                 }
             }
         }
         if (linesMapTensor == null) {
             results.close()
-            throw IllegalStateException("找不到 4D 输出 tensor，已检查: $outputInfo")
+            throw IllegalStateException("找不到 2 通道 det 输出 tensor")
         }
 
         val linesData = extractFloatArray(linesMapTensor)
