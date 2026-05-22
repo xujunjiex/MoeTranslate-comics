@@ -3,6 +3,7 @@ package com.moe.moetranslator.manga
 import android.graphics.PointF
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.clipper.Point64
+import com.moe.moetranslator.utils.clipper.Path64
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -476,9 +477,11 @@ object CTDPostProcessor {
         // 简化实现：沿每个顶点的平均法向量方向偏移
         val expanded = mutableListOf<Point64>()
         for (i in 0 until n) {
-            val prev = contour[(i - 1 + n) % n]
+            val prevIdx = if (i == 0) n - 1 else i - 1
+            val nextIdx = (i + 1) % n
+            val prev = contour[prevIdx]
             val curr = contour[i]
-            val next = contour[(i + 1) % n]
+            val next = contour[nextIdx]
 
             // 前一条边的法向量
             val dx1 = (curr.x - prev.x).toDouble()
