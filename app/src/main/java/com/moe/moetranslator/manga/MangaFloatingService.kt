@@ -451,7 +451,7 @@ class MangaFloatingService : LifecycleService() {
             targetLang = prefs.getString("Target_Language", "zh"),
             textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
             bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
-            ocrEngine = OcrEngine.entries[prefs.getInt("Manga_Rec_Model", 0)],
+            ocrEngine = OcrEngine.fromValue(prefs.getInt("Manga_Rec_Model", 0)),
             detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", 0))
         )
     }
@@ -1096,7 +1096,7 @@ class MangaFloatingService : LifecycleService() {
                                     if (bitmaps.isNotEmpty()) {
                                         val ctcTexts = CtcOcrRecognizer.recognizeBatch(bitmaps)
                                         bitmaps.forEachIndexed { index, bmp ->
-                                            if (bmp != bitmap) bmp.recycle()
+                                            bmp.recycle()
                                         }
                                         mlKitBlocks.mapIndexed { index, block ->
                                             if (index < ctcTexts.size) {
