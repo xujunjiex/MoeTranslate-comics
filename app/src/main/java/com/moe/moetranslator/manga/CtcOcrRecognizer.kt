@@ -6,6 +6,7 @@ import com.moe.moetranslator.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.exp
 
@@ -35,8 +36,25 @@ object CtcOcrRecognizer {
 
     suspend fun initialize(context: Context, modelDir: String = "ocr_ctc", useAssets: Boolean = true) {
         if (isInitialized) return
+
+        // 如果 filesDir 中已有模型文件，优先从 filesDir 加载
+        val actualUseAssets = if (!useAssets) {
+            // 显式指定 useAssets=false，从 filesDir 加载
+            false
+        } else {
+            // 检查 filesDir 是否有模型文件
+            val modelFile = File(context.filesDir, "$modelDir/${CtcOcrModelManager.MODEL_FILE}")
+            if (modelFile.exists()) {
+                LogCollector.d(TAG, "检测到 filesDir 中已有模型文件，优先从 filesDir 加载")
+                false
+            } else {
+                // 从 assets 加载（首次使用，模型在 assets 中）
+                true
+            }
+        }
+
         try {
-            LogCollector.d(TAG, "开始初始化 48px_ctc 模型...")
+            LogCollector.d(TAG, "开始初始化 48px_ctc 模型 (useAssets=$actualUseAssets)...")
             ortEnv = OrtEnvironment.getEnvironment()
             val sessionOptions = OrtSession.SessionOptions().apply {
                 setMemoryPatternOptimization(true)
@@ -44,15 +62,25 @@ object CtcOcrRecognizer {
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 setIntraOpNumThreads(4)
             }
-            val modelPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/model.onnx")
+
+            // 使用 actualUseAssets 决定模型路径
+            val modelPath = if (actualUseAssets) {
+                copyAssetToCache(context, "$modelDir/${CtcOcrModelManager.MODEL_FILE}")
             } else {
-                "$modelDir/model.onnx"
+                File(context.filesDir, "$modelDir/${CtcOcrModelManager.MODEL_FILE}").absolutePath
             }
             session = ortEnv!!.createSession(modelPath, sessionOptions)
             LogCollector.d(TAG, "模型加载完成")
 
-            tokenizer = CtcOcrTokenizer(context).apply { loadFromAssets(modelDir) }
+            tokenizer = CtcOcrTokenizer(context).apply {
+                // 同样检查 tokenizer 文件位置
+                val vocabFile = File(context.filesDir, "$modelDir/${CtcOcrModelManager.ALPHABET_FILE}")
+                if (vocabFile.exists()) {
+                    loadFromFile(vocabFile)
+                } else {
+                    loadFromAssets(modelDir)
+                }
+            }
             LogCollector.d(TAG, "Tokenizer 加载完成, 字典大小=${tokenizer!!.getDictionarySize()}")
 
             isInitialized = true

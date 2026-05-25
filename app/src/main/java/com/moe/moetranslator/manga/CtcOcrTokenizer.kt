@@ -2,6 +2,7 @@ package com.moe.moetranslator.manga
 
 import android.content.Context
 import com.moe.moetranslator.utils.LogCollector
+import java.io.File
 
 /**
  * 48px_ctc OCR 的字典和 CTC 贪心解码器
@@ -36,6 +37,17 @@ class CtcOcrTokenizer(private val context: Context) {
         if (!loaded) {
             dictionary = emptyList()
             LogCollector.e(TAG, "无法加载字典文件")
+        }
+    }
+
+    fun loadFromFile(file: File) {
+        try {
+            val text = file.readText(Charsets.UTF_8)
+            dictionary = text.lines().filter { it.isNotEmpty() }
+            LogCollector.d(TAG, "字典文件加载完成: ${dictionary.size} 个字符, file=${file.absolutePath}")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "从文件加载字典失败: ${file.absolutePath}", e)
+            dictionary = emptyList()
         }
     }
 
