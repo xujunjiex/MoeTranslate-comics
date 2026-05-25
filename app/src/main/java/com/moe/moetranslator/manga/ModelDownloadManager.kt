@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
@@ -51,37 +52,39 @@ object ModelDownloadManager {
         try {
             LogCollector.d(TAG, "开始下载: $url")
 
+            // 清理旧的临时文件和残留
+            val tempFile = File(destFile.parent, destFile.name + ".part")
+            if (tempFile.exists()) {
+                tempFile.delete()
+                LogCollector.d(TAG, "已清理旧的临时文件")
+            }
+
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.connectTimeout = 15000
-            connection.readTimeout = 30000
+            connection.readTimeout = 60000  // 增加超时
             connection.requestMethod = "GET"
-
-            // 支持断点续传
-            val existingSize = if (destFile.exists()) destFile.length() else 0L
-            if (existingSize > 0) {
-                connection.setRequestProperty("Range", "bytes=$existingSize-")
-            }
+            connection.setRequestProperty("Accept-Encoding", "identity")  // 禁用压缩，避免 Content-Length 不准
 
             val responseCode = connection.responseCode
             val totalBytes = connection.contentLengthLong
+            LogCollector.d(TAG, "HTTP $responseCode, Content-Length: $totalBytes")
 
-            if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
+            if (responseCode != HttpURLConnection.HTTP_OK) {
                 return@withContext Result.failure(Exception("HTTP $responseCode"))
             }
 
-            // 创建临时文件
-            val tempFile = File(destFile.parent, destFile.name + ".part")
-
             connection.inputStream.use { inputStream ->
-                tempFile.outputStream().buffered().use { outputStream ->
-                    var bytesRead = existingSize
+                FileOutputStream(tempFile).buffered().use { outputStream ->
+                    var bytesRead = 0L
                     val buffer = ByteArray(8192)
-                    var read: Int
                     var lastUpdateTime = System.currentTimeMillis()
-                    var lastBytesRead = existingSize
+                    var lastBytesRead = 0L
                     var speed = 0f
 
-                    while (inputStream.read(buffer).also { read = it } != -1) {
+                    while (true) {
+                        val read = inputStream.read(buffer)
+                        if (read == -1) break
+
                         outputStream.write(buffer, 0, read)
                         bytesRead += read
 
@@ -89,7 +92,7 @@ object ModelDownloadManager {
                         val elapsed = currentTime - lastUpdateTime
                         if (elapsed >= SPEED_UPDATE_INTERVAL) {
                             val bytesDelta = bytesRead - lastBytesRead
-                            speed = (bytesDelta.toFloat() / elapsed) * 1000f / (1024f * 1024f)  // MB/s
+                            speed = (bytesDelta.toFloat() / elapsed) * 1000f / (1024f * 1024f)
                             lastUpdateTime = currentTime
                             lastBytesRead = bytesRead
                         }
@@ -99,10 +102,12 @@ object ModelDownloadManager {
                 }
             }
 
-            // 移动到目标位置（使用原子移动，跨文件系统边界也能工作）
-            Files.move(tempFile.toPath(), destFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
-
             connection.disconnect()
+
+            // 验证并移动到目标位置
+            if (!tempFile.renameTo(destFile)) {
+                Files.move(tempFile.toPath(), destFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            }
 
             // 校验 hash
             if (sha256Hash.isNotEmpty()) {
@@ -117,6 +122,11 @@ object ModelDownloadManager {
             Result.success(Unit)
         } catch (e: Exception) {
             LogCollector.e(TAG, "下载失败", e)
+            // 清理临时文件
+            val tempFile = File(destFile.parent, destFile.name + ".part")
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
             Result.failure(e)
         }
     }
