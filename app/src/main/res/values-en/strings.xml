@@ -500,4 +500,6 @@
     <string name="model_download_speed">Speed: %.1f MB/s</string>
     <string name="model_missing_hint">Model not downloaded. Go to Settings > Model Management to download.</string>
     <string name="model_built_in">Built-in</string>
+    <string name="detector_tip">Detector identifies text regions in images</string>
+    <string name="recognizer_tip">Recognizer converts images to text</string>
 </resources>
