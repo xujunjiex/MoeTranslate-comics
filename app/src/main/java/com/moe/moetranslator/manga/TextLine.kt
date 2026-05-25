@@ -30,12 +30,22 @@ fun TextBlockInfo.toTextLine(config: MangaModeConfig): TextLine? {
     val h = box.height().toFloat()
     if (w <= 0 || h <= 0) return null
 
-    val direction = if (h > w) {
-        // 高 > 宽 → 竖排，根据用户配置选择 LR 或 RL
-        if (config.textDirection == TextDirection.VERTICAL_LR) TextDirection.VERTICAL_LR
-        else TextDirection.VERTICAL_RL
+    val direction = if (isVertical != null) {
+        // Use the passed isVertical from CTD detection
+        if (isVertical) {
+            if (config.textDirection == TextDirection.VERTICAL_LR) TextDirection.VERTICAL_LR
+            else TextDirection.VERTICAL_RL
+        } else {
+            TextDirection.HORIZONTAL
+        }
     } else {
-        TextDirection.HORIZONTAL
+        // Fallback: use AABB aspect ratio
+        if (h > w) {
+            if (config.textDirection == TextDirection.VERTICAL_LR) TextDirection.VERTICAL_LR
+            else TextDirection.VERTICAL_RL
+        } else {
+            TextDirection.HORIZONTAL
+        }
     }
 
     // fontSize = 垂直于文字排列方向的维度（即字符大小）
