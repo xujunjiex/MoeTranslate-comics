@@ -93,6 +93,15 @@ class AboutMe : Fragment() {
                 startActivity(intent)
             }
         }
+        binding.modelManagementBtn.setOnClickListener {
+            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
+                showToast(getString(R.string.still_running))
+            } else {
+                val intent = Intent(requireContext(), SettingPageActivity::class.java)
+                intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_MODEL_MANAGEMENT)
+                startActivity(intent)
+            }
+        }
         binding.readBtn.setOnClickListener {
             val intent = Intent(requireContext(), SettingPageActivity::class.java)
             intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_READ)
