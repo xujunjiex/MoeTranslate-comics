@@ -22,7 +22,7 @@ object CtcOcrModelManager {
     const val MODEL_FILE = "model.onnx"
     const val ALPHABET_FILE = "alphabet-all-v5.txt"
 
-    private const val DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip"
+    private const val DOWNLOAD_URL = "https://mirror.ghproxy.com/https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip"
     private const val HASH = "fc61c52f7a811bc72c54f6be85df814c6b60f63585175db27cb94a08e0c30101"
 
     /**
