@@ -19,9 +19,24 @@ class CtcOcrTokenizer(private val context: Context) {
     private lateinit var dictionary: List<String>
 
     fun loadFromAssets(assetDir: String = "ocr_ctc") {
-        val text = loadAssetText("$assetDir/alphabet.txt")
-        dictionary = text.lines().filter { it.isNotEmpty() }
-        LogCollector.d(TAG, "字典加载完成: ${dictionary.size} 个字符")
+        // 尝试多个可能的文件名
+        val possibleNames = listOf("alphabet-all-v5.txt", "alphabet.txt")
+        var loaded = false
+        for (fileName in possibleNames) {
+            try {
+                val text = loadAssetText("$assetDir/$fileName")
+                dictionary = text.lines().filter { it.isNotEmpty() }
+                LogCollector.d(TAG, "字典加载完成: ${dictionary.size} 个字符, file=$fileName")
+                loaded = true
+                break
+            } catch (e: Exception) {
+                LogCollector.d(TAG, "尝试加载 $fileName 失败: ${e.message}")
+            }
+        }
+        if (!loaded) {
+            dictionary = emptyList()
+            LogCollector.e(TAG, "无法加载字典文件")
+        }
     }
 
     /**
