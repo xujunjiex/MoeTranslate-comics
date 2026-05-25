@@ -424,6 +424,20 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun initCTCOcrIfNeeded() {
         if (CtcOcrRecognizer.isInitialized) return
+
+        // 检查模型是否已下载
+        if (!CtcOcrModelManager.isModelDownloaded(this)) {
+            // 模型未下载，显示下载对话框
+            val downloaded = showCTCOcrDownloadDialog()
+            if (!downloaded) {
+                // 用户取消下载
+                withContext(Dispatchers.Main) {
+                    showToast("48px_ctc 模型下载已取消")
+                }
+                throw RuntimeException("CTCOcr model download cancelled")
+            }
+        }
+
         try {
             LogCollector.d(TAG, "initCTCOcrIfNeeded: 开始初始化 48px_ctc")
             withContext(Dispatchers.IO) {
@@ -437,6 +451,61 @@ class MangaFloatingService : LifecycleService() {
             }
             throw e
         }
+    }
+
+    /**
+     * 显示 CTCOcr 模型下载进度对话框
+     * @return true 下载成功（包括已下载），false 用户取消
+     */
+    private suspend fun showCTCOcrDownloadDialog(): Boolean = withContext(Dispatchers.Main) {
+        val progressDialog = android.app.AlertDialog.Builder(this@MangaFloatingService)
+            .setTitle(getString(R.string.manga_ocr_ctc_download_title))
+            .setMessage(getString(R.string.manga_ocr_ctc_download_progress, 0))
+            .setCancelable(false)
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+                // 下载会被 cancellation exception 中断
+            }
+            .create()
+
+        progressDialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        progressDialog.show()
+
+        var downloadResult: Boolean = false
+        try {
+            val result = CtcOcrModelManager.downloadModel(
+                context = this@MangaFloatingService,
+                onProgress = object : ModelDownloadManager.ProgressCallback {
+                    override fun onProgress(bytesRead: Long, totalBytes: Long) {
+                        val progress = if (totalBytes > 0) {
+                            (bytesRead * 100 / totalBytes).toInt()
+                        } else {
+                            -1
+                        }
+                        handler.post {
+                            if (progress >= 0) {
+                                progressDialog.setMessage(
+                                    getString(R.string.manga_ocr_ctc_download_progress, progress)
+                                )
+                            } else {
+                                val mbRead = bytesRead / (1024 * 1024)
+                                progressDialog.setMessage(
+                                    getString(R.string.manga_ocr_ctc_download_progress_mb, mbRead)
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+            downloadResult = result.isSuccess
+        } catch (e: Exception) {
+            // 下载被取消或失败
+            LogCollector.e(TAG, "CTCOcr download failed", e)
+            downloadResult = false
+        } finally {
+            progressDialog.dismiss()
+        }
+        downloadResult
     }
 
     private fun loadConfig(): MangaModeConfig {
