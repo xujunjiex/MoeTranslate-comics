@@ -291,13 +291,14 @@ object DetectionBridge {
                 return emptyList()
             }
             LogCollector.d(TAG, "CTD(简化) 检测到 ${rects.size} 个文字区域")
-            for ((idx, rect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
+            for ((idx, detectedRect) in rects.withIndex()) {
+                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}]")
             }
 
             // Step 2: 扩展宽度（1.5x），让独立框有足够间隙后再合并
             val PRE_EXPAND = 1.5f
-            val preExpandedRects = rects.map { rect ->
+            val preExpandedRects = rects.map { detectedRect ->
+                val rect = detectedRect.rect
                 val cx = (rect.left + rect.right) / 2f
                 val ew = rect.width() * PRE_EXPAND
                 Rect(

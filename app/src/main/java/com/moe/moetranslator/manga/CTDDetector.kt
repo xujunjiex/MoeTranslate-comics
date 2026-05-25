@@ -21,6 +21,11 @@ import kotlin.math.max
  * 输出: blks + mask [1, 1, H, W] + lines_map [1, 2, H, W]
  * 后处理: SegDetectorRepresenter（与 DBNet 相同）
  */
+data class DetectedRect(
+    val rect: Rect,
+    val isVertical: Boolean  // 原始检测框的方向
+)
+
 object CTDDetector {
 
     private const val TAG = "CTDDetector"
@@ -111,12 +116,31 @@ object CTDDetector {
     }
 
     /**
-     * 简化版检测：阈值化 → BFS 连通域 → AABB → 缩放到原图坐标
-     * 只返回 List<Rect>，不做 unclip、旋转、四边形处理
-     *
-     * @return AABB 矩形列表（已缩放到原图坐标）
+     * 从轮廓点判断是否竖排
      */
-    fun detectRectsSimple(bitmap: Bitmap): List<Rect> {
+    private fun isVerticalFromContour(contour: List<Point64>): Boolean {
+        if (contour.size < 4) {
+            return false // 需要至少4个点才能形成四边形
+        }
+        // 简化为用AABB的宽高比判断
+        val minX = contour.minOf { it.x }
+        val maxX = contour.maxOf { it.x }
+        val minY = contour.minOf { it.y }
+        val maxY = contour.maxOf { it.y }
+
+        val w = (maxX - minX).toFloat()
+        val h = (maxY - minY).toFloat()
+        if (w <= 0 || h <= 0) return false
+        return h > w
+    }
+
+    /**
+     * 简化版检测：阈值化 → BFS 连通域 → AABB → 缩放到原图坐标
+     * 只返回 List<DetectedRect>，不做 unclip、旋转、四边形处理
+     *
+     * @return AABB 矩形列表（已缩放到原图坐标），包含方向信息
+     */
+    fun detectRectsSimple(bitmap: Bitmap): List<DetectedRect> {
         if (!isInitialized) {
             throw IllegalStateException("CTDDetector 未初始化")
         }
@@ -143,7 +167,7 @@ object CTDDetector {
             val maxArea = (origWidth * origHeight * MAX_AREA_RATIO).toInt()
 
             // 4. 对每个连通域计算 AABB 并缩放到原图坐标
-            val rects = mutableListOf<Rect>()
+            val rects = mutableListOf<DetectedRect>()
             for (contour in contours) {
                 val minX = contour.minOf { it.x }
                 val maxX = contour.maxOf { it.x }
@@ -162,9 +186,10 @@ object CTDDetector {
                 // 过滤超大 AABB：宽度占原图 > 80% 或面积超限
                 val widthRatio = aabb.width().toFloat() / origWidth
                 val isTooWide = widthRatio > 0.8f
+                val isVertical = isVerticalFromContour(contour)
                 if (area >= MIN_AREA && area <= maxArea && !isTooWide) {
-                    rects.add(aabb)
-                    LogCollector.d(TAG, "detectRectsSimple: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}](${aabb.width()}x${aabb.height()}), 面积=$area")
+                    rects.add(DetectedRect(aabb, isVertical))
+                    LogCollector.d(TAG, "detectRectsSimple: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}](${aabb.width()}x${aabb.height()}), 面积=$area, isVertical=$isVertical")
                 } else {
                     val reason = when {
                         area < MIN_AREA -> "面积太小"
@@ -172,7 +197,7 @@ object CTDDetector {
                         isTooWide -> "宽度占比太大(${String.format("%.1f", widthRatio * 100)}%)"
                         else -> "未知"
                     }
-                    LogCollector.d(TAG, "detectRectsSimple: 过滤 AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}](${aabb.width()}x${aabb.height()}), 面积=$area, maxArea=$maxArea, reason=$reason")
+                    LogCollector.d(TAG, "detectRectsSimple: 过滤 AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}](${aabb.width()}x${aabb.height()}), 面积=$area, maxArea=$maxArea, isVertical=$isVertical, reason=$reason")
                 }
             }
 
