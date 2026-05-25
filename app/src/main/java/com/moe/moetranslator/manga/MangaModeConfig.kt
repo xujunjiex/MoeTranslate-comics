@@ -1,5 +1,18 @@
 package com.moe.moetranslator.manga
 
+/**
+ * OCR 引擎类型
+ */
+enum class OcrEngine(val value: Int) {
+    MLKit(0),      // 系统 OCR（默认，无需下载）
+    MangaOcr(1),   // manga-ocr（日文，慢）
+    CTCOcr(2);     // 48px_ctc（多语言，快，需下载）
+
+    companion object {
+        fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKit
+    }
+}
+
 enum class TextDirection {
     VERTICAL_RL,   // 从上到下，列从右到左（传统日漫）
     VERTICAL_LR,   // 从上到下，列从左到右
@@ -33,6 +46,6 @@ data class MangaModeConfig(
     val targetLang: String = "zh",
     val textColor: Int = android.graphics.Color.BLACK,
     val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255),
-    val useMangaOcr: Boolean = false,      // 是否使用 manga-ocr（默认关闭）
+    val ocrEngine: OcrEngine = OcrEngine.MLKit,  // OCR 引擎
     val detEngine: DetEngine = DetEngine.MLKIT  // 检测引擎
 )
