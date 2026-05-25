@@ -26,7 +26,8 @@ object DetectionBridge {
      */
     enum class CTDOCREngine {
         MLKit,
-        MangaOcr
+        MangaOcr,
+        CTCOcr
     }
 
     /**
@@ -265,6 +266,24 @@ object DetectionBridge {
                             LogCollector.d(TAG, "CTD(MangaOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
                         } else if (isDotOnlyPattern(text)) {
                             LogCollector.d(TAG, "CTD(MangaOcr) 过滤纯符号[$i]: '$text'")
+                        }
+                    }
+                }
+                CTDOCREngine.CTCOcr -> {
+                    val texts = CtcOcrRecognizer.recognizeBatch(croppedBitmaps)
+                    for (i in expandedRects.indices) {
+                        val text = texts[i].trim()
+                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                            val rect = expandedRects[i]
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = rect,
+                                cornerPoints = null,
+                                isVertical = globalIsVertical
+                            ))
+                            LogCollector.d(TAG, "CTD(CTCOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
+                        } else if (isDotOnlyPattern(text)) {
+                            LogCollector.d(TAG, "CTD(CTCOcr) 过滤纯符号[$i]: '$text'")
                         }
                     }
                 }
@@ -557,8 +576,8 @@ object DetectionBridge {
         val gap = calculateGap(a.rect, b.rect)
 
         val discardConnectionGap = 0f  // 调用时传 0
-        val charGapTolerance = 0.6f
-        val charGapTolerance2 = 3f  // 官方调用用 3
+        val charGapTolerance = 1.0f  // 官方 merge 实际调用传 1
+        val charGapTolerance2 = 3.0f  // 官方 merge 实际调用传 3
 
         if (aIsAxisAligned && bIsAxisAligned) {
             if (gap < charSize * charGapTolerance) {
