@@ -205,17 +205,20 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 5: final-expand (2x)，确保最小宽度 >= 32px（ML Kit 要求）
+            // Step 5: final-expand (2x)，确保最小宽度 >= 32px、最小高度 >= 16px（ML Kit 要求）
             val FINAL_EXPAND = 2.0f
-            val MIN_WIDTH = 32  // ML Kit 最小要求
+            val MIN_WIDTH = 32  // ML Kit 最小宽度要求
+            val MIN_HEIGHT = 16  // ML Kit 最小高度要求
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
+                val cy = (rect.top + rect.bottom) / 2f
                 val ew = maxOf(rect.width() * FINAL_EXPAND, MIN_WIDTH.toFloat())
+                val eh = maxOf(rect.height() * FINAL_EXPAND, MIN_HEIGHT.toFloat())
                 Rect(
                     (cx - ew / 2).toInt().coerceAtLeast(0),
-                    rect.top,
+                    (cy - eh / 2).toInt().coerceAtLeast(0),
                     (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    rect.bottom
+                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
                 )
             }
 
@@ -426,7 +429,7 @@ object DetectionBridge {
         var currentRow = mutableListOf<Rect>()
         var currentRowBottom = sorted[0].bottom
 
-        val Y_GAP_THRESHOLD = 30 // Y 间隙超过 30px 视为不同行
+        val Y_GAP_THRESHOLD = 20 // Y 间隙超过 20px 视为不同行
 
         for (rect in sorted) {
             val gap = rect.top - currentRowBottom
