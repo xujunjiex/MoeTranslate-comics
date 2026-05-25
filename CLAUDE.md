@@ -72,6 +72,12 @@ MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11
 - `detectWithCTD` — CTD 检测 + ML Kit/manga-ocr 识别，保留旋转四边形信息，对漫画竖排文字更精确
 - `detectWithMLKit` — ML Kit 检测+识别，一体化，返回轴对齐矩形，稳健但丢失旋转角度
 
+### CTD 检测特点
+- `detectQuadBoxes` 返回旋转四边形（含 font_size、angle），用于精确 merge
+- `canMergeWithDynamicThreshold` 对齐 manga-image-translator 过滤器模式
+- 使用 QuadBox 结构线计算真实 font_size，而非 AABB 代理
+- CTD 模型位于 `ctd/` 目录，需单独下载
+
 **翻译流程：** 截图 → OCR（ML Kit 带位置信息）→ 气泡检测（聚类文字块）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
 
 **关键类型：**
