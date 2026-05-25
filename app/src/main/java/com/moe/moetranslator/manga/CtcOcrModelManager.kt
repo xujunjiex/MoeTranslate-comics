@@ -62,9 +62,18 @@ object CtcOcrModelManager {
     }
 
     /**
+     * 检查模型是否在 filesDir（用户下载的，可删除）
+     */
+    fun isModelInFilesDir(context: Context): Boolean {
+        val modelFile = getModelFile(context)
+        val alphabetFile = getAlphabetFile(context)
+        return modelFile.exists() && alphabetFile.exists()
+    }
+
+    /**
      * 检查 assets 中是否有模型文件
      */
-    private fun isModelInAssets(context: Context): Boolean {
+    fun isModelInAssets(context: Context): Boolean {
         return try {
             context.assets.open("$MODEL_DIR/$MODEL_FILE").use { }
             context.assets.open("$MODEL_DIR/$ALPHABET_FILE").use { }

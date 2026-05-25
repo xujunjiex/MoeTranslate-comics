@@ -74,34 +74,54 @@ class ModelManagementFragment : Fragment() {
         val ctcProgress = rootView.findViewById<ProgressBar>(R.id.ctc_download_progress)
         val ctcSpeed = rootView.findViewById<TextView>(R.id.ctc_speed_text)
 
-        val isDownloaded = CtcOcrModelManager.isModelDownloaded(requireContext())
-        if (isDownloaded) {
-            ctcStatus.text = getString(R.string.model_downloaded)
-            ctcSize.text = CtcOcrModelManager.getModelSizeString(requireContext())
-            ctcDownloadBtn.visibility = View.GONE
-            ctcDeleteBtn.visibility = View.VISIBLE
-            ctcCancelBtn.visibility = View.GONE
-            ctcProgress.visibility = View.GONE
-            ctcProgress.progress = 0
-            ctcSpeed.visibility = View.GONE
-        } else if (isDownloading) {
-            // 下载中
-            ctcStatus.text = getString(R.string.model_downloading)
-            ctcSize.text = ""
-            ctcDownloadBtn.visibility = View.GONE
-            ctcDeleteBtn.visibility = View.GONE
-            ctcCancelBtn.visibility = View.VISIBLE
-            ctcProgress.visibility = View.VISIBLE
-            ctcSpeed.visibility = View.VISIBLE
-        } else {
-            ctcStatus.text = getString(R.string.model_not_downloaded)
-            ctcSize.text = "144 MB"
-            ctcDownloadBtn.visibility = View.VISIBLE
-            ctcDeleteBtn.visibility = View.GONE
-            ctcCancelBtn.visibility = View.GONE
-            ctcProgress.visibility = View.GONE
-            ctcProgress.progress = 0
-            ctcSpeed.visibility = View.GONE
+        val isInFilesDir = CtcOcrModelManager.isModelInFilesDir(requireContext())
+        val isInAssets = CtcOcrModelManager.isModelInAssets(requireContext())
+        val isAvailable = isInFilesDir || isInAssets
+
+        when {
+            isDownloading -> {
+                // 下载中
+                ctcStatus.text = getString(R.string.model_downloading)
+                ctcSize.text = ""
+                ctcDownloadBtn.visibility = View.GONE
+                ctcDeleteBtn.visibility = View.GONE
+                ctcCancelBtn.visibility = View.VISIBLE
+                ctcProgress.visibility = View.VISIBLE
+                ctcSpeed.visibility = View.VISIBLE
+            }
+            isInFilesDir -> {
+                // 用户下载的模型
+                ctcStatus.text = getString(R.string.model_downloaded)
+                ctcSize.text = CtcOcrModelManager.getModelSizeString(requireContext())
+                ctcDownloadBtn.visibility = View.GONE
+                ctcDeleteBtn.visibility = View.VISIBLE
+                ctcCancelBtn.visibility = View.GONE
+                ctcProgress.visibility = View.GONE
+                ctcProgress.progress = 0
+                ctcSpeed.visibility = View.GONE
+            }
+            isInAssets -> {
+                // 内置模型（assets），不能删除
+                ctcStatus.text = getString(R.string.model_built_in)
+                ctcSize.text = "169 MB"
+                ctcDownloadBtn.visibility = View.GONE
+                ctcDeleteBtn.visibility = View.GONE
+                ctcCancelBtn.visibility = View.GONE
+                ctcProgress.visibility = View.GONE
+                ctcProgress.progress = 0
+                ctcSpeed.visibility = View.GONE
+            }
+            else -> {
+                // 未下载
+                ctcStatus.text = getString(R.string.model_not_downloaded)
+                ctcSize.text = "144 MB"
+                ctcDownloadBtn.visibility = View.VISIBLE
+                ctcDeleteBtn.visibility = View.GONE
+                ctcCancelBtn.visibility = View.GONE
+                ctcProgress.visibility = View.GONE
+                ctcProgress.progress = 0
+                ctcSpeed.visibility = View.GONE
+            }
         }
     }
 

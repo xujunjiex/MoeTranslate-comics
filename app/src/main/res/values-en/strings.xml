@@ -499,4 +499,5 @@
     <string name="model_delete_failed">Delete failed</string>
     <string name="model_download_speed">Speed: %.1f MB/s</string>
     <string name="model_missing_hint">Model not downloaded. Go to Settings > Model Management to download.</string>
+    <string name="model_built_in">Built-in</string>
 </resources>
