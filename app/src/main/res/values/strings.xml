@@ -494,4 +494,22 @@
     <string name="log_export">Export</string>
     <string name="log_exported">Logs exported to: %s</string>
     <string name="log_export_failed">Export failed: %s</string>
+    <!-- 模型管理 -->
+    <string name="model_management">Model Management</string>
+    <string name="model_management_tip">Manage downloaded recognition models</string>
+    <string name="detector_section">Detector</string>
+    <string name="detector_ctd_desc">CTD Detector - Embedded in app</string>
+    <string name="detector_dbnet_desc">DBNet Detector - Embedded in app</string>
+    <string name="recognizer_section">Recognizer</string>
+    <string name="recognizer_ctc_desc">48px CTC Recognizer - Multilingual fast OCR, requires download</string>
+    <string name="recognizer_mlkit_desc">MLKit - Built-in system OCR</string>
+    <string name="recognizer_manga_desc">manga-ocr - Japanese OCR, embedded in app</string>
+    <string name="model_download">Download</string>
+    <string name="model_delete">Delete</string>
+    <string name="model_downloaded">Downloaded</string>
+    <string name="model_not_downloaded">Not downloaded</string>
+    <string name="model_download_speed">Speed: %.1f MB/s</string>
+    <string name="model_delete_confirm">Delete %s model?</string>
+    <string name="model_delete_success">Model deleted</string>
+    <string name="model_missing_hint">Model not downloaded. Go to Settings > Model Management to download.</string>
 </resources>
