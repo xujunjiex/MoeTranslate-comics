@@ -201,20 +201,16 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 5: final-expand (2x)，确保最小宽度 >= 32px、最小高度 >= 16px（ML Kit 要求）
+            // Step 5: final-expand (2x)，只扩展宽度不扩展高度（对齐 manga-ocr 流程）
             val FINAL_EXPAND = 2.0f
-            val MIN_WIDTH = 32  // ML Kit 最小宽度要求
-            val MIN_HEIGHT = 16  // ML Kit 最小高度要求
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
-                val cy = (rect.top + rect.bottom) / 2f
-                val ew = maxOf(rect.width() * FINAL_EXPAND, MIN_WIDTH.toFloat())
-                val eh = maxOf(rect.height() * FINAL_EXPAND, MIN_HEIGHT.toFloat())
+                val ew = rect.width() * FINAL_EXPAND
                 Rect(
                     (cx - ew / 2).toInt().coerceAtLeast(0),
-                    (cy - eh / 2).toInt().coerceAtLeast(0),
+                    rect.top,
                     (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
+                    rect.bottom
                 )
             }
 
