@@ -15,7 +15,8 @@ import kotlin.coroutines.resumeWithException
 data class TextBlockInfo(
     val text: String,
     val boundingBox: Rect?,
-    val cornerPoints: Array<android.graphics.Point>?
+    val cornerPoints: Array<android.graphics.Point>?,
+    val isVertical: Boolean? = null  // 新增: 竖排=true, 横排=false, null=从config推断
 )
 
 object OCRBridge {
