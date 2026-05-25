@@ -47,12 +47,31 @@ object CtcOcrModelManager {
     }
 
     /**
-     * 检查模型是否已下载
+     * 检查模型是否可用
+     * 优先检查 filesDir（用户下载的），没有则检查 assets（内置的）
      */
     fun isModelDownloaded(context: Context): Boolean {
+        // 先检查 filesDir（用户下载的）
         val modelFile = getModelFile(context)
         val alphabetFile = getAlphabetFile(context)
-        return modelFile.exists() && alphabetFile.exists()
+        if (modelFile.exists() && alphabetFile.exists()) {
+            return true
+        }
+        // 再检查 assets（内置的）
+        return isModelInAssets(context)
+    }
+
+    /**
+     * 检查 assets 中是否有模型文件
+     */
+    private fun isModelInAssets(context: Context): Boolean {
+        return try {
+            context.assets.open("$MODEL_DIR/$MODEL_FILE").use { }
+            context.assets.open("$MODEL_DIR/$ALPHABET_FILE").use { }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**
