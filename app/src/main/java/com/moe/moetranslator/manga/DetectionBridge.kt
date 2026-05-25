@@ -5,6 +5,7 @@ import android.graphics.Rect
 import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.utils.LogCollector
+import kotlin.math.abs
 
 /**
  * 统一检测桥接层。
@@ -497,6 +498,71 @@ object DetectionBridge {
     }
 
     /**
+     * 合并后的矩形及其属性
+     */
+    private data class MergedBox(
+        val rect: Rect,
+        val isVertical: Boolean
+    )
+
+    /**
+     * 动态判断两个矩形是否可以合并（过滤器模式）
+     *
+     * 对齐 manga-image-translator quadrilateral_can_merge_region:
+     * - gap 阈值 = discard_connection_gap * char_size
+     * - char_size = min(字高A, 字高B)
+     * - 竖排用 X gap，横排用 Y gap
+     * - 额外检查边对齐（char_gap_tolerance2=1.5）
+     */
+    private fun canMergeWithDynamicThreshold(
+        a: Rect, b: Rect,
+        isVerticalA: Boolean, isVerticalB: Boolean
+    ): Boolean {
+        // 1. 横竖排不合并
+        if (isVerticalA != isVerticalB) {
+            return false
+        }
+
+        // 2. 字高代理：竖排用 width，横排用 height
+        val fontSizeA = if (isVerticalA) a.width().toFloat() else a.height().toFloat()
+        val fontSizeB = if (isVerticalB) b.width().toFloat() else b.height().toFloat()
+        val charSize = minOf(fontSizeA, fontSizeB)
+
+        // 3. 字高比例检查（fontSizeRatioTol = 1.5）
+        val fontSizeRatioTol = 1.5f
+        if (maxOf(fontSizeA, fontSizeB) / charSize > fontSizeRatioTol) {
+            return false
+        }
+
+        val discardGap = 2 * charSize      // discard_connection_gap = 2
+        val charGapTol2 = 1.5 * charSize   // char_gap_tolerance2 = 1.5（边对齐）
+
+        return if (isVerticalA) {
+            // 竖排：检查 X gap + Y 边对齐
+            val gapX = minOf(
+                abs(a.left - b.right),  // a 在 b 左边
+                abs(b.left - a.right)   // b 在 a 左边
+            )
+            if (gapX > discardGap) return false
+            // Y 边对齐检查
+            val yAligned = abs(a.top - b.top) < charGapTol2 ||
+                           abs(a.bottom - b.bottom) < charGapTol2
+            yAligned
+        } else {
+            // 横排：检查 Y gap + X 边对齐
+            val gapY = minOf(
+                abs(a.top - b.bottom),  // a 在 b 上方
+                abs(b.top - a.bottom)   // b 在 a 上方
+            )
+            if (gapY > discardGap) return false
+            // X 边对齐检查
+            val xAligned = abs(a.left - b.left) < charGapTol2 ||
+                           abs(a.right - b.right) < charGapTol2
+            xAligned
+        }
+    }
+
+    /**
      * 按 Y 分组，组内按 X 合并相邻框
      * 使用基于字高的动态阈值（对齐 manga-image-translator）
      *
@@ -506,75 +572,40 @@ object DetectionBridge {
         if (rects.isEmpty()) return emptyList()
         if (rects.size == 1) return listOf(rects[0].rect)
 
-        val sorted = rects.sortedBy { it.rect.top }
-        val rows = mutableListOf<MutableList<DetectedRect>>()
-        var currentRow = mutableListOf<DetectedRect>()
-        var currentRowBottom = sorted[0].rect.bottom
-        // 字高代理：竖排用 width（字宽），横排用 height（字高）
-        var currentCharSize = if (sorted[0].isVertical) {
-            sorted[0].rect.width().toFloat()
-        } else {
-            sorted[0].rect.height().toFloat()
-        }
+        // 按 Y 排序（从上到下）
+        val sortedRects = rects.sortedBy { it.rect.top }
+        val result = mutableListOf<MergedBox>()
 
-        for (detected in sorted) {
-            val rect = detected.rect
-            val charSize = if (detected.isVertical) {
-                rect.width().toFloat()
-            } else {
-                rect.height().toFloat()
-            }
-            val gap = rect.top - currentRowBottom
+        for (current in sortedRects) {
+            var mergedRect: Rect = current.rect
+            var merged = false
+            val currentIsVertical = current.isVertical
 
-            // Dynamic Y gap threshold: 2 * char size (discard_connection_gap = 2)
-            val dynamicGapThreshold = 2 * currentCharSize
-
-            if (gap > 0 && gap <= dynamicGapThreshold) {
-                currentRow.add(detected)
-                currentRowBottom = maxOf(currentRowBottom, rect.bottom)
-                currentCharSize = (currentCharSize + charSize) / 2  // running average
-            } else {
-                if (currentRow.isNotEmpty()) rows.add(currentRow)
-                currentRow = mutableListOf(detected)
-                currentRowBottom = rect.bottom
-                currentCharSize = charSize
-            }
-        }
-        if (currentRow.isNotEmpty()) rows.add(currentRow)
-
-        // Within each row, merge by X proximity with dynamic threshold
-        val result = mutableListOf<Rect>()
-        for (row in rows) {
-            val sortedRow = row.sortedBy { it.rect.left }
-            var merged: Rect? = null
-            var mergedIsVertical: Boolean? = null
-            for (detected in sortedRow) {
-                val rect = detected.rect
-                if (merged == null) {
-                    merged = rect
-                    mergedIsVertical = detected.isVertical
-                } else {
-                    val gap = rect.left - merged.right
-                    // 动态 X gap：竖排用 width，横排用 height
-                    val charSizeA = if (detected.isVertical) rect.width().toFloat() else rect.height().toFloat()
-                    val charSizeB = if (mergedIsVertical == true) merged.width().toFloat() else merged.height().toFloat()
-                    val dynamicXGap = 2 * minOf(charSizeA, charSizeB)
-                    if (gap <= dynamicXGap) {
-                        merged = Rect(
-                            merged.left,
-                            minOf(merged.top, rect.top),
-                            maxOf(merged.right, rect.right),
-                            maxOf(merged.bottom, rect.bottom)
-                        )
-                    } else {
-                        result.add(merged)
-                        merged = rect
-                        mergedIsVertical = detected.isVertical
-                    }
+            // 检查是否能和之前已合并的结果合并
+            for (i in result.indices) {
+                val existing = result[i]
+                if (canMergeWithDynamicThreshold(
+                        mergedRect, existing.rect,
+                        currentIsVertical, existing.isVertical
+                    )) {
+                    // 合并到 existing
+                    mergedRect = Rect(
+                        minOf(mergedRect.left, existing.rect.left),
+                        minOf(mergedRect.top, existing.rect.top),
+                        maxOf(mergedRect.right, existing.rect.right),
+                        maxOf(mergedRect.bottom, existing.rect.bottom)
+                    )
+                    result[i] = MergedBox(mergedRect, existing.isVertical)
+                    merged = true
+                    break
                 }
             }
-            if (merged != null) result.add(merged)
+
+            if (!merged) {
+                result.add(MergedBox(mergedRect, currentIsVertical))
+            }
         }
-        return result
+
+        return result.map { it.rect }
     }
 }
