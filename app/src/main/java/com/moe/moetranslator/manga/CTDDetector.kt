@@ -4,10 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.clipper.Point64
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.nio.FloatBuffer
+import kotlin.math.max
 
 /**
  * CTD（ComicTextDetector）文字检测器（ONNX Runtime 推理）。
@@ -24,6 +26,9 @@ object CTDDetector {
     private const val TAG = "CTDDetector"
     private const val DETECT_SIZE = 1024  // CTD 输入尺寸
     private const val STRIDE = 64         // CTD stride 对齐
+    private const val TEXT_THRESHOLD = 0.3f
+    private const val MIN_AREA = 100       // 最小 AABB 面积阈值（100px²）
+    private const val MAX_AREA_RATIO = 0.05f // 最大 AABB 面积占原图比例（过滤全图级别的误检，5%）
 
     private var ortEnv: OrtEnvironment? = null
     private var session: OrtSession? = null
@@ -106,6 +111,132 @@ object CTDDetector {
     }
 
     /**
+     * 简化版检测：阈值化 → BFS 连通域 → AABB → 缩放到原图坐标
+     * 只返回 List<Rect>，不做 unclip、旋转、四边形处理
+     *
+     * @return AABB 矩形列表（已缩放到原图坐标）
+     */
+    fun detectRectsSimple(bitmap: Bitmap): List<Rect> {
+        if (!isInitialized) {
+            throw IllegalStateException("CTDDetector 未初始化")
+        }
+
+        try {
+            val origWidth = bitmap.width
+            val origHeight = bitmap.height
+
+            val (linesMap, contentH, contentW) = runInference(bitmap)
+
+            // 1. 阈值化 → 二值图
+            val binary = BooleanArray(contentH * contentW)
+            for (i in linesMap.indices) {
+                binary[i] = linesMap[i] > TEXT_THRESHOLD
+            }
+
+            // 2. BFS 连通域提取
+            val contours = findContoursSimple(binary, contentW, contentH)
+            LogCollector.d(TAG, "detectRectsSimple: 阈值=$TEXT_THRESHOLD, 轮廓数=${contours.size}")
+
+            // 3. 计算缩放比例和最大面积限制
+            val scaleX = origWidth.toFloat() / contentW
+            val scaleY = origHeight.toFloat() / contentH
+            val maxArea = (origWidth * origHeight * MAX_AREA_RATIO).toInt()
+
+            // 4. 对每个连通域计算 AABB 并缩放到原图坐标
+            val rects = mutableListOf<Rect>()
+            for (contour in contours) {
+                val minX = contour.minOf { it.x }
+                val maxX = contour.maxOf { it.x }
+                val minY = contour.minOf { it.y }
+                val maxY = contour.maxOf { it.y }
+
+                val aabb = Rect(
+                    (minX * scaleX).toInt(),
+                    (minY * scaleY).toInt(),
+                    (maxX * scaleX).toInt(),
+                    (maxY * scaleY).toInt()
+                )
+
+                // 过滤太小的 AABB
+                val area = aabb.width() * aabb.height()
+                // 过滤超大 AABB：宽度占原图 > 80% 或面积超限
+                val widthRatio = aabb.width().toFloat() / origWidth
+                val isTooWide = widthRatio > 0.8f
+                if (area >= MIN_AREA && area <= maxArea && !isTooWide) {
+                    rects.add(aabb)
+                    LogCollector.d(TAG, "detectRectsSimple: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}](${aabb.width()}x${aabb.height()}), 面积=$area")
+                } else {
+                    val reason = when {
+                        area < MIN_AREA -> "面积太小"
+                        area > maxArea -> "面积超限"
+                        isTooWide -> "宽度占比太大(${String.format("%.1f", widthRatio * 100)}%)"
+                        else -> "未知"
+                    }
+                    LogCollector.d(TAG, "detectRectsSimple: 过滤 AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}](${aabb.width()}x${aabb.height()}), 面积=$area, maxArea=$maxArea, reason=$reason")
+                }
+            }
+
+            LogCollector.d(TAG, "detectRectsSimple: 检测完成, ${rects.size} 个区域")
+            return rects
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "检测失败", e)
+            throw e
+        }
+    }
+
+    /**
+     * BFS 连通域提取（简化版，用于 detectRectsSimple）
+     */
+    private fun findContoursSimple(
+        binary: BooleanArray,
+        width: Int,
+        height: Int
+    ): List<List<Point64>> {
+        val visited = BooleanArray(binary.size)
+        val contours = mutableListOf<List<Point64>>()
+
+        val dx = intArrayOf(1, 0, -1, 0)
+        val dy = intArrayOf(0, 1, 0, -1)
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val idx = y * width + x
+                if (!binary[idx] || visited[idx]) continue
+
+                val componentPixels = mutableListOf<Point64>()
+                val queue = ArrayDeque<Int>()
+                queue.add(idx)
+                visited[idx] = true
+
+                while (queue.isNotEmpty()) {
+                    val cur = queue.removeFirst()
+                    componentPixels.add(Point64((cur % width).toLong(), (cur / width).toLong()))
+
+                    val curX = cur % width
+                    val curY = cur / width
+
+                    for (d in 0..3) {
+                        val nx = curX + dx[d]
+                        val ny = curY + dy[d]
+                        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
+                        val nidx = ny * width + nx
+                        if (!binary[nidx] || visited[nidx]) continue
+                        visited[nidx] = true
+                        queue.add(nidx)
+                    }
+                }
+
+                if (componentPixels.size >= 3) {
+                    contours.add(componentPixels)
+                }
+            }
+        }
+
+        return contours
+    }
+
+    /**
      * 运行 CTD 推理，返回 lines_map 的概率图和内容尺寸。
      */
     private fun runInference(bitmap: Bitmap): Triple<FloatArray, Int, Int> {
@@ -162,13 +293,13 @@ object CTDDetector {
         LogCollector.d(TAG, "使用输出: shape=${linesShape.contentToString()}, contentH=$contentH, contentW=$contentW")
 
         // 4. 后处理：取 channel 0 作为概率图
-        //    NCHW 布局：行步长 = linesC * linesW
+        //    NCHW 布局：[batch, channel, height, width]
+        //    channel 0 数据偏移 = y * linesW + x（每行 linesW 个元素）
         //    注意：CTD 模型的 det 输出已经过 sigmoid，不需要再应用
-        val channelStride = linesC * linesW
         val probMap = FloatArray(contentH * contentW)
         for (y in 0 until contentH) {
             for (x in 0 until contentW) {
-                probMap[y * contentW + x] = linesData[y * channelStride + x]
+                probMap[y * contentW + x] = linesData[y * linesW + x]
             }
         }
 
@@ -191,8 +322,10 @@ object CTDDetector {
 
         // 保持宽高比缩放，使长边 = DETECT_SIZE
         val scale = DETECT_SIZE.toFloat() / maxOf(origW, origH)
-        val contentW = ((origW * scale).toInt() / STRIDE) * STRIDE  // 对齐到 STRIDE 的倍数
-        val contentH = ((origH * scale).toInt() / STRIDE) * STRIDE
+        // 使用 round() 而非截断，确保 contentW/contentH 反映实际缩放尺寸
+        // Python 代码中 crop 使用 x2 = int(x1 + w * scale)，w 是原始宽度，不是对齐后的值
+        val contentW = maxOf(STRIDE, (origW * scale).toInt())  // 最小 STRIDE，避免 contentW=0
+        val contentH = maxOf(STRIDE, (origH * scale).toInt())
 
         // 缩放图片
         val scaled = Bitmap.createScaledBitmap(bitmap, contentW, contentH, true)

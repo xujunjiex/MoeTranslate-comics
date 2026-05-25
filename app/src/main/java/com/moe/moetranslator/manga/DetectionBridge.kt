@@ -271,4 +271,158 @@ object DetectionBridge {
 
         return Bitmap.createBitmap(bitmap, left, top, width, height)
     }
+
+    /**
+     * 使用 CTD(简化版) + manga-ocr 识别。
+     *
+     * 流程：CTD 简化检测 → 按 Y 分组合并 → 扩展宽度(2x) → manga-ocr 识别
+     * 对齐 manga-image-translator 的 ctd + mocr 组合
+     */
+    suspend fun detectWithCTDManga(
+        bitmap: Bitmap,
+        language: String
+    ): List<TextBlockInfo> {
+        try {
+            // Step 1: CTD 简化检测，只返回 AABB 列表
+            LogCollector.d(TAG, "使用 CTD(简化) 检测文字区域...")
+            val rects = CTDDetector.detectRectsSimple(bitmap)
+            if (rects.isEmpty()) {
+                LogCollector.d(TAG, "CTD(简化) 未检测到文字区域")
+                return emptyList()
+            }
+            LogCollector.d(TAG, "CTD(简化) 检测到 ${rects.size} 个文字区域")
+            for ((idx, rect) in rects.withIndex()) {
+                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
+            }
+
+            // Step 2: 扩展宽度（1.5x），让独立框有足够间隙后再合并
+            val PRE_EXPAND = 1.5f
+            val preExpandedRects = rects.map { rect ->
+                val cx = (rect.left + rect.right) / 2f
+                val ew = rect.width() * PRE_EXPAND
+                Rect(
+                    (cx - ew / 2).toInt().coerceAtLeast(0),
+                    rect.top,
+                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
+                    rect.bottom
+                )
+            }
+            LogCollector.d(TAG, "CTD(简化) 预扩展后: ${preExpandedRects.size} 个框")
+
+            // Step 3: 按 Y 分组，组内按 X 合并相邻框
+            val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
+            LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
+            for ((idx, rect) in mergedRects.withIndex()) {
+                LogCollector.d(TAG, "CTD(简化) 合并后[$idx]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
+            }
+
+            // Step 4: 最终扩展宽度（2x），确保渲染文字有足够空间
+            val FINAL_EXPAND = 2.0f
+            val expandedRects = mergedRects.map { rect ->
+                val cx = (rect.left + rect.right) / 2f
+                val ew = rect.width() * FINAL_EXPAND
+                Rect(
+                    (cx - ew / 2).toInt().coerceAtLeast(0),
+                    rect.top,
+                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
+                    rect.bottom
+                )
+            }
+            LogCollector.d(TAG, "CTD(简化) 最终扩展: ${expandedRects.size} 个框")
+            for ((idx, rect) in expandedRects.withIndex()) {
+                LogCollector.d(TAG, "CTD(简化) 最终扩展[$idx]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
+            }
+
+            // Step 4: 裁剪图片并批量识别
+            val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+
+            // Step 5: manga-ocr 批量识别
+            val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+
+            // Step 6: 构建结果
+            val results = mutableListOf<TextBlockInfo>()
+            for (i in expandedRects.indices) {
+                val text = texts[i].trim()
+                if (text.isNotBlank()) {
+                    val rect = expandedRects[i]
+                    results.add(TextBlockInfo(
+                        text = text,
+                        boundingBox = rect,
+                        cornerPoints = null
+                    ))
+                    LogCollector.d(TAG, "CTD(简化) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text'")
+                }
+            }
+
+            // 释放裁剪的图片
+            for (cropped in croppedBitmaps) {
+                if (cropped !== bitmap) cropped.recycle()
+            }
+
+            LogCollector.d(TAG, "CTD(简化) + manga-ocr 完成，共 ${results.size} 个文字块")
+            return results
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "CTD(简化) + manga-ocr 失败", e)
+            throw e
+        }
+    }
+
+    /**
+     * 按 Y 分组，组内按 X 合并相邻框
+     * 1. 按 top 排序
+     * 2. Y 范围重叠（或 gap ≤ 阈值）视为同一行
+     * 3. 同行的框再按 X 方向合并相邻的
+     */
+    private fun mergeRectsByRowThenCol(rects: List<Rect>): List<Rect> {
+        if (rects.isEmpty()) return emptyList()
+        if (rects.size == 1) return rects
+
+        val sorted = rects.sortedBy { it.top }
+        val rows = mutableListOf<MutableList<Rect>>()
+        var currentRow = mutableListOf<Rect>()
+        var currentRowBottom = sorted[0].bottom
+
+        val Y_GAP_THRESHOLD = 50 // Y 间隙超过 50px 视为不同行
+
+        for (rect in sorted) {
+            val gap = rect.top - currentRowBottom
+            if (gap <= Y_GAP_THRESHOLD) {
+                currentRow.add(rect)
+                currentRowBottom = maxOf(currentRowBottom, rect.bottom)
+            } else {
+                if (currentRow.isNotEmpty()) rows.add(currentRow)
+                currentRow = mutableListOf(rect)
+                currentRowBottom = rect.bottom
+            }
+        }
+        if (currentRow.isNotEmpty()) rows.add(currentRow)
+
+        // 组内按 X 合并
+        val result = mutableListOf<Rect>()
+        for (row in rows) {
+            val sortedRow = row.sortedBy { it.left }
+            var merged: Rect? = null
+            for (rect in sortedRow) {
+                if (merged == null) {
+                    merged = rect
+                } else {
+                    val gap = rect.left - merged.right
+                    if (gap <= 20) { // X 间隙 ≤ 20px 合并
+                        merged = Rect(
+                            merged.left,
+                            minOf(merged.top, rect.top),
+                            maxOf(merged.right, rect.right),
+                            maxOf(merged.bottom, rect.bottom)
+                        )
+                    } else {
+                        result.add(merged)
+                        merged = rect
+                    }
+                }
+            }
+            if (merged != null) result.add(merged)
+        }
+        return result
+    }
 }
