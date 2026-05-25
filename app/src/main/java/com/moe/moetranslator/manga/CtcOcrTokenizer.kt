@@ -48,6 +48,10 @@ class CtcOcrTokenizer(private val context: Context) {
      * @return 识别的文字
      */
     fun decodeCtc(logits: FloatArray, seqLen: Int, vocabSize: Int): String {
+        if (!::dictionary.isInitialized || dictionary.isEmpty()) {
+            LogCollector.e(TAG, "字典未加载，解码跳过")
+            return ""
+        }
         val sb = StringBuilder()
         var lastId = BLANK_ID
 
@@ -80,6 +84,10 @@ class CtcOcrTokenizer(private val context: Context) {
      * @return Pair(文字, 概率)，概率 = exp(mean(logprobs))
      */
     fun decodeCtcWithProb(logits: FloatArray, seqLen: Int, vocabSize: Int): Pair<String, Float> {
+        if (!::dictionary.isInitialized || dictionary.isEmpty()) {
+            LogCollector.e(TAG, "字典未加载，解码跳过")
+            return Pair("", 0f)
+        }
         val sb = StringBuilder()
         var lastId = BLANK_ID
         var totalLogprob = 0.0
