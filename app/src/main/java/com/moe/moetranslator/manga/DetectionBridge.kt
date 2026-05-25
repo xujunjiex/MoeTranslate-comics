@@ -161,77 +161,103 @@ object DetectionBridge {
     }
 
     /**
-     * 使用 CTD 检测文字区域，然后用指定引擎识别文字。
+     * 使用 CTD 检测文字区域，然后用 ML Kit 识别文字。
      *
      * 流程对齐 manga-image-translator：
-     * CTD 检测 → 过滤小 box → OCR → BoxMerger 合并 → TextBlockInfo
+     * CTD 检测 → pre-expand(1.5x) → merge → final-expand(2x) → ML Kit OCR
      */
-    suspend fun detectWithCTD(
+    suspend fun detectWithCTDMLKit(
         bitmap: Bitmap,
-        language: String,
-        useMangaOcr: Boolean
+        language: String
     ): List<TextBlockInfo> {
         try {
             // Step 1: CTD 检测文字区域
-            LogCollector.d(TAG, "使用 CTD 检测文字区域...")
+            LogCollector.d(TAG, "使用 CTD(MLKit) 检测文字区域...")
             val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
             if (quadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "CTD 未检测到文字区域")
+                LogCollector.d(TAG, "CTD(MLKit) 未检测到文字区域")
                 return emptyList()
             }
-            LogCollector.d(TAG, "CTD 检测到 ${quadBoxes.size} 个文字区域")
+            LogCollector.d(TAG, "CTD(MLKit) 检测到 ${quadBoxes.size} 个文字区域")
             for ((idx, qb) in quadBoxes.withIndex()) {
                 val aabb = qb.aabb
-                LogCollector.d(TAG, "CTD QuadBox[$idx]: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}], area=${String.format("%.1f", qb.area)}, fontSize=${String.format("%.1f", qb.fontSize)}")
+                LogCollector.d(TAG, "CTD(MLKit) QuadBox[$idx]: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}], area=${String.format("%.1f", qb.area)}, fontSize=${String.format("%.1f", qb.fontSize)}")
             }
 
-            // 临时：并行运行 ML Kit 检测，对比结果
-            LogCollector.d(TAG, "=== ML Kit 检测（对比用）===")
-            try {
-                val mlKitBlocks = OCRBridge.recognizeWithLocation(language, bitmap)
-                for ((idx, block) in mlKitBlocks.withIndex()) {
-                    val rect = block.boundingBox
-                    val rectStr = if (rect != null) "[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]" else "null"
-                    LogCollector.d(TAG, "ML Kit 检测[$idx]: rect=$rectStr, text='${block.text}'")
-                }
-                LogCollector.d(TAG, "=== ML Kit 检测完成: ${mlKitBlocks.size} 个文字块 ===")
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "ML Kit 检测失败", e)
+            // Step 2: 提取 AABB 列表用于合并
+            val rects = quadBoxes.map { DetectedRect(it.aabb, it.aspectRatio > 1) } // isVertical 用宽高比推断
+
+            // Step 3: pre-expand (1.5x)
+            val PRE_EXPAND = 1.5f
+            val preExpandedRects = rects.map { detectedRect ->
+                val rect = detectedRect.rect
+                val cx = (rect.left + rect.right) / 2f
+                val ew = rect.width() * PRE_EXPAND
+                Rect(
+                    (cx - ew / 2).toInt().coerceAtLeast(0),
+                    rect.top,
+                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
+                    rect.bottom
+                )
             }
 
-            // Step 2: OCR（不过滤小 box，ML Kit 可以处理）
-            val textQuadBoxes = recognizeQuadBoxes(bitmap, quadBoxes, language, useMangaOcr)
-            LogCollector.d(TAG, "OCR 完成: ${quadBoxes.size} → ${textQuadBoxes.size} 个有文字的区域")
+            // Step 4: mergeRectsByRowThenCol
+            val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
+            LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            if (textQuadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "OCR 未识别到任何文字")
-                return emptyList()
+            // Step 5: final-expand (2x)，确保最小宽度 >= 32px（ML Kit 要求）
+            val FINAL_EXPAND = 2.0f
+            val MIN_WIDTH = 32  // ML Kit 最小要求
+            val expandedRects = mergedRects.map { rect ->
+                val cx = (rect.left + rect.right) / 2f
+                val ew = maxOf(rect.width() * FINAL_EXPAND, MIN_WIDTH.toFloat())
+                Rect(
+                    (cx - ew / 2).toInt().coerceAtLeast(0),
+                    rect.top,
+                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
+                    rect.bottom
+                )
             }
 
-            // Step 4: BoxMerger 合并相邻 box（对齐 manga-image-translator 的 textline_merge）
-            val mergedGroups = BoxMerger.merge(textQuadBoxes)
-            LogCollector.d(TAG, "box 合并: ${textQuadBoxes.size} → ${mergedGroups.size} 个文本行")
+            // 合并日志
+            for ((idx, rect) in expandedRects.withIndex()) {
+                val merged = mergedRects.getOrNull(idx)
+                val mergedStr = if (merged != null) " <- [${merged.left}, ${merged.top}, ${merged.right}, ${merged.bottom}]" else ""
+                LogCollector.d(TAG, "CTD(MLKit) [$idx]: 最终扩展[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]$mergedStr")
+            }
 
-            // Step 5: 构建结果（合并后的文字拼接）
+            // Step 6: 裁剪图片并用 ML Kit 识别
+            val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+
             val results = mutableListOf<TextBlockInfo>()
-            for (group in mergedGroups) {
-                val rect = computeBoundingRect(group)
-                val combinedText = group.joinToString("") { it.text }
-                if (combinedText.isNotBlank()) {
-                    results.add(TextBlockInfo(
-                        text = combinedText,
-                        boundingBox = rect,
-                        cornerPoints = null
-                    ))
+            for (i in expandedRects.indices) {
+                val cropped = croppedBitmaps[i]
+                try {
+                    val text = OCRBridge.recognizeText(language, cropped)
+                    if (text.isNotBlank()) {
+                        results.add(TextBlockInfo(
+                            text = text,
+                            boundingBox = expandedRects[i],
+                            cornerPoints = null,
+                            isVertical = null
+                        ))
+                        LogCollector.d(TAG, "CTD(MLKit) 识别结果[$i]: rect=[${expandedRects[i].left}, ${expandedRects[i].top}, ${expandedRects[i].right}, ${expandedRects[i].bottom}], text='$text'")
+                    }
+                } catch (e: Exception) {
+                    LogCollector.e(TAG, "CTD(MLKit) ML Kit 识别失败[$i]", e)
                 }
-                LogCollector.d(TAG, "CTD 合并结果: rect=$rect, text='$combinedText'")
             }
 
-            LogCollector.d(TAG, "CTD 检测完成，共 ${results.size} 个文字块")
+            // 释放裁剪的图片
+            for (cropped in croppedBitmaps) {
+                if (cropped !== bitmap) cropped.recycle()
+            }
+
+            LogCollector.d(TAG, "CTD(MLKit) + ML Kit 完成，共 ${results.size} 个文字块")
             return results
 
         } catch (e: Exception) {
-            LogCollector.e(TAG, "CTD 检测失败", e)
+            LogCollector.e(TAG, "CTD(MLKit) + ML Kit 失败", e)
             throw e
         }
     }

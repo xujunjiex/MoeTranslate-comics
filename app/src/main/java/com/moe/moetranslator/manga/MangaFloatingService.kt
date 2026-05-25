@@ -989,7 +989,7 @@ class MangaFloatingService : LifecycleService() {
                             DetectionBridge.detectWithCTDManga(bitmap, config.sourceLang)
                         } else {
                             LogCollector.d(TAG, "使用 CTD 检测 + ML Kit 识别")
-                            DetectionBridge.detectWithCTD(bitmap, config.sourceLang, false)
+                            DetectionBridge.detectWithCTDMLKit(bitmap, config.sourceLang)
                         }
                     }
                     DetEngine.DBNET -> {
