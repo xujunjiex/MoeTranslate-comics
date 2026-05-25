@@ -46,3 +46,11 @@ yarn-debug.log*
 yarn-error.log*
 # Reference repos (embedded git repos)
 .reference/
+
+# Local test files
+call_vision.py
+test_image.b64
+test_image.jpg
+
+# Local plans and docs
+docs/superpowers/plans/*.md
