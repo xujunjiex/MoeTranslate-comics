@@ -1114,7 +1114,6 @@ class MangaFloatingService : LifecycleService() {
 
             if (textBlocks.isEmpty()) {
                 LogCollector.d(TAG, "processMangaScreenshot: No text found, returning early")
-                bitmap.recycle()
                 if (!isAutoTranslating) {
                     showToast(getString(R.string.no_text_found))
                 }
@@ -1125,7 +1124,6 @@ class MangaFloatingService : LifecycleService() {
             val currentOcrText = textBlocks.joinToString("\n") { it.text }
             if (isAutoTranslating && !shouldTranslateText(currentOcrText)) {
                 LogCollector.d(TAG, "processMangaScreenshot: Auto-translate text unchanged, skipping")
-                bitmap.recycle()
                 return
             }
             lastOcrText = currentOcrText
