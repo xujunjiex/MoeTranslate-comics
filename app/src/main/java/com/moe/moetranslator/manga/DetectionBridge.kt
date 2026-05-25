@@ -510,11 +510,20 @@ object DetectionBridge {
         val rows = mutableListOf<MutableList<DetectedRect>>()
         var currentRow = mutableListOf<DetectedRect>()
         var currentRowBottom = sorted[0].rect.bottom
-        var currentCharSize = sorted[0].rect.height().toFloat()
+        // 字高代理：竖排用 width（字宽），横排用 height（字高）
+        var currentCharSize = if (sorted[0].isVertical) {
+            sorted[0].rect.width().toFloat()
+        } else {
+            sorted[0].rect.height().toFloat()
+        }
 
         for (detected in sorted) {
             val rect = detected.rect
-            val charSize = rect.height().toFloat()
+            val charSize = if (detected.isVertical) {
+                rect.width().toFloat()
+            } else {
+                rect.height().toFloat()
+            }
             val gap = rect.top - currentRowBottom
 
             // Dynamic Y gap threshold: 2 * char size (discard_connection_gap = 2)
@@ -538,13 +547,18 @@ object DetectionBridge {
         for (row in rows) {
             val sortedRow = row.sortedBy { it.rect.left }
             var merged: Rect? = null
+            var mergedIsVertical: Boolean? = null
             for (detected in sortedRow) {
                 val rect = detected.rect
                 if (merged == null) {
                     merged = rect
+                    mergedIsVertical = detected.isVertical
                 } else {
                     val gap = rect.left - merged.right
-                    val dynamicXGap = 2 * minOf(rect.height(), merged.height()).toFloat()
+                    // 动态 X gap：竖排用 width，横排用 height
+                    val charSizeA = if (detected.isVertical) rect.width().toFloat() else rect.height().toFloat()
+                    val charSizeB = if (mergedIsVertical == true) merged.width().toFloat() else merged.height().toFloat()
+                    val dynamicXGap = 2 * minOf(charSizeA, charSizeB)
                     if (gap <= dynamicXGap) {
                         merged = Rect(
                             merged.left,
@@ -555,6 +569,7 @@ object DetectionBridge {
                     } else {
                         result.add(merged)
                         merged = rect
+                        mergedIsVertical = detected.isVertical
                     }
                 }
             }
