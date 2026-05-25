@@ -1143,7 +1143,13 @@ class MangaFloatingService : LifecycleService() {
             when (config.ocrEngine) {
                 OcrEngine.MLKit -> {}  // MLKit 无需初始化
                 OcrEngine.MangaOcr -> initMangaOcrIfNeeded()
-                OcrEngine.CTCOcr -> initCTCOcrIfNeeded()
+                OcrEngine.CTCOcr -> {
+                    if (!CtcOcrModelManager.isModelDownloaded(applicationContext)) {
+                        showToast(getString(R.string.model_missing_hint))
+                        return
+                    }
+                    initCTCOcrIfNeeded()
+                }
             }
 
             // Step 1: 文字检测 + 识别
