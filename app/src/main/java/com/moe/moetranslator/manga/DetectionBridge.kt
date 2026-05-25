@@ -539,23 +539,28 @@ object DetectionBridge {
 
         return if (isVerticalA) {
             // 竖排：检查 X gap + Y 边对齐
-            val gapX = minOf(
-                abs(a.left - b.right),  // a 在 b 左边
-                abs(b.left - a.right)   // b 在 a 左边
-            )
+            // X gap = 两个框之间的水平距离（只有在一左一右时才有效）
+            // 如果一个框在另一个右边（a.right <= b.left），gap = b.left - a.right
+            // 如果一个框在另一个左边（b.right <= a.left），gap = a.left - b.right
+            val gapX = when {
+                a.right <= b.left -> b.left - a.right  // b 在 a 右边
+                b.right <= a.left -> a.left - b.right  // a 在 b 右边
+                else -> 0  // 水平重叠：用 Y 边对齐判断
+            }
             if (gapX > discardGap) return false
-            // Y 边对齐检查
+            // Y 边对齐检查（竖排只在 X 重叠时有意义）
             val yAligned = abs(a.top - b.top) < charGapTol2 ||
                            abs(a.bottom - b.bottom) < charGapTol2
             yAligned
         } else {
             // 横排：检查 Y gap + X 边对齐
-            val gapY = minOf(
-                abs(a.top - b.bottom),  // a 在 b 上方
-                abs(b.top - a.bottom)   // b 在 a 上方
-            )
+            val gapY = when {
+                a.bottom <= b.top -> b.top - a.bottom  // b 在 a 下方
+                b.bottom <= a.top -> a.top - b.bottom  // a 在 b 下方
+                else -> 0  // 垂直重叠：用 X 边对齐判断
+            }
             if (gapY > discardGap) return false
-            // X 边对齐检查
+            // X 边对齐检查（横排只在 Y 重叠时有意义）
             val xAligned = abs(a.left - b.left) < charGapTol2 ||
                            abs(a.right - b.right) < charGapTol2
             xAligned
