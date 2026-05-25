@@ -292,7 +292,7 @@ object DetectionBridge {
             }
             LogCollector.d(TAG, "CTD(简化) 检测到 ${rects.size} 个文字区域")
             for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}]")
+                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
             }
 
             // Step 2: 扩展宽度（1.5x），让独立框有足够间隙后再合并
@@ -313,9 +313,6 @@ object DetectionBridge {
             // Step 3: 按 Y 分组，组内按 X 合并相邻框
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
-            for ((idx, rect) in mergedRects.withIndex()) {
-                LogCollector.d(TAG, "CTD(简化) 合并后[$idx]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
-            }
 
             // Step 4: 最终扩展宽度（2x），确保渲染文字有足够空间
             val FINAL_EXPAND = 2.0f
@@ -329,9 +326,11 @@ object DetectionBridge {
                     rect.bottom
                 )
             }
-            LogCollector.d(TAG, "CTD(简化) 最终扩展: ${expandedRects.size} 个框")
+            // 合并日志：合并后+最终扩展一起输出
             for ((idx, rect) in expandedRects.withIndex()) {
-                LogCollector.d(TAG, "CTD(简化) 最终扩展[$idx]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
+                val merged = mergedRects.getOrNull(idx)
+                val mergedStr = if (merged != null) " → [${merged.left}, ${merged.top}, ${merged.right}, ${merged.bottom}]" else ""
+                LogCollector.d(TAG, "CTD(简化) [$idx]: 合并后→最终扩展: [${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]$mergedStr")
             }
 
             // Step 4: 裁剪图片并批量识别
@@ -346,7 +345,8 @@ object DetectionBridge {
             val results = mutableListOf<TextBlockInfo>()
             for (i in expandedRects.indices) {
                 val text = texts[i].trim()
-                if (text.isNotBlank()) {
+                // 过滤纯符号模式（". . ." 或类似）
+                if (text.isNotBlank() && !isDotOnlyPattern(text)) {
                     val rect = expandedRects[i]
                     results.add(TextBlockInfo(
                         text = text,
@@ -355,6 +355,8 @@ object DetectionBridge {
                         isVertical = globalIsVertical
                     ))
                     LogCollector.d(TAG, "CTD(简化) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
+                } else if (isDotOnlyPattern(text)) {
+                    LogCollector.d(TAG, "CTD(简化) 过滤纯符号[$i]: '$text'")
                 }
             }
 
@@ -373,6 +375,17 @@ object DetectionBridge {
     }
 
     /**
+     * 判断是否是纯符号模式（如 ". . . " 或 "· · ·"）
+     */
+    private fun isDotOnlyPattern(text: String): Boolean {
+        // 移除非日文字符，只保留点号和空格
+        val normalized = text.filter { it == '.' || it == '·' || it == ' ' || it == '…' }
+        // 如果剩余字符中点号占比超过 80%，认为是纯符号模式
+        val dotCount = normalized.count { it == '.' || it == '·' || it == '…' }
+        return dotCount > 0 && dotCount >= normalized.length * 0.8
+    }
+
+    /**
      * 按 Y 分组，组内按 X 合并相邻框
      * 1. 按 top 排序
      * 2. Y 范围重叠（或 gap ≤ 阈值）视为同一行
@@ -387,7 +400,7 @@ object DetectionBridge {
         var currentRow = mutableListOf<Rect>()
         var currentRowBottom = sorted[0].bottom
 
-        val Y_GAP_THRESHOLD = 50 // Y 间隙超过 50px 视为不同行
+        val Y_GAP_THRESHOLD = 30 // Y 间隙超过 30px 视为不同行
 
         for (rect in sorted) {
             val gap = rect.top - currentRowBottom
@@ -412,7 +425,7 @@ object DetectionBridge {
                     merged = rect
                 } else {
                     val gap = rect.left - merged.right
-                    if (gap <= 20) { // X 间隙 ≤ 20px 合并
+                    if (gap <= 15) { // X 间隙 ≤ 15px 合并
                         merged = Rect(
                             merged.left,
                             minOf(merged.top, rect.top),

@@ -1219,6 +1219,12 @@ class MangaFloatingService : LifecycleService() {
         // 按编号解析结果
         val translations = parseNumberedTranslations(resultText!!, bubbles.size)
         LogCollector.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
+        // 输出翻译结果
+        for (i in translations.indices) {
+            val (bubble, original) = bubbles[i]
+            val translated = translations[i]
+            LogCollector.d(TAG, "翻译结果[$i]: orig='$original' → trans='$translated'")
+        }
 
         bubbles.mapIndexed { index, (bubble, originalText) ->
             TranslatedBubble(
