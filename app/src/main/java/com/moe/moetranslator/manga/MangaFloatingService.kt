@@ -459,12 +459,14 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun showCTCOcrDownloadDialog(): Boolean = withContext(Dispatchers.Main) {
         var downloadJob: kotlinx.coroutines.Job? = null
-        val progressDialog = android.app.AlertDialog.Builder(this@MangaFloatingService)
+        var dialogDismissed = false
+        val progressDialog = android.app.AlertDialog.Builder(applicationContext)
             .setTitle(getString(R.string.manga_ocr_ctc_download_title))
             .setMessage(getString(R.string.manga_ocr_ctc_download_progress, 0))
             .setCancelable(true)
-            .setNegativeButton("Cancel") { dialog, _ ->
+            .setNegativeButton(R.string.user_cancel) { dialog, _ ->
                 dialog.dismiss()
+                dialogDismissed = true
                 downloadJob?.cancel()
             }
             .create()
@@ -506,7 +508,7 @@ class MangaFloatingService : LifecycleService() {
                 downloadResult = false
                 if (e !is kotlinx.coroutines.CancellationException) {
                     handler.post {
-                        AlertDialog.Builder(this@MangaFloatingService)
+                        AlertDialog.Builder(applicationContext)
                             .setTitle(R.string.error_occurred)
                             .setMessage(e.message ?: "Download failed")
                             .setPositiveButton(android.R.string.ok, null)
@@ -515,7 +517,9 @@ class MangaFloatingService : LifecycleService() {
                 }
             } finally {
                 handler.post {
-                    progressDialog.dismiss()
+                    if (!dialogDismissed) {
+                        progressDialog.dismiss()
+                    }
                 }
             }
         }
