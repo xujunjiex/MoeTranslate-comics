@@ -5,6 +5,7 @@ import android.graphics.Rect
 import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.utils.LogCollector
+import kotlin.math.PI
 import kotlin.math.abs
 
 /**
@@ -186,17 +187,22 @@ object DetectionBridge {
     ): List<TextBlockInfo> {
         try {
             LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 检测文字区域...")
-            val rects = CTDDetector.detectRectsSimple(bitmap)
-            if (rects.isEmpty()) {
+
+            // 使用 detectQuadBoxes 获取真实 font_size
+            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
+            if (quadBoxes.isEmpty()) {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) 未检测到文字区域")
                 return emptyList()
             }
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${rects.size} 个文字区域")
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
+
+            // 转换为带 font_size 的 DetectedRectWithFont
+            val rects = CTDDetector.convertQuadBoxesToDetectedRects(quadBoxes)
             for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}, fontSize=${detectedRect.fontSize}")
             }
 
-            // mergeRectsByRowThenCol
+            // mergeRectsByRowThenCol（过滤器模式）
             val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
@@ -292,16 +298,17 @@ object DetectionBridge {
         language: String
     ): List<TextBlockInfo> {
         try {
-            // Step 1: CTD 简化检测（和 manga-ocr 流程一样）
+            // Step 1: 使用 detectQuadBoxes 获取真实 font_size
             LogCollector.d(TAG, "使用 CTD(MLKit) 检测文字区域...")
-            val rects = CTDDetector.detectRectsSimple(bitmap)
-            if (rects.isEmpty()) {
+            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
+            if (quadBoxes.isEmpty()) {
                 LogCollector.d(TAG, "CTD(MLKit) 未检测到文字区域")
                 return emptyList()
             }
+            val rects = CTDDetector.convertQuadBoxesToDetectedRects(quadBoxes)
             LogCollector.d(TAG, "CTD(MLKit) 检测到 ${rects.size} 个文字区域")
             for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(MLKit) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
+                LogCollector.d(TAG, "CTD(MLKit) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}, fontSize=${detectedRect.fontSize}")
             }
 
             // mergeRectsByRowThenCol
@@ -412,16 +419,17 @@ object DetectionBridge {
         language: String
     ): List<TextBlockInfo> {
         try {
-            // Step 1: CTD 简化检测，只返回 AABB 列表
+            // Step 1: 使用 detectQuadBoxes 获取真实 font_size
             LogCollector.d(TAG, "使用 CTD(简化) 检测文字区域...")
-            val rects = CTDDetector.detectRectsSimple(bitmap)
-            if (rects.isEmpty()) {
+            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
+            if (quadBoxes.isEmpty()) {
                 LogCollector.d(TAG, "CTD(简化) 未检测到文字区域")
                 return emptyList()
             }
+            val rects = CTDDetector.convertQuadBoxesToDetectedRects(quadBoxes)
             LogCollector.d(TAG, "CTD(简化) 检测到 ${rects.size} 个文字区域")
             for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
+                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}, fontSize=${detectedRect.fontSize}")
             }
 
             // mergeRectsByRowThenCol
@@ -502,78 +510,123 @@ object DetectionBridge {
      */
     private data class MergedBox(
         val rect: Rect,
-        val isVertical: Boolean
+        val isVertical: Boolean,
+        val fontSize: Float,
+        val angle: Float,
+        val aspectRatio: Float
     )
 
     /**
-     * 动态判断两个矩形是否可以合并（过滤器模式）
+     * 对齐 manga-image-translator quadrilateral_can_merge_region
      *
-     * 对齐 manga-image-translator quadrilateral_can_merge_region:
-     * - gap 阈值 = discard_connection_gap * char_size
-     * - char_size = min(字高A, 字高B)
-     * - 竖排用 X gap，横排用 Y gap
-     * - 额外检查边对齐（char_gap_tolerance2=1.5）
+     * 参数（对齐官方调用）：
+     * - discard_connection_gap = 0（调用时传0）
+     * - char_gap_tolerance = 0.6
+     * - char_gap_tolerance2 = 3（官方调用）
+     * - font_size_ratio_tol = 2
+     * - aspect_ratio_tol = 1.3
      */
     private fun canMergeWithDynamicThreshold(
-        a: Rect, b: Rect,
-        isVerticalA: Boolean, isVerticalB: Boolean
+        a: DetectedRectWithFont, b: DetectedRectWithFont
     ): Boolean {
-        // 1. 横竖排不合并
-        if (isVerticalA != isVerticalB) {
-            return false
-        }
+        // 1. 文字方向必须一致
+        if (a.isVertical != b.isVertical) return false
 
-        // 2. 字高代理：竖排用 width，横排用 height
-        val fontSizeA = if (isVerticalA) a.width().toFloat() else a.height().toFloat()
-        val fontSizeB = if (isVerticalB) b.width().toFloat() else b.height().toFloat()
+        // 2. font_size
+        val fontSizeA = a.fontSize
+        val fontSizeB = b.fontSize
         val charSize = minOf(fontSizeA, fontSizeB)
 
-        // 3. 字高比例检查（fontSizeRatioTol = 1.5）
-        val fontSizeRatioTol = 1.5f
+        // 3. font_size 比例检查
+        val fontSizeRatioTol = 2f  // 官方调用用 2
         if (maxOf(fontSizeA, fontSizeB) / charSize > fontSizeRatioTol) {
             return false
         }
 
-        val discardGap = 2 * charSize      // discard_connection_gap = 2
-        val charGapTol2 = 1.5 * charSize   // char_gap_tolerance2 = 1.5（边对齐）
+        // 4. aspect_ratio 检查（拒绝一横一竖）
+        val aspectRatioTol = 1.3f
+        val ratio = 1.9f  // w > h * ratio 表示横排
+        if (a.aspectRatio > aspectRatioTol && b.aspectRatio < 1f / aspectRatioTol) return false
+        if (b.aspectRatio > aspectRatioTol && a.aspectRatio < 1f / aspectRatioTol) return false
 
-        return if (isVerticalA) {
-            // 竖排：检查 X gap + Y 边对齐
-            // X gap = 两个框之间的水平距离（只有在一左一右时才有效）
-            // 如果一个框在另一个右边（a.right <= b.left），gap = b.left - a.right
-            // 如果一个框在另一个左边（b.right <= a.left），gap = a.left - b.right
-            val gapX = when {
-                a.right <= b.left -> b.left - a.right  // b 在 a 右边
-                b.right <= a.left -> a.left - b.right  // a 在 b 右边
-                else -> 0  // 水平重叠：用 Y 边对齐判断
+        // 5. axis-aligned 检查（近似轴对齐）
+        val aIsAxisAligned = isApproximateAxisAligned(a)
+        val bIsAxisAligned = isApproximateAxisAligned(b)
+
+        // 6. 计算 AABB gap
+        val gap = calculateGap(a.rect, b.rect)
+
+        val discardConnectionGap = 0f  // 调用时传 0
+        val charGapTolerance = 0.6f
+        val charGapTolerance2 = 3f  // 官方调用用 3
+
+        if (aIsAxisAligned && bIsAxisAligned) {
+            if (gap < charSize * charGapTolerance) {
+                // 检查中心对齐
+                val centerAX = a.rect.left + a.rect.width() / 2f
+                val centerBX = b.rect.left + b.rect.width() / 2f
+                if (abs(centerAX - centerBX) < charGapTolerance2) {
+                    return true
+                }
+                // aspect ratio 判断
+                val w1 = a.rect.width().toFloat()
+                val h1 = a.rect.height().toFloat()
+                val w2 = b.rect.width().toFloat()
+                val h2 = b.rect.height().toFloat()
+                if (w1 > h1 * ratio && h2 > w2 * ratio) return false
+                if (w2 > h2 * ratio && h1 > w1 * ratio) return false
+                // 边对齐检查
+                return if (a.isVertical) {  // v
+                    abs(a.rect.top - b.rect.top) < charSize * charGapTolerance2 ||
+                    abs(a.rect.bottom - b.rect.bottom) < charSize * charGapTolerance2
+                } else {  // h
+                    abs(a.rect.left - b.rect.left) < charSize * charGapTolerance2 ||
+                    abs(a.rect.right - b.rect.right) < charSize * charGapTolerance2
+                }
             }
-            if (gapX > discardGap) return false
-            // Y 边对齐检查（竖排只在 X 重叠时有意义）
-            val yAligned = abs(a.top - b.top) < charGapTol2 ||
-                           abs(a.bottom - b.bottom) < charGapTol2
-            yAligned
+            return false
+        }
+
+        // 7. 非 axis-aligned：检查 angle 差异
+        val angleDiffThreshold = 15 * PI / 180f
+        if (abs(a.angle - b.angle) > angleDiffThreshold) return false
+
+        // 8. font_size 差异检查
+        if (abs(fontSizeA - fontSizeB) / charSize > 0.25f) return false
+
+        return gap < charSize * charGapTolerance2
+    }
+
+    /**
+     * 判断是否近似轴对齐
+     */
+    private fun isApproximateAxisAligned(detected: DetectedRectWithFont): Boolean {
+        return if (detected.isVertical) {
+            detected.aspectRatio > 1.5f  // 竖排：宽高比大
         } else {
-            // 横排：检查 Y gap + X 边对齐
-            val gapY = when {
-                a.bottom <= b.top -> b.top - a.bottom  // b 在 a 下方
-                b.bottom <= a.top -> a.top - b.bottom  // a 在 b 下方
-                else -> 0  // 垂直重叠：用 X 边对齐判断
-            }
-            if (gapY > discardGap) return false
-            // X 边对齐检查（横排只在 Y 重叠时有意义）
-            val xAligned = abs(a.left - b.left) < charGapTol2 ||
-                           abs(a.right - b.right) < charGapTol2
-            xAligned
+            detected.aspectRatio < 0.67f  // 横排：宽高比小
         }
     }
 
     /**
-     * 按 Y 分组，组内按 X 合并相邻框
-     * 使用基于字高的动态阈值（对齐 manga-image-translator）
-     *
-     * @param rects DetectedRect 列表，包含 rect 和 isVertical 信息
+     * 计算两个 AABB 之间的最小间隙
      */
-    private fun mergeRectsByRowThenCol(rects: List<DetectedRect>): List<Rect> {
+    private fun calculateGap(a: Rect, b: Rect): Float {
+        return when {
+            a.right <= b.left -> b.left - a.right.toFloat()
+            b.right <= a.left -> a.left - b.right.toFloat()
+            a.bottom <= b.top -> b.top - a.bottom.toFloat()
+            b.bottom <= a.top -> a.top - b.bottom.toFloat()
+            else -> 0f  // 重叠
+        }
+    }
+
+    /**
+     * 过滤器模式合并：对齐 manga-image-translator
+     *
+     * @param rects DetectedRectWithFont 列表（包含真实 font_size）
+     */
+    private fun mergeRectsByRowThenCol(rects: List<DetectedRectWithFont>): List<Rect> {
         if (rects.isEmpty()) return emptyList()
         if (rects.size == 1) return listOf(rects[0].rect)
 
@@ -584,15 +637,11 @@ object DetectionBridge {
         for (current in sortedRects) {
             var mergedRect: Rect = current.rect
             var merged = false
-            val currentIsVertical = current.isVertical
 
             // 检查是否能和之前已合并的结果合并
             for (i in result.indices) {
                 val existing = result[i]
-                if (canMergeWithDynamicThreshold(
-                        mergedRect, existing.rect,
-                        currentIsVertical, existing.isVertical
-                    )) {
+                if (canMergeWithDynamicThreshold(current, DetectedRectWithFont(existing.rect, existing.isVertical, existing.fontSize, existing.angle, existing.aspectRatio))) {
                     // 合并到 existing
                     mergedRect = Rect(
                         minOf(mergedRect.left, existing.rect.left),
@@ -600,14 +649,14 @@ object DetectionBridge {
                         maxOf(mergedRect.right, existing.rect.right),
                         maxOf(mergedRect.bottom, existing.rect.bottom)
                     )
-                    result[i] = MergedBox(mergedRect, existing.isVertical)
+                    result[i] = MergedBox(mergedRect, existing.isVertical, existing.fontSize, existing.angle, existing.aspectRatio)
                     merged = true
                     break
                 }
             }
 
             if (!merged) {
-                result.add(MergedBox(mergedRect, currentIsVertical))
+                result.add(MergedBox(mergedRect, current.isVertical, current.fontSize, current.angle, current.aspectRatio))
             }
         }
 
