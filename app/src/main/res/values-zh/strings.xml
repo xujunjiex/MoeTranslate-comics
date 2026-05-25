@@ -459,9 +459,13 @@
     <string name="manga_ocr_toggle">OCR引擎</string>
     <string name="manga_ocr_mlkit">ML Kit</string>
     <string name="manga_ocr_manga_ocr">manga-ocr</string>
+    <string name="manga_ocr_ctc">48px_ctc</string>
     <string name="manga_ocr_initializing">正在初始化 manga-ocr…</string>
+    <string name="manga_ocr_ctc_initializing">正在初始化 48px_ctc…</string>
     <string name="manga_ocr_init_complete">manga-ocr 已启用</string>
+    <string name="manga_ocr_ctc_init_complete">48px_ctc 已启用</string>
     <string name="manga_ocr_init_failed">manga-ocr 初始化失败：%s</string>
+    <string name="manga_ocr_ctc_init_failed">48px_ctc 初始化失败：%s</string>
     <string name="manga_det_toggle">检测模型</string>
     <string name="manga_det_mlkit">ML Kit</string>
     <string name="manga_det_dbnet">DBNet</string>

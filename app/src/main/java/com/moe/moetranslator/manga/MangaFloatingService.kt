@@ -170,9 +170,11 @@ class MangaFloatingService : LifecycleService() {
         initializeViews()
         setupScreenshotCollector()
 
-        // 初始化 manga-ocr（如果启用）
-        if (config.useMangaOcr) {
-            initMangaOcr()
+        // 初始化 OCR 引擎（根据配置）
+        when (config.ocrEngine) {
+            OcrEngine.MLKit -> {}  // MLKit 无需初始化
+            OcrEngine.MangaOcr -> initMangaOcr()
+            OcrEngine.CTCOcr -> initCTCOcr()
         }
 
         // 初始化检测引擎
@@ -191,9 +193,11 @@ class MangaFloatingService : LifecycleService() {
         translatorText?.release()
         autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
 
-        // 释放 manga-ocr 资源
-        if (config.useMangaOcr) {
-            releaseMangaOcr()
+        // 释放 OCR 引擎资源
+        when (config.ocrEngine) {
+            OcrEngine.MLKit -> {}
+            OcrEngine.MangaOcr -> releaseMangaOcr()
+            OcrEngine.CTCOcr -> releaseCTCOcr()
         }
 
         // 释放检测引擎资源
@@ -278,6 +282,29 @@ class MangaFloatingService : LifecycleService() {
             MangaOcrRecognizer.release()
         } catch (e: Exception) {
             LogCollector.e(TAG, "releaseMangaOcr: 释放失败", e)
+        }
+    }
+
+    private fun initCTCOcr() {
+        lifecycleScope.launch {
+            try {
+                LogCollector.d(TAG, "initCTCOcr: 开始初始化 48px_ctc")
+                CtcOcrRecognizer.initialize(this@MangaFloatingService)
+                LogCollector.d(TAG, "initCTCOcr: 48px_ctc 初始化完成")
+                showToast(getString(R.string.manga_ocr_ctc_init_complete))
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "initCTCOcr: 初始化失败", e)
+                showToast(getString(R.string.manga_ocr_ctc_init_failed, e.message ?: "未知错误"))
+            }
+        }
+    }
+
+    private fun releaseCTCOcr() {
+        try {
+            LogCollector.d(TAG, "releaseCTCOcr: 释放 48px_ctc 资源")
+            CtcOcrRecognizer.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releaseCTCOcr: 释放失败", e)
         }
     }
 
@@ -392,6 +419,26 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
+    /**
+     * 同步初始化 CTCOcr（如果需要），在 processMangaScreenshot 中调用。
+     */
+    private suspend fun initCTCOcrIfNeeded() {
+        if (CtcOcrRecognizer.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initCTCOcrIfNeeded: 开始初始化 48px_ctc")
+            withContext(Dispatchers.IO) {
+                CtcOcrRecognizer.initialize(this@MangaFloatingService)
+            }
+            LogCollector.d(TAG, "initCTCOcrIfNeeded: 48px_ctc 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initCTCOcrIfNeeded: 初始化失败", e)
+            withContext(Dispatchers.Main) {
+                showToast("48px_ctc 初始化失败: ${e.message}")
+            }
+            throw e
+        }
+    }
+
     private fun loadConfig(): MangaModeConfig {
         return MangaModeConfig(
             enabled = true,
@@ -404,7 +451,7 @@ class MangaFloatingService : LifecycleService() {
             targetLang = prefs.getString("Target_Language", "zh"),
             textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
             bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
-            useMangaOcr = prefs.getInt("Manga_Rec_Model", 0) == 1,
+            ocrEngine = OcrEngine.entries[prefs.getInt("Manga_Rec_Model", 0)],
             detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", 0))
         )
     }
@@ -603,10 +650,10 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
         }
-        val ocrEngineLabel = if (config.useMangaOcr) {
-            getString(R.string.manga_ocr_manga_ocr)
-        } else {
-            getString(R.string.manga_ocr_mlkit)
+        val ocrEngineLabel = when (config.ocrEngine) {
+            OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
+            OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
+            OcrEngine.CTCOcr -> getString(R.string.manga_ocr_ctc)
         }
 
         val (dialog, listView) = Dialogs.mangaMenuDialog(
@@ -692,21 +739,40 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Menu actions ----------
 
     private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
-        val newUseMangaOcr = !config.useMangaOcr
-        config = config.copy(useMangaOcr = newUseMangaOcr)
-        prefs.setInt("Manga_Rec_Model", if (newUseMangaOcr) 1 else 0)
+        // 循环切换：MLKit -> MangaOcr -> CTCOcr -> MLKit
+        val newEngine = when (config.ocrEngine) {
+            OcrEngine.MLKit -> OcrEngine.MangaOcr
+            OcrEngine.MangaOcr -> OcrEngine.CTCOcr
+            OcrEngine.CTCOcr -> OcrEngine.MLKit
+        }
+        config = config.copy(ocrEngine = newEngine)
+        prefs.setInt("Manga_Rec_Model", newEngine.ordinal)
 
         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
-        if (newUseMangaOcr) {
-            // 切换到 manga-ocr，需要初始化
-            adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：${getString(R.string.manga_ocr_manga_ocr)}")
-            showToast(getString(R.string.manga_ocr_initializing))
-            initMangaOcr()
-        } else {
-            // 切换到 ML Kit，释放 manga-ocr
-            adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：${getString(R.string.manga_ocr_mlkit)}")
-            releaseMangaOcr()
-            showToast(getString(R.string.manga_ocr_mlkit))
+        val label = when (newEngine) {
+            OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
+            OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
+            OcrEngine.CTCOcr -> getString(R.string.manga_ocr_ctc)
+        }
+        adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：$label")
+
+        // 释放旧引擎，初始化新引擎
+        when (newEngine) {
+            OcrEngine.MLKit -> {
+                releaseMangaOcr()
+                releaseCTCOcr()
+                showToast(getString(R.string.manga_ocr_mlkit))
+            }
+            OcrEngine.MangaOcr -> {
+                releaseCTCOcr()
+                showToast(getString(R.string.manga_ocr_initializing))
+                initMangaOcr()
+            }
+            OcrEngine.CTCOcr -> {
+                releaseMangaOcr()
+                showToast(getString(R.string.manga_ocr_ctc_initializing))
+                initCTCOcr()
+            }
         }
     }
 
@@ -977,28 +1043,69 @@ class MangaFloatingService : LifecycleService() {
                 DetEngine.CTD -> initCTDIfNeeded()
                 DetEngine.MLKIT -> {}
             }
-            if (config.useMangaOcr) initMangaOcrIfNeeded()
+            when (config.ocrEngine) {
+                OcrEngine.MLKit -> {}  // MLKit 无需初始化
+                OcrEngine.MangaOcr -> initMangaOcrIfNeeded()
+                OcrEngine.CTCOcr -> initCTCOcrIfNeeded()
+            }
 
             // Step 1: 文字检测 + 识别
-            LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR starting, sourceLang=${config.sourceLang}, useMangaOcr=${config.useMangaOcr}, detEngine=${config.detEngine}")
+            LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR starting, sourceLang=${config.sourceLang}, ocrEngine=${config.ocrEngine}, detEngine=${config.detEngine}")
             val textBlocks: List<TextBlockInfo> = withContext(Dispatchers.IO) {
                 when (config.detEngine) {
                     DetEngine.CTD -> {
-                        val ocrEngine = if (config.useMangaOcr) DetectionBridge.CTDOCREngine.MangaOcr else DetectionBridge.CTDOCREngine.MLKit
-                        LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 识别")
-                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ocrEngine)
+                        val ctdOcrEngine = when (config.ocrEngine) {
+                            OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
+                            OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
+                            OcrEngine.CTCOcr -> DetectionBridge.CTDOCREngine.CTCOcr
+                        }
+                        LogCollector.d(TAG, "使用 CTD(${ctdOcrEngine.name}) 识别")
+                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
                     }
                     DetEngine.DBNET -> {
-                        LogCollector.d(TAG, "使用 DBNet 检测 + ${if (config.useMangaOcr) "manga-ocr" else "ML Kit"} 识别")
-                        DetectionBridge.detectWithDBNet(bitmap, config.sourceLang, config.useMangaOcr)
+                        val useMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
+                        LogCollector.d(TAG, "使用 DBNet 检测 + ${if (useMangaOcr) "manga-ocr" else if (config.ocrEngine == OcrEngine.CTCOcr) "48px_ctc" else "ML Kit"} 识别")
+                        DetectionBridge.detectWithDBNet(bitmap, config.sourceLang, useMangaOcr)
                     }
                     DetEngine.MLKIT -> {
-                        if (config.useMangaOcr) {
-                            LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr 识别")
-                            MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
-                        } else {
-                            LogCollector.d(TAG, "使用 ML Kit 检测 + 识别")
-                            OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+                        when (config.ocrEngine) {
+                            OcrEngine.MLKit -> {
+                                LogCollector.d(TAG, "使用 ML Kit 检测 + 识别")
+                                OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+                            }
+                            OcrEngine.MangaOcr -> {
+                                LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr 识别")
+                                MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
+                            }
+                            OcrEngine.CTCOcr -> {
+                                LogCollector.d(TAG, "使用 ML Kit 检测 + 48px_ctc 识别")
+                                // ML Kit 检测，CTCOcr 识别
+                                val mlKitBlocks = OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+                                if (mlKitBlocks.isNotEmpty()) {
+                                    val bitmaps = mlKitBlocks.mapNotNull { block ->
+                                        block.boundingBox?.let { rect ->
+                                            android.graphics.Bitmap.createBitmap(
+                                                bitmap,
+                                                rect.left.toInt().coerceAtLeast(0),
+                                                rect.top.toInt().coerceAtLeast(0),
+                                                rect.width().toInt().coerceAtLeast(1),
+                                                rect.height().toInt().coerceAtLeast(1)
+                                            )
+                                        }
+                                    }
+                                    if (bitmaps.isNotEmpty()) {
+                                        val ctcTexts = CtcOcrRecognizer.recognizeBatch(bitmaps)
+                                        bitmaps.forEachIndexed { index, bmp ->
+                                            if (bmp != bitmap) bmp.recycle()
+                                        }
+                                        mlKitBlocks.mapIndexed { index, block ->
+                                            if (index < ctcTexts.size) {
+                                                block.copy(text = ctcTexts[index])
+                                            } else block
+                                        }
+                                    } else mlKitBlocks
+                                } else mlKitBlocks
+                            }
                         }
                     }
                 }
