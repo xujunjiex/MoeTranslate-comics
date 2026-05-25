@@ -984,13 +984,9 @@ class MangaFloatingService : LifecycleService() {
             val textBlocks: List<TextBlockInfo> = withContext(Dispatchers.IO) {
                 when (config.detEngine) {
                     DetEngine.CTD -> {
-                        if (config.useMangaOcr) {
-                            LogCollector.d(TAG, "使用 CTD(简化) 检测 + manga-ocr 识别")
-                            DetectionBridge.detectWithCTDManga(bitmap, config.sourceLang)
-                        } else {
-                            LogCollector.d(TAG, "使用 CTD 检测 + ML Kit 识别")
-                            DetectionBridge.detectWithCTDMLKit(bitmap, config.sourceLang)
-                        }
+                        val ocrEngine = if (config.useMangaOcr) DetectionBridge.CTDOCREngine.MangaOcr else DetectionBridge.CTDOCREngine.MLKit
+                        LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 识别")
+                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ocrEngine)
                     }
                     DetEngine.DBNET -> {
                         LogCollector.d(TAG, "使用 DBNet 检测 + ${if (config.useMangaOcr) "manga-ocr" else "ML Kit"} 识别")
