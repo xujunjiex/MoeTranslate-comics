@@ -3,6 +3,7 @@ package com.moe.moetranslator.manga
 import android.content.Context
 import com.moe.moetranslator.utils.LogCollector
 import java.io.File
+import java.io.IOException
 import java.util.zip.ZipFile
 
 /**
@@ -61,7 +62,11 @@ object CtcOcrModelManager {
         return try {
             val modelDir = getModelDir(context)
             if (modelDir.exists()) {
-                modelDir.deleteRecursively()
+                val deleted = modelDir.deleteRecursively()
+                if (!deleted) {
+                    LogCollector.e(TAG, "删除模型失败: ${modelDir.absolutePath}")
+                    return Result.failure(IOException("Failed to delete model directory"))
+                }
             }
             LogCollector.d(TAG, "模型已删除: ${modelDir.absolutePath}")
             Result.success(Unit)
