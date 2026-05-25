@@ -512,4 +512,58 @@ object CTDPostProcessor {
 
         return expanded
     }
+
+    // -----------------------------------------------------------------------
+    // sortPnts: 文字方向检测（竖排/横排）
+    // -----------------------------------------------------------------------
+
+    /**
+     * 根据四边形结构向量判断文字方向。
+     * 对齐 manga-image-translator 的 sort_pnts 逻辑。
+     *
+     * @param pts 4个角点数组
+     * @return isVertical: x方向分量小(y方向分量大) → 竖排
+     */
+    fun sortPnts(pts: Array<PointF>): Boolean {
+        // 1. 计算所有点对向量
+        val pairwiseVec = mutableListOf<Double>()
+        for (i in pts.indices) {
+            for (j in pts.indices) {
+                pairwiseVec.add((pts[j].x - pts[i].x).toDouble())
+                pairwiseVec.add((pts[j].y - pts[i].y).toDouble())
+            }
+        }
+        // pairwiseVec 现在是 16 对 (dx, dy)
+
+        // 2. 计算每对向量的长度
+        val norms = DoubleArray(16) { i ->
+            val dx = pairwiseVec[i * 2]
+            val dy = pairwiseVec[i * 2 + 1]
+            sqrt(dx * dx + dy * dy)
+        }
+
+        // 3. 找到第二长的两条边（indices 8 和 10）
+        // argsort 升序排列，indices 8 和 10 是第二、第三长的
+        val sortedIndices = norms.indices.sortedBy { norms[it] }
+        val longSideIds = listOf(sortedIndices[8], sortedIndices[10])
+
+        // 4. 获取这两条边对应的向量
+        val longSideVecs = longSideIds.map { idx ->
+            doubleArrayOf(pairwiseVec[idx * 2], pairwiseVec[idx * 2 + 1])
+        }
+
+        // 5. 如果两向量方向相反，翻转第一个
+        val innerProd = longSideVecs[0][0] * longSideVecs[1][0] + longSideVecs[0][1] * longSideVecs[1][1]
+        if (innerProd < 0) {
+            longSideVecs[0][0] = -longSideVecs[0][0]
+            longSideVecs[0][1] = -longSideVecs[0][1]
+        }
+
+        // 6. 计算平均结构向量
+        val strucVecX = abs((longSideVecs[0][0] + longSideVecs[1][0]) / 2)
+        val strucVecY = abs((longSideVecs[0][1] + longSideVecs[1][1]) / 2)
+
+        // 7. x分量小 → 竖排
+        return strucVecX <= strucVecY
+    }
 }
