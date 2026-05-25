@@ -341,6 +341,8 @@ object DetectionBridge {
             val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
 
             // Step 6: 构建结果
+            // 使用全部原始 rects 做 isVertical 多数投票
+            val globalIsVertical = rects.count { it.isVertical } > rects.size / 2
             val results = mutableListOf<TextBlockInfo>()
             for (i in expandedRects.indices) {
                 val text = texts[i].trim()
@@ -349,9 +351,10 @@ object DetectionBridge {
                     results.add(TextBlockInfo(
                         text = text,
                         boundingBox = rect,
-                        cornerPoints = null
+                        cornerPoints = null,
+                        isVertical = globalIsVertical
                     ))
-                    LogCollector.d(TAG, "CTD(简化) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text'")
+                    LogCollector.d(TAG, "CTD(简化) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
                 }
             }
 
