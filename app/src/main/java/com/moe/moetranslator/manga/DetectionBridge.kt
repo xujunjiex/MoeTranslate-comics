@@ -180,24 +180,28 @@ object DetectionBridge {
                 return emptyList()
             }
             LogCollector.d(TAG, "CTD 检测到 ${quadBoxes.size} 个文字区域")
-
-            // Step 2: 过滤小 box（< 32px 的 box ML Kit 无法处理）
-            val MIN_BOX_SIZE = 32
-            val filteredBoxes = quadBoxes.filter {
-                val aabb = it.aabb
-                aabb.width() >= MIN_BOX_SIZE && aabb.height() >= MIN_BOX_SIZE
-            }
-            if (filteredBoxes.size < quadBoxes.size) {
-                LogCollector.d(TAG, "过滤小 box: ${quadBoxes.size} → ${filteredBoxes.size}")
-            }
-            if (filteredBoxes.isEmpty()) {
-                LogCollector.d(TAG, "过滤后无有效文字区域")
-                return emptyList()
+            for ((idx, qb) in quadBoxes.withIndex()) {
+                val aabb = qb.aabb
+                LogCollector.d(TAG, "CTD QuadBox[$idx]: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}], area=${String.format("%.1f", qb.area)}, fontSize=${String.format("%.1f", qb.fontSize)}")
             }
 
-            // Step 3: OCR
-            val textQuadBoxes = recognizeQuadBoxes(bitmap, filteredBoxes, language, useMangaOcr)
-            LogCollector.d(TAG, "OCR 完成: ${filteredBoxes.size} → ${textQuadBoxes.size} 个有文字的区域")
+            // 临时：并行运行 ML Kit 检测，对比结果
+            LogCollector.d(TAG, "=== ML Kit 检测（对比用）===")
+            try {
+                val mlKitBlocks = OCRBridge.recognizeWithLocation(language, bitmap)
+                for ((idx, block) in mlKitBlocks.withIndex()) {
+                    val rect = block.boundingBox
+                    val rectStr = if (rect != null) "[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]" else "null"
+                    LogCollector.d(TAG, "ML Kit 检测[$idx]: rect=$rectStr, text='${block.text}'")
+                }
+                LogCollector.d(TAG, "=== ML Kit 检测完成: ${mlKitBlocks.size} 个文字块 ===")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "ML Kit 检测失败", e)
+            }
+
+            // Step 2: OCR（不过滤小 box，ML Kit 可以处理）
+            val textQuadBoxes = recognizeQuadBoxes(bitmap, quadBoxes, language, useMangaOcr)
+            LogCollector.d(TAG, "OCR 完成: ${quadBoxes.size} → ${textQuadBoxes.size} 个有文字的区域")
 
             if (textQuadBoxes.isEmpty()) {
                 LogCollector.d(TAG, "OCR 未识别到任何文字")
