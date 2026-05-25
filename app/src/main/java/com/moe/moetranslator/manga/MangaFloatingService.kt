@@ -489,7 +489,7 @@ class MangaFloatingService : LifecycleService() {
                 val result = CtcOcrModelManager.downloadModel(
                     context = this@MangaFloatingService,
                     onProgress = object : ModelDownloadManager.ProgressCallback {
-                        override fun onProgress(bytesRead: Long, totalBytes: Long) {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
                             val progress = if (totalBytes > 0) {
                                 (bytesRead * 100 / totalBytes).toInt()
                             } else {

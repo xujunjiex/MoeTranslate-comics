@@ -20,14 +20,16 @@ import java.security.MessageDigest
 object ModelDownloadManager {
 
     private const val TAG = "ModelDownloadManager"
+    private const val SPEED_UPDATE_INTERVAL = 500L  // 每 500ms 更新一次速度
 
     /**
      * 下载进度回调
      * @param bytesRead 已下载字节数
      * @param totalBytes 总字节数，-1 表示未知
+     * @param speed 下载速度 MB/s
      */
     interface ProgressCallback {
-        fun onProgress(bytesRead: Long, totalBytes: Long)
+        fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float)
     }
 
     /**
@@ -75,11 +77,23 @@ object ModelDownloadManager {
                     var bytesRead = existingSize
                     val buffer = ByteArray(8192)
                     var read: Int
+                    var lastUpdateTime = System.currentTimeMillis()
+                    var lastBytesRead = existingSize
+                    var speed = 0f
 
                     while (inputStream.read(buffer).also { read = it } != -1) {
                         outputStream.write(buffer, 0, read)
                         bytesRead += read
-                        onProgress?.onProgress(bytesRead, totalBytes)
+
+                        val currentTime = System.currentTimeMillis()
+                        val elapsed = currentTime - lastUpdateTime
+                        if (elapsed >= SPEED_UPDATE_INTERVAL) {
+                            val bytesDelta = bytesRead - lastBytesRead
+                            speed = (bytesDelta.toFloat() / elapsed) * 1000f / (1024f * 1024f)  // MB/s
+                            lastUpdateTime = currentTime
+                            lastBytesRead = bytesRead
+                        }
+                        onProgress?.onProgress(bytesRead, totalBytes, speed)
                     }
                     outputStream.flush()
                 }
