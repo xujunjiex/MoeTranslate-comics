@@ -20,6 +20,14 @@ object DetectionBridge {
     private const val BATCH_SIZE = 16
 
     /**
+     * CTD 检测后使用的 OCR 引擎类型
+     */
+    enum class CTDOCREngine {
+        MLKit,
+        MangaOcr
+    }
+
+    /**
      * 使用 DBNet 检测文字区域，然后用指定引擎识别文字。
      *
      * 流程对齐 manga-image-translator：
@@ -161,11 +169,142 @@ object DetectionBridge {
     }
 
     /**
+     * 使用 CTD 检测文字区域，然后用指定 OCR 引擎识别文字。
+     *
+     * 流程：CTD 检测 → pre-expand(1.5x) → merge → final-expand(2.5x width, 3x height) → OCR
+     *
+     * @param bitmap 输入图片
+     * @param language 语言（用于 ML Kit 识别）
+     * @param ocrEngine OCR 引擎类型（MLKit 或 MangaOcr）
+     * @return TextBlockInfo 列表（含位置和识别文字）
+     */
+    suspend fun detectWithCTD(
+        bitmap: Bitmap,
+        language: String,
+        ocrEngine: CTDOCREngine
+    ): List<TextBlockInfo> {
+        try {
+            LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 检测文字区域...")
+            val rects = CTDDetector.detectRectsSimple(bitmap)
+            if (rects.isEmpty()) {
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 未检测到文字区域")
+                return emptyList()
+            }
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${rects.size} 个文字区域")
+            for ((idx, detectedRect) in rects.withIndex()) {
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
+            }
+
+            // pre-expand (1.5x)
+            val PRE_EXPAND = 1.5f
+            val preExpandedRects = rects.map { detectedRect ->
+                val rect = detectedRect.rect
+                val cx = (rect.left + rect.right) / 2f
+                val ew = rect.width() * PRE_EXPAND
+                Rect(
+                    (cx - ew / 2).toInt().coerceAtLeast(0),
+                    rect.top,
+                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
+                    rect.bottom
+                )
+            }
+
+            // mergeRectsByRowThenCol
+            val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 合并: ${rects.size} → ${mergedRects.size} 个区域")
+
+            // final-expand 宽度（2.5x）+ 高度（3x）
+            val FINAL_EXPAND_WIDTH = 2.5f
+            val FINAL_EXPAND_HEIGHT = 3.0f
+            val expandedRects = mergedRects.map { rect ->
+                val cx = (rect.left + rect.right) / 2f
+                val cy = (rect.top + rect.bottom) / 2f
+                val ew = rect.width() * FINAL_EXPAND_WIDTH
+                val eh = maxOf(rect.height() * FINAL_EXPAND_HEIGHT, 32f)
+                Rect(
+                    (cx - ew / 2).toInt().coerceAtLeast(0),
+                    (cy - eh / 2).toInt().coerceAtLeast(0),
+                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
+                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
+                )
+            }
+
+            for ((idx, rect) in expandedRects.withIndex()) {
+                val merged = mergedRects.getOrNull(idx)
+                val mergedStr = if (merged != null) " <- [${merged.left}, ${merged.top}, ${merged.right}, ${merged.bottom}]" else ""
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终扩展[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]$mergedStr")
+            }
+
+            // 裁剪图片
+            val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+
+            // OCR 识别
+            val globalIsVertical = rects.count { it.isVertical } > rects.size / 2
+            val results = mutableListOf<TextBlockInfo>()
+
+            when (ocrEngine) {
+                CTDOCREngine.MLKit -> {
+                    for (i in expandedRects.indices) {
+                        val cropped = croppedBitmaps[i]
+                        try {
+                            val text = OCRBridge.recognizeText(language, cropped)
+                            if (text.isNotBlank()) {
+                                results.add(TextBlockInfo(
+                                    text = text,
+                                    boundingBox = expandedRects[i],
+                                    cornerPoints = null,
+                                    isVertical = globalIsVertical
+                                ))
+                                LogCollector.d(TAG, "CTD(MLKit) 识别结果[$i]: rect=[${expandedRects[i].left}, ${expandedRects[i].top}, ${expandedRects[i].right}, ${expandedRects[i].bottom}], text='$text', isVertical=$globalIsVertical")
+                            }
+                        } catch (e: Exception) {
+                            LogCollector.e(TAG, "CTD(MLKit) ML Kit 识别失败[$i]", e)
+                        }
+                    }
+                }
+                CTDOCREngine.MangaOcr -> {
+                    val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+                    for (i in expandedRects.indices) {
+                        val text = texts[i].trim()
+                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                            val rect = expandedRects[i]
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = rect,
+                                cornerPoints = null,
+                                isVertical = globalIsVertical
+                            ))
+                            LogCollector.d(TAG, "CTD(MangaOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
+                        } else if (isDotOnlyPattern(text)) {
+                            LogCollector.d(TAG, "CTD(MangaOcr) 过滤纯符号[$i]: '$text'")
+                        }
+                    }
+                }
+            }
+
+            // 释放裁剪的图片
+            for (cropped in croppedBitmaps) {
+                if (cropped !== bitmap) cropped.recycle()
+            }
+
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 完成，共 ${results.size} 个文字块")
+            return results
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "CTD(${ocrEngine.name}) 失败", e)
+            throw e
+        }
+    }
+
+    /**
      * 使用 CTD 检测文字区域，然后用 ML Kit 识别文字。
      *
      * 流程对齐 manga-image-translator：
      * CTD 检测 → pre-expand(1.5x) → merge → final-expand(2x) → ML Kit OCR
+     *
+     * @deprecated 使用 [detectWithCTD] 替代，传入 [CTDOCREngine.MLKit]
      */
+    @Deprecated("使用 detectWithCTD(bitmap, language, CTDOCREngine.MLKit) 替代", ReplaceWith("detectWithCTD(bitmap, language, CTDOCREngine.MLKit)"))
     suspend fun detectWithCTDMLKit(
         bitmap: Bitmap,
         language: String
@@ -201,16 +340,19 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 5: final-expand (2x)，只扩展宽度不扩展高度（对齐 manga-ocr 流程）
-            val FINAL_EXPAND = 2.0f
+            // Step 5: final-expand 宽度（2.5x）+ 高度（3x），确保渲染文字有足够空间
+            val FINAL_EXPAND_WIDTH = 2.5f
+            val FINAL_EXPAND_HEIGHT = 3.0f
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
-                val ew = rect.width() * FINAL_EXPAND
+                val cy = (rect.top + rect.bottom) / 2f
+                val ew = rect.width() * FINAL_EXPAND_WIDTH
+                val eh = maxOf(rect.height() * FINAL_EXPAND_HEIGHT, 32f) // 最小高度 32px
                 Rect(
                     (cx - ew / 2).toInt().coerceAtLeast(0),
-                    rect.top,
+                    (cy - eh / 2).toInt().coerceAtLeast(0),
                     (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    rect.bottom
+                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
                 )
             }
 
@@ -298,7 +440,10 @@ object DetectionBridge {
      *
      * 流程：CTD 简化检测 → 按 Y 分组合并 → 扩展宽度(2x) → manga-ocr 识别
      * 对齐 manga-image-translator 的 ctd + mocr 组合
+     *
+     * @deprecated 使用 [detectWithCTD] 替代，传入 [CTDOCREngine.MangaOcr]
      */
+    @Deprecated("使用 detectWithCTD(bitmap, language, CTDOCREngine.MangaOcr) 替代", ReplaceWith("detectWithCTD(bitmap, language, CTDOCREngine.MangaOcr)"))
     suspend fun detectWithCTDManga(
         bitmap: Bitmap,
         language: String
