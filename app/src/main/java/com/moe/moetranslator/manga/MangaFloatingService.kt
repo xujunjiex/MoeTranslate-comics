@@ -288,6 +288,15 @@ class MangaFloatingService : LifecycleService() {
     private fun initCTCOcr() {
         lifecycleScope.launch {
             try {
+                // 检查模型是否已下载
+                if (!CtcOcrModelManager.isModelDownloaded(this@MangaFloatingService)) {
+                    val downloaded = showCTCOcrDownloadDialog()
+                    if (!downloaded) {
+                        showToast("48px_ctc 模型下载已取消")
+                        return@launch
+                    }
+                }
+
                 LogCollector.d(TAG, "initCTCOcr: 开始初始化 48px_ctc")
                 CtcOcrRecognizer.initialize(this@MangaFloatingService)
                 LogCollector.d(TAG, "initCTCOcr: 48px_ctc 初始化完成")
