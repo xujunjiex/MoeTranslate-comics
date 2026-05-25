@@ -335,16 +335,19 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 4: 最终扩展宽度（2x），确保渲染文字有足够空间
-            val FINAL_EXPAND = 2.0f
+            // Step 4: 最终扩展宽度（2.5x）+ 高度（3x），确保渲染文字有足够空间
+            val FINAL_EXPAND_WIDTH = 2.5f
+            val FINAL_EXPAND_HEIGHT = 3.0f
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
-                val ew = rect.width() * FINAL_EXPAND
+                val cy = (rect.top + rect.bottom) / 2f
+                val ew = rect.width() * FINAL_EXPAND_WIDTH
+                val eh = maxOf(rect.height() * FINAL_EXPAND_HEIGHT, 32f) // 最小高度 32px
                 Rect(
                     (cx - ew / 2).toInt().coerceAtLeast(0),
-                    rect.top,
+                    (cy - eh / 2).toInt().coerceAtLeast(0),
                     (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    rect.bottom
+                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
                 )
             }
             // 合并日志：合并后+最终扩展一起输出
