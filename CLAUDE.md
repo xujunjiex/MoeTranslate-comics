@@ -69,9 +69,8 @@ MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11
 **文件：** `MangaFloatingService.kt`、`MangaModeConfig.kt`、`VerticalTextRenderer.kt`、`OverlayRenderer.kt`、`BubbleDetector.kt`、`BackgroundAnalyzer.kt`、`DetectionBridge.kt`、`CTDDetector.kt`、`CTDPostProcessor.kt`、`BoxMerger.kt`、`BubbleMerger.kt`、`TextLine.kt`、`QuadBox.kt`、`MangaOcrRecognizer.kt`
 
 **检测引擎：**
-- `detectWithMLKit` — ML Kit 检测+识别，一体化，稳健但不支持竖排
-- `detectWithCTD` — CTD 检测 + ML Kit/manga-ocr 识别，保留旋转信息
-- `detectWithCTDManga` — CTD 简化版 → pre-expand(1.5x) → merge → final-expand(2x) → manga-ocr，最新流程
+- `detectWithCTD` — CTD 检测 + ML Kit/manga-ocr 识别，保留旋转四边形信息，对漫画竖排文字更精确
+- `detectWithMLKit` — ML Kit 检测+识别，一体化，返回轴对齐矩形，稳健但丢失旋转角度
 
 **翻译流程：** 截图 → OCR（ML Kit 带位置信息）→ 气泡检测（聚类文字块）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
 
