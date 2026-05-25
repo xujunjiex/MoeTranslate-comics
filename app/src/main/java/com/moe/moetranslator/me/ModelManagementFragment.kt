@@ -15,16 +15,20 @@ import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.manga.CtcOcrModelManager
 import com.moe.moetranslator.manga.ModelDownloadManager
+import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class ModelManagementFragment : Fragment() {
 
+    private val TAG = "ModelManagementFragment"
     private lateinit var rootView: View
     private val handler = Handler(Looper.getMainLooper())
-    private var isDownloading = false
-    private var downloadJob: kotlinx.coroutines.Job? = null
+    private var downloadJob: Job? = null
+    private var isCancelled = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -48,7 +52,6 @@ class ModelManagementFragment : Fragment() {
 
         // 下载按钮
         ctcDownloadBtn.setOnClickListener {
-            if (isDownloading) return@setOnClickListener
             startDownload()
         }
 
@@ -59,10 +62,16 @@ class ModelManagementFragment : Fragment() {
 
         // 取消按钮
         ctcCancelBtn.setOnClickListener {
-            downloadJob?.cancel()
-            isDownloading = false
-            updateCtcStatus()
+            cancelDownload()
         }
+    }
+
+    private fun cancelDownload() {
+        isCancelled = true
+        downloadJob?.cancel()
+        downloadJob = null
+        LogCollector.d(TAG, "下载已取消")
+        updateCtcStatus()
     }
 
     private fun updateCtcStatus() {
@@ -76,10 +85,9 @@ class ModelManagementFragment : Fragment() {
 
         val isInFilesDir = CtcOcrModelManager.isModelInFilesDir(requireContext())
         val isInAssets = CtcOcrModelManager.isModelInAssets(requireContext())
-        val isAvailable = isInFilesDir || isInAssets
 
         when {
-            isDownloading -> {
+            downloadJob != null && !isCancelled -> {
                 // 下载中
                 ctcStatus.text = getString(R.string.model_downloading)
                 ctcSize.text = ""
@@ -126,48 +134,81 @@ class ModelManagementFragment : Fragment() {
     }
 
     private fun startDownload() {
-        isDownloading = true
-        updateCtcStatus()
+        isCancelled = false
+
+        // 先清理可能残留的下载文件
+        val modelDir = CtcOcrModelManager.getModelDir(requireContext())
+        val zipFile = File(modelDir, "ocr-ctc.zip")
+        if (zipFile.exists()) {
+            zipFile.delete()
+        }
 
         downloadJob = lifecycleScope.launch(Dispatchers.IO) {
-            val result = CtcOcrModelManager.downloadModel(
-                requireContext(),
-                object : ModelDownloadManager.ProgressCallback {
-                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                        handler.post {
-                            val progressBar = rootView.findViewById<ProgressBar>(R.id.ctc_download_progress)
-                            val speedText = rootView.findViewById<TextView>(R.id.ctc_speed_text)
-                            val ctcSize = rootView.findViewById<TextView>(R.id.ctc_size_text)
+            LogCollector.d(TAG, "开始下载模型...")
+            try {
+                val result = CtcOcrModelManager.downloadModel(
+                    requireContext(),
+                    object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            if (isCancelled) return
+                            handler.post {
+                                if (isCancelled) return@post
+                                val progressBar = rootView.findViewById<ProgressBar>(R.id.ctc_download_progress)
+                                val speedText = rootView.findViewById<TextView>(R.id.ctc_speed_text)
+                                val ctcSize = rootView.findViewById<TextView>(R.id.ctc_size_text)
 
-                            val progress = if (totalBytes > 0) {
-                                (bytesRead * 100 / totalBytes).toInt()
-                            } else 0
-                            progressBar.progress = progress
+                                val progress = if (totalBytes > 0) {
+                                    (bytesRead * 100 / totalBytes).toInt()
+                                } else 0
+                                progressBar.progress = progress
 
-                            val mbRead = bytesRead / (1024 * 1024)
-                            val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
-                            ctcSize.text = "${mbRead}/${mbTotal} MB"
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                ctcSize.text = "${mbRead}/${mbTotal} MB"
 
-                            speedText.text = getString(R.string.model_download_speed, speed)
+                                speedText.text = getString(R.string.model_download_speed, speed)
+                            }
                         }
                     }
-                }
-            )
+                )
 
-            withContext(Dispatchers.Main) {
-                isDownloading = false
-                if (result.isSuccess) {
-                    Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
-                } else {
+                withContext(Dispatchers.Main) {
+                    downloadJob = null
+                    if (isCancelled) {
+                        LogCollector.d(TAG, "下载已取消，不更新UI")
+                        return@withContext
+                    }
+                    if (result.isSuccess) {
+                        LogCollector.d(TAG, "下载成功")
+                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                    } else {
+                        LogCollector.e(TAG, "下载失败", result.exceptionOrNull())
+                        Toast.makeText(
+                            requireContext(),
+                            getString(R.string.model_download_failed, result.exceptionOrNull()?.message),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    updateCtcStatus()
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "下载异常", e)
+                withContext(Dispatchers.Main) {
+                    downloadJob = null
+                    if (isCancelled) {
+                        LogCollector.d(TAG, "下载已取消，不显示错误")
+                        return@withContext
+                    }
                     Toast.makeText(
                         requireContext(),
-                        getString(R.string.model_download_failed, result.exceptionOrNull()?.message),
+                        getString(R.string.model_download_failed, e.message),
                         Toast.LENGTH_LONG
                     ).show()
+                    updateCtcStatus()
                 }
-                updateCtcStatus()
             }
         }
+        updateCtcStatus()
     }
 
     private fun showDeleteConfirmDialog() {
@@ -197,6 +238,8 @@ class ModelManagementFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        // 销毁时取消下载，但不设置 isCancelled 以便下次能正常下载
         downloadJob?.cancel()
+        downloadJob = null
     }
 }

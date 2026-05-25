@@ -188,28 +188,23 @@ object CtcOcrModelManager {
     }
 
     private fun renameFiles(modelDir: File) {
-        // ocr-ctc.zip 解压后可能是 ocr-ctc/ 目录下的文件
-        // 或者直接包含 ocr-ctc.ckpt 和 alphabet-all-v5.txt
-        // 需要根据实际情况处理
-        val extractedDir = File(modelDir, "extracted")
-        if (extractedDir.exists()) {
-            // 从 extracted 目录移动文件到 modelDir
-            extractedDir.listFiles()?.forEach { file ->
-                file.copyTo(File(modelDir, file.name), overwrite = true)
-            }
-            extractedDir.deleteRecursively()
+        // ocr-ctc.zip 解压后是 ocr-ctc.ckpt 和 alphabet-all-v5.txt
+        // 需要将 ocr-ctc.ckpt 重命名为 model.onnx
+
+        // 查找 ocr-ctc.ckpt 或类似名称的模型文件
+        val ckptFile = modelDir.listFiles()?.find { it.name.contains("ocr-ctc") && it.extension == "ckpt" }
+        if (ckptFile != null) {
+            val onnxFile = File(modelDir, MODEL_FILE)
+            ckptFile.renameTo(onnxFile)
+            LogCollector.d(TAG, "重命名模型文件: ${ckptFile.name} -> ${onnxFile.name}")
         }
 
-        // 处理可能存在的 ocr-ctc 子目录（如 zip 解压到 ocr-ctc/ 下）
-        val subDirs = modelDir.listFiles { f -> f.isDirectory && f.name != "extracted" }
-        subDirs?.forEach { subDir ->
-            subDir.listFiles()?.forEach { file ->
+        // 清理可能存在的子目录
+        modelDir.listFiles()?.filter { it.isDirectory }?.forEach { dir ->
+            dir.listFiles()?.forEach { file ->
                 file.copyTo(File(modelDir, file.name), overwrite = true)
             }
-            subDir.deleteRecursively()
+            dir.deleteRecursively()
         }
-
-        // 如果存在 ocr-ctc.ckpt，转换为 model.onnx（如果需要）
-        // 目前 CtcOcrRecognizer 使用 model.onnx
     }
 }
