@@ -458,13 +458,14 @@ class MangaFloatingService : LifecycleService() {
      * @return true 下载成功（包括已下载），false 用户取消
      */
     private suspend fun showCTCOcrDownloadDialog(): Boolean = withContext(Dispatchers.Main) {
+        var downloadJob: kotlinx.coroutines.Job? = null
         val progressDialog = android.app.AlertDialog.Builder(this@MangaFloatingService)
             .setTitle(getString(R.string.manga_ocr_ctc_download_title))
             .setMessage(getString(R.string.manga_ocr_ctc_download_progress, 0))
-            .setCancelable(false)
+            .setCancelable(true)
             .setNegativeButton("Cancel") { dialog, _ ->
                 dialog.dismiss()
-                // 下载会被 cancellation exception 中断
+                downloadJob?.cancel()
             }
             .create()
 
@@ -472,39 +473,53 @@ class MangaFloatingService : LifecycleService() {
         progressDialog.show()
 
         var downloadResult: Boolean = false
-        try {
-            val result = CtcOcrModelManager.downloadModel(
-                context = this@MangaFloatingService,
-                onProgress = object : ModelDownloadManager.ProgressCallback {
-                    override fun onProgress(bytesRead: Long, totalBytes: Long) {
-                        val progress = if (totalBytes > 0) {
-                            (bytesRead * 100 / totalBytes).toInt()
-                        } else {
-                            -1
-                        }
-                        handler.post {
-                            if (progress >= 0) {
-                                progressDialog.setMessage(
-                                    getString(R.string.manga_ocr_ctc_download_progress, progress)
-                                )
+        downloadJob = lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val result = CtcOcrModelManager.downloadModel(
+                    context = this@MangaFloatingService,
+                    onProgress = object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long) {
+                            val progress = if (totalBytes > 0) {
+                                (bytesRead * 100 / totalBytes).toInt()
                             } else {
-                                val mbRead = bytesRead / (1024 * 1024)
-                                progressDialog.setMessage(
-                                    getString(R.string.manga_ocr_ctc_download_progress_mb, mbRead)
-                                )
+                                -1
+                            }
+                            handler.post {
+                                if (progress >= 0) {
+                                    progressDialog.setMessage(
+                                        getString(R.string.manga_ocr_ctc_download_progress, progress)
+                                    )
+                                } else {
+                                    val mbRead = bytesRead / (1024 * 1024)
+                                    progressDialog.setMessage(
+                                        getString(R.string.manga_ocr_ctc_download_progress_mb, mbRead)
+                                    )
+                                }
                             }
                         }
                     }
+                )
+                downloadResult = result.isSuccess
+            } catch (e: Exception) {
+                // 下载被取消或失败
+                LogCollector.e(TAG, "CTCOcr download failed", e)
+                downloadResult = false
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    handler.post {
+                        AlertDialog.Builder(this@MangaFloatingService)
+                            .setTitle(R.string.error_occurred)
+                            .setMessage(e.message ?: "Download failed")
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show()
+                    }
                 }
-            )
-            downloadResult = result.isSuccess
-        } catch (e: Exception) {
-            // 下载被取消或失败
-            LogCollector.e(TAG, "CTCOcr download failed", e)
-            downloadResult = false
-        } finally {
-            progressDialog.dismiss()
+            } finally {
+                handler.post {
+                    progressDialog.dismiss()
+                }
+            }
         }
+        downloadJob!!.join()
         downloadResult
     }
 
