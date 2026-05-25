@@ -195,37 +195,18 @@ object DetectionBridge {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
             }
 
-            // pre-expand (1.5x)
-            val PRE_EXPAND = 1.5f
-            val preExpandedRects = rects.map { detectedRect ->
-                val rect = detectedRect.rect
-                val cx = (rect.left + rect.right) / 2f
-                val ew = rect.width() * PRE_EXPAND
-                Rect(
-                    (cx - ew / 2).toInt().coerceAtLeast(0),
-                    rect.top,
-                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    rect.bottom
-                )
-            }
-
-            // mergeRectsByRowThenCol (preExpandedRects → List<DetectedRect> fix in Task 11)
+            // mergeRectsByRowThenCol
             val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // final-expand 宽度（2.5x）+ 高度（2.1x）
-            val FINAL_EXPAND_WIDTH = 2.5f
-            val FINAL_EXPAND_HEIGHT = 2.1f
+            // final-expand: simple 10px padding only
+            val PADDING = 10
             val expandedRects = mergedRects.map { rect ->
-                val cx = (rect.left + rect.right) / 2f
-                val cy = (rect.top + rect.bottom) / 2f
-                val ew = rect.width() * FINAL_EXPAND_WIDTH
-                val eh = maxOf(rect.height() * FINAL_EXPAND_HEIGHT, 32f)
                 Rect(
-                    (cx - ew / 2).toInt().coerceAtLeast(0),
-                    (cy - eh / 2).toInt().coerceAtLeast(0),
-                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
+                    (rect.left - PADDING).coerceAtLeast(0),
+                    (rect.top - PADDING).coerceAtLeast(0),
+                    (rect.right + PADDING).coerceAtMost(bitmap.width),
+                    (rect.bottom + PADDING).coerceAtMost(bitmap.height)
                 )
             }
 
@@ -322,37 +303,18 @@ object DetectionBridge {
                 LogCollector.d(TAG, "CTD(MLKit) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
             }
 
-            // Step 3: pre-expand (1.5x)
-            val PRE_EXPAND = 1.5f
-            val preExpandedRects = rects.map { detectedRect ->
-                val rect = detectedRect.rect
-                val cx = (rect.left + rect.right) / 2f
-                val ew = rect.width() * PRE_EXPAND
-                Rect(
-                    (cx - ew / 2).toInt().coerceAtLeast(0),
-                    rect.top,
-                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    rect.bottom
-                )
-            }
-
-            // Step 4: mergeRectsByRowThenCol
+            // mergeRectsByRowThenCol
             val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 5: final-expand 宽度（2.5x）+ 高度（2.1x），确保渲染文字有足够空间
-            val FINAL_EXPAND_WIDTH = 2.5f
-            val FINAL_EXPAND_HEIGHT = 2.1f
+            // final-expand: simple 10px padding only
+            val PADDING = 10
             val expandedRects = mergedRects.map { rect ->
-                val cx = (rect.left + rect.right) / 2f
-                val cy = (rect.top + rect.bottom) / 2f
-                val ew = rect.width() * FINAL_EXPAND_WIDTH
-                val eh = maxOf(rect.height() * FINAL_EXPAND_HEIGHT, 32f) // 最小高度 32px
                 Rect(
-                    (cx - ew / 2).toInt().coerceAtLeast(0),
-                    (cy - eh / 2).toInt().coerceAtLeast(0),
-                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
+                    (rect.left - PADDING).coerceAtLeast(0),
+                    (rect.top - PADDING).coerceAtLeast(0),
+                    (rect.right + PADDING).coerceAtMost(bitmap.width),
+                    (rect.bottom + PADDING).coerceAtMost(bitmap.height)
                 )
             }
 
@@ -461,38 +423,18 @@ object DetectionBridge {
                 LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
             }
 
-            // Step 2: 扩展宽度（1.5x），让独立框有足够间隙后再合并
-            val PRE_EXPAND = 1.5f
-            val preExpandedRects = rects.map { detectedRect ->
-                val rect = detectedRect.rect
-                val cx = (rect.left + rect.right) / 2f
-                val ew = rect.width() * PRE_EXPAND
-                Rect(
-                    (cx - ew / 2).toInt().coerceAtLeast(0),
-                    rect.top,
-                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    rect.bottom
-                )
-            }
-            LogCollector.d(TAG, "CTD(简化) 预扩展后: ${preExpandedRects.size} 个框")
-
-            // Step 3: 按 Y 分组，组内按 X 合并相邻框
+            // mergeRectsByRowThenCol
             val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 4: 最终扩展宽度（2.5x）+ 高度（2.1x），确保渲染文字有足够空间
-            val FINAL_EXPAND_WIDTH = 2.5f
-            val FINAL_EXPAND_HEIGHT = 2.1f
+            // final-expand: simple 10px padding only
+            val PADDING = 10
             val expandedRects = mergedRects.map { rect ->
-                val cx = (rect.left + rect.right) / 2f
-                val cy = (rect.top + rect.bottom) / 2f
-                val ew = rect.width() * FINAL_EXPAND_WIDTH
-                val eh = maxOf(rect.height() * FINAL_EXPAND_HEIGHT, 32f) // 最小高度 32px
                 Rect(
-                    (cx - ew / 2).toInt().coerceAtLeast(0),
-                    (cy - eh / 2).toInt().coerceAtLeast(0),
-                    (cx + ew / 2).toInt().coerceAtMost(bitmap.width),
-                    (cy + eh / 2).toInt().coerceAtMost(bitmap.height)
+                    (rect.left - PADDING).coerceAtLeast(0),
+                    (rect.top - PADDING).coerceAtLeast(0),
+                    (rect.right + PADDING).coerceAtMost(bitmap.width),
+                    (rect.bottom + PADDING).coerceAtMost(bitmap.height)
                 )
             }
             // 合并日志：合并后+最终扩展一起输出
