@@ -36,6 +36,7 @@ class SettingPageActivity : BaseActivity() {
         const val TYPE_FRAGMENT_FAQ = 5
         const val TYPE_FRAGMENT_ERROR_CODE = 6
         const val TYPE_FRAGMENT_DEVELOPER = 7
+        const val TYPE_FRAGMENT_MODEL_MANAGEMENT = 8
     }
 
     private lateinit var binding: ActivitySettingPageBinding
@@ -69,6 +70,10 @@ class SettingPageActivity : BaseActivity() {
             ).commit()
             TYPE_FRAGMENT_DEVELOPER->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
                 Developer()
+            ).commit()
+            TYPE_FRAGMENT_MODEL_MANAGEMENT->supportFragmentManager.beginTransaction().replace(
+                binding.fragmentContainerView.id,
+                ModelManagementFragment()
             ).commit()
             else->Toast.makeText(applicationContext,"Unknown Error.", Toast.LENGTH_LONG).show()
         }

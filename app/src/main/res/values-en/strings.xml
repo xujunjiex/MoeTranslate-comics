@@ -491,8 +491,12 @@
     <string name="model_delete">Delete</string>
     <string name="model_downloaded">Downloaded</string>
     <string name="model_not_downloaded">Not downloaded</string>
-    <string name="model_download_speed">Speed: %.1f MB/s</string>
+    <string name="model_downloading">Downloading…</string>
+    <string name="model_download_success">Model downloaded successfully</string>
+    <string name="model_download_failed">Download failed: %s</string>
     <string name="model_delete_confirm">Delete %s model?</string>
     <string name="model_delete_success">Model deleted</string>
+    <string name="model_delete_failed">Delete failed</string>
+    <string name="model_download_speed">Speed: %.1f MB/s</string>
     <string name="model_missing_hint">Model not downloaded. Go to Settings > Model Management to download.</string>
 </resources>

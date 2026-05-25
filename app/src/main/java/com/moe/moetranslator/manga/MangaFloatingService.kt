@@ -290,11 +290,8 @@ class MangaFloatingService : LifecycleService() {
             try {
                 // 检查模型是否已下载
                 if (!CtcOcrModelManager.isModelDownloaded(this@MangaFloatingService)) {
-                    val downloaded = showCTCOcrDownloadDialog()
-                    if (!downloaded) {
-                        showToast("48px_ctc 模型下载已取消")
-                        return@launch
-                    }
+                    showToast(getString(R.string.model_missing_hint))
+                    return@launch
                 }
 
                 LogCollector.d(TAG, "initCTCOcr: 开始初始化 48px_ctc")
@@ -430,21 +427,18 @@ class MangaFloatingService : LifecycleService() {
 
     /**
      * 同步初始化 CTCOcr（如果需要），在 processMangaScreenshot 中调用。
+     * 注意：此方法仅初始化已下载的模型，不触发下载。
+     * 模型未下载时由 processMangaScreenshot 中的检查提前返回。
      */
     private suspend fun initCTCOcrIfNeeded() {
         if (CtcOcrRecognizer.isInitialized) return
 
-        // 检查模型是否已下载
+        // 模型未下载检查已在 processMangaScreenshot 中完成，此处不应发生
         if (!CtcOcrModelManager.isModelDownloaded(this)) {
-            // 模型未下载，显示下载对话框
-            val downloaded = showCTCOcrDownloadDialog()
-            if (!downloaded) {
-                // 用户取消下载
-                withContext(Dispatchers.Main) {
-                    showToast("48px_ctc 模型下载已取消")
-                }
-                throw RuntimeException("CTCOcr model download cancelled")
+            withContext(Dispatchers.Main) {
+                showToast(getString(R.string.model_missing_hint))
             }
+            throw RuntimeException("CTCOcr model not downloaded")
         }
 
         try {
