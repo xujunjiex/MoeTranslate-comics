@@ -54,3 +54,9 @@ test_image.jpg
 
 # Local plans and docs
 docs/superpowers/plans/*.md
+
+# Reference repos
+.reference/
+
+# Local logs
+logs/
