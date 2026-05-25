@@ -21,8 +21,8 @@ object CtcOcrModelManager {
     const val MODEL_FILE = "model.onnx"
     const val ALPHABET_FILE = "alphabet-all-v5.txt"
 
-    const val DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip"
-    const val HASH = "fc61c52f7a811bc72c54f6be85df814c6b60f63585175db27cb94a08e0c30101"
+    private const val DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip"
+    private const val HASH = "fc61c52f7a811bc72c54f6be85df814c6b60f63585175db27cb94a08e0c30101"
 
     /**
      * 获取模型目录（应用内部存储）
@@ -63,7 +63,9 @@ object CtcOcrModelManager {
     ): Result<Unit> {
         val modelDir = getModelDir(context)
         if (!modelDir.exists()) {
-            modelDir.mkdirs()
+            if (!modelDir.mkdirs()) {
+                return Result.failure(IllegalStateException("Failed to create model directory: $modelDir"))
+            }
         }
 
         // 下载 zip 文件
@@ -84,7 +86,9 @@ object CtcOcrModelManager {
         return try {
             unzip(zipFile, modelDir)
             // 删除 zip 文件
-            zipFile.delete()
+            if (!zipFile.delete()) {
+                LogCollector.e(TAG, "Failed to delete zip file: $zipFile")
+            }
             // 重命名文件（如果需要）
             renameFiles(modelDir)
             Result.success(Unit)
@@ -95,21 +99,21 @@ object CtcOcrModelManager {
     }
 
     private fun unzip(zipFile: File, destDir: File) {
-        val zip = ZipFile(zipFile)
-        zip.entries().asSequence().forEach { entry ->
-            val file = File(destDir, entry.name)
-            if (entry.isDirectory) {
-                file.mkdirs()
-            } else {
-                file.parentFile?.mkdirs()
-                zip.getInputStream(entry).use { input ->
-                    file.outputStream().use { output ->
-                        input.copyTo(output)
+        ZipFile(zipFile).use { zip ->
+            zip.entries().asSequence().forEach { entry ->
+                val file = File(destDir, entry.name)
+                if (entry.isDirectory) {
+                    file.mkdirs()
+                } else {
+                    file.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        file.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
                 }
             }
         }
-        zip.close()
     }
 
     private fun renameFiles(modelDir: File) {
@@ -123,6 +127,15 @@ object CtcOcrModelManager {
                 file.copyTo(File(modelDir, file.name), overwrite = true)
             }
             extractedDir.deleteRecursively()
+        }
+
+        // 处理可能存在的 ocr-ctc 子目录（如 zip 解压到 ocr-ctc/ 下）
+        val subDirs = modelDir.listFiles { f -> f.isDirectory && f.name != "extracted" }
+        subDirs?.forEach { subDir ->
+            subDir.listFiles()?.forEach { file ->
+                file.copyTo(File(modelDir, file.name), overwrite = true)
+            }
+            subDir.deleteRecursively()
         }
 
         // 如果存在 ocr-ctc.ckpt，转换为 model.onnx（如果需要）
