@@ -55,6 +55,44 @@ object CtcOcrModelManager {
     }
 
     /**
+     * 删除已下载的模型
+     */
+    fun deleteModel(context: Context): Result<Unit> {
+        return try {
+            val modelDir = getModelDir(context)
+            if (modelDir.exists()) {
+                modelDir.deleteRecursively()
+            }
+            LogCollector.d(TAG, "模型已删除: ${modelDir.absolutePath}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "删除模型失败", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取模型大小
+     */
+    fun getModelSize(context: Context): Long {
+        val modelDir = getModelDir(context)
+        if (!modelDir.exists()) return 0
+        return modelDir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+    }
+
+    /**
+     * 获取模型大小描述
+     */
+    fun getModelSizeString(context: Context): String {
+        val size = getModelSize(context)
+        return when {
+            size < 1024 -> "$size B"
+            size < 1024 * 1024 -> String.format("%.1f KB", size / 1024.0)
+            else -> String.format("%.1f MB", size / (1024.0 * 1024.0))
+        }
+    }
+
+    /**
      * 下载模型
      */
     suspend fun downloadModel(
