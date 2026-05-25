@@ -213,9 +213,9 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // final-expand 宽度（2.5x）+ 高度（3x）
+            // final-expand 宽度（2.5x）+ 高度（2.1x）
             val FINAL_EXPAND_WIDTH = 2.5f
-            val FINAL_EXPAND_HEIGHT = 3.0f
+            val FINAL_EXPAND_HEIGHT = 2.1f
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
                 val cy = (rect.top + rect.bottom) / 2f
@@ -340,9 +340,9 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 5: final-expand 宽度（2.5x）+ 高度（3x），确保渲染文字有足够空间
+            // Step 5: final-expand 宽度（2.5x）+ 高度（2.1x），确保渲染文字有足够空间
             val FINAL_EXPAND_WIDTH = 2.5f
-            val FINAL_EXPAND_HEIGHT = 3.0f
+            val FINAL_EXPAND_HEIGHT = 2.1f
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
                 val cy = (rect.top + rect.bottom) / 2f
@@ -480,9 +480,9 @@ object DetectionBridge {
             val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
             LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
-            // Step 4: 最终扩展宽度（2.5x）+ 高度（3x），确保渲染文字有足够空间
+            // Step 4: 最终扩展宽度（2.5x）+ 高度（2.1x），确保渲染文字有足够空间
             val FINAL_EXPAND_WIDTH = 2.5f
-            val FINAL_EXPAND_HEIGHT = 3.0f
+            val FINAL_EXPAND_HEIGHT = 2.1f
             val expandedRects = mergedRects.map { rect ->
                 val cx = (rect.left + rect.right) / 2f
                 val cy = (rect.top + rect.bottom) / 2f
