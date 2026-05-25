@@ -209,8 +209,8 @@ object DetectionBridge {
                 )
             }
 
-            // mergeRectsByRowThenCol
-            val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
+            // mergeRectsByRowThenCol (preExpandedRects → List<DetectedRect> fix in Task 11)
+            val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
             // final-expand 宽度（2.5x）+ 高度（2.1x）
@@ -337,7 +337,7 @@ object DetectionBridge {
             }
 
             // Step 4: mergeRectsByRowThenCol
-            val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
+            val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
             // Step 5: final-expand 宽度（2.5x）+ 高度（2.1x），确保渲染文字有足够空间
@@ -477,7 +477,7 @@ object DetectionBridge {
             LogCollector.d(TAG, "CTD(简化) 预扩展后: ${preExpandedRects.size} 个框")
 
             // Step 3: 按 Y 分组，组内按 X 合并相邻框
-            val mergedRects = mergeRectsByRowThenCol(preExpandedRects)
+            val mergedRects = mergeRectsByRowThenCol(rects)
             LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
 
             // Step 4: 最终扩展宽度（2.5x）+ 高度（2.1x），确保渲染文字有足够空间
@@ -556,45 +556,54 @@ object DetectionBridge {
 
     /**
      * 按 Y 分组，组内按 X 合并相邻框
-     * 1. 按 top 排序
-     * 2. Y 范围重叠（或 gap ≤ 阈值）视为同一行
-     * 3. 同行的框再按 X 方向合并相邻的
+     * 使用基于字高的动态阈值（对齐 manga-image-translator）
+     *
+     * @param rects DetectedRect 列表，包含 rect 和 isVertical 信息
      */
-    private fun mergeRectsByRowThenCol(rects: List<Rect>): List<Rect> {
+    private fun mergeRectsByRowThenCol(rects: List<DetectedRect>): List<Rect> {
         if (rects.isEmpty()) return emptyList()
-        if (rects.size == 1) return rects
+        if (rects.size == 1) return listOf(rects[0].rect)
 
-        val sorted = rects.sortedBy { it.top }
-        val rows = mutableListOf<MutableList<Rect>>()
-        var currentRow = mutableListOf<Rect>()
-        var currentRowBottom = sorted[0].bottom
+        val sorted = rects.sortedBy { it.rect.top }
+        val rows = mutableListOf<MutableList<DetectedRect>>()
+        var currentRow = mutableListOf<DetectedRect>()
+        var currentRowBottom = sorted[0].rect.bottom
+        var currentCharSize = sorted[0].rect.height().toFloat()
 
-        val Y_GAP_THRESHOLD = 10 // Y 间隙超过 10px 视为不同行
-
-        for (rect in sorted) {
+        for (detected in sorted) {
+            val rect = detected.rect
+            val charSize = rect.height().toFloat()
             val gap = rect.top - currentRowBottom
-            if (gap > 0 && gap <= Y_GAP_THRESHOLD) {
-                currentRow.add(rect)
+
+            // Dynamic Y gap threshold: 2 * char size (discard_connection_gap = 2)
+            val dynamicGapThreshold = 2 * currentCharSize
+
+            if (gap > 0 && gap <= dynamicGapThreshold) {
+                currentRow.add(detected)
                 currentRowBottom = maxOf(currentRowBottom, rect.bottom)
+                currentCharSize = (currentCharSize + charSize) / 2  // running average
             } else {
                 if (currentRow.isNotEmpty()) rows.add(currentRow)
-                currentRow = mutableListOf(rect)
+                currentRow = mutableListOf(detected)
                 currentRowBottom = rect.bottom
+                currentCharSize = charSize
             }
         }
         if (currentRow.isNotEmpty()) rows.add(currentRow)
 
-        // 组内按 X 合并
+        // Within each row, merge by X proximity with dynamic threshold
         val result = mutableListOf<Rect>()
         for (row in rows) {
-            val sortedRow = row.sortedBy { it.left }
+            val sortedRow = row.sortedBy { it.rect.left }
             var merged: Rect? = null
-            for (rect in sortedRow) {
+            for (detected in sortedRow) {
+                val rect = detected.rect
                 if (merged == null) {
                     merged = rect
                 } else {
                     val gap = rect.left - merged.right
-                    if (gap <= 5) { // X 间隙 ≤ 5px 才合并（更严格的分行，防止不同行字符被合并）
+                    val dynamicXGap = 2 * minOf(rect.height(), merged.height()).toFloat()
+                    if (gap <= dynamicXGap) {
                         merged = Rect(
                             merged.left,
                             minOf(merged.top, rect.top),
