@@ -90,7 +90,7 @@ object CTDPostProcessor {
 
             // 8. 构建 QuadBox（尚未缩放）
             val quadBox = QuadBox(
-                ptsInput = Array(4) { i ->
+                Array(4) { i ->
                     PointF(unclippedPoints[i].x.toFloat(), unclippedPoints[i].y.toFloat())
                 },
                 text = "",
@@ -115,7 +115,7 @@ object CTDPostProcessor {
 
         val result = quadBoxes.map { qb ->
             QuadBox(
-                ptsInput = Array(4) { i ->
+                Array(4) { i ->
                     PointF(
                         (qb.pts[i].x * scaleX).coerceIn(0f, origWidth.toFloat()),
                         (qb.pts[i].y * scaleY).coerceIn(0f, origHeight.toFloat())
