@@ -171,21 +171,17 @@ object DetectionBridge {
         language: String
     ): List<TextBlockInfo> {
         try {
-            // Step 1: CTD 检测文字区域
+            // Step 1: CTD 简化检测（和 manga-ocr 流程一样）
             LogCollector.d(TAG, "使用 CTD(MLKit) 检测文字区域...")
-            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
-            if (quadBoxes.isEmpty()) {
+            val rects = CTDDetector.detectRectsSimple(bitmap)
+            if (rects.isEmpty()) {
                 LogCollector.d(TAG, "CTD(MLKit) 未检测到文字区域")
                 return emptyList()
             }
-            LogCollector.d(TAG, "CTD(MLKit) 检测到 ${quadBoxes.size} 个文字区域")
-            for ((idx, qb) in quadBoxes.withIndex()) {
-                val aabb = qb.aabb
-                LogCollector.d(TAG, "CTD(MLKit) QuadBox[$idx]: AABB=[${aabb.left}, ${aabb.top}, ${aabb.right}, ${aabb.bottom}], area=${String.format("%.1f", qb.area)}, fontSize=${String.format("%.1f", qb.fontSize)}")
+            LogCollector.d(TAG, "CTD(MLKit) 检测到 ${rects.size} 个文字区域")
+            for ((idx, detectedRect) in rects.withIndex()) {
+                LogCollector.d(TAG, "CTD(MLKit) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}")
             }
-
-            // Step 2: 提取 AABB 列表用于合并
-            val rects = quadBoxes.map { DetectedRect(it.aabb, it.aspectRatio > 1) } // isVertical 用宽高比推断
 
             // Step 3: pre-expand (1.5x)
             val PRE_EXPAND = 1.5f
@@ -429,7 +425,7 @@ object DetectionBridge {
         var currentRow = mutableListOf<Rect>()
         var currentRowBottom = sorted[0].bottom
 
-        val Y_GAP_THRESHOLD = 20 // Y 间隙超过 20px 视为不同行
+        val Y_GAP_THRESHOLD = 10 // Y 间隙超过 10px 视为不同行
 
         for (rect in sorted) {
             val gap = rect.top - currentRowBottom
