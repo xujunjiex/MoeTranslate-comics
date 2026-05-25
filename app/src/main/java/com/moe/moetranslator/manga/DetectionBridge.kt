@@ -429,7 +429,7 @@ object DetectionBridge {
 
         for (rect in sorted) {
             val gap = rect.top - currentRowBottom
-            if (gap <= Y_GAP_THRESHOLD) {
+            if (gap > 0 && gap <= Y_GAP_THRESHOLD) {
                 currentRow.add(rect)
                 currentRowBottom = maxOf(currentRowBottom, rect.bottom)
             } else {
@@ -450,7 +450,7 @@ object DetectionBridge {
                     merged = rect
                 } else {
                     val gap = rect.left - merged.right
-                    if (gap <= 15) { // X 间隙 ≤ 15px 合并
+                    if (gap <= 5) { // X 间隙 ≤ 5px 才合并（更严格的分行，防止不同行字符被合并）
                         merged = Rect(
                             merged.left,
                             minOf(merged.top, rect.top),
