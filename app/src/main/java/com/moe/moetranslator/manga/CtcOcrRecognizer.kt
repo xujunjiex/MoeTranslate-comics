@@ -83,6 +83,13 @@ object CtcOcrRecognizer {
             }
             LogCollector.d(TAG, "Tokenizer 加载完成, 字典大小=${tokenizer!!.getDictionarySize()}")
 
+            // 验证 tokenizer 初始化成功
+            if (tokenizer!!.getDictionarySize() == 0) {
+                LogCollector.e(TAG, "Tokenizer 字典为空，初始化失败")
+                release()
+                throw IllegalStateException("Tokenizer initialization failed - empty dictionary")
+            }
+
             isInitialized = true
             LogCollector.d(TAG, "48px_ctc 模型初始化完成")
         } catch (e: Exception) {

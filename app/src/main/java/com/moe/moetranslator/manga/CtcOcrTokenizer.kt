@@ -47,7 +47,7 @@ class CtcOcrTokenizer(private val context: Context) {
             LogCollector.d(TAG, "字典文件加载完成: ${dictionary.size} 个字符, file=${file.absolutePath}")
         } catch (e: Exception) {
             LogCollector.e(TAG, "从文件加载字典失败: ${file.absolutePath}", e)
-            dictionary = emptyList()
+            throw e
         }
     }
 
