@@ -123,6 +123,13 @@
             android:entries="@array/manga_rec_model_entries"
             android:entryValues="@array/manga_rec_model_values" />
 
+        <ListPreference
+            android:key="manga_rec_model_version"
+            android:title="@string/manga_rec_model_version_title"
+            android:entries="@array/manga_ocr_version_entries"
+            android:entryValues="@array/manga_ocr_version_values"
+            android:defaultValue="FULL" />
+
     </PreferenceCategory>
 
     <PreferenceCategory

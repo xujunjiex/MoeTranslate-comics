@@ -40,6 +40,7 @@ import com.moe.moetranslator.translate.DecimalDigitsInputFilter
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
+import com.moe.moetranslator.manga.OcrEngine
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LanguageManager
 import java.io.File
@@ -66,6 +67,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var dismissDelay: Preference
     private lateinit var mangaDetModel: ListPreference
     private lateinit var mangaRecModel: ListPreference
+    private lateinit var mangaRecModelVersion: ListPreference
 
     private lateinit var languagePreference: ListPreference
 
@@ -204,11 +206,27 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
         mangaRecModel.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Manga_Rec_Model", newValue.toString().toInt())
+            val isMangaOcr = newValue.toString().toInt() == OcrEngine.MangaOcr.value
+            mangaRecModelVersion.isEnabled = isMangaOcr
             true
         }
         mangaRecModel.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
             getString(R.string.manga_rec_model_summary, mangaRecModel.entry)
         }
+
+        mangaRecModelVersion = findPreference("manga_rec_model_version")!!
+
+        mangaRecModelVersion.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setString("Manga_Rec_Model_Version", newValue as String)
+            true
+        }
+        mangaRecModelVersion.summaryProvider = Preference.SummaryProvider<ListPreference> { pref ->
+            pref.entry ?: "完整版"
+        }
+
+        // Initially disable if manga-ocr not selected
+        val recModelValue = prefs.getInt("Manga_Rec_Model", 0)
+        mangaRecModelVersion.isEnabled = recModelValue == OcrEngine.MangaOcr.value
 
         // 自动翻译时间间隔
         autoInterval.setOnPreferenceClickListener {
