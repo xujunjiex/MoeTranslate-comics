@@ -31,6 +31,141 @@ object DetectionBridge {
     }
 
     /**
+     * CTD + 混合 OCR 路径。
+     *
+     * 流程：
+     * 1. CTD 检测文字区域 → List<QuadBox>
+     * 2. BoxMerger 合并 → List<List<QuadBox>>
+     * 3. 分流：
+     *    - size > 1（合并组）：manga-ocr 识别
+     *    - size == 1（单个框）：ML Kit 识别
+     *
+     * @param bitmap 输入图片
+     * @param language 语言（用于 ML Kit 识别）
+     * @return TextBlockInfo 列表
+     */
+    suspend fun detectWithCTDHybrid(
+        bitmap: Bitmap,
+        language: String
+    ): List<TextBlockInfo> {
+        try {
+            LogCollector.d(TAG, "detectWithCTDHybrid: 开始")
+
+            // Step 1: CTD 检测
+            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
+            if (quadBoxes.isEmpty()) {
+                LogCollector.d(TAG, "detectWithCTDHybrid: CTD 未检测到文字区域")
+                return emptyList()
+            }
+            LogCollector.d(TAG, "detectWithCTDHybrid: CTD 检测到 ${quadBoxes.size} 个文字区域")
+
+            // Step 2: BoxMerger 合并
+            val groups = BoxMerger.merge(quadBoxes)
+            LogCollector.d(TAG, "detectWithCTDHybrid: BoxMerger 合并: ${quadBoxes.size} → ${groups.size} 个组")
+
+            for ((idx, group) in groups.withIndex()) {
+                LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx]: size=${group.size}, rects=${group.map { it.aabb }}")
+            }
+
+            // Step 3: 分流识别
+            val results = mutableListOf<TextBlockInfo>()
+
+            for ((idx, group) in groups.withIndex()) {
+                if (group.size > 1) {
+                    // 合并组 → manga-ocr
+                    LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx] 使用 manga-ocr (size=${group.size})")
+                    try {
+                        val unionRect = computeUnionAABB(group)
+                        val crop = Bitmap.createBitmap(
+                            bitmap,
+                            unionRect.left.coerceAtLeast(0),
+                            unionRect.top.coerceAtLeast(0),
+                            unionRect.width().coerceAtLeast(1),
+                            unionRect.height().coerceAtLeast(1)
+                        )
+                        val resized = Bitmap.createScaledBitmap(crop, 224, 224, true)
+                        crop.recycle()
+                        val text = MangaOcrRecognizer.recognize(resized)
+                        resized.recycle()
+                        if (text.isNotBlank()) {
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = unionRect,
+                                cornerPoints = null,
+                                isVertical = null
+                            ))
+                            LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 结果[$idx]: '$text'")
+                        }
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "detectWithCTDHybrid: manga-ocr 识别失败[$idx]", e)
+                    }
+                } else {
+                    // 单个框 → ML Kit
+                    val qb = group.first()
+                    LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx] 使用 ML Kit (single box)")
+                    try {
+                        val rect = qb.aabb
+                        val paddedRect = Rect(
+                            (rect.left - 10).coerceAtLeast(0),
+                            (rect.top - 10).coerceAtLeast(0),
+                            (rect.right + 10).coerceAtMost(bitmap.width),
+                            (rect.bottom + 10).coerceAtMost(bitmap.height)
+                        )
+                        val crop = Bitmap.createBitmap(
+                            bitmap,
+                            paddedRect.left,
+                            paddedRect.top,
+                            paddedRect.width().coerceAtLeast(1),
+                            paddedRect.height().coerceAtLeast(1)
+                        )
+                        val text = OCRBridge.recognizeText(language, crop)
+                        crop.recycle()
+                        if (text.isNotBlank()) {
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = paddedRect,
+                                cornerPoints = null,
+                                isVertical = null
+                            ))
+                            LogCollector.d(TAG, "detectWithCTDHybrid: ML Kit 结果[$idx]: '$text'")
+                        }
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "detectWithCTDHybrid: ML Kit 识别失败[$idx]", e)
+                    }
+                }
+            }
+
+            // Step 4: 按阅读顺序排序
+            val sortedResults = sortResultsByReadingOrder(results)
+            LogCollector.d(TAG, "detectWithCTDHybrid: 完成，共 ${sortedResults.size} 个结果")
+
+            return sortedResults
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "detectWithCTDHybrid: 失败", e)
+            throw e
+        }
+    }
+
+    /**
+     * 按阅读顺序对结果排序。
+     * 与 sortByReadingOrder 类似，但作用于 TextBlockInfo 结果。
+     */
+    private fun sortResultsByReadingOrder(results: List<TextBlockInfo>): List<TextBlockInfo> {
+        if (results.isEmpty()) return results
+
+        val isVertical = results.count { r ->
+            r.boundingBox?.let { it.height() > it.width() } ?: false
+        } > results.size / 2
+
+        return if (isVertical) {
+            results.sortedWith(compareBy({ r -> -((r.boundingBox?.centerX() ?: 0)) }, { r -> r.boundingBox?.centerY() ?: 0 }))
+        } else {
+            results.sortedWith(compareBy({ r -> r.boundingBox?.centerY() ?: 0 }, { r -> r.boundingBox?.centerX() ?: 0 }))
+        }
+    }
+
+    /**
      * 使用 DBNet 检测文字区域，然后用指定引擎识别文字。
      *
      * 流程对齐 manga-image-translator：
