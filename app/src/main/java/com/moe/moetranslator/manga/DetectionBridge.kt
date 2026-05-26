@@ -697,4 +697,22 @@ object DetectionBridge {
         }
         return Rect(left, top, right, bottom)
     }
+
+    /**
+     * 按阅读顺序对合并组排序。
+     * 竖排为主：从右到左，从上到下
+     * 横排为主：从左到右，从上到下
+     */
+    private fun sortByReadingOrder(groups: List<List<QuadBox>>): List<List<QuadBox>> {
+        // 判断整体方向
+        val isVertical = groups.count { g -> g.first().let { qb ->
+            qb.aabb.height() > qb.aabb.width()
+        }} > groups.size / 2
+
+        return if (isVertical) {
+            groups.sortedWith(compareBy({ -it.first().centroidX }, { it.first().centroidY }))
+        } else {
+            groups.sortedWith(compareBy({ it.first().centroidY }, { it.first().centroidX }))
+        }
+    }
 }
