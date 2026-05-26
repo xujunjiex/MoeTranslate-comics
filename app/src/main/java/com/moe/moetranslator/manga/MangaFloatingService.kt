@@ -187,7 +187,7 @@ class MangaFloatingService : LifecycleService() {
         // 初始化检测引擎
         when (config.detEngine) {
             DetEngine.DBNET -> initDBNet()
-            DetEngine.CTD -> initCTD()
+            DetEngine.CTD, DetEngine.HYBRID -> initCTD()
             DetEngine.MLKIT -> {}
         }
 
@@ -210,7 +210,7 @@ class MangaFloatingService : LifecycleService() {
         // 释放检测引擎资源
         when (config.detEngine) {
             DetEngine.DBNET -> releaseDBNet()
-            DetEngine.CTD -> releaseCTD()
+            DetEngine.CTD, DetEngine.HYBRID -> releaseCTD()
             DetEngine.MLKIT -> {}
         }
 
@@ -766,6 +766,7 @@ class MangaFloatingService : LifecycleService() {
         }
         val detModelLabel = when (config.detEngine) {
             DetEngine.CTD -> "CTD"
+            DetEngine.HYBRID -> "HYBRID"
             DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
         }
@@ -896,11 +897,12 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKIT -> DBNET -> CTD -> MLKIT
+        // 循环切换：MLKIT -> DBNET -> CTD -> HYBRID -> MLKIT
         val newEngine = when (config.detEngine) {
             DetEngine.MLKIT -> DetEngine.DBNET
             DetEngine.DBNET -> DetEngine.CTD
-            DetEngine.CTD -> DetEngine.MLKIT
+            DetEngine.CTD -> DetEngine.HYBRID
+            DetEngine.HYBRID -> DetEngine.MLKIT
         }
         config = config.copy(detEngine = newEngine)
         prefs.setInt("Manga_Det_Model", newEngine.value)
@@ -908,6 +910,7 @@ class MangaFloatingService : LifecycleService() {
         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
         val label = when (newEngine) {
             DetEngine.CTD -> "CTD"
+            DetEngine.HYBRID -> "HYBRID"
             DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
         }
@@ -921,8 +924,11 @@ class MangaFloatingService : LifecycleService() {
                 initDBNet()
             }
             DetEngine.CTD -> {
-                releaseDBNet()  // 确保 DBNet 已释放
                 showToast("CTD 初始化中...")
+                initCTD()
+            }
+            DetEngine.HYBRID -> {
+                showToast("HYBRID 初始化中...")
                 initCTD()
             }
             DetEngine.MLKIT -> {
@@ -1159,7 +1165,7 @@ class MangaFloatingService : LifecycleService() {
             // 确保选中的模型已初始化
             when (config.detEngine) {
                 DetEngine.DBNET -> initDBNetIfNeeded()
-                DetEngine.CTD -> initCTDIfNeeded()
+                DetEngine.CTD, DetEngine.HYBRID -> initCTDIfNeeded()
                 DetEngine.MLKIT -> {}
             }
             when (config.ocrEngine) {
@@ -1186,6 +1192,11 @@ class MangaFloatingService : LifecycleService() {
                         }
                         LogCollector.d(TAG, "使用 CTD(${ctdOcrEngine.name}) 识别")
                         DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
+                    }
+                    DetEngine.HYBRID -> {
+                        // TODO: 实现 hybrid OCR（merged→manga-ocr, single→MLKit）
+                        LogCollector.d(TAG, "使用 CTD Hybrid 检测（临时调用 CTD）")
+                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, DetectionBridge.CTDOCREngine.MLKit)
                     }
                     DetEngine.DBNET -> {
                         val useMangaOcr = config.ocrEngine == OcrEngine.MangaOcr

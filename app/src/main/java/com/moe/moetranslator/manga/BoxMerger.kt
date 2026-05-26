@@ -18,13 +18,13 @@ object BoxMerger {
 
     private const val TAG = "BoxMerger"
 
-    // 默认参数（与 manga-image-translator textline_merge 调用参数一致）
+    // 默认参数（与 manga-image-translator textline_merge/__init__.py:134 调用参数一致）
     private const val RATIO = 1.9f
     private const val DISCARD_CONNECTION_GAP = 2f
-    private const val CHAR_GAP_TOLERANCE = 0.6f
-    private const val CHAR_GAP_TOLERANCE2 = 1.5f
-    private const val FONT_SIZE_RATIO_TOL = 1.5f
-    private const val ASPECT_RATIO_TOL = 2f
+    private const val CHAR_GAP_TOLERANCE = 1.0f      // 官方调用用 1（你的 0.6 偏小）
+    private const val CHAR_GAP_TOLERANCE2 = 3.0f    // 官方调用用 3（你的 1.5 偏小）
+    private const val FONT_SIZE_RATIO_TOL = 2.0f     // 官方调用用 2（你的 1.5 偏小）
+    private const val ASPECT_RATIO_TOL = 1.3f        // 官方调用用 1.3（你的 2.0 偏大）
 
     /**
      * 合并 box 列表，返回合并后的分组。
@@ -118,7 +118,8 @@ object BoxMerger {
         val w2 = aabb2.width().toFloat(); val h2 = aabb2.height().toFloat()
 
         // 1. 距离粗筛（generic.py:663）
-        val dist = a.distance(b)
+        // 使用多边形距离而非 AABB Chebyshev 距离，与 manga-image-translator 一致
+        val dist = a.polyDistance(b)
         if (dist > DISCARD_CONNECTION_GAP * charSize) return false
 
         // 2. 字体大小比（generic.py:665）
