@@ -181,7 +181,6 @@ class MangaFloatingService : LifecycleService() {
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}  // MLKit 无需初始化
             OcrEngine.MangaOcr -> lifecycleScope.launch { ensureMangaOcrInitialized() }
-            OcrEngine.MangaOcrAssets -> lifecycleScope.launch { ensureMangaOcrInitialized() }
             OcrEngine.CTCOcr -> initCTCOcr()
         }
 
@@ -205,7 +204,6 @@ class MangaFloatingService : LifecycleService() {
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}
             OcrEngine.MangaOcr -> releaseMangaOcr()
-            OcrEngine.MangaOcrAssets -> releaseMangaOcr()
             OcrEngine.CTCOcr -> releaseCTCOcr()
         }
 
@@ -268,21 +266,6 @@ class MangaFloatingService : LifecycleService() {
             showToast("Initialize Error: ${e.message}")
         }
         LogCollector.d(TAG, "initTranslator: result translatorText=${translatorText?.javaClass?.simpleName}")
-    }
-
-    private fun initMangaOcr() {
-        lifecycleScope.launch {
-            try {
-                LogCollector.d(TAG, "initMangaOcr: 开始初始化 manga-ocr")
-                val modelDir = MangaOcrModelManager.getModelDir()
-                MangaOcrRecognizer.initialize(this@MangaFloatingService, modelDir, useAssets = true)
-                LogCollector.d(TAG, "initMangaOcr: manga-ocr 初始化完成")
-                showToast(getString(R.string.manga_ocr_init_complete))
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "initMangaOcr: 初始化失败", e)
-                showToast(getString(R.string.manga_ocr_init_failed, e.message ?: "未知错误"))
-            }
-        }
     }
 
     private fun releaseMangaOcr() {
@@ -452,27 +435,18 @@ class MangaFloatingService : LifecycleService() {
                     return
                 }
             }
-            OcrEngine.MangaOcrAssets -> {
-                // 测试用 assets 模型
-                try {
-                    if (MangaOcrRecognizer.isInitialized) {
-                        MangaOcrRecognizer.release()
-                    }
-                    LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用 assets 测试模型")
-                    withContext(Dispatchers.IO) {
-                        MangaOcrRecognizer.initialize(this@MangaFloatingService, useAssets = true)
-                    }
-                    currentLoadedMangaOcrVersion = "assets"
-                } catch (e: Exception) {
-                    LogCollector.e(TAG, "assets manga-ocr 初始化失败", e)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(applicationContext, R.string.manga_ocr_init_failed, Toast.LENGTH_LONG).show()
-                    }
+            OcrEngine.MangaOcr -> {
+                val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@MangaFloatingService)
+                if (activeVersion == null || !MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
+                    Toast.makeText(this@MangaFloatingService, getString(R.string.manga_ocr_download_required), Toast.LENGTH_LONG).show()
                     return
                 }
             }
+            OcrEngine.CTCOcr -> {
+                // CTCOcr 不走这里
+            }
             else -> {
-                // MLKit/CTCOcr 不需要 manga-ocr
+                // MLKit 不需要 manga-ocr
                 return
             }
         }
@@ -798,7 +772,6 @@ class MangaFloatingService : LifecycleService() {
         val ocrEngineLabel = when (config.ocrEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
             OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.MangaOcrAssets -> getString(R.string.manga_ocr_manga_ocr_assets)
             OcrEngine.CTCOcr -> getString(R.string.manga_ocr_ctc)
         }
 
@@ -885,11 +858,10 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Menu actions ----------
 
     private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKit -> MangaOcr -> MangaOcrAssets -> CTCOcr -> MLKit
+        // 循环切换：MLKit -> MangaOcr -> CTCOcr -> MLKit
         val newEngine = when (config.ocrEngine) {
             OcrEngine.MLKit -> OcrEngine.MangaOcr
-            OcrEngine.MangaOcr -> OcrEngine.MangaOcrAssets
-            OcrEngine.MangaOcrAssets -> OcrEngine.CTCOcr
+            OcrEngine.MangaOcr -> OcrEngine.CTCOcr
             OcrEngine.CTCOcr -> OcrEngine.MLKit
         }
         config = config.copy(ocrEngine = newEngine)
@@ -899,7 +871,6 @@ class MangaFloatingService : LifecycleService() {
         val label = when (newEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
             OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.MangaOcrAssets -> getString(R.string.manga_ocr_manga_ocr_assets)
             OcrEngine.CTCOcr -> getString(R.string.manga_ocr_ctc)
         }
         adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：$label")
@@ -912,11 +883,6 @@ class MangaFloatingService : LifecycleService() {
                 showToast(getString(R.string.manga_ocr_mlkit))
             }
             OcrEngine.MangaOcr -> {
-                releaseCTCOcr()
-                showToast(getString(R.string.manga_ocr_initializing))
-                lifecycleScope.launch { ensureMangaOcrInitialized() }
-            }
-            OcrEngine.MangaOcrAssets -> {
                 releaseCTCOcr()
                 showToast(getString(R.string.manga_ocr_initializing))
                 lifecycleScope.launch { ensureMangaOcrInitialized() }
@@ -1199,7 +1165,6 @@ class MangaFloatingService : LifecycleService() {
             when (config.ocrEngine) {
                 OcrEngine.MLKit -> {}  // MLKit 无需初始化
                 OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
-                OcrEngine.MangaOcrAssets -> ensureMangaOcrInitialized()
                 OcrEngine.CTCOcr -> {
                     if (!CtcOcrModelManager.isModelDownloaded(applicationContext)) {
                         showToast(getString(R.string.model_missing_hint))
@@ -1216,14 +1181,14 @@ class MangaFloatingService : LifecycleService() {
                     DetEngine.CTD -> {
                         val ctdOcrEngine = when (config.ocrEngine) {
                             OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                            OcrEngine.MangaOcr, OcrEngine.MangaOcrAssets -> DetectionBridge.CTDOCREngine.MangaOcr
+                            OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
                             OcrEngine.CTCOcr -> DetectionBridge.CTDOCREngine.CTCOcr
                         }
                         LogCollector.d(TAG, "使用 CTD(${ctdOcrEngine.name}) 识别")
                         DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
                     }
                     DetEngine.DBNET -> {
-                        val useMangaOcr = config.ocrEngine == OcrEngine.MangaOcr || config.ocrEngine == OcrEngine.MangaOcrAssets
+                        val useMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
                         LogCollector.d(TAG, "使用 DBNet 检测 + ${if (useMangaOcr) "manga-ocr" else if (config.ocrEngine == OcrEngine.CTCOcr) "48px_ctc" else "ML Kit"} 识别")
                         DetectionBridge.detectWithDBNet(bitmap, config.sourceLang, useMangaOcr)
                     }
@@ -1233,7 +1198,7 @@ class MangaFloatingService : LifecycleService() {
                                 LogCollector.d(TAG, "使用 ML Kit 检测 + 识别")
                                 OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
                             }
-                            OcrEngine.MangaOcr, OcrEngine.MangaOcrAssets -> {
+                            OcrEngine.MangaOcr -> {
                                 LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion}) 识别")
                                 MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
                             }
