@@ -143,12 +143,6 @@
 
                 <!-- 完整版 -->
                 <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_full_row"/>
-
-                <!-- FP16 版 -->
-                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_fp16_row"/>
-
-                <!-- 量化版 -->
-                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_quantized_row"/>
             </LinearLayout>
 
                     </LinearLayout>

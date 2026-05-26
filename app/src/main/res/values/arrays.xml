@@ -116,13 +116,9 @@
 
     <string-array name="manga_ocr_version_entries">
         <item>完整版 (460MB)</item>
-        <item>半精度 FP16 (231MB)</item>
-        <item>量化版 (117MB)</item>
     </string-array>
 
     <string-array name="manga_ocr_version_values">
         <item>FULL</item>
-        <item>FP16</item>
-        <item>QUANTIZED</item>
     </string-array>
 </resources>

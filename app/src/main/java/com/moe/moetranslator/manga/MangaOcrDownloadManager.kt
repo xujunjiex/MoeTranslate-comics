@@ -9,27 +9,19 @@ import java.security.MessageDigest
  * Manga-Ocr 下载管理器
  *
  * 从 HuggingFace onnx-community/manga-ocr-base-ONNX 下载 ONNX 模型。
- * 支持多个版本：full (343MB+117MB)、fp16 (172MB+59MB)、quantized (87MB+30MB)
+ * 仅支持完整版 FULL (343MB+117MB)，FP16/量化版在 Android ONNX Runtime 上无法运行。
  *
  * 下载地址:
  * - Encoder: https://huggingface.co/onnx-community/manga-ocr-base-ONNX/resolve/main/onnx/encoder_model.onnx
  * - Decoder: https://huggingface.co/onnx-community/manga-ocr-base-ONNX/resolve/main/onnx/decoder_model.onnx
- *
- * 量化版本:
- * - encoder_model_fp16.onnx (172MB)
- * - decoder_model_fp16.onnx (59MB)
- * - encoder_model_quantized.onnx (87MB)
- * - decoder_model_int8.onnx (30MB)
  */
 object MangaOcrDownloadManager {
 
     private const val TAG = "MangaOcrDownloadManager"
 
-    // 模型版本枚举
+    // 模型版本枚举（仅保留完整版）
     enum class ModelVersion(val encoderFile: String, val decoderFile: String, val description: String) {
-        FULL("encoder_model.onnx", "decoder_model.onnx", "完整版 (343MB+117MB)"),
-        FP16("encoder_model_fp16.onnx", "decoder_model_fp16.onnx", "半精度 (172MB+59MB)"),
-        QUANTIZED("encoder_model_quantized.onnx", "decoder_model_int8.onnx", "量化版 (87MB+30MB)")
+        FULL("encoder_model.onnx", "decoder_model.onnx", "完整版 (343MB+117MB)")
     }
 
     // HuggingFace 基础 URL
@@ -105,20 +97,10 @@ object MangaOcrDownloadManager {
      * 获取已下载模型的版本
      */
     fun getDownloadedVersion(context: Context): ModelVersion? {
-        // 优先检查版本目录
+        // 检查版本目录
         for (version in ModelVersion.entries) {
             if (isVersionDownloaded(context, version)) {
                 return version
-            }
-        }
-        // 向后兼容：检查旧目录
-        if (isModelDownloaded(context)) {
-            val encoder = getEncoderFile(context)
-            val size = encoder.length()
-            return when {
-                size < 100_000_000 -> ModelVersion.QUANTIZED
-                size < 200_000_000 -> ModelVersion.FP16
-                else -> ModelVersion.FULL
             }
         }
         return null

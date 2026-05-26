@@ -48,17 +48,12 @@ class ModelManagementFragment : Fragment() {
     // ========== manga-ocr 下载相关（版本列表）==========
 
     private fun updateMangaOcrStatus() {
-        for (version in MangaOcrDownloadManager.ModelVersion.entries) {
-            updateMangaOcrVersionStatus(version)
-        }
+        val version = MangaOcrDownloadManager.ModelVersion.FULL
+        updateMangaOcrVersionStatus(version)
     }
 
     private fun updateMangaOcrVersionStatus(version: MangaOcrDownloadManager.ModelVersion) {
-        val rowView = when (version) {
-            MangaOcrDownloadManager.ModelVersion.FULL -> rootView.findViewById<View>(R.id.manga_ocr_full_row)
-            MangaOcrDownloadManager.ModelVersion.FP16 -> rootView.findViewById<View>(R.id.manga_ocr_fp16_row)
-            MangaOcrDownloadManager.ModelVersion.QUANTIZED -> rootView.findViewById<View>(R.id.manga_ocr_quantized_row)
-        }
+        val rowView = rootView.findViewById<View>(R.id.manga_ocr_full_row)
 
         val nameText = rowView.findViewById<TextView>(R.id.version_name)
         val sizeText = rowView.findViewById<TextView>(R.id.version_size)
@@ -191,11 +186,7 @@ class ModelManagementFragment : Fragment() {
     }
 
     private fun getVersionRowView(version: MangaOcrDownloadManager.ModelVersion): View? {
-        return when (version) {
-            MangaOcrDownloadManager.ModelVersion.FULL -> rootView.findViewById(R.id.manga_ocr_full_row)
-            MangaOcrDownloadManager.ModelVersion.FP16 -> rootView.findViewById(R.id.manga_ocr_fp16_row)
-            MangaOcrDownloadManager.ModelVersion.QUANTIZED -> rootView.findViewById(R.id.manga_ocr_quantized_row)
-        }
+        return rootView.findViewById(R.id.manga_ocr_full_row)
     }
 
     private fun showMangaOcrDeleteConfirmDialog(version: MangaOcrDownloadManager.ModelVersion) {

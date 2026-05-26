@@ -459,7 +459,6 @@
     <string name="manga_ocr_toggle">OCR Engine</string>
     <string name="manga_ocr_mlkit">ML Kit</string>
     <string name="manga_ocr_manga_ocr">manga-ocr (Downloaded)</string>
-    <string name="manga_ocr_manga_ocr_assets">Test manga-ocr (assets)</string>
     <string name="manga_ocr_ctc">48px_ctc</string>
     <string name="manga_ocr_initializing">Initializing manga-ocr…</string>
     <string name="manga_ocr_ctc_initializing">Initializing 48px_ctc…</string>
@@ -489,7 +488,7 @@
     <string name="recognizer_ctc_desc">48px CTC Recognizer - Multilingual fast OCR, requires download</string>
     <string name="recognizer_mlkit_desc">MLKit - Built-in system OCR</string>
     <string name="recognizer_manga_desc">manga-ocr - Japanese OCR, embedded in app</string>
-    <string name="recognizer_manga_onnx_desc">Community ONNX version, supports full/FP16/quantized download</string>
+    <string name="recognizer_manga_onnx_desc">Community ONNX version, full version only</string>
     <string name="model_download">Download</string>
     <string name="model_delete">Delete</string>
     <string name="model_downloaded">Downloaded</string>
