@@ -1,5 +1,6 @@
 package com.moe.moetranslator.manga
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.util.Log
