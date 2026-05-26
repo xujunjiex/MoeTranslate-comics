@@ -1194,9 +1194,8 @@ class MangaFloatingService : LifecycleService() {
                         DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
                     }
                     DetEngine.HYBRID -> {
-                        // TODO: 实现 hybrid OCR（merged→manga-ocr, single→MLKit）
-                        LogCollector.d(TAG, "使用 CTD Hybrid 检测（临时调用 CTD）")
-                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, DetectionBridge.CTDOCREngine.MLKit)
+                        LogCollector.d(TAG, "使用 CTD 检测 + 混合 OCR（合并组→manga-ocr, 单框→MLKit）")
+                        DetectionBridge.detectWithCTDHybrid(bitmap, config.sourceLang)
                     }
                     DetEngine.DBNET -> {
                         val useMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
