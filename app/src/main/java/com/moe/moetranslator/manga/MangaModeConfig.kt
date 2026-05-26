@@ -4,9 +4,10 @@ package com.moe.moetranslator.manga
  * OCR 引擎类型
  */
 enum class OcrEngine(val value: Int) {
-    MLKit(0),      // 系统 OCR（默认，无需下载）
-    MangaOcr(1),   // manga-ocr（日文，慢）
-    CTCOcr(2);     // 48px_ctc（多语言，快，需下载）
+    MLKit(0),          // 系统 OCR（默认，无需下载）
+    MangaOcr(1),       // manga-ocr（下载版，从 HuggingFace 下载）
+    MangaOcrAssets(2), // 测试用 manga-ocr（内置 assets，仅测试用）
+    CTCOcr(3);         // 48px_ctc（多语言，快，需下载）
 
     companion object {
         fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKit
