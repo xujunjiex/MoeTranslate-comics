@@ -34,6 +34,7 @@ object MangaOcrDownloadManager {
 
     // HuggingFace 基础 URL
     private const val HF_BASE_URL = "https://huggingface.co/onnx-community/manga-ocr-base-ONNX/resolve/main/onnx"
+    private const val HF_MIRROR_URL = "https://ghproxy.cn/https://huggingface.co/onnx-community/manga-ocr-base-ONNX/resolve/main/onnx"
 
     // 存储目录
     const val MODEL_DIR = "manga_ocr_download"
@@ -215,7 +216,7 @@ object MangaOcrDownloadManager {
         LogCollector.d(TAG, "开始下载 manga-ocr ${version.name} 版本...")
 
         // 下载 encoder
-        val encoderUrl = "$HF_BASE_URL/${version.encoderFile}"
+        val encoderUrl = "$HF_MIRROR_URL/${version.encoderFile}"
         val encoderFile = File(modelDir, version.encoderFile)
         LogCollector.d(TAG, "下载 encoder: $encoderUrl")
 
@@ -237,7 +238,7 @@ object MangaOcrDownloadManager {
         }
 
         // 下载 decoder
-        val decoderUrl = "$HF_BASE_URL/${version.decoderFile}"
+        val decoderUrl = "$HF_MIRROR_URL/${version.decoderFile}"
         val decoderFile = File(modelDir, version.decoderFile)
         LogCollector.d(TAG, "下载 decoder: $decoderUrl")
 
@@ -271,5 +272,26 @@ object MangaOcrDownloadManager {
         onProgress: ModelDownloadManager.ProgressCallback? = null
     ): Result<Unit> {
         return downloadModel(context, version, onProgress)
+    }
+
+    /**
+     * 获取当前使用的版本配置
+     */
+    fun getActiveVersion(context: Context): ModelVersion? {
+        val prefs = context.getSharedPreferences("manga_ocr_prefs", Context.MODE_PRIVATE)
+        val versionName = prefs.getString("active_version", null) ?: return null
+        return try {
+            ModelVersion.valueOf(versionName)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 设置当前使用的版本
+     */
+    fun setActiveVersion(context: Context, version: ModelVersion) {
+        val prefs = context.getSharedPreferences("manga_ocr_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("active_version", version.name).apply()
     }
 }
