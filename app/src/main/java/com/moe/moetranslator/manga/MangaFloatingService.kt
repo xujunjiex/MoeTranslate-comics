@@ -420,11 +420,19 @@ class MangaFloatingService : LifecycleService() {
 
         when (currentConfig.ocrEngine) {
             OcrEngine.MangaOcr -> {
-                val downloadedVersion = MangaOcrDownloadManager.getDownloadedVersion(this@MangaFloatingService)
-                if (downloadedVersion != null) {
-                    LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用已下载的 manga-ocr 模型: $downloadedVersion")
-                    withContext(Dispatchers.IO) {
-                        MangaOcrBridge.initializeDownloaded(this@MangaFloatingService, downloadedVersion)
+                val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@MangaFloatingService)
+                if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
+                    try {
+                        LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用已下载的 manga-ocr 模型: $activeVersion")
+                        withContext(Dispatchers.IO) {
+                            MangaOcrBridge.initializeDownloaded(this@MangaFloatingService, activeVersion)
+                        }
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "manga-ocr 初始化失败", e)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(applicationContext, R.string.manga_ocr_init_failed, Toast.LENGTH_LONG).show()
+                        }
+                        return
                     }
                 } else {
                     // 下载版未下载，不初始化，提示用户去下载
@@ -437,9 +445,17 @@ class MangaFloatingService : LifecycleService() {
             }
             OcrEngine.MangaOcrAssets -> {
                 // 测试用 assets 模型
-                LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用 assets 测试模型")
-                withContext(Dispatchers.IO) {
-                    MangaOcrRecognizer.initialize(this@MangaFloatingService, useAssets = true)
+                try {
+                    LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用 assets 测试模型")
+                    withContext(Dispatchers.IO) {
+                        MangaOcrRecognizer.initialize(this@MangaFloatingService, useAssets = true)
+                    }
+                } catch (e: Exception) {
+                    LogCollector.e(TAG, "assets manga-ocr 初始化失败", e)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(applicationContext, R.string.manga_ocr_init_failed, Toast.LENGTH_LONG).show()
+                    }
+                    return
                 }
             }
             else -> {
