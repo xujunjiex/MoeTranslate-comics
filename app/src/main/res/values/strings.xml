@@ -469,6 +469,7 @@
     <string name="manga_ocr_ctc_init_complete">48px_ctc enabled</string>
     <string name="manga_ocr_init_failed">manga-ocr init failed: %s</string>
     <string name="manga_ocr_ctc_init_failed">48px_ctc init failed: %s</string>
+    <string name="manga_ocr_download_required">manga-ocr model not downloaded. Please go to Settings > Model Management to download.</string>
     <string name="manga_ocr_ctc_download_title">Downloading 48px_ctc Model</string>
     <string name="manga_ocr_ctc_download_progress">Downloading… %d%%</string>
     <string name="manga_ocr_ctc_download_progress_mb">Downloading… %d MB</string>

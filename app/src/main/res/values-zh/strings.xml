@@ -466,6 +466,7 @@
     <string name="manga_ocr_ctc_init_complete">48px_ctc 已启用</string>
     <string name="manga_ocr_init_failed">manga-ocr 初始化失败：%s</string>
     <string name="manga_ocr_ctc_init_failed">48px_ctc 初始化失败：%s</string>
+    <string name="manga_ocr_download_required">manga-ocr 模型未下载，请到设置 > 模型管理 中下载</string>
     <string name="manga_det_toggle">检测模型</string>
     <string name="manga_det_mlkit">ML Kit</string>
     <string name="manga_det_dbnet">DBNet</string>
