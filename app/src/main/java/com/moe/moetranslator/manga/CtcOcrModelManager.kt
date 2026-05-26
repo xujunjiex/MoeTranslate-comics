@@ -22,7 +22,7 @@ object CtcOcrModelManager {
     const val MODEL_FILE = "model.onnx"
     const val ALPHABET_FILE = "alphabet-all-v5.txt"
 
-    private const val DOWNLOAD_URL = "https://mirror.ghproxy.com/https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip"
+    private const val DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip"
     private const val HASH = "fc61c52f7a811bc72c54f6be85df814c6b60f63585175db27cb94a08e0c30101"
 
     /**
@@ -155,6 +155,13 @@ object CtcOcrModelManager {
 
         // 解压
         return try {
+            // 打印 zip 内文件列表
+            ZipFile(zipFile).use { zip ->
+                LogCollector.d(TAG, "zip 内文件列表:")
+                zip.entries().asSequence().forEach { entry ->
+                    LogCollector.d(TAG, "  ${entry.name} (${entry.size} bytes)")
+                }
+            }
             unzip(zipFile, modelDir)
             // 删除 zip 文件
             if (!zipFile.delete()) {
@@ -162,6 +169,17 @@ object CtcOcrModelManager {
             }
             // 重命名文件（如果需要）
             renameFiles(modelDir)
+            LogCollector.d(TAG, "下载完成，模型目录内容:")
+            modelDir.listFiles()?.forEach { file ->
+                LogCollector.d(TAG, "  ${file.name} (${file.length()} bytes)")
+            }
+            // 验证 model.onnx 是否存在
+            val modelOnnx = File(modelDir, MODEL_FILE)
+            if (modelOnnx.exists()) {
+                LogCollector.d(TAG, "model.onnx 大小: ${modelOnnx.length()} bytes")
+            } else {
+                LogCollector.e(TAG, "model.onnx 不存在！")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             LogCollector.e(TAG, "解压失败", e)
@@ -188,21 +206,41 @@ object CtcOcrModelManager {
     }
 
     private fun renameFiles(modelDir: File) {
-        // ocr-ctc.zip 解压后是 ocr-ctc.ckpt 和 alphabet-all-v5.txt
-        // 需要将 ocr-ctc.ckpt 重命名为 model.onnx
+        // ocr-ctc.zip 内可能直接包含 model.onnx（不需要重命名）
+        // 也可能包含 ocr-ctc.ckpt 需要重命名为 model.onnx
 
-        // 查找 ocr-ctc.ckpt 或类似名称的模型文件
-        val ckptFile = modelDir.listFiles()?.find { it.name.contains("ocr-ctc") && it.extension == "ckpt" }
-        if (ckptFile != null) {
-            val onnxFile = File(modelDir, MODEL_FILE)
-            ckptFile.renameTo(onnxFile)
-            LogCollector.d(TAG, "重命名模型文件: ${ckptFile.name} -> ${onnxFile.name}")
+        val onnxFile = File(modelDir, MODEL_FILE)
+        if (onnxFile.exists()) {
+            LogCollector.d(TAG, "model.onnx 已存在，无需重命名")
+            return
         }
 
-        // 清理可能存在的子目录
+        // 查找 .ckpt 文件并重命名
+        val ckptFile = modelDir.listFiles()?.find { it.name.contains("ocr-ctc") && it.extension == "ckpt" }
+        if (ckptFile != null) {
+            val renamed = ckptFile.renameTo(onnxFile)
+            if (renamed) {
+                LogCollector.d(TAG, "重命名模型文件: ${ckptFile.name} -> ${onnxFile.name}")
+            } else {
+                LogCollector.e(TAG, "重命名失败，尝试复制: ${ckptFile.name}")
+                ckptFile.copyTo(onnxFile, overwrite = true)
+                ckptFile.delete()
+            }
+        } else {
+            // 检查是否有其他文件
+            modelDir.listFiles()?.forEach { file ->
+                LogCollector.d(TAG, "未找到 .ckpt 或 model.onnx，当前文件: ${file.name}")
+            }
+        }
+
+        // 清理子目录
         modelDir.listFiles()?.filter { it.isDirectory }?.forEach { dir ->
+            LogCollector.d(TAG, "清理子目录: ${dir.name}")
             dir.listFiles()?.forEach { file ->
-                file.copyTo(File(modelDir, file.name), overwrite = true)
+                val destFile = File(modelDir, file.name)
+                if (!destFile.exists()) {
+                    file.copyTo(destFile)
+                }
             }
             dir.deleteRecursively()
         }

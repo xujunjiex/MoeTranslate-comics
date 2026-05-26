@@ -458,7 +458,8 @@
     <string name="current_dismiss_delay">Current delay: %s ms</string>
     <string name="manga_ocr_toggle">OCR Engine</string>
     <string name="manga_ocr_mlkit">ML Kit</string>
-    <string name="manga_ocr_manga_ocr">manga-ocr</string>
+    <string name="manga_ocr_manga_ocr">manga-ocr（下载版）</string>
+    <string name="manga_ocr_manga_ocr_assets">测试 manga-ocr（assets）</string>
     <string name="manga_ocr_ctc">48px_ctc</string>
     <string name="manga_ocr_48px_ctc">48px CTC</string>
     <string name="manga_ocr_downloading">Downloading OCR model…</string>

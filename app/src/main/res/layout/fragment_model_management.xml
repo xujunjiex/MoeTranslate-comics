@@ -128,24 +128,103 @@
 
             <!-- manga-ocr -->
             <LinearLayout
+                android:id="@+id/manga_ocr_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
+                android:orientation="vertical"
                 android:padding="8dp">
 
-                <TextView
-                    android:layout_width="0dp"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="manga-ocr"
-                    android:textSize="16sp"/>
+                    android:orientation="horizontal">
 
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="manga-ocr (ONNX)"
+                            android:textSize="16sp"/>
+
+                        <Spinner
+                            android:id="@+id/manga_ocr_version_spinner"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"/>
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginTop="4dp">
+
+                            <TextView
+                                android:id="@+id/manga_ocr_status_text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/model_not_downloaded"
+                                android:textSize="12sp"/>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text=" - "
+                                android:textSize="12sp"/>
+
+                            <TextView
+                                android:id="@+id/manga_ocr_size_text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="460 MB"
+                                android:textSize="12sp"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/manga_ocr_download_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/model_download"/>
+
+                    <Button
+                        android:id="@+id/manga_ocr_delete_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/model_delete"
+                        android:visibility="gone"/>
+
+                    <Button
+                        android:id="@+id/manga_ocr_cancel_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/user_cancel"
+                        android:visibility="gone"/>
+                </LinearLayout>
+
+                <!-- 下载进度条 -->
+                <ProgressBar
+                    android:id="@+id/manga_ocr_download_progress"
+                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:max="100"
+                    android:visibility="gone"/>
+
+                <!-- 下载速度 -->
                 <TextView
+                    android:id="@+id/manga_ocr_speed_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/recognizer_manga_desc"
+                    android:layout_marginTop="4dp"
                     android:textSize="12sp"
-                    android:textColor="#888"/>
+                    android:textColor="#888"
+                    android:visibility="gone"/>
             </LinearLayout>
 
             <!-- CTCOcr -->
