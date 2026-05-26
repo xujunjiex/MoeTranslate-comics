@@ -85,16 +85,21 @@ object DetectionBridge {
                         )
                         val resized = Bitmap.createScaledBitmap(crop, 224, 224, true)
                         crop.recycle()
-                        val text = MangaOcrRecognizer.recognize(resized)
-                        resized.recycle()
-                        if (text.isNotBlank()) {
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = unionRect,
-                                cornerPoints = null,
-                                isVertical = null
-                            ))
-                            LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 结果[$idx]: '$text'")
+                        try {
+                            val text = MangaOcrRecognizer.recognize(resized)
+                            resized.recycle()
+                            if (text.isNotBlank()) {
+                                results.add(TextBlockInfo(
+                                    text = text,
+                                    boundingBox = unionRect,
+                                    cornerPoints = null,
+                                    isVertical = null
+                                ))
+                                LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 结果[$idx]: '$text'")
+                            }
+                        } catch (e: Exception) {
+                            resized.recycle()
+                            throw e
                         }
                     } catch (e: Exception) {
                         LogCollector.e(TAG, "detectWithCTDHybrid: manga-ocr 识别失败[$idx]", e)
