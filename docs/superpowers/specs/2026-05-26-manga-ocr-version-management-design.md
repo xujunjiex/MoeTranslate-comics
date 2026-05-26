@@ -8,6 +8,18 @@
 3. 没有选择"当前使用哪个版本"的逻辑
 4. 悬浮窗 manga-ocr（下载版）需要读取模型管理页面选择的版本
 
+## 额外问题（需修复）
+
+### 问题 1：下载失败（网络连接问题）
+- **错误：** `java.net.ConnectException: Failed to connect to huggingface.co/4.78.139.50:443`
+- **原因：** HuggingFace 下载地址被墙或不稳定
+- **解决方案：** 参考 CTC 模型使用 ghproxy 镜像代理
+
+### 问题 2：测试用 assets 模型 OCR 报错
+- **错误：** `Got invalid dimensions for input: input_ids for the following indices index: 1 Got: 2 Expected: 1`
+- **原因：** Decoder 输入维度错误，batch size 不匹配
+- **说明：** 这个问题仅在 MangaOcrAssets（测试用 assets 模型）时出现，下载的 ONNX 模型可能没有这个问题
+
 ## 设计方案
 
 ### 模型管理页面改造
@@ -47,3 +59,5 @@
 - [ ] 当前使用版本选择逻辑
 - [ ] 存储 Manga_OCR_Active_Version 配置
 - [ ] 悬浮窗读取配置并加载对应版本
+- [ ] 修复：manga-ocr 下载使用 ghproxy 镜像（如 HuggingFace 被墙）
+- [ ] 修复：MangaOcrAssets 测试模型 OCR 报错（input_ids batch dimension 问题）
