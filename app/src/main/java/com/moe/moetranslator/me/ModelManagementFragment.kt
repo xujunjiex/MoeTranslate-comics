@@ -8,12 +8,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.manga.CtcOcrModelManager
+import com.moe.moetranslator.manga.MangaOcrDownloadManager
 import com.moe.moetranslator.manga.ModelDownloadManager
 import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +32,19 @@ class ModelManagementFragment : Fragment() {
     private var downloadJob: Job? = null
     private var isCancelled = false
 
+    // 缓存 View 引用，避免在回调中频繁 findViewById
+    private var progressBar: ProgressBar? = null
+    private var speedText: TextView? = null
+    private var sizeText: TextView? = null
+
+    // manga-ocr 下载相关
+    private var mangaOcrProgressBar: ProgressBar? = null
+    private var mangaOcrSpeedText: TextView? = null
+    private var mangaOcrSizeText: TextView? = null
+    private var mangaOcrSpinner: Spinner? = null
+    private var mangaOcrDownloadJob: Job? = null
+    private var mangaOcrIsCancelled = false
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -43,9 +58,14 @@ class ModelManagementFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         setupViews()
         updateCtcStatus()
+        updateMangaOcrStatus()
     }
 
     private fun setupViews() {
+        progressBar = rootView.findViewById(R.id.ctc_download_progress)
+        speedText = rootView.findViewById(R.id.ctc_speed_text)
+        sizeText = rootView.findViewById(R.id.ctc_size_text)
+
         val ctcDownloadBtn = rootView.findViewById<Button>(R.id.ctc_download_button)
         val ctcDeleteBtn = rootView.findViewById<Button>(R.id.ctc_delete_button)
         val ctcCancelBtn = rootView.findViewById<Button>(R.id.ctc_cancel_button)
@@ -64,6 +84,37 @@ class ModelManagementFragment : Fragment() {
         ctcCancelBtn.setOnClickListener {
             cancelDownload()
         }
+
+        // manga-ocr 下载相关
+        mangaOcrProgressBar = rootView.findViewById(R.id.manga_ocr_download_progress)
+        mangaOcrSpeedText = rootView.findViewById(R.id.manga_ocr_speed_text)
+        mangaOcrSizeText = rootView.findViewById(R.id.manga_ocr_size_text)
+        mangaOcrSpinner = rootView.findViewById(R.id.manga_ocr_version_spinner)
+
+        val mangaOcrDownloadBtn = rootView.findViewById<Button>(R.id.manga_ocr_download_button)
+        val mangaOcrDeleteBtn = rootView.findViewById<Button>(R.id.manga_ocr_delete_button)
+        val mangaOcrCancelBtn = rootView.findViewById<Button>(R.id.manga_ocr_cancel_button)
+
+        mangaOcrDownloadBtn.setOnClickListener {
+            startMangaOcrDownload()
+        }
+
+        mangaOcrDeleteBtn.setOnClickListener {
+            showMangaOcrDeleteConfirmDialog()
+        }
+
+        mangaOcrCancelBtn.setOnClickListener {
+            cancelMangaOcrDownload()
+        }
+
+        // 设置 Spinner 适配器
+        val versionAdapter = android.widget.ArrayAdapter.createFromResource(
+            requireContext(),
+            R.array.manga_ocr_version_entries,
+            android.R.layout.simple_spinner_item
+        )
+        versionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        mangaOcrSpinner?.adapter = versionAdapter
     }
 
     private fun cancelDownload() {
@@ -76,12 +127,9 @@ class ModelManagementFragment : Fragment() {
 
     private fun updateCtcStatus() {
         val ctcStatus = rootView.findViewById<TextView>(R.id.ctc_status_text)
-        val ctcSize = rootView.findViewById<TextView>(R.id.ctc_size_text)
         val ctcDownloadBtn = rootView.findViewById<Button>(R.id.ctc_download_button)
         val ctcDeleteBtn = rootView.findViewById<Button>(R.id.ctc_delete_button)
         val ctcCancelBtn = rootView.findViewById<Button>(R.id.ctc_cancel_button)
-        val ctcProgress = rootView.findViewById<ProgressBar>(R.id.ctc_download_progress)
-        val ctcSpeed = rootView.findViewById<TextView>(R.id.ctc_speed_text)
 
         val isInFilesDir = CtcOcrModelManager.isModelInFilesDir(requireContext())
         val isInAssets = CtcOcrModelManager.isModelInAssets(requireContext())
@@ -90,45 +138,45 @@ class ModelManagementFragment : Fragment() {
             downloadJob != null && !isCancelled -> {
                 // 下载中
                 ctcStatus.text = getString(R.string.model_downloading)
-                ctcSize.text = ""
+                sizeText?.text = ""
                 ctcDownloadBtn.visibility = View.GONE
                 ctcDeleteBtn.visibility = View.GONE
                 ctcCancelBtn.visibility = View.VISIBLE
-                ctcProgress.visibility = View.VISIBLE
-                ctcSpeed.visibility = View.VISIBLE
+                progressBar?.visibility = View.VISIBLE
+                speedText?.visibility = View.VISIBLE
             }
             isInFilesDir -> {
                 // 用户下载的模型
                 ctcStatus.text = getString(R.string.model_downloaded)
-                ctcSize.text = CtcOcrModelManager.getModelSizeString(requireContext())
+                sizeText?.text = CtcOcrModelManager.getModelSizeString(requireContext())
                 ctcDownloadBtn.visibility = View.GONE
                 ctcDeleteBtn.visibility = View.VISIBLE
                 ctcCancelBtn.visibility = View.GONE
-                ctcProgress.visibility = View.GONE
-                ctcProgress.progress = 0
-                ctcSpeed.visibility = View.GONE
+                progressBar?.visibility = View.GONE
+                progressBar?.progress = 0
+                speedText?.visibility = View.GONE
             }
             isInAssets -> {
                 // 内置模型（assets），不能删除
                 ctcStatus.text = getString(R.string.model_built_in)
-                ctcSize.text = "169 MB"
+                sizeText?.text = "169 MB"
                 ctcDownloadBtn.visibility = View.GONE
                 ctcDeleteBtn.visibility = View.GONE
                 ctcCancelBtn.visibility = View.GONE
-                ctcProgress.visibility = View.GONE
-                ctcProgress.progress = 0
-                ctcSpeed.visibility = View.GONE
+                progressBar?.visibility = View.GONE
+                progressBar?.progress = 0
+                speedText?.visibility = View.GONE
             }
             else -> {
                 // 未下载
                 ctcStatus.text = getString(R.string.model_not_downloaded)
-                ctcSize.text = "144 MB"
+                sizeText?.text = "144 MB"
                 ctcDownloadBtn.visibility = View.VISIBLE
                 ctcDeleteBtn.visibility = View.GONE
                 ctcCancelBtn.visibility = View.GONE
-                ctcProgress.visibility = View.GONE
-                ctcProgress.progress = 0
-                ctcSpeed.visibility = View.GONE
+                progressBar?.visibility = View.GONE
+                progressBar?.progress = 0
+                speedText?.visibility = View.GONE
             }
         }
     }
@@ -150,23 +198,19 @@ class ModelManagementFragment : Fragment() {
                     requireContext(),
                     object : ModelDownloadManager.ProgressCallback {
                         override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                            if (isCancelled) return
+                            if (isCancelled || !isAdded) return
                             handler.post {
-                                if (isCancelled) return@post
-                                val progressBar = rootView.findViewById<ProgressBar>(R.id.ctc_download_progress)
-                                val speedText = rootView.findViewById<TextView>(R.id.ctc_speed_text)
-                                val ctcSize = rootView.findViewById<TextView>(R.id.ctc_size_text)
-
+                                if (isCancelled || !isAdded) return@post
                                 val progress = if (totalBytes > 0) {
                                     (bytesRead * 100 / totalBytes).toInt()
                                 } else 0
-                                progressBar.progress = progress
+                                progressBar?.progress = progress
 
                                 val mbRead = bytesRead / (1024 * 1024)
                                 val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
-                                ctcSize.text = "${mbRead}/${mbTotal} MB"
+                                sizeText?.text = "${mbRead}/${mbTotal} MB"
 
-                                speedText.text = getString(R.string.model_download_speed, speed)
+                                speedText?.text = getString(R.string.model_download_speed, speed)
                             }
                         }
                     }
@@ -236,10 +280,178 @@ class ModelManagementFragment : Fragment() {
         }
     }
 
+    // ========== manga-ocr 下载相关 ==========
+
+    private fun updateMangaOcrStatus() {
+        val mangaOcrStatus = rootView.findViewById<TextView>(R.id.manga_ocr_status_text)
+        val mangaOcrDownloadBtn = rootView.findViewById<Button>(R.id.manga_ocr_download_button)
+        val mangaOcrDeleteBtn = rootView.findViewById<Button>(R.id.manga_ocr_delete_button)
+        val mangaOcrCancelBtn = rootView.findViewById<Button>(R.id.manga_ocr_cancel_button)
+
+        val isDownloaded = MangaOcrDownloadManager.isModelDownloaded(requireContext())
+
+        when {
+            mangaOcrDownloadJob != null && !mangaOcrIsCancelled -> {
+                // 下载中
+                mangaOcrStatus.text = getString(R.string.model_downloading)
+                mangaOcrSizeText?.text = ""
+                mangaOcrDownloadBtn.visibility = View.GONE
+                mangaOcrDeleteBtn.visibility = View.GONE
+                mangaOcrCancelBtn.visibility = View.VISIBLE
+                mangaOcrProgressBar?.visibility = View.VISIBLE
+                mangaOcrSpeedText?.visibility = View.VISIBLE
+                mangaOcrSpinner?.visibility = View.GONE
+            }
+            isDownloaded -> {
+                // 已下载
+                val version = MangaOcrDownloadManager.getDownloadedVersion(requireContext())
+                val versionDesc = version?.description ?: "已下载"
+                mangaOcrStatus.text = getString(R.string.model_downloaded)
+                mangaOcrSizeText?.text = "$versionDesc - ${MangaOcrDownloadManager.getModelSizeString(requireContext())}"
+                mangaOcrDownloadBtn.visibility = View.GONE
+                mangaOcrDeleteBtn.visibility = View.VISIBLE
+                mangaOcrCancelBtn.visibility = View.GONE
+                mangaOcrProgressBar?.visibility = View.GONE
+                mangaOcrProgressBar?.progress = 0
+                mangaOcrSpeedText?.visibility = View.GONE
+                mangaOcrSpinner?.visibility = View.GONE
+            }
+            else -> {
+                // 未下载
+                mangaOcrStatus.text = getString(R.string.model_not_downloaded)
+                mangaOcrSizeText?.text = "460 MB"
+                mangaOcrDownloadBtn.visibility = View.VISIBLE
+                mangaOcrDeleteBtn.visibility = View.GONE
+                mangaOcrCancelBtn.visibility = View.GONE
+                mangaOcrProgressBar?.visibility = View.GONE
+                mangaOcrProgressBar?.progress = 0
+                mangaOcrSpeedText?.visibility = View.GONE
+                mangaOcrSpinner?.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun cancelMangaOcrDownload() {
+        mangaOcrIsCancelled = true
+        mangaOcrDownloadJob?.cancel()
+        mangaOcrDownloadJob = null
+        LogCollector.d(TAG, "manga-ocr 下载已取消")
+        updateMangaOcrStatus()
+    }
+
+    private fun startMangaOcrDownload() {
+        mangaOcrIsCancelled = false
+
+        mangaOcrDownloadJob = lifecycleScope.launch(Dispatchers.IO) {
+            LogCollector.d(TAG, "开始下载 manga-ocr 模型...")
+
+            // 获取选择的版本
+            val versionIndex = mangaOcrSpinner?.selectedItemPosition ?: 0
+            val version = MangaOcrDownloadManager.ModelVersion.entries[versionIndex]
+            LogCollector.d(TAG, "选择的版本: ${version.name} - ${version.description}")
+            try {
+                val result = MangaOcrDownloadManager.downloadModel(
+                    requireContext(),
+                    version,
+                    object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            if (mangaOcrIsCancelled || !isAdded) return
+                            handler.post {
+                                if (mangaOcrIsCancelled || !isAdded) return@post
+                                val progress = if (totalBytes > 0) {
+                                    (bytesRead * 100 / totalBytes).toInt()
+                                } else 0
+                                mangaOcrProgressBar?.progress = progress
+
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                mangaOcrSizeText?.text = "${mbRead}/${mbTotal} MB"
+
+                                mangaOcrSpeedText?.text = getString(R.string.model_download_speed, speed)
+                            }
+                        }
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    mangaOcrDownloadJob = null
+                    if (mangaOcrIsCancelled) {
+                        LogCollector.d(TAG, "manga-ocr 下载已取消，不更新UI")
+                        return@withContext
+                    }
+                    if (result.isSuccess) {
+                        LogCollector.d(TAG, "manga-ocr 下载成功")
+                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                    } else {
+                        LogCollector.e(TAG, "manga-ocr 下载失败", result.exceptionOrNull())
+                        Toast.makeText(
+                            requireContext(),
+                            getString(R.string.model_download_failed, result.exceptionOrNull()?.message),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    updateMangaOcrStatus()
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "manga-ocr 下载异常", e)
+                withContext(Dispatchers.Main) {
+                    mangaOcrDownloadJob = null
+                    if (mangaOcrIsCancelled) {
+                        LogCollector.d(TAG, "manga-ocr 下载已取消，不显示错误")
+                        return@withContext
+                    }
+                    Toast.makeText(
+                        requireContext(),
+                        getString(R.string.model_download_failed, e.message),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    updateMangaOcrStatus()
+                }
+            }
+        }
+        updateMangaOcrStatus()
+    }
+
+    private fun showMangaOcrDeleteConfirmDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(R.string.model_delete)
+            .setMessage(getString(R.string.model_delete_confirm, "manga-ocr"))
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                deleteMangaOcrModel()
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    private fun deleteMangaOcrModel() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = MangaOcrDownloadManager.deleteModel(requireContext())
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
+                }
+                updateMangaOcrStatus()
+            }
+        }
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
+        // 清理 View 引用和 pending callbacks，防止 View 销毁后仍被访问
+        progressBar = null
+        speedText = null
+        sizeText = null
+        mangaOcrProgressBar = null
+        mangaOcrSpeedText = null
+        mangaOcrSizeText = null
+        mangaOcrSpinner = null
+        handler.removeCallbacksAndMessages(null)
         // 销毁时取消下载，但不设置 isCancelled 以便下次能正常下载
         downloadJob?.cancel()
         downloadJob = null
+        mangaOcrDownloadJob?.cancel()
+        mangaOcrDownloadJob = null
     }
 }
