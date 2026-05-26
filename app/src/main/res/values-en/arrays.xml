@@ -79,13 +79,17 @@
     </string-array>
 
     <string-array name="manga_rec_model_entries">
-        <item>ML Kit</item>
-        <item>manga-ocr</item>
+        <item>MLKit</item>
+        <item>manga-ocr (Downloaded)</item>
+        <item>Test manga-ocr (assets)</item>
+        <item>48px CTC</item>
     </string-array>
 
     <string-array name="manga_rec_model_values">
         <item>0</item>
         <item>1</item>
+        <item>2</item>
+        <item>3</item>
     </string-array>
 
     <string-array name="request_methods">
@@ -108,5 +112,17 @@
         <item>system</item>
         <item>zh</item>
         <item>en</item>
+    </string-array>
+
+    <string-array name="manga_ocr_version_entries">
+        <item>Full (460MB)</item>
+        <item>FP16 (231MB)</item>
+        <item>Quantized (117MB)</item>
+    </string-array>
+
+    <string-array name="manga_ocr_version_values">
+        <item>FULL</item>
+        <item>FP16</item>
+        <item>QUANTIZED</item>
     </string-array>
 </resources>
