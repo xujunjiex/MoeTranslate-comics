@@ -64,19 +64,23 @@ object MangaOcrRecognizer {
             }
 
             // 加载 encoder（1 个 session，支持动态 batch_size）
-            val encoderPath = when {
-                useAssets -> copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
-                version != null -> MangaOcrDownloadManager.getEncoderFile(context, version).absolutePath
-                else -> "$modelDir/manga_ocr_encoder.onnx"
+            val encoderPath = if (useAssets) {
+                copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
+            } else if (version != null) {
+                MangaOcrDownloadManager.getEncoderFile(context, version).absolutePath
+            } else {
+                MangaOcrDownloadManager.getEncoderFile(context).absolutePath
             }
             encoderSessions = listOf(ortEnv!!.createSession(encoderPath, sessionOptions))
             LogCollector.d(TAG, "Encoder 加载完成 (1 session, 支持动态 batch)")
 
             // 加载 decoder（多个 session）
-            val decoderPath = when {
-                useAssets -> copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
-                version != null -> MangaOcrDownloadManager.getDecoderFile(context, version).absolutePath
-                else -> "$modelDir/manga_ocr_decoder.onnx"
+            val decoderPath = if (useAssets) {
+                copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
+            } else if (version != null) {
+                MangaOcrDownloadManager.getDecoderFile(context, version).absolutePath
+            } else {
+                MangaOcrDownloadManager.getDecoderFile(context).absolutePath
             }
             decoderSessions = (1..sessionCount).map {
                 ortEnv!!.createSession(decoderPath, sessionOptions)
@@ -295,6 +299,7 @@ object MangaOcrRecognizer {
 
         // 初始输入: [CLS] token
         var currentIds = mutableListOf(tok.getBosTokenId())
+        LogCollector.d(TAG, "Decoder input: currentIds.size=${currentIds.size}, inputIdsArray.size=${currentIds.size}, encoderHiddenStates shape=${encoderHiddenStates.info.shape}")
 
         for (step in 0 until MAX_NEW_TOKENS) {
             // 传完整序列 [1, seq_len]（decoder 支持动态 seq_len）
