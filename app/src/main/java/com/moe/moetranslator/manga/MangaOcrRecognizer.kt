@@ -42,8 +42,13 @@ object MangaOcrRecognizer {
 
     /**
      * 初始化模型
+     *
+     * @param context Context
+     * @param modelDir 模型目录（仅用于 assets 模式）
+     * @param useAssets 是否从 assets 加载，false 时从下载目录加载
+     * @param version 模型版本（仅在 useAssets=false 时有效）
      */
-    suspend fun initialize(context: Context, modelDir: String = "manga_ocr", useAssets: Boolean = true) {
+    suspend fun initialize(context: Context, modelDir: String = "manga_ocr", useAssets: Boolean = true, version: MangaOcrDownloadManager.ModelVersion? = null) {
         if (isInitialized) return
 
         try {
@@ -59,19 +64,19 @@ object MangaOcrRecognizer {
             }
 
             // 加载 encoder（1 个 session，支持动态 batch_size）
-            val encoderPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
-            } else {
-                "$modelDir/manga_ocr_encoder.onnx"
+            val encoderPath = when {
+                useAssets -> copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
+                version != null -> MangaOcrDownloadManager.getEncoderFile(context, version).absolutePath
+                else -> "$modelDir/manga_ocr_encoder.onnx"
             }
             encoderSessions = listOf(ortEnv!!.createSession(encoderPath, sessionOptions))
             LogCollector.d(TAG, "Encoder 加载完成 (1 session, 支持动态 batch)")
 
             // 加载 decoder（多个 session）
-            val decoderPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
-            } else {
-                "$modelDir/manga_ocr_decoder.onnx"
+            val decoderPath = when {
+                useAssets -> copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
+                version != null -> MangaOcrDownloadManager.getDecoderFile(context, version).absolutePath
+                else -> "$modelDir/manga_ocr_decoder.onnx"
             }
             decoderSessions = (1..sessionCount).map {
                 ortEnv!!.createSession(decoderPath, sessionOptions)
