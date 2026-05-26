@@ -16,18 +16,16 @@ import java.security.MessageDigest
 
 /**
  * 统一模型下载管理器
- * 支持从 GitHub releases 下载模型，带 SHA-256 校验和进度回调
+ * 支持断点续传、重试机制、进度回调
  */
 object ModelDownloadManager {
 
     private const val TAG = "ModelDownloadManager"
     private const val SPEED_UPDATE_INTERVAL = 500L  // 每 500ms 更新一次速度
+    private const val BUFFER_SIZE = 65536  // 64KB 缓冲区
 
     /**
      * 下载进度回调
-     * @param bytesRead 已下载字节数
-     * @param totalBytes 总字节数，-1 表示未知
-     * @param speed 下载速度 MB/s
      */
     interface ProgressCallback {
         fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float)
@@ -35,113 +33,128 @@ object ModelDownloadManager {
 
     /**
      * 下载模型文件
-     * @param context Context
-     * @param url 下载地址
-     * @param sha256Hash SHA-256 校验码（为空时不校验）
-     * @param destFile 目标文件
-     * @param onProgress 进度回调
-     * @return true 下载成功
      */
     suspend fun downloadModel(
         context: Context,
         url: String,
         sha256Hash: String,
         destFile: File,
-        onProgress: ProgressCallback? = null
+        onProgress: ProgressCallback? = null,
+        maxRetries: Int = 3
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            LogCollector.d(TAG, "开始下载: $url")
+        val tempFile = File(destFile.parent, destFile.name + ".part")
+        var lastException: Exception? = null
+        var connection: HttpURLConnection? = null
 
-            // 清理旧的临时文件和残留
-            val tempFile = File(destFile.parent, destFile.name + ".part")
-            if (tempFile.exists()) {
-                tempFile.delete()
-                LogCollector.d(TAG, "已清理旧的临时文件")
-            }
+        for (attempt in 1..maxRetries) {
+            try {
+                LogCollector.d(TAG, "开始下载 (attempt $attempt/$maxRetries): $url")
 
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 60000  // 增加超时
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Accept-Encoding", "identity")  // 禁用压缩，避免 Content-Length 不准
+                connection = URL(url).openConnection() as HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 60000
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Accept-Encoding", "identity")
 
-            val responseCode = connection.responseCode
-            val totalBytes = connection.contentLengthLong
-            LogCollector.d(TAG, "HTTP $responseCode, Content-Length: $totalBytes")
+                // 断点续传
+                val startOffset = if (attempt > 1 && tempFile.exists() && tempFile.length() > 0) {
+                    LogCollector.d(TAG, "断点续传：从 ${tempFile.length()} 字节继续")
+                    connection.setRequestProperty("Range", "bytes=${tempFile.length()}-")
+                    tempFile.length()
+                } else {
+                    if (tempFile.exists()) tempFile.delete()
+                    0L
+                }
 
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext Result.failure(Exception("HTTP $responseCode"))
-            }
+                val responseCode = connection.responseCode
+                val totalBytes = connection.contentLengthLong
+                LogCollector.d(TAG, "HTTP $responseCode, Content-Length: $totalBytes")
 
-            connection.inputStream.use { inputStream ->
-                FileOutputStream(tempFile).buffered().use { outputStream ->
-                    var bytesRead = 0L
-                    val buffer = ByteArray(8192)
+                if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
+                    return@withContext Result.failure(Exception("HTTP $responseCode"))
+                }
+
+                // 实际总大小
+                val actualTotalBytes = if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                    startOffset + totalBytes
+                } else {
+                    totalBytes
+                }
+
+                val appendMode = startOffset > 0
+                val conn = connection
+                FileOutputStream(tempFile, appendMode).use { outputStream ->
+                    val buffer = ByteArray(BUFFER_SIZE)
                     var lastUpdateTime = System.currentTimeMillis()
-                    var lastBytesRead = 0L
+                    var lastBytesRead = startOffset
                     var speed = 0f
 
-                    while (true) {
-                        val read = inputStream.read(buffer)
-                        if (read == -1) break
+                    conn.inputStream.use { inputStream ->
+                        while (true) {
+                            val read = inputStream.read(buffer)
+                            if (read == -1) break
 
-                        outputStream.write(buffer, 0, read)
-                        bytesRead += read
+                            outputStream.write(buffer, 0, read)
 
-                        val currentTime = System.currentTimeMillis()
-                        val elapsed = currentTime - lastUpdateTime
-                        if (elapsed >= SPEED_UPDATE_INTERVAL) {
-                            val bytesDelta = bytesRead - lastBytesRead
-                            speed = (bytesDelta.toFloat() / elapsed) * 1000f / (1024f * 1024f)
-                            lastUpdateTime = currentTime
-                            lastBytesRead = bytesRead
+                            val currentTime = System.currentTimeMillis()
+                            val elapsed = currentTime - lastUpdateTime
+                            if (elapsed >= SPEED_UPDATE_INTERVAL) {
+                                val bytesDelta = tempFile.length() - lastBytesRead
+                                speed = (bytesDelta.toFloat() / elapsed) * 1000f / (1024f * 1024f)
+                                lastUpdateTime = currentTime
+                                lastBytesRead = tempFile.length()
+                                onProgress?.onProgress(lastBytesRead, actualTotalBytes, speed)
+                            }
                         }
-                        onProgress?.onProgress(bytesRead, totalBytes, speed)
                     }
                     outputStream.flush()
                 }
-            }
 
-            connection.disconnect()
+                // 验证完整性
+                val downloadedBytes = tempFile.length()
+                if (actualTotalBytes > 0 && downloadedBytes != actualTotalBytes) {
+                    throw Exception("下载不完整：期望 $actualTotalBytes，实际 $downloadedBytes")
+                }
 
-            // 验证并移动到目标位置
-            if (!tempFile.renameTo(destFile)) {
-                Files.move(tempFile.toPath(), destFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            }
+                // 移动到目标
+                if (!tempFile.renameTo(destFile)) {
+                    Files.move(tempFile.toPath(), destFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                }
 
-            // 校验 hash
-            if (sha256Hash.isNotEmpty()) {
-                val fileHash = calculateSHA256(destFile)
-                if (fileHash != sha256Hash.lowercase()) {
-                    destFile.delete()
-                    return@withContext Result.failure(Exception("SHA-256 校验失败"))
+                // 校验
+                if (sha256Hash.isNotEmpty()) {
+                    val fileHash = calculateSHA256(destFile)
+                    if (fileHash != sha256Hash.lowercase()) {
+                        destFile.delete()
+                        throw Exception("SHA-256 校验失败")
+                    }
+                }
+
+                LogCollector.d(TAG, "下载完成: ${destFile.absolutePath}")
+                return@withContext Result.success(Unit)
+
+            } catch (e: Exception) {
+                lastException = e
+                LogCollector.e(TAG, "attempt $attempt/$maxRetries 失败: ${e.message}")
+                connection?.disconnect()
+                connection = null
+                if (attempt < maxRetries) {
+                    kotlinx.coroutines.delay((attempt * 2000L).coerceAtMost(10000L))
                 }
             }
-
-            LogCollector.d(TAG, "下载完成: ${destFile.absolutePath}")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "下载失败", e)
-            // 清理临时文件
-            val tempFile = File(destFile.parent, destFile.name + ".part")
-            if (tempFile.exists()) {
-                tempFile.delete()
-            }
-            Result.failure(e)
         }
+
+        LogCollector.e(TAG, "下载失败，已重试 $maxRetries 次")
+        if (tempFile.exists()) tempFile.delete()
+        Result.failure(lastException ?: Exception("下载失败"))
     }
 
-    /**
-     * 计算文件的 SHA-256（使用流式处理，避免大文件 OOM）
-     */
     private fun calculateSHA256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { fis ->
             DigestInputStream(fis, digest).use { dis ->
                 val buffer = ByteArray(8192)
-                while (dis.read(buffer) != -1) {
-                    // DigestInputStream 在 read 时自动更新 digest
-                }
+                while (dis.read(buffer) != -1) { /* auto-update digest */ }
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }

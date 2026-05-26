@@ -141,8 +141,9 @@ class ModelManagementFragment : Fragment() {
 
                                 val mbRead = bytesRead / (1024 * 1024)
                                 val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
                                 val sizeText = rowView?.findViewById<TextView>(R.id.version_size)
-                                sizeText?.text = "${mbRead}/${mbTotal} MB"
+                                sizeText?.text = "${mbRead}/${mbTotal} MB$speedStr"
                             }
                         }
                     }

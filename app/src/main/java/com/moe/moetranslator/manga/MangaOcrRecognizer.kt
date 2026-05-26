@@ -52,7 +52,7 @@ object MangaOcrRecognizer {
         if (isInitialized) return
 
         try {
-            LogCollector.d(TAG, "开始初始化 manga-ocr 模型 (sessions=$sessionCount)...")
+            LogCollector.d(TAG, "开始初始化 manga-ocr 模型 (useAssets=$useAssets, version=$version, sessions=$sessionCount)...")
 
             ortEnv = OrtEnvironment.getEnvironment()
 
@@ -299,7 +299,6 @@ object MangaOcrRecognizer {
 
         // 初始输入: [CLS] token
         var currentIds = mutableListOf(tok.getBosTokenId())
-        LogCollector.d(TAG, "Decoder input: currentIds.size=${currentIds.size}, inputIdsArray.size=${currentIds.size}, encoderHiddenStates shape=${encoderHiddenStates.info.shape}")
 
         for (step in 0 until MAX_NEW_TOKENS) {
             // 传完整序列 [1, seq_len]（decoder 支持动态 seq_len）
