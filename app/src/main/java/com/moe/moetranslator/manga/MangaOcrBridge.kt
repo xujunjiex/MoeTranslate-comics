@@ -6,6 +6,7 @@ import android.util.Log
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
+import com.moe.moetranslator.manga.MangaOcrDownloadManager.ModelVersion
 
 /**
  * manga-ocr 混合 OCR 桥接
@@ -121,6 +122,16 @@ object MangaOcrBridge {
      */
     fun isAvailable(): Boolean {
         return MangaOcrRecognizer.isInitialized
+    }
+
+    /**
+     * 初始化下载的 manga-ocr 模型
+     *
+     * @param context Context
+     * @param version 模型版本（FULL/FP16/QUANTIZED）
+     */
+    suspend fun initializeDownloaded(context: Context, version: ModelVersion) {
+        MangaOcrRecognizer.initialize(context, useAssets = false, version = version)
     }
 
     /**
