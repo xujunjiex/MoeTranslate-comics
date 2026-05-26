@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.moe.moetranslator.manga.MangaOcrDownloadManager
 import com.moe.moetranslator.utils.LogCollector
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -405,19 +406,32 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 同步初始化 manga-ocr（如果需要），在 processMangaScreenshot 中调用。
+     * 确保 manga-ocr 已初始化。
+     * 优先使用已下载的模型（通过 MangaOcrDownloadManager 管理），
+     * 如果没有下载的模型则回退到 assets 中的测试模型。
      */
-    private suspend fun initMangaOcrIfNeeded() {
+    private suspend fun ensureMangaOcrInitialized() {
         if (MangaOcrRecognizer.isInitialized) return
+
+        val currentConfig = loadConfig()
+        if (currentConfig.ocrEngine != OcrEngine.MangaOcr) return
+
         try {
-            LogCollector.d(TAG, "initMangaOcrIfNeeded: 开始初始化 manga-ocr")
-            withContext(Dispatchers.IO) {
-                val modelDir = MangaOcrModelManager.getModelDir()
-                MangaOcrRecognizer.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+            val downloadedVersion = MangaOcrDownloadManager.getDownloadedVersion(this@MangaFloatingService)
+            if (downloadedVersion != null) {
+                LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用已下载的 manga-ocr 模型: $downloadedVersion")
+                withContext(Dispatchers.IO) {
+                    MangaOcrBridge.initializeDownloaded(this@MangaFloatingService, downloadedVersion)
+                }
+            } else {
+                LogCollector.d(TAG, "ensureMangaOcrInitialized: 无已下载模型，回退到 assets 模型")
+                withContext(Dispatchers.IO) {
+                    MangaOcrRecognizer.initialize(this@MangaFloatingService, useAssets = true)
+                }
             }
-            LogCollector.d(TAG, "initMangaOcrIfNeeded: manga-ocr 初始化完成")
+            LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 初始化完成")
         } catch (e: Exception) {
-            LogCollector.e(TAG, "initMangaOcrIfNeeded: 初始化失败", e)
+            LogCollector.e(TAG, "ensureMangaOcrInitialized: 初始化失败", e)
             withContext(Dispatchers.Main) {
                 showToast("manga-ocr 初始化失败: ${e.message}")
             }
@@ -1136,7 +1150,7 @@ class MangaFloatingService : LifecycleService() {
             }
             when (config.ocrEngine) {
                 OcrEngine.MLKit -> {}  // MLKit 无需初始化
-                OcrEngine.MangaOcr -> initMangaOcrIfNeeded()
+                OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
                 OcrEngine.CTCOcr -> {
                     if (!CtcOcrModelManager.isModelDownloaded(applicationContext)) {
                         showToast(getString(R.string.model_missing_hint))
