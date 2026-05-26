@@ -66,7 +66,7 @@ BoxMerger.merge(quadBoxes) → List<List<QuadBox>>
 │  manga-ocr 分支：                           │
 │  1. 取合并组的 union AABB                   │
 │  2. 裁剪图片                                │
-│  3. normalize 到最长边=224，保持比例         │
+│  3. 缩放到 224x224（保持现有行为）           │
 │  4. MangaOcrRecognizer.recognize()          │
 │  5. 结果作为最终结果                         │
 ├────────────────────────────────────────────┤
@@ -113,28 +113,31 @@ fun processMergedGroup(bitmap: Bitmap, group: List<QuadBox>): TextBlockInfo {
     // 2. 裁剪图片
     val crop = cropBitmap(bitmap, unionRect)
 
-    // 3. normalize 到最长边=224，保持比例
-    val normalized = normalizeToMaxDim(crop, 224)
+    // 3. 缩放到 224x224（与现有路径一致）
+    val resized = Bitmap.createScaledBitmap(crop, 224, 224, true)
 
     // 4. manga-ocr 识别
-    val text = MangaOcrRecognizer.recognize(normalized)
+    val text = MangaOcrRecognizer.recognize(resized)
 
     return TextBlockInfo(text, unionRect, ...)
 }
 ```
 
-**normalizeToMaxDim 实现**：
+**computeUnionAABB 实现**：
 ```kotlin
-fun normalizeToMaxDim(bitmap: Bitmap, maxDim: Int): Bitmap {
-    val maxSide = maxOf(bitmap.width, bitmap.height)
-    val scale = maxDim.toFloat() / maxSide
-    val targetW = (bitmap.width * scale).toInt()
-    val targetH = (bitmap.height * scale).toInt()
-    return Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+fun computeUnionAABB(group: List<QuadBox>): Rect {
+    var left = Int.MAX_VALUE; var top = Int.MAX_VALUE
+    var right = Int.MIN_VALUE; var bottom = Int.MIN_VALUE
+    for (qb in group) {
+        val aabb = qb.aabb
+        left = minOf(left, aabb.left)
+        top = minOf(top, aabb.top)
+        right = maxOf(right, aabb.right)
+        bottom = maxOf(bottom, aabb.bottom)
+    }
+    return Rect(left, top, right, bottom)
 }
 ```
-
-这样合并后的宽图（如 300×50）会变成 224×37，保持宽高比。
 
 #### 4. 单独组 → ML Kit
 
@@ -144,15 +147,21 @@ fun normalizeToMaxDim(bitmap: Bitmap, maxDim: Int): Bitmap {
 fun processSingleQuadBox(bitmap: Bitmap, qb: QuadBox, language: String): TextBlockInfo {
     // 1. 取 AABB + padding
     val rect = qb.aabb
-    val paddedRect = expandRect(rect, padding = 10)
+    val paddedRect = Rect(
+        (rect.left - 10).coerceAtLeast(0),
+        (rect.top - 10).coerceAtLeast(0),
+        (rect.right + 10).coerceAtMost(bitmap.width),
+        (rect.bottom + 10).coerceAtMost(bitmap.height)
+    )
 
     // 2. 裁剪图片
-    val crop = cropBitmap(bitmap, paddedRect)
+    val crop = Bitmap.createBitmap(bitmap, paddedRect.left, paddedRect.top,
+                                   paddedRect.width(), paddedRect.height())
 
     // 3. ML Kit 识别
     val text = OCRBridge.recognizeText(language, crop)
 
-    return TextBlockInfo(text, paddedRect, ...)
+    return TextBlockInfo(text, paddedRect, isVertical = null)
 }
 ```
 
@@ -166,7 +175,12 @@ fun processSingleQuadBox(bitmap: Bitmap, qb: QuadBox, language: String): TextBlo
 
 ```kotlin
 fun sortByReadingOrder(groups: List<List<QuadBox>>): List<List<QuadBox>> {
-    val isVertical = groups.count { it.isVertical() } > groups.size / 2
+    // 判断整体方向
+    val isVertical = groups.count { g -> g.first().let { qb ->
+        // 竖排：高度 > 宽度
+        qb.aabb.height() > qb.aabb.width()
+    }} > groups.size / 2
+
     return if (isVertical) {
         groups.sortedWith(compareBy({ -it.first().centroidX }, { it.first().centroidY }))
     } else {
@@ -205,29 +219,38 @@ fun sortByReadingOrder(groups: List<List<QuadBox>>): List<List<QuadBox>> {
 app/src/main/java/com/moe/moetranslator/manga/
 ├── DetectionBridge.kt       ← 添加 detectWithCTDHybrid()
 ├── BoxMerger.kt             ← 已修复，直接使用
-├── MangaOcrRecognizer.kt    ← 添加 normalizeToMaxDim（可选）
-└── MangaFloatingService.kt   ← 添加新的 DetEngine 枚举值
+└── MangaFloatingService.kt  ← 添加新的 DetEngine.HYBRID 枚举值
 ```
 
 ### 新增方法
 
 ```kotlin
 // DetectionBridge.kt
+
+// 新增入口方法
 suspend fun detectWithCTDHybrid(
     bitmap: Bitmap,
     language: String
 ): List<TextBlockInfo>
+
+// 辅助函数
+private fun computeUnionAABB(group: List<QuadBox>): Rect
+private fun sortByReadingOrder(groups: List<List<QuadBox>>): List<List<QuadBox>>
 ```
 
 ## 风险与注意事项
 
-1. **manga-ocr 输入尺寸**：当前固定 224×224，normalize 后可能不是正方形（如 224×37）。需要确认 `MangaOcrRecognizer` 是否支持非正方形输入。
+1. **manga-ocr 输入尺寸**：与现有路径一致，强制 224×224，已有行为。
 
 2. **union AABB 的背景噪声**：合并组之间可能有背景，但 manga-ocr 相对鲁棒。
 
 3. **ML Kit 识别失败**：需要错误处理，识别失败时跳过或降级。
 
 4. **现有路径不受影响**：新路径是独立方法，不修改现有 `detectWithCTD`。
+
+5. **并发**：manga-ocr 和 ML Kit 调用是串行的（先跑完所有 manga-ocr，再跑所有 ML Kit，或反之）。后续可优化为 coroutine 并行。
+
+6. **调试日志**：新路径需要详细的日志，便于对比旧路径验证效果。
 
 ## 测试计划
 
@@ -236,3 +259,14 @@ suspend fun detectWithCTDHybrid(
    - 旧路径：22 个检测框 → 22 次 manga-ocr encoder
    - 新路径：合并后 → 预期更少 encoder 调用
 3. 验证识别结果一致性（对同一张图片，新旧路径结果应接近）
+
+## 实现步骤（TODO）
+
+- [ ] 在 `DetectionBridge.kt` 添加 `detectWithCTDHybrid()` 方法
+- [ ] 实现 `computeUnionAABB()` 辅助函数
+- [ ] 实现 `sortByReadingOrder()` 辅助函数
+- [ ] 在 `MangaFloatingService.kt` 添加 `DetEngine.HYBRID` 枚举值
+- [ ] 在 `MangaFloatingService.kt` 的 OCR 流程中添加 `detectWithCTDHybrid` 分支
+- [ ] 添加详细的调试日志
+- [ ] 编译验证
+- [ ] 实际测试对比
