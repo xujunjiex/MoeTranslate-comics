@@ -40,6 +40,7 @@ object MangaOcrDownloadManager {
     const val MODEL_DIR = "manga_ocr_download"
     const val ENCODER_FILE = "encoder_model.onnx"
     const val DECODER_FILE = "decoder_model.onnx"
+    private const val PREFS_NAME = "manga_ocr_prefs"
 
     /**
      * 获取下载的模型目录
@@ -278,7 +279,7 @@ object MangaOcrDownloadManager {
      * 获取当前使用的版本配置
      */
     fun getActiveVersion(context: Context): ModelVersion? {
-        val prefs = context.getSharedPreferences("manga_ocr_prefs", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val versionName = prefs.getString("active_version", null) ?: return null
         return try {
             ModelVersion.valueOf(versionName)
@@ -291,7 +292,7 @@ object MangaOcrDownloadManager {
      * 设置当前使用的版本
      */
     fun setActiveVersion(context: Context, version: ModelVersion) {
-        val prefs = context.getSharedPreferences("manga_ocr_prefs", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString("active_version", version.name).apply()
     }
 }
