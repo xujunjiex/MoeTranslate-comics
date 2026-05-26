@@ -681,4 +681,20 @@ object DetectionBridge {
 
         return result.map { it.rect }
     }
+
+    /**
+     * 计算 QuadBox 列表的 union AABB（包含所有 QuadBox 的最小矩形）
+     */
+    private fun computeUnionAABB(group: List<QuadBox>): Rect {
+        var left = Int.MAX_VALUE; var top = Int.MAX_VALUE
+        var right = Int.MIN_VALUE; var bottom = Int.MIN_VALUE
+        for (qb in group) {
+            val aabb = qb.aabb
+            left = minOf(left, aabb.left)
+            top = minOf(top, aabb.top)
+            right = maxOf(right, aabb.right)
+            bottom = maxOf(bottom, aabb.bottom)
+        }
+        return Rect(left, top, right, bottom)
+    }
 }
