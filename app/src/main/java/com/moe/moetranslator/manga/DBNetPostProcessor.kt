@@ -3,13 +3,10 @@ package com.moe.moetranslator.manga
 import android.graphics.PointF
 import android.graphics.Rect
 import com.moe.moetranslator.utils.LogCollector
-import com.moe.moetranslator.utils.clipper.Clipper
-import com.moe.moetranslator.utils.clipper.ClipperOffset
-import com.moe.moetranslator.utils.clipper.EndType
-import com.moe.moetranslator.utils.clipper.JoinType
-import com.moe.moetranslator.utils.clipper.Path64
-import com.moe.moetranslator.utils.clipper.Paths64
-import com.moe.moetranslator.utils.clipper.Point64
+import org.locationtech.jts.operation.buffer.BufferOp
+import org.locationtech.jts.operation.buffer.BufferParameters
+import org.locationtech.jts.geom.Coordinate
+import org.locationtech.jts.geom.GeometryFactory
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -19,6 +16,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+// 类型别名已移至 MangaTypes.kt
 
 /**
  * DBNet 后处理器（纯 Kotlin，不依赖 OpenCV）。
@@ -91,7 +90,7 @@ object DBNetPostProcessor {
 
             val avgProb = boxScoreFast(probMap, width, height, contour)
 
-            val area = Clipper.Area(contour)
+            val area = polygonArea(contour)
             val perimeter = contourPerimeter(contour)
             val distance = area * unclipRatio / perimeter
 
@@ -200,7 +199,7 @@ object DBNetPostProcessor {
             // 计算概率（不在这里过滤，对齐 Python 注释掉的逻辑）
             val avgProb = boxScoreFast(probMap, width, height, contour)
 
-            val area = Clipper.Area(contour)
+            val area = polygonArea(contour)
             val perimeter = contourPerimeter(contour)
             val distance = area * unclipRatio / perimeter
 
@@ -297,7 +296,7 @@ object DBNetPostProcessor {
         var steps = 0
 
         do {
-            contour.add(Point64(cx.toLong(), cy.toLong()))
+            contour.add(Point64(cx.toDouble(), cy.toDouble()))
 
             // 从 (dir + 6) % 8 开始顺时针搜索下一个边界像素
             var searchDir = (dir + 6) % 8
@@ -335,7 +334,7 @@ object DBNetPostProcessor {
             val next = contour[(i + 1) % n]
             // 检查是否共线
             val cross = (curr.x - prev.x) * (next.y - curr.y) - (curr.y - prev.y) * (next.x - curr.x)
-            if (cross != 0L) {
+            if (cross != 0.0) {
                 result.add(curr)
             }
         }
@@ -490,7 +489,7 @@ object DBNetPostProcessor {
         return (lower + upper).toMutableList()
     }
 
-    private fun cross(o: Point64, a: Point64, b: Point64): Long {
+    private fun cross(o: Point64, a: Point64, b: Point64): Double {
         return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
     }
 
@@ -574,35 +573,24 @@ object DBNetPostProcessor {
     private fun vattiUnclip(contour: Path64, distance: Double): Paths64 {
         if (contour.size < 3 || distance <= 0) return mutableListOf()
 
-        // pyclipper 使用整数坐标，需要缩放以提高精度
-        val scaleFactor = 1000.0
-        val scaledContour = mutableListOf<Point64>()
-        for (p in contour) {
-            scaledContour.add(Point64(
-                (p.x * scaleFactor).toLong(),
-                (p.y * scaleFactor).toLong()
-            ))
+        val factory = GeometryFactory()
+        val coordinates = Array(contour.size) { i ->
+            Coordinate(contour[i].x, contour[i].y)
         }
+        val polygon = factory.createPolygon(coordinates)
 
-        val co = ClipperOffset()
-        co.ArcTolerance = 0.25 * scaleFactor // pyclipper 默认精度
+        val params = BufferParameters()
+        params.joinStyle = BufferParameters.JOIN_ROUND
+        val buffered = BufferOp.bufferOp(polygon, distance, params)
 
-        val solution = mutableListOf<Path64>()
-        co.AddPath(scaledContour, JoinType.Round, EndType.Polygon)
-        co.Execute(distance * scaleFactor, solution)
-
-        // 缩放回原始坐标
-        val result = mutableListOf<Path64>()
-        for (path in solution) {
-            val scaledBack = mutableListOf<Point64>()
-            for (p in path) {
-                scaledBack.add(Point64(
-                    (p.x / scaleFactor).toLong(),
-                    (p.y / scaleFactor).toLong()
-                ))
-            }
-            result.add(scaledBack)
+        // 转换回 Paths64
+        val result = mutableListOf<MutableList<Coordinate>>()
+        val coords = buffered.coordinates
+        val path = mutableListOf<Coordinate>()
+        for (coord in coords) {
+            path.add(Coordinate(coord.x, coord.y))
         }
+        result.add(path)
         return result
     }
 
@@ -632,6 +620,20 @@ object DBNetPostProcessor {
             perimeter += sqrt(dx * dx + dy * dy)
         }
         return perimeter
+    }
+
+    /**
+     * 计算多边形面积（Shoelace 公式）。
+     */
+    private fun polygonArea(contour: Path64): Double {
+        var area = 0.0
+        val n = contour.size
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            area += contour[i].x * contour[j].y
+            area -= contour[j].x * contour[i].y
+        }
+        return kotlin.math.abs(area) / 2.0
     }
 
     /**

@@ -2,8 +2,12 @@ package com.moe.moetranslator.manga
 
 import android.graphics.PointF
 import com.moe.moetranslator.utils.LogCollector
-import com.moe.moetranslator.utils.clipper.Point64
-import com.moe.moetranslator.utils.clipper.Path64
+import org.locationtech.jts.operation.buffer.BufferOp
+import org.locationtech.jts.operation.buffer.BufferParameters
+import org.locationtech.jts.geom.Coordinate
+import org.locationtech.jts.geom.Geometry
+import org.locationtech.jts.geom.GeometryFactory
+import org.locationtech.jts.geom.Point
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -12,6 +16,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+// 类型别名已移至 MangaTypes.kt
 
 /**
  * CTD (Comic Text Detector) 后处理器。
@@ -34,6 +40,17 @@ object CTDPostProcessor {
     private const val BOX_THRESHOLD = 0.6f
     private const val UNCLIP_RATIO = 1.5f
     private const val MAX_CANDIDATES = 1000
+    // 过滤不合理框的参数
+    private const val MIN_FONT_SIZE = 8f      // fontSize 小于此值认为是误检
+    private const val MIN_WIDTH = 6f           // AABB 宽度小于此值认为是误检
+
+    /**
+     * CTD 提取结果，包含通过过滤的框和被丢弃的框
+     */
+    data class ExtractResult(
+        val quadBoxes: List<QuadBox>,       // 通过过滤的 QuadBox
+        val discardedBoxes: List<QuadBox>  // 被丢弃的 QuadBox（调试用）
+    )
 
     /**
      * 从概率图提取 QuadBox 列表。
@@ -51,7 +68,8 @@ object CTDPostProcessor {
         textThreshold: Float = TEXT_THRESHOLD,
         boxThreshold: Float = BOX_THRESHOLD,
         unclipRatio: Float = UNCLIP_RATIO,
-        maxCandidates: Int = MAX_CANDIDATES
+        maxCandidates: Int = MAX_CANDIDATES,
+        trackDiscarded: Boolean = false
     ): List<QuadBox> {
         // 1. 阈值化 → 二值图
         val binary = BooleanArray(height * width)
@@ -65,13 +83,13 @@ object CTDPostProcessor {
         LogCollector.d(TAG, "轮廓数量: ${contours.size}")
 
         val quadBoxes = mutableListOf<QuadBox>()
+        val discardedBoxes = mutableListOf<QuadBox>()
         var filteredByShortSide = 0
-        var filteredByArea = 0
         var filteredByBoxScore = 0
 
         for (contour in contours) {
             // 3. get_mini_boxes: 计算 minAreaRect 和 short side
-            val (points, sside) = getMiniBoxes(contour)
+            val (_, sside) = getMiniBoxes(contour)
 
             // 4. sside < 2 过滤（只过滤原始轮廓，不过滤 unclip 后）
             if (sside < 2f) {
@@ -82,13 +100,38 @@ object CTDPostProcessor {
             // 5. box_score_fast: 计算轮廓内平均概率
             val score = boxScoreFast(probMap, width, height, contour)
 
-            // 6. unclipPolygon: 多边形扩张
-            val unclipped = unclipPolygon(contour, unclipRatio)
+            // 6. 动态 unclip_ratio：窄框用更大的 ratio，补偿 area/perimeter 公式对窄框扩展不足
+            val contourW = (contour.maxOf { it.x } - contour.minOf { it.x }).toFloat()
+            val contourH = (contour.maxOf { it.y } - contour.minOf { it.y }).toFloat()
+            val aspect = maxOf(contourW, contourH) / maxOf(minOf(contourW, contourH), 1f)
+            val dynamicRatio = maxOf(unclipRatio, unclipRatio * sqrt(aspect / 3f))
+
+            // 7. unclipPolygon: 多边形扩张
+            val unclipped = unclipPolygon(contour, dynamicRatio)
 
             // 7. 扩张后重新计算 minAreaRect
-            val (unclippedPoints, _) = getMiniBoxes(unclipped)
+            val (unclippedPoints, unclippedSside) = getMiniBoxes(unclipped)
+
+            // 计算原始轮廓的 AABB（模型坐标）
+            val rawAabb = android.graphics.Rect(
+                contour.minOf { it.x }.toInt(),
+                contour.minOf { it.y }.toInt(),
+                contour.maxOf { it.x }.toInt(),
+                contour.maxOf { it.y }.toInt()
+            )
+
+            // 计算 unclip 后的 AABB（模型坐标）
+            val unclippedAabb = android.graphics.Rect(
+                unclippedPoints.minOf { it.x }.toInt(),
+                unclippedPoints.minOf { it.y }.toInt(),
+                unclippedPoints.maxOf { it.x }.toInt(),
+                unclippedPoints.maxOf { it.y }.toInt()
+            )
+
 
             // 8. 构建 QuadBox（尚未缩放）
+            // 注意：官方 boxes_from_bitmap 在 unclip 后没有 area 过滤！
+            // 这里不做过滤，让 unclip 后的框完整保留，坐标缩放到原图后再过滤
             val quadBox = QuadBox(
                 Array(4) { i ->
                     PointF(unclippedPoints[i].x.toFloat(), unclippedPoints[i].y.toFloat())
@@ -97,16 +140,11 @@ object CTDPostProcessor {
                 prob = score
             )
 
-            // 9. area <= 16 过滤（在缩放前检查）
-            if (quadBox.area <= 16f) {
-                filteredByArea++
-                continue
-            }
-
+            // 9. 这里不再做 area 过滤（与官方一致，area 过滤在 unclip 前通过 sside < 2 已完成）
             quadBoxes.add(quadBox)
         }
 
-        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, area<=16=$filteredByArea, boxScore<$boxThreshold=$filteredByBoxScore")
+        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, boxScore<$boxThreshold=$filteredByBoxScore")
         LogCollector.d(TAG, "unclip 后 QuadBox 数量: ${quadBoxes.size}")
 
         // 10. 坐标缩放到原图尺寸
@@ -125,9 +163,134 @@ object CTDPostProcessor {
                 prob = qb.prob
             )
         }.filter { it.area > 0f }
+         .partition { qb ->
+            // 过滤不合理的框：fontSize 太小或 AABB 宽度太小
+            val w = qb.aabb.width()
+            val pass = qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
+            if (!pass) {
+                LogCollector.d(TAG, "过滤不合理框: ${qb.aabb}, fontSize=${qb.fontSize}, w=$w")
+            }
+            pass
+         }
 
-        LogCollector.d(TAG, "最终 QuadBox 数量: ${result.size}")
-        return result
+        LogCollector.d(TAG, "最终 QuadBox 数量: ${result.first.size}, 丢弃: ${result.second.size}")
+        return result.first
+    }
+
+    /**
+     * 从概率图提取 QuadBox 列表，同时跟踪被丢弃的框。
+     * 用于 CTD 调试模式。
+     */
+    fun extractQuadBoxesWithDiscarded(
+        probMap: FloatArray,
+        height: Int,
+        width: Int,
+        origWidth: Int,
+        origHeight: Int,
+        textThreshold: Float = TEXT_THRESHOLD,
+        boxThreshold: Float = BOX_THRESHOLD,
+        unclipRatio: Float = UNCLIP_RATIO,
+        maxCandidates: Int = MAX_CANDIDATES
+    ): ExtractResult {
+        // 1. 阈值化 → 二值图
+        val binary = BooleanArray(height * width)
+        for (i in probMap.indices) {
+            binary[i] = probMap[i] > textThreshold
+        }
+
+        // 2. findContours - BFS 连通域提取（等价于 cv2.findContours）
+        val contours = findContours(binary, width, height, maxCandidates)
+
+        LogCollector.d(TAG, "轮廓数量: ${contours.size}")
+
+        val quadBoxes = mutableListOf<QuadBox>()
+        var filteredByShortSide = 0
+        var filteredByBoxScore = 0
+
+        for (contour in contours) {
+            // 3. get_mini_boxes: 计算 minAreaRect 和 short side
+            val (_, sside) = getMiniBoxes(contour)
+
+            // 4. sside < 2 过滤（只过滤原始轮廓，不过滤 unclip 后）
+            if (sside < 2f) {
+                filteredByShortSide++
+                continue
+            }
+
+            // 5. box_score_fast: 计算轮廓内平均概率
+            val score = boxScoreFast(probMap, width, height, contour)
+
+            // 6. 动态 unclip_ratio：窄框用更大的 ratio，补偿 area/perimeter 公式对窄框扩展不足
+            val contourW = (contour.maxOf { it.x } - contour.minOf { it.x }).toFloat()
+            val contourH = (contour.maxOf { it.y } - contour.minOf { it.y }).toFloat()
+            val aspect = maxOf(contourW, contourH) / maxOf(minOf(contourW, contourH), 1f)
+            val dynamicRatio = maxOf(unclipRatio, unclipRatio * sqrt(aspect / 3f))
+
+            // 7. unclipPolygon: 多边形扩张
+            val unclipped = unclipPolygon(contour, dynamicRatio)
+
+            // 7. 扩张后重新计算 minAreaRect
+            val (unclippedPoints, unclippedSside) = getMiniBoxes(unclipped)
+
+            // 计算原始轮廓的 AABB（模型坐标）
+            val rawAabb = android.graphics.Rect(
+                contour.minOf { it.x }.toInt(),
+                contour.minOf { it.y }.toInt(),
+                contour.maxOf { it.x }.toInt(),
+                contour.maxOf { it.y }.toInt()
+            )
+
+            // 计算 unclip 后的 AABB（模型坐标）
+            val unclippedAabb = android.graphics.Rect(
+                unclippedPoints.minOf { it.x }.toInt(),
+                unclippedPoints.minOf { it.y }.toInt(),
+                unclippedPoints.maxOf { it.x }.toInt(),
+                unclippedPoints.maxOf { it.y }.toInt()
+            )
+
+
+            // 8. 构建 QuadBox（尚未缩放）
+            val quadBox = QuadBox(
+                Array(4) { i ->
+                    PointF(unclippedPoints[i].x.toFloat(), unclippedPoints[i].y.toFloat())
+                },
+                text = "",
+                prob = score
+            )
+
+            quadBoxes.add(quadBox)
+        }
+
+        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, boxScore<$boxThreshold=$filteredByBoxScore")
+        LogCollector.d(TAG, "unclip 后 QuadBox 数量: ${quadBoxes.size}")
+
+        // 10. 坐标缩放到原图尺寸
+        val scaleX = origWidth.toFloat() / width
+        val scaleY = origHeight.toFloat() / height
+
+        val (passed, discarded) = quadBoxes.map { qb ->
+            QuadBox(
+                Array(4) { i ->
+                    PointF(
+                        (qb.pts[i].x * scaleX).coerceIn(0f, origWidth.toFloat()),
+                        (qb.pts[i].y * scaleY).coerceIn(0f, origHeight.toFloat())
+                    )
+                },
+                text = qb.text,
+                prob = qb.prob
+            )
+        }.filter { it.area > 0f }
+         .partition { qb ->
+            val w = qb.aabb.width()
+            val pass = qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
+            if (!pass) {
+                LogCollector.d(TAG, "丢弃不合理框: ${qb.aabb}, fontSize=${qb.fontSize}, w=$w")
+            }
+            pass
+         }
+
+        LogCollector.d(TAG, "最终 QuadBox 数量: ${passed.size}, 丢弃: ${discarded.size}")
+        return ExtractResult(passed, discarded)
     }
 
     // -----------------------------------------------------------------------
@@ -164,7 +327,7 @@ object CTDPostProcessor {
 
                 while (queue.isNotEmpty()) {
                     val cur = queue.removeFirst()
-                    componentPixels.add(Point64((cur % width).toLong(), (cur / width).toLong()))
+                    componentPixels.add(Coordinate((cur % width).toDouble(), (cur / width).toDouble()))
 
                     val curX = cur % width
                     val curY = cur / width
@@ -211,8 +374,8 @@ object CTDPostProcessor {
     private fun getMiniBoxes(points: Path64): Pair<Path64, Float> {
         if (points.size < 3) {
             // 退化情况：不足 3 个点，退化为轴对齐矩形
-            var minX = Long.MAX_VALUE; var maxX = Long.MIN_VALUE
-            var minY = Long.MAX_VALUE; var maxY = Long.MIN_VALUE
+            var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
+            var minY = Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
             for (p in points) {
                 if (p.x < minX) minX = p.x
                 if (p.x > maxX) maxX = p.x
@@ -223,10 +386,10 @@ object CTDPostProcessor {
             val h = (maxY - minY).toFloat()
             return Pair(
                 mutableListOf(
-                    Point64(minX, minY),
-                    Point64(maxX, minY),
-                    Point64(maxX, maxY),
-                    Point64(minX, maxY)
+                    Coordinate(minX, minY),
+                    Coordinate(maxX, minY),
+                    Coordinate(maxX, maxY),
+                    Coordinate(minX, maxY)
                 ),
                 min(w, h)
             )
@@ -235,8 +398,8 @@ object CTDPostProcessor {
         // 凸包
         val hull = convexHull(points)
         if (hull.size < 3) {
-            var minX = Long.MAX_VALUE; var maxX = Long.MIN_VALUE
-            var minY = Long.MAX_VALUE; var maxY = Long.MIN_VALUE
+            var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
+            var minY = Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
             for (p in hull) {
                 if (p.x < minX) minX = p.x
                 if (p.x > maxX) maxX = p.x
@@ -247,10 +410,10 @@ object CTDPostProcessor {
             val h = (maxY - minY).toFloat()
             return Pair(
                 mutableListOf(
-                    Point64(minX, minY),
-                    Point64(maxX, minY),
-                    Point64(maxX, maxY),
-                    Point64(minX, maxY)
+                    Coordinate(minX, minY),
+                    Coordinate(maxX, minY),
+                    Coordinate(maxX, maxY),
+                    Coordinate(minX, maxY)
                 ),
                 min(w, h)
             )
@@ -258,14 +421,14 @@ object CTDPostProcessor {
 
         // 旋转卡壳找最小面积矩形
         var minArea = Double.MAX_VALUE
-        var bestRect = mutableListOf<Point64>()
+        var bestRect = mutableListOf<Coordinate>()
         var bestSside = 0f
 
         val n = hull.size
         for (i in 0 until n) {
             val j = (i + 1) % n
-            val edgeX = (hull[j].x - hull[i].x).toDouble()
-            val edgeY = (hull[j].y - hull[i].y).toDouble()
+            val edgeX = hull[j].x - hull[i].x
+            val edgeY = hull[j].y - hull[i].y
             val edgeLen = sqrt(edgeX * edgeX + edgeY * edgeY)
             if (edgeLen < 1e-10) continue
 
@@ -280,8 +443,8 @@ object CTDPostProcessor {
             var minU = Double.MAX_VALUE; var maxU = -Double.MAX_VALUE
             var minV = Double.MAX_VALUE; var maxV = -Double.MAX_VALUE
             for (k in 0 until n) {
-                val px = hull[k].x.toDouble() - hull[i].x.toDouble()
-                val py = hull[k].y.toDouble() - hull[i].y.toDouble()
+                val px = hull[k].x - hull[i].x
+                val py = hull[k].y - hull[i].y
                 val projU = px * ux + py * uy
                 val projV = px * vx + py * vy
                 if (projU < minU) minU = projU
@@ -300,8 +463,8 @@ object CTDPostProcessor {
                 // 计算中心点
                 val midU = (minU + maxU) / 2
                 val midV = (minV + maxV) / 2
-                val cx = hull[i].x.toDouble() + midU * ux + midV * vx
-                val cy = hull[i].y.toDouble() + midU * uy + midV * vy
+                val cx = hull[i].x + midU * ux + midV * vx
+                val cy = hull[i].y + midU * uy + midV * vy
 
                 // 计算 4 个角点
                 val angle = atan2(uy, ux)
@@ -311,14 +474,14 @@ object CTDPostProcessor {
                 val hh = h / 2
 
                 bestRect = mutableListOf(
-                    Point64((cx + cosA * (-hw) - sinA * (-hh)).toLong(),
-                            (cy + sinA * (-hw) + cosA * (-hh)).toLong()),
-                    Point64((cx + cosA * (hw) - sinA * (-hh)).toLong(),
-                            (cy + sinA * (hw) + cosA * (-hh)).toLong()),
-                    Point64((cx + cosA * (hw) - sinA * (hh)).toLong(),
-                            (cy + sinA * (hw) + cosA * (hh)).toLong()),
-                    Point64((cx + cosA * (-hw) - sinA * (hh)).toLong(),
-                            (cy + sinA * (-hw) + cosA * (hh)).toLong())
+                    Coordinate(cx + cosA * (-hw) - sinA * (-hh),
+                            cy + sinA * (-hw) + cosA * (-hh)),
+                    Coordinate(cx + cosA * (hw) - sinA * (-hh),
+                            cy + sinA * (hw) + cosA * (-hh)),
+                    Coordinate(cx + cosA * (hw) - sinA * (hh),
+                            cy + sinA * (hw) + cosA * (hh)),
+                    Coordinate(cx + cosA * (-hw) - sinA * (hh),
+                            cy + sinA * (-hw) + cosA * (hh))
                 )
                 bestSside = sside
             }
@@ -340,7 +503,7 @@ object CTDPostProcessor {
         val sorted = points.sortedWith(compareBy({ it.x }, { it.y }))
         val n = sorted.size
 
-        val lower = mutableListOf<Point64>()
+        val lower = mutableListOf<Coordinate>()
         for (p in sorted) {
             while (lower.size >= 2 && cross(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
                 lower.removeAt(lower.size - 1)
@@ -348,7 +511,7 @@ object CTDPostProcessor {
             lower.add(p)
         }
 
-        val upper = mutableListOf<Point64>()
+        val upper = mutableListOf<Coordinate>()
         for (i in n - 1 downTo 0) {
             val p = sorted[i]
             while (upper.size >= 2 && cross(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
@@ -364,7 +527,7 @@ object CTDPostProcessor {
         return (lower + upper).toMutableList()
     }
 
-    private fun cross(o: Point64, a: Point64, b: Point64): Long {
+    private fun cross(o: Coordinate, a: Coordinate, b: Coordinate): Double {
         return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
     }
 
@@ -438,79 +601,74 @@ object CTDPostProcessor {
     }
 
     // -----------------------------------------------------------------------
-    // unclipPolygon: 多边形扩张（使用法向量平均）
+    // unclipPolygon: 多边形扩张（使用 JTS BufferOp，匹配 Python Pyclipper）
     // -----------------------------------------------------------------------
 
     /**
-     * 多边形扩张。
-     * 等价于 Python 的 unclip（基于 Vatti clipping 的偏移）。
-     * distance = area * unclip_ratio / perimeter，然后沿法向量方向扩展。
+     * 多边形扩张。等价于 Python 的 unclip（基于 Vatti clipping 的偏移）。
+     * distance = area * unclip_ratio / perimeter
+     * 使用 JTS BufferOp 实现，与 pyclipper.PyclipperOffset 等价。
      */
     private fun unclipPolygon(contour: Path64, unclipRatio: Float): Path64 {
         if (contour.size < 3) return contour
 
-        // 计算面积（多边形面积公式）
+        // 计算面积和周长
         var area = 0.0
+        var perimeter = 0.0
         val n = contour.size
         for (i in 0 until n) {
             val j = (i + 1) % n
-            area += contour[i].x.toDouble() * contour[j].y.toDouble()
-            area -= contour[j].x.toDouble() * contour[i].y.toDouble()
+            area += contour[i].x * contour[j].y
+            area -= contour[j].x * contour[i].y
+            val dx = contour[j].x - contour[i].x
+            val dy = contour[j].y - contour[i].y
+            perimeter += sqrt(dx * dx + dy * dy)
         }
         area = abs(area) / 2.0
 
-        // 计算周长
-        var perimeter = 0.0
-        for (i in 0 until n) {
-            val j = (i + 1) % n
-            val dx = (contour[j].x - contour[i].x).toDouble()
-            val dy = (contour[j].y - contour[i].y).toDouble()
-            perimeter += sqrt(dx * dx + dy * dy)
-        }
+        if (perimeter < 1e-10 || area < 1e-10) return contour
 
-        if (perimeter < 1e-10) return contour
-
-        // 计算偏移距离
+        // 计算偏移距离（与 Python 一致）
         val distance = area * unclipRatio / perimeter
 
-        // 对每条边计算法向量方向，然后平均
-        // 简化实现：沿每个顶点的平均法向量方向偏移
-        val expanded = mutableListOf<Point64>()
-        for (i in 0 until n) {
-            val prevIdx = if (i == 0) n - 1 else i - 1
-            val nextIdx = (i + 1) % n
-            val prev = contour[prevIdx]
-            val curr = contour[i]
-            val next = contour[nextIdx]
+        // 使用 JTS BufferOp（Vatti clipping 算法）进行多边形扩张
+        try {
+            val factory = GeometryFactory()
+            // 确保多边形闭合：首尾点相同
+            val coords = if (contour.size >= 3) {
+                val first = contour[0]
+                val last = contour[contour.size - 1]
+                val needsClose = first.x != last.x || first.y != last.y
+                if (needsClose) {
+                    contour + Coordinate(first.x, first.y)
+                } else {
+                    contour
+                }
+            } else {
+                contour
+            }
+            val ring = factory.createLinearRing(
+                Array(coords.size) { i ->
+                    Coordinate(coords[i].x, coords[i].y)
+                }
+            )
+            val polygon = factory.createPolygon(ring)
+            val params = BufferParameters()
+            params.joinStyle = BufferParameters.JOIN_ROUND
+            val buffered = BufferOp.bufferOp(polygon, distance, params)
 
-            // 前一条边的法向量
-            val dx1 = (curr.x - prev.x).toDouble()
-            val dy1 = (curr.y - prev.y).toDouble()
-            val len1 = sqrt(dx1 * dx1 + dy1 * dy1)
-            val nx1 = if (len1 > 1e-10) -dy1 / len1 else 0.0
-            val ny1 = if (len1 > 1e-10) dx1 / len1 else 0.0
+            // 转换回 Path64
+            val resultCoords = buffered.coordinates
+            val result = mutableListOf<Coordinate>()
+            for (i in 0 until resultCoords.size) {
+                result.add(Coordinate(resultCoords[i].x, resultCoords[i].y))
+            }
 
-            // 后一条边的法向量
-            val dx2 = (next.x - curr.x).toDouble()
-            val dy2 = (next.y - curr.y).toDouble()
-            val len2 = sqrt(dx2 * dx2 + dy2 * dy2)
-            val nx2 = if (len2 > 1e-10) -dy2 / len2 else 0.0
-            val ny2 = if (len2 > 1e-10) dx2 / len2 else 0.0
-
-            // 平均法向量
-            val avgNx = (nx1 + nx2) / 2.0
-            val avgNy = (ny1 + ny2) / 2.0
-            val avgLen = sqrt(avgNx * avgNx + avgNy * avgNy)
-            val normNx = if (avgLen > 1e-10) avgNx / avgLen else 0.0
-            val normNy = if (avgLen > 1e-10) avgNy / avgLen else 0.0
-
-            // 沿法向量方向偏移
-            val newX = (curr.x + normNx * distance).toLong()
-            val newY = (curr.y + normNy * distance).toLong()
-            expanded.add(Point64(newX, newY))
+            return result
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "unclip failed", e)
+            return contour
         }
-
-        return expanded
     }
 
     // -----------------------------------------------------------------------

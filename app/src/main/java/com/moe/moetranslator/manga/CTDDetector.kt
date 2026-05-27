@@ -4,7 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import com.moe.moetranslator.utils.LogCollector
-import com.moe.moetranslator.utils.clipper.Point64
+import org.locationtech.jts.geom.Coordinate
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
@@ -106,6 +106,8 @@ object CTDDetector {
 
             // 使用 CTDPostProcessor 的 SegDetectorRepresenter 逻辑（对齐 Python ctd.py）
             // 参数：textThreshold=0.3, boxThreshold=0.6, unclipRatio=1.5
+            // 模型输出是 DETECT_SIZE×DETECT_SIZE，但内容只在 contentW×contentH 区域
+            // 坐标映射用 contentW/contentH 做比例，不是 DETECT_SIZE
             val quadBoxes = CTDPostProcessor.extractQuadBoxes(
                 probMap = linesMap,
                 height = contentH,
@@ -127,9 +129,52 @@ object CTDDetector {
     }
 
     /**
+     * CTD 检测结果（含被丢弃的框），用于调试模式
+     */
+    data class DetectResult(
+        val quadBoxes: List<QuadBox>,       // 通过过滤的 QuadBox
+        val discardedBoxes: List<QuadBox>    // 被过滤丢弃的 QuadBox
+    )
+
+    /**
+     * 检测图片中的文字区域，返回包含被丢弃框的完整结果。
+     * 用于 CTD 调试模式，显示哪些框被过滤了。
+     */
+    fun detectQuadBoxesWithDiscarded(bitmap: Bitmap): DetectResult {
+        if (!isInitialized) {
+            throw IllegalStateException("CTDDetector 未初始化")
+        }
+
+        try {
+            val origWidth = bitmap.width
+            val origHeight = bitmap.height
+
+            val (linesMap, contentH, contentW) = runInference(bitmap)
+
+            val extractResult = CTDPostProcessor.extractQuadBoxesWithDiscarded(
+                probMap = linesMap,
+                height = contentH,
+                width = contentW,
+                origWidth = origWidth,
+                origHeight = origHeight,
+                textThreshold = 0.3f,
+                boxThreshold = 0.6f,
+                unclipRatio = 1.5f
+            )
+
+            LogCollector.d(TAG, "检测完成: ${extractResult.quadBoxes.size} 个文字行, ${extractResult.discardedBoxes.size} 个被丢弃")
+            return DetectResult(extractResult.quadBoxes, extractResult.discardedBoxes)
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "检测失败", e)
+            throw e
+        }
+    }
+
+    /**
      * 从轮廓点判断是否竖排
      */
-    private fun isVerticalFromContour(contour: List<Point64>): Boolean {
+    private fun isVerticalFromContour(contour: List<Coordinate>): Boolean {
         if (contour.size < 4) {
             return false // 需要至少4个点才能形成四边形
         }
@@ -228,9 +273,9 @@ object CTDDetector {
         binary: BooleanArray,
         width: Int,
         height: Int
-    ): List<List<Point64>> {
+    ): List<List<Coordinate>> {
         val visited = BooleanArray(binary.size)
-        val contours = mutableListOf<List<Point64>>()
+        val contours = mutableListOf<List<Coordinate>>()
 
         val dx = intArrayOf(1, 0, -1, 0)
         val dy = intArrayOf(0, 1, 0, -1)
@@ -240,14 +285,14 @@ object CTDDetector {
                 val idx = y * width + x
                 if (!binary[idx] || visited[idx]) continue
 
-                val componentPixels = mutableListOf<Point64>()
+                val componentPixels = mutableListOf<Coordinate>()
                 val queue = ArrayDeque<Int>()
                 queue.add(idx)
                 visited[idx] = true
 
                 while (queue.isNotEmpty()) {
                     val cur = queue.removeFirst()
-                    componentPixels.add(Point64((cur % width).toLong(), (cur / width).toLong()))
+                    componentPixels.add(Coordinate((cur % width).toDouble(), (cur / width).toDouble()))
 
                     val curX = cur % width
                     val curY = cur / width
@@ -328,14 +373,17 @@ object CTDDetector {
         val linesW = linesShape[3].toInt()
         LogCollector.d(TAG, "使用输出: shape=${linesShape.contentToString()}, contentH=$contentH, contentW=$contentW")
 
-        // 4. 后处理：取 channel 0 作为概率图
-        //    NCHW 布局：[batch, channel, height, width]
-        //    channel 0 数据偏移 = y * linesW + x（每行 linesW 个元素）
+        // 4. 后处理：取 channel 0，裁切掉 padding 区域
+        //    对齐 manga-image-translator: lines_map = lines_map[..., :height-dh, :width-dw]
+        //    channel 0 起始偏移 = 0（NCHW 布局，channel 0 在前 linesH*linesW 个元素）
         //    注意：CTD 模型的 det 输出已经过 sigmoid，不需要再应用
+        val linesH = linesShape[2].toInt()
         val probMap = FloatArray(contentH * contentW)
         for (y in 0 until contentH) {
+            val srcOffset = y * linesW              // 源行起始偏移（linesW=1024）
+            val dstOffset = y * contentW           // 目标行起始偏移
             for (x in 0 until contentW) {
-                probMap[y * contentW + x] = linesData[y * linesW + x]
+                probMap[dstOffset + x] = linesData[srcOffset + x]
             }
         }
 
@@ -356,12 +404,12 @@ object CTDDetector {
         val origW = bitmap.width
         val origH = bitmap.height
 
-        // 保持宽高比缩放，使长边 = DETECT_SIZE
+        // 保持宽高比缩放，使长边 = DETECT_SIZE，短边按比例缩放
         val scale = DETECT_SIZE.toFloat() / maxOf(origW, origH)
-        // 使用 round() 而非截断，确保 contentW/contentH 反映实际缩放尺寸
-        // Python 代码中 crop 使用 x2 = int(x1 + w * scale)，w 是原始宽度，不是对齐后的值
-        val contentW = maxOf(STRIDE, (origW * scale).toInt())  // 最小 STRIDE，避免 contentW=0
-        val contentH = maxOf(STRIDE, (origH * scale).toInt())
+        // 实际内容尺寸（不是填充后的尺寸）
+        // 不需要 maxOf(STRIDE, ...)，round 已经保证 > 0
+        val contentW = (origW * scale).toInt()
+        val contentH = (origH * scale).toInt()
 
         // 缩放图片
         val scaled = Bitmap.createScaledBitmap(bitmap, contentW, contentH, true)
