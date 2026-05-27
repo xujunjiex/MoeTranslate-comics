@@ -1162,6 +1162,19 @@ class MangaFloatingService : LifecycleService() {
         try {
             LogCollector.d(TAG, "processMangaScreenshot: START")
 
+            // CTD 调试模式：只检测，不翻译，显示结果后直接返回
+            if (prefs.getBoolean("CTD_Debug_View", false)) {
+                LogCollector.d(TAG, "CTD Debug Mode: 开始检测")
+                val debugResult = withContext(Dispatchers.IO) {
+                    detectWithCTDDebug(bitmap)
+                }
+                LogCollector.d(TAG, "CTD Debug Mode: raw=${debugResult.rawBoxes.size}, merged=${debugResult.mergedGroups.size}")
+
+                // 显示调试视图
+                showCTDDebugView(bitmap, debugResult)
+                return
+            }
+
             // 确保选中的模型已初始化
             when (config.detEngine) {
                 DetEngine.DBNET -> initDBNetIfNeeded()
@@ -1634,6 +1647,145 @@ class MangaFloatingService : LifecycleService() {
                 autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
                 autoTranslateHandler.postDelayed(autoTranslateRunnable, delay)
             }
+        }
+    }
+
+    /**
+     * CTD 调试模式：渲染检测结果到图片上并显示
+     */
+    private fun showCTDDebugView(bitmap: Bitmap, debugResult: CTDDebugResult) {
+        // 创建带调试框的可视化图片
+        val debugBitmap = renderCTDDebugOverlay(bitmap, debugResult)
+        showCTDDebugResultOverlay(debugBitmap, debugResult)
+    }
+
+    private fun renderCTDDebugOverlay(bitmap: Bitmap, debugResult: CTDDebugResult): Bitmap {
+        val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(result)
+
+        val rawPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.RED
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+
+        val mergedPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLUE
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 6f
+        }
+
+        val textPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            isAntiAlias = true
+            setShadowLayer(2f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+
+        val fillPaint = android.graphics.Paint().apply {
+            style = android.graphics.Paint.Style.FILL
+        }
+
+        // 绘制被过滤丢弃的框（红色）D=Discarded
+        for ((idx, box) in debugResult.discardedBoxes.withIndex()) {
+            val aabb = box.aabb
+            fillPaint.color = android.graphics.Color.argb(60, 255, 0, 0)
+            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), fillPaint)
+            val redPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f
+            }
+            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), redPaint)
+            val label = "D[$idx]"
+            canvas.drawText(label, aabb.left.toFloat() + 4, aabb.top.toFloat() + 20, textPaint)
+        }
+
+        // 绘制原始未合并的框（绿色）R=Raw
+        for ((idx, box) in debugResult.rawBoxes.withIndex()) {
+            val aabb = box.aabb
+            fillPaint.color = android.graphics.Color.argb(80, 0, 255, 0)
+            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), fillPaint)
+            val greenPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.GREEN
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 4f
+            }
+            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), greenPaint)
+            val label = "R[$idx]"
+            canvas.drawText(label, aabb.left.toFloat() + 4, aabb.top.toFloat() + 20, textPaint)
+        }
+
+        // 绘制真正合并的框（蓝色）M=Merged - 只画 size > 1 的组
+        for ((groupIdx, group) in debugResult.mergedGroups.withIndex()) {
+            if (group.size < 2) continue  // size=1 表示没有合并，跳过
+
+            var left = Int.MAX_VALUE; var top = Int.MAX_VALUE
+            var right = Int.MIN_VALUE; var bottom = Int.MIN_VALUE
+            for (qb in group) {
+                val aabb = qb.aabb
+                left = minOf(left, aabb.left)
+                top = minOf(top, aabb.top)
+                right = maxOf(right, aabb.right)
+                bottom = maxOf(bottom, aabb.bottom)
+            }
+
+            // 计算原始索引用于日志对应
+            val rawIndices = group.mapNotNull { qb -> debugResult.rawBoxes.indexOf(qb).takeIf { it >= 0 } }
+
+            fillPaint.color = android.graphics.Color.argb(80, 0, 0, 255)
+            canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), fillPaint)
+            val bluePaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.BLUE
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 6f
+            }
+            canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), bluePaint)
+            // 标签不重叠：Y 坐标随 groupIdx 递增偏移
+            val labelY = top.toFloat() + 20f + groupIdx * 25f
+            val label = "M[$groupIdx]:${group.size}boxes"
+            canvas.drawText(label, left.toFloat() + 4, labelY, textPaint)
+        }
+
+        // 绘制图例
+        val legendY = bitmap.height - 60f
+        textPaint.color = android.graphics.Color.GREEN
+        canvas.drawText("绿色=原始 (${debugResult.rawBoxes.size})", 20f, legendY, textPaint)
+        textPaint.color = android.graphics.Color.BLUE
+        canvas.drawText("蓝色=合并 (${debugResult.mergedGroups.size}组)", 20f, legendY - 35f, textPaint)
+        textPaint.color = android.graphics.Color.RED
+        canvas.drawText("红色=丢弃 (${debugResult.discardedBoxes.size})", 20f, legendY - 70f, textPaint)
+        textPaint.color = android.graphics.Color.WHITE
+        canvas.drawText("点击任意位置关闭", 20f, legendY - 105f, textPaint)
+
+        return result
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showCTDDebugResultOverlay(debugBitmap: Bitmap, debugResult: CTDDebugResult) {
+        if (isResultShowing) {
+            dismissResultOverlay()
+        }
+
+        resultOverlayView.setImageBitmap(debugBitmap)
+        resultOverlayView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                dismissResultOverlay()
+            }
+            true
+        }
+
+        resultOverlayView.scaleType = ImageView.ScaleType.FIT_CENTER
+        windowManager.addView(resultOverlayView, resultOverlayParams)
+        isResultShowing = true
+
+        val mergedCount = debugResult.mergedGroups.count { it.size > 1 }
+        showToast("CTD Debug: ${debugResult.rawBoxes.size} 个原始框, ${debugResult.mergedGroups.size} 个组合, $mergedCount 个实际合并, ${debugResult.discardedBoxes.size} 个丢弃")
+
+        // Keep floating ball on top
+        if (isViewAdded(floatingBallView)) {
+            windowManager.removeView(floatingBallView)
+            windowManager.addView(floatingBallView, floatingBallParams)
         }
     }
 

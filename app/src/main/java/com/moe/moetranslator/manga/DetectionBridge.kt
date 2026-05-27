@@ -7,6 +7,57 @@ import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.utils.LogCollector
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sqrt
+
+/**
+ * CTD 调试模式结果
+ */
+data class CTDDebugResult(
+    val rawBoxes: List<QuadBox>,           // CTD 检测的原始未合并 boxes（通过过滤）
+    val mergedGroups: List<List<QuadBox>>,  // BoxMerger 合并后的组
+    val discardedBoxes: List<QuadBox>       // CTD 检测中被过滤丢弃的 boxes
+)
+
+private const val DEBUG_TAG = "DetectionBridge"
+
+/**
+ * CTD 调试模式：只检测，不翻译，显示未合并/合并/丢弃选框位置。
+ * 用于验证 CTD 检测和合并逻辑是否正确。
+ *
+ * @param bitmap 输入图片
+ * @return CTDDebugResult 包含原始 boxes、合并组和丢弃的 boxes
+ */
+suspend fun detectWithCTDDebug(bitmap: Bitmap): CTDDebugResult {
+    // Step 1: CTD 检测（获取包含丢弃框的完整结果）
+    val detectResult = CTDDetector.detectQuadBoxesWithDiscarded(bitmap)
+    val rawQuadBoxes = detectResult.quadBoxes
+    val discardedBoxes = detectResult.discardedBoxes
+    LogCollector.d(DEBUG_TAG, "detectWithCTDDebug: CTD 检测到 ${rawQuadBoxes.size} 个文字区域, ${discardedBoxes.size} 个被丢弃")
+
+    // 记录丢弃的框（D=Discarded）
+    for ((idx, box) in discardedBoxes.withIndex()) {
+        LogCollector.d(DEBUG_TAG, "D[$idx]: ${box.aabb}, fontSize=${String.format("%.1f", box.fontSize)}")
+    }
+
+    // 记录原始框（R=Raw）
+    for ((idx, box) in rawQuadBoxes.withIndex()) {
+        LogCollector.d(DEBUG_TAG, "R[$idx]: ${box.aabb}, fontSize=${String.format("%.1f", box.fontSize)}")
+    }
+
+    // Step 2: BoxMerger 合并
+    val mergedGroups = BoxMerger.merge(rawQuadBoxes)
+    LogCollector.d(DEBUG_TAG, "detectWithCTDDebug: BoxMerger 合并: ${rawQuadBoxes.size} → ${mergedGroups.size} 个组")
+
+    // 记录合并组（M=Merged）
+    for ((idx, group) in mergedGroups.withIndex()) {
+        val rawIndices = group.mapNotNull { qb -> rawQuadBoxes.indexOf(qb).takeIf { it >= 0 } }
+        LogCollector.d(DEBUG_TAG, "M[$idx]:${group.size}boxes rects=${group.map { it.aabb }} rawIndices=$rawIndices")
+    }
+
+    return CTDDebugResult(rawQuadBoxes, mergedGroups, discardedBoxes)
+}
 
 /**
  * 统一检测桥接层。
@@ -52,16 +103,16 @@ object DetectionBridge {
             LogCollector.d(TAG, "detectWithCTDHybrid: 开始")
 
             // Step 1: CTD 检测
-            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
-            if (quadBoxes.isEmpty()) {
+            val rawQuadBoxes = CTDDetector.detectQuadBoxes(bitmap)
+            if (rawQuadBoxes.isEmpty()) {
                 LogCollector.d(TAG, "detectWithCTDHybrid: CTD 未检测到文字区域")
                 return emptyList()
             }
-            LogCollector.d(TAG, "detectWithCTDHybrid: CTD 检测到 ${quadBoxes.size} 个文字区域")
+            LogCollector.d(TAG, "detectWithCTDHybrid: CTD 检测到 ${rawQuadBoxes.size} 个文字区域")
 
             // Step 2: BoxMerger 合并
-            val groups = BoxMerger.merge(quadBoxes)
-            LogCollector.d(TAG, "detectWithCTDHybrid: BoxMerger 合并: ${quadBoxes.size} → ${groups.size} 个组")
+            val groups = BoxMerger.merge(rawQuadBoxes)
+            LogCollector.d(TAG, "detectWithCTDHybrid: BoxMerger 合并: ${rawQuadBoxes.size} → ${groups.size} 个组")
 
             for ((idx, group) in groups.withIndex()) {
                 LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx]: size=${group.size}, rects=${group.map { it.aabb }}")
@@ -76,6 +127,7 @@ object DetectionBridge {
                     LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx] 使用 manga-ocr (size=${group.size})")
                     try {
                         val unionRect = computeUnionAABB(group)
+                        LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr crop=${unionRect.width()}x${unionRect.height()} at $unionRect")
                         val crop = Bitmap.createBitmap(
                             bitmap,
                             unionRect.left.coerceAtLeast(0),
@@ -116,6 +168,7 @@ object DetectionBridge {
                             (rect.right + 10).coerceAtMost(bitmap.width),
                             (rect.bottom + 10).coerceAtMost(bitmap.height)
                         )
+                        LogCollector.d(TAG, "detectWithCTDHybrid: ML Kit crop=${paddedRect.width()}x${paddedRect.height()} at $paddedRect")
                         val crop = Bitmap.createBitmap(
                             bitmap,
                             paddedRect.left,
@@ -329,7 +382,7 @@ object DetectionBridge {
         try {
             LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 检测文字区域...")
 
-            // 使用 detectQuadBoxes 获取真实 font_size
+            // 使用 detectQuadBoxes 获取 QuadBox 列表
             val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
             if (quadBoxes.isEmpty()) {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) 未检测到文字区域")
@@ -337,38 +390,32 @@ object DetectionBridge {
             }
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
-            // 转换为带 font_size 的 DetectedRectWithFont
-            val rects = CTDDetector.convertQuadBoxesToDetectedRects(quadBoxes)
-            for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}, fontSize=${detectedRect.fontSize}")
-            }
+            // 使用新的 MST 合并流程
+            val mergedGroups = mergeQuadBoxesTextRegion(quadBoxes)
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
 
-            // mergeRectsByRowThenCol（过滤器模式）
-            val mergedRects = mergeRectsByRowThenCol(rects)
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 合并: ${rects.size} → ${mergedRects.size} 个区域")
-
-            // final-expand: simple 10px padding only
+            // 对每个合并组计算 union AABB 并扩展
             val PADDING = 10
-            val expandedRects = mergedRects.map { rect ->
+            val expandedRects = mergedGroups.map { group ->
+                val groupBoxes = group.map { quadBoxes[it] }
+                val unionRect = computeUnionAABB(groupBoxes)
                 Rect(
-                    (rect.left - PADDING).coerceAtLeast(0),
-                    (rect.top - PADDING).coerceAtLeast(0),
-                    (rect.right + PADDING).coerceAtMost(bitmap.width),
-                    (rect.bottom + PADDING).coerceAtMost(bitmap.height)
+                    (unionRect.left - PADDING).coerceAtLeast(0),
+                    (unionRect.top - PADDING).coerceAtLeast(0),
+                    (unionRect.right + PADDING).coerceAtMost(bitmap.width),
+                    (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
                 )
             }
 
             for ((idx, rect) in expandedRects.withIndex()) {
-                val merged = mergedRects.getOrNull(idx)
-                val mergedStr = if (merged != null) " <- [${merged.left}, ${merged.top}, ${merged.right}, ${merged.bottom}]" else ""
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终扩展[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]$mergedStr")
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终区域[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
             }
 
             // 裁剪图片
             val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
 
             // OCR 识别
-            val globalIsVertical = rects.count { it.isVertical } > rects.size / 2
+            val globalIsVertical = quadBoxes.count { it.aspectRatio > 1f } > quadBoxes.size / 2
             val results = mutableListOf<TextBlockInfo>()
 
             when (ocrEngine) {
@@ -444,91 +491,6 @@ object DetectionBridge {
     }
 
     /**
-     * 使用 CTD 检测文字区域，然后用 ML Kit 识别文字。
-     *
-     * 流程对齐 manga-image-translator：
-     * CTD 检测 → pre-expand(1.5x) → merge → final-expand(2x) → ML Kit OCR
-     *
-     * @deprecated 使用 [detectWithCTD] 替代，传入 [CTDOCREngine.MLKit]
-     */
-    @Deprecated("使用 detectWithCTD(bitmap, language, CTDOCREngine.MLKit) 替代", ReplaceWith("detectWithCTD(bitmap, language, CTDOCREngine.MLKit)"))
-    suspend fun detectWithCTDMLKit(
-        bitmap: Bitmap,
-        language: String
-    ): List<TextBlockInfo> {
-        try {
-            // Step 1: 使用 detectQuadBoxes 获取真实 font_size
-            LogCollector.d(TAG, "使用 CTD(MLKit) 检测文字区域...")
-            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
-            if (quadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "CTD(MLKit) 未检测到文字区域")
-                return emptyList()
-            }
-            val rects = CTDDetector.convertQuadBoxesToDetectedRects(quadBoxes)
-            LogCollector.d(TAG, "CTD(MLKit) 检测到 ${rects.size} 个文字区域")
-            for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(MLKit) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}, fontSize=${detectedRect.fontSize}")
-            }
-
-            // mergeRectsByRowThenCol
-            val mergedRects = mergeRectsByRowThenCol(rects)
-            LogCollector.d(TAG, "CTD(MLKit) 合并: ${rects.size} → ${mergedRects.size} 个区域")
-
-            // final-expand: simple 10px padding only
-            val PADDING = 10
-            val expandedRects = mergedRects.map { rect ->
-                Rect(
-                    (rect.left - PADDING).coerceAtLeast(0),
-                    (rect.top - PADDING).coerceAtLeast(0),
-                    (rect.right + PADDING).coerceAtMost(bitmap.width),
-                    (rect.bottom + PADDING).coerceAtMost(bitmap.height)
-                )
-            }
-
-            // 合并日志
-            for ((idx, rect) in expandedRects.withIndex()) {
-                val merged = mergedRects.getOrNull(idx)
-                val mergedStr = if (merged != null) " <- [${merged.left}, ${merged.top}, ${merged.right}, ${merged.bottom}]" else ""
-                LogCollector.d(TAG, "CTD(MLKit) [$idx]: 最终扩展[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]$mergedStr")
-            }
-
-            // Step 6: 裁剪图片并用 ML Kit 识别
-            val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
-
-            val results = mutableListOf<TextBlockInfo>()
-            for (i in expandedRects.indices) {
-                val cropped = croppedBitmaps[i]
-                try {
-                    val text = OCRBridge.recognizeText(language, cropped)
-                    if (text.isNotBlank()) {
-                        results.add(TextBlockInfo(
-                            text = text,
-                            boundingBox = expandedRects[i],
-                            cornerPoints = null,
-                            isVertical = null
-                        ))
-                        LogCollector.d(TAG, "CTD(MLKit) 识别结果[$i]: rect=[${expandedRects[i].left}, ${expandedRects[i].top}, ${expandedRects[i].right}, ${expandedRects[i].bottom}], text='$text'")
-                    }
-                } catch (e: Exception) {
-                    LogCollector.e(TAG, "CTD(MLKit) ML Kit 识别失败[$i]", e)
-                }
-            }
-
-            // 释放裁剪的图片
-            for (cropped in croppedBitmaps) {
-                if (cropped !== bitmap) cropped.recycle()
-            }
-
-            LogCollector.d(TAG, "CTD(MLKit) + ML Kit 完成，共 ${results.size} 个文字块")
-            return results
-
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "CTD(MLKit) + ML Kit 失败", e)
-            throw e
-        }
-    }
-
-    /**
      * 使用 ML Kit 检测+识别（或 manga-ocr 混合模式）。
      * 这是原有逻辑的封装，保持向后兼容。
      */
@@ -562,95 +524,6 @@ object DetectionBridge {
         }
 
         return Bitmap.createBitmap(bitmap, left, top, width, height)
-    }
-
-    /**
-     * 使用 CTD(简化版) + manga-ocr 识别。
-     *
-     * 流程：CTD 简化检测 → 按 Y 分组合并 → 扩展宽度(2x) → manga-ocr 识别
-     * 对齐 manga-image-translator 的 ctd + mocr 组合
-     *
-     * @deprecated 使用 [detectWithCTD] 替代，传入 [CTDOCREngine.MangaOcr]
-     */
-    @Deprecated("使用 detectWithCTD(bitmap, language, CTDOCREngine.MangaOcr) 替代", ReplaceWith("detectWithCTD(bitmap, language, CTDOCREngine.MangaOcr)"))
-    suspend fun detectWithCTDManga(
-        bitmap: Bitmap,
-        language: String
-    ): List<TextBlockInfo> {
-        try {
-            // Step 1: 使用 detectQuadBoxes 获取真实 font_size
-            LogCollector.d(TAG, "使用 CTD(简化) 检测文字区域...")
-            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
-            if (quadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "CTD(简化) 未检测到文字区域")
-                return emptyList()
-            }
-            val rects = CTDDetector.convertQuadBoxesToDetectedRects(quadBoxes)
-            LogCollector.d(TAG, "CTD(简化) 检测到 ${rects.size} 个文字区域")
-            for ((idx, detectedRect) in rects.withIndex()) {
-                LogCollector.d(TAG, "CTD(简化) 检测[$idx]: rect=[${detectedRect.rect.left}, ${detectedRect.rect.top}, ${detectedRect.rect.right}, ${detectedRect.rect.bottom}], isVertical=${detectedRect.isVertical}, fontSize=${detectedRect.fontSize}")
-            }
-
-            // mergeRectsByRowThenCol
-            val mergedRects = mergeRectsByRowThenCol(rects)
-            LogCollector.d(TAG, "CTD(简化) 合并: ${rects.size} → ${mergedRects.size} 个区域")
-
-            // final-expand: simple 10px padding only
-            val PADDING = 10
-            val expandedRects = mergedRects.map { rect ->
-                Rect(
-                    (rect.left - PADDING).coerceAtLeast(0),
-                    (rect.top - PADDING).coerceAtLeast(0),
-                    (rect.right + PADDING).coerceAtMost(bitmap.width),
-                    (rect.bottom + PADDING).coerceAtMost(bitmap.height)
-                )
-            }
-            // 合并日志：合并后+最终扩展一起输出
-            for ((idx, rect) in expandedRects.withIndex()) {
-                val merged = mergedRects.getOrNull(idx)
-                val mergedStr = if (merged != null) " → [${merged.left}, ${merged.top}, ${merged.right}, ${merged.bottom}]" else ""
-                LogCollector.d(TAG, "CTD(简化) [$idx]: 合并后→最终扩展: [${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]$mergedStr")
-            }
-
-            // Step 4: 裁剪图片并批量识别
-            val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
-
-            // Step 5: manga-ocr 批量识别
-            val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
-
-            // Step 6: 构建结果
-            // 使用全部原始 rects 做 isVertical 多数投票
-            val globalIsVertical = rects.count { it.isVertical } > rects.size / 2
-            val results = mutableListOf<TextBlockInfo>()
-            for (i in expandedRects.indices) {
-                val text = texts[i].trim()
-                // 过滤纯符号模式（". . ." 或类似）
-                if (text.isNotBlank() && !isDotOnlyPattern(text)) {
-                    val rect = expandedRects[i]
-                    results.add(TextBlockInfo(
-                        text = text,
-                        boundingBox = rect,
-                        cornerPoints = null,
-                        isVertical = globalIsVertical
-                    ))
-                    LogCollector.d(TAG, "CTD(简化) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
-                } else if (isDotOnlyPattern(text)) {
-                    LogCollector.d(TAG, "CTD(简化) 过滤纯符号[$i]: '$text'")
-                }
-            }
-
-            // 释放裁剪的图片
-            for (cropped in croppedBitmaps) {
-                if (cropped !== bitmap) cropped.recycle()
-            }
-
-            LogCollector.d(TAG, "CTD(简化) + manga-ocr 完成，共 ${results.size} 个文字块")
-            return results
-
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "CTD(简化) + manga-ocr 失败", e)
-            throw e
-        }
     }
 
     /**
@@ -838,21 +711,402 @@ object DetectionBridge {
         return Rect(left, top, right, bottom)
     }
 
+    // ==================== MST Split & Merge (对齐官方 textline_merge) ====================
+
+    /**
+     * Kruskal 最小生成树边
+     */
+    private data class MSTEdge(val u: Int, val v: Int, val weight: Float)
+
+    /**
+     * 并查集（Union-Find）
+     */
+    private class UnionFind(n: Int) {
+        private val parent = IntArray(n) { it }
+        private val rank = IntArray(n) { 0 }
+
+        fun find(x: Int): Int {
+            if (parent[x] != x) parent[x] = find(parent[x])
+            return parent[x]
+        }
+
+        fun union(x: Int, y: Int): Boolean {
+            val px = find(x); val py = find(y)
+            if (px == py) return false
+            when {
+                rank[px] < rank[py] -> parent[px] = py
+                rank[px] > rank[py] -> parent[py] = px
+                else -> { parent[py] = px; rank[px]++ }
+            }
+            return true
+        }
+    }
+
+    /**
+     * MST 拆分：对齐官方 split_text_region
+     *
+     * @param quadBoxes 所有 QuadBox 列表
+     * @param connectedIndices 连通分量中的节点索引集合
+     * @param gamma 控制拆分阈值（官方默认 0.5）
+     * @param sigma 控制标准差阈值（官方默认 2）
+     * @return 拆分后的节点索引列表，每个元素是一组索引
+     */
+    private fun splitTextRegion(
+        quadBoxes: List<QuadBox>,
+        connectedIndices: Set<Int>,
+        gamma: Float = 0.5f,
+        sigma: Float = 2f
+    ): List<Set<Int>> {
+        val indices = connectedIndices.toList()
+
+        // case 1: 只有一个节点
+        if (indices.size == 1) {
+            return listOf(setOf(indices[0]))
+        }
+
+        // case 2: 两个节点
+        if (indices.size == 2) {
+            val i1 = indices[0]; val i2 = indices[1]
+            val fs = maxOf(quadBoxes[i1].fontSize, quadBoxes[i2].fontSize)
+            val dist = quadBoxes[i1].polyDistance(quadBoxes[i2])
+            val angleDiff = abs(quadBoxes[i1].angle - quadBoxes[i2].angle)
+            return if (dist < (1 + gamma) * fs && angleDiff < 0.2 * PI.toFloat()) {
+                listOf(setOf(i1, i2))
+            } else {
+                listOf(setOf(i1), setOf(i2))
+            }
+        }
+
+        // case 3: 多个节点，构建 MST
+        // 构建所有边
+        val edges = mutableListOf<MSTEdge>()
+        for (i in indices.indices) {
+            for (j in i + 1 until indices.size) {
+                val u = indices[i]; val v = indices[j]
+                val w = quadBoxes[u].polyDistance(quadBoxes[v])
+                edges.add(MSTEdge(u, v, w))
+            }
+        }
+
+        // Kruskal MST
+        val sortedEdges = edges.sortedByDescending { it.weight }
+        val uf = UnionFind(quadBoxes.size)
+        for (edge in sortedEdges) {
+            uf.union(edge.u, edge.v)
+        }
+
+        // 获取按权重降序排列的边
+        val mstEdges = sortedEdges.filter { uf.find(it.u) == uf.find(it.v) }.sortedByDescending { it.weight }
+
+        // 计算统计量
+        val weightList = edges.map { it.weight }
+        val fontsize = edges.map { edge -> quadBoxes[edge.u].fontSize }.average().toFloat()
+        val distancesMean = weightList.average().toFloat()
+        val distancesStd = if (weightList.size > 1) {
+            sqrt(weightList.map { (it - distancesMean) * (it - distancesMean) }.average().toDouble()).toFloat()
+        } else 0f
+        val stdThreshold = maxOf(0.3f * fontsize + 5, 5f)
+
+        val maxEdge = mstEdges.firstOrNull() ?: return listOf(connectedIndices)
+        val b1 = quadBoxes[maxEdge.u]; val b2 = quadBoxes[maxEdge.v]
+        val maxPolyDistance = b1.polyDistance(b2)
+        val maxCentroidAlignment = minOf(
+            abs(b1.centroidX - b2.centroidX),
+            abs(b1.centroidY - b2.centroidY)
+        )
+
+        // 判断是否需要拆分
+        val shouldSplit = !(maxEdge.weight <= distancesMean + distancesStd * sigma ||
+                maxEdge.weight <= fontsize * (1 + gamma)) &&
+                (distancesStd >= stdThreshold && maxPolyDistance > 0 && maxCentroidAlignment >= 5)
+
+        return if (shouldSplit) {
+            // 去掉最大边，递归处理剩余连通分量
+            val uf2 = UnionFind(quadBoxes.size)
+            for (edge in mstEdges.drop(1)) {
+                uf2.union(edge.u, edge.v)
+            }
+            val result = mutableListOf<Set<Int>>()
+            val visited = mutableSetOf<Int>()
+            for (idx in indices) {
+                if (idx in visited) continue
+                val component = mutableSetOf<Int>()
+                val stack = ArrayDeque<Int>()
+                stack.add(idx)
+                while (stack.isNotEmpty()) {
+                    val current = stack.removeLast()
+                    if (current in visited) continue
+                    visited.add(current)
+                    component.add(current)
+                    for (otherIdx in indices) {
+                        if (otherIdx !in visited && uf2.find(current) == uf2.find(otherIdx)) {
+                            stack.add(otherIdx)
+                        }
+                    }
+                }
+                if (component.isNotEmpty()) {
+                    result.addAll(splitTextRegion(quadBoxes, component, gamma, sigma))
+                }
+            }
+            result
+        } else {
+            listOf(connectedIndices)
+        }
+    }
+
+    /**
+     * 粗筛函数：对齐官方 quadrilateral_can_merge_region_coarse
+     * 只检查方向是否一致 + angle差 + fontSize比例，不做详细几何判断
+     */
+    private fun quadrilateralCanMergeCoarse(
+        a: QuadBox, b: QuadBox,
+        discardConnectionGap: Float = 2f,
+        fontSizeRatioTol: Float = 0.7f
+    ): Boolean {
+        // 方向必须一致
+        if (a.assignedDirection != b.assignedDirection) return false
+
+        // 角度差 < 15°
+        val angleDiffThreshold = 15 * PI / 180f
+        if (abs(a.angle - b.angle) > angleDiffThreshold) return false
+
+        // fontSize 比例
+        val fs = minOf(a.fontSize, b.fontSize)
+        if (abs(a.fontSize - b.fontSize) / fs > fontSizeRatioTol) return false
+
+        // polygon 距离
+        val dist = a.polyDistance(b)
+        if (dist > discardConnectionGap * maxOf(a.fontSize, b.fontSize)) return false
+
+        return true
+    }
+
+    /**
+     * 构建 QuadBox 连通图，返回可合并的节点对
+     * 先粗筛，再精筛
+     *
+     * @param quadBoxes 所有 QuadBox 列表
+     * @param aspectRatioTol 宽高比容忍度（默认 1.0，对齐官方 _generate_text_direction）
+     * @param fontSizeRatioTol 字号比例容忍度（默认 2.0）
+     * @param charGapTolerance 字符间隙容忍度（默认 1.0）
+     * @param charGapTolerance2 字符间隙容忍度2（默认 3.0）
+     * @return 可合并的边列表（节点索引对）
+     */
+    private fun buildMergeGraph(
+        quadBoxes: List<QuadBox>,
+        aspectRatioTol: Float = 1.0f,
+        fontSizeRatioTol: Float = 2.0f,
+        charGapTolerance: Float = 1.0f,
+        charGapTolerance2: Float = 3.0f
+    ): List<Pair<Int, Int>> {
+        val edges = mutableListOf<Pair<Int, Int>>()
+        for (i in quadBoxes.indices) {
+            for (j in i + 1 until quadBoxes.size) {
+                if (!quadrilateralCanMergeCoarse(quadBoxes[i], quadBoxes[j])) continue
+                if (quadrilateralCanMerge(quadBoxes[i], quadBoxes[j], aspectRatioTol, fontSizeRatioTol, charGapTolerance, charGapTolerance2)) {
+                    edges.add(i to j)
+                }
+            }
+        }
+        return edges
+    }
+
+    /**
+     * 判断两个 QuadBox 是否可以合并：对齐官方 quadrilateral_can_merge_region
+     */
+    private fun quadrilateralCanMerge(
+        a: QuadBox, b: QuadBox,
+        aspectRatioTol: Float,
+        fontSizeRatioTol: Float,
+        charGapTolerance: Float,
+        charGapTolerance2: Float
+    ): Boolean {
+        // 方向必须一致
+        if (a.aspectRatio > b.aspectRatio) {
+            if (a.aspectRatio > aspectRatioTol && b.aspectRatio < 1f / aspectRatioTol) return false
+        } else {
+            if (b.aspectRatio > aspectRatioTol && a.aspectRatio < 1f / aspectRatioTol) return false
+        }
+
+        // 字号比例
+        val charSize = minOf(a.fontSize, b.fontSize)
+        if (maxOf(a.fontSize, b.fontSize) / charSize > fontSizeRatioTol) return false
+
+        // polygon 距离
+        val dist = a.polyDistance(b)
+        val discardConnectionGap = 2f
+        if (dist > discardConnectionGap * charSize) return false
+
+        // axis-aligned 判断
+        val aIsAA = a.isApproximateAxisAligned
+        val bIsAA = b.isApproximateAxisAligned
+
+        if (aIsAA && bIsAA) {
+            val gap = calculateAABBGap(a.aabb, b.aabb)
+            if (gap < charSize * charGapTolerance) {
+                val centerAX = a.centroidX; val centerBX = b.centroidX
+                val ratio = 1.9f
+                if (abs(centerAX - centerBX) < charGapTolerance2) return true
+                if (a.aspectRatio > ratio && b.aspectRatio > ratio) return false
+                // 边对齐
+                return if (a.aspectRatio > 1f) {
+                    abs(a.aabb.top - b.aabb.top) < charSize * charGapTolerance2 ||
+                    abs(a.aabb.bottom - b.aabb.bottom) < charSize * charGapTolerance2
+                } else {
+                    abs(a.aabb.left - b.aabb.left) < charSize * charGapTolerance2 ||
+                    abs(a.aabb.right - b.aabb.right) < charSize * charGapTolerance2
+                }
+            }
+            return false
+        }
+
+        // 非 axis-aligned：检查角度差
+        val angleDiffThreshold = 15 * PI / 180f
+        if (abs(a.angle - b.angle) > angleDiffThreshold) return false
+
+        // 字号差异
+        if (abs(a.fontSize - b.fontSize) / charSize > 0.25f) return false
+
+        return dist < charSize * charGapTolerance2
+    }
+
+    /**
+     * 计算两个 AABB 之间的最小间隙
+     */
+    private fun calculateAABBGap(a: Rect, b: Rect): Float {
+        return when {
+            a.right <= b.left -> b.left - a.right.toFloat()
+            b.right <= a.left -> a.left - b.right.toFloat()
+            a.bottom <= b.top -> b.top - a.bottom.toFloat()
+            b.bottom <= a.top -> a.top - b.bottom.toFloat()
+            else -> 0f
+        }
+    }
+
+    /**
+     * 对齐官方 _generate_text_direction
+     * 返回：(QuadBox, direction) 对，按方向分组投票后排序
+     */
+    private fun generateTextDirection(quadBoxes: List<QuadBox>): List<Pair<QuadBox, String>> {
+        if (quadBoxes.isEmpty()) return emptyList()
+
+        // 构建粗筛连通图
+        val edges = mutableListOf<Pair<Int, Int>>()
+        for (i in quadBoxes.indices) {
+            for (j in i + 1 until quadBoxes.size) {
+                if (quadrilateralCanMergeCoarse(quadBoxes[i], quadBoxes[j])) {
+                    edges.add(i to j)
+                }
+            }
+        }
+
+        // 构建邻接表
+        val adj = mutableMapOf<Int, MutableSet<Int>>()
+        for (i in quadBoxes.indices) adj[i] = mutableSetOf()
+        for ((u, v) in edges) {
+            adj[u]!!.add(v); adj[v]!!.add(u)
+        }
+
+        val visited = mutableSetOf<Int>()
+        val result = mutableListOf<Pair<QuadBox, String>>()
+
+        fun dfs(node: Int, component: MutableSet<Int>) {
+            if (node in visited) return
+            visited.add(node)
+            component.add(node)
+            for (neighbor in adj[node] ?: emptySet()) {
+                dfs(neighbor, component)
+            }
+        }
+
+        for (i in quadBoxes.indices) {
+            if (i in visited) continue
+            val component = mutableSetOf<Int>()
+            dfs(i, component)
+
+            if (component.isEmpty()) continue
+
+            // 方向投票
+            val dirs = component.map { quadBoxes[it].assignedDirection }
+            val majorityDir = dirs.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: "h"
+
+            // 排序：对齐官方
+            val sortedIndices = if (majorityDir == "h") {
+                component.sortedBy { quadBoxes[it].aabb.top + quadBoxes[it].aabb.height() / 2 }
+            } else {
+                component.sortedBy { -(quadBoxes[it].aabb.left + quadBoxes[it].aabb.width()) }
+            }
+
+            for (idx in sortedIndices) {
+                result.add(quadBoxes[idx] to majorityDir)
+            }
+        }
+
+        return result
+    }
+
+    /**
+     * 对齐官方 merge_bboxes_text_region
+     *
+     * @param quadBoxes CTD 检测输出的 QuadBox 列表
+     * @return 分组后的索引列表，每组是一组 QuadBox 索引
+     */
+    private fun mergeQuadBoxesTextRegion(quadBoxes: List<QuadBox>): List<Set<Int>> {
+        if (quadBoxes.isEmpty()) return emptyList()
+        if (quadBoxes.size == 1) return listOf(setOf(0))
+
+        // step 1: 构建连通图（粗筛 + 精筛）
+        val edges = buildMergeGraph(quadBoxes)
+        if (edges.isEmpty()) return quadBoxes.indices.map { setOf(it) }
+
+        // 构建邻接表
+        val adj = mutableMapOf<Int, MutableSet<Int>>()
+        for (i in quadBoxes.indices) adj[i] = mutableSetOf()
+        for ((u, v) in edges) {
+            adj[u]!!.add(v); adj[v]!!.add(u)
+        }
+
+        // step 2: 找连通分量，然后 MST 拆分
+        val visited = mutableSetOf<Int>()
+        val result = mutableListOf<Set<Int>>()
+
+        fun dfs(node: Int, component: MutableSet<Int>) {
+            if (node in visited) return
+            visited.add(node)
+            component.add(node)
+            for (neighbor in adj[node] ?: emptySet()) {
+                dfs(neighbor, component)
+            }
+        }
+
+        for (i in quadBoxes.indices) {
+            if (i in visited) continue
+            val component = mutableSetOf<Int>()
+            dfs(i, component)
+            if (component.isNotEmpty()) {
+                result.addAll(splitTextRegion(quadBoxes, component))
+            }
+        }
+
+        return result
+    }
+
     /**
      * 按阅读顺序对合并组排序。
-     * 竖排为主：从右到左，从上到下
-     * 横排为主：从左到右，从上到下
+     * 对齐官方排序逻辑：
+     * - 水平文字：从上到下，按 y + h/2 排序
+     * - 竖排文字：从右到左，按 -(x + w) 排序
      */
     private fun sortByReadingOrder(groups: List<List<QuadBox>>): List<List<QuadBox>> {
-        // 判断整体方向
+        // 判断整体方向（多数组是竖排）
         val isVertical = groups.count { g -> g.first().let { qb ->
-            qb.aabb.height() > qb.aabb.width()
+            qb.assignedDirection == "v"
         }} > groups.size / 2
 
         return if (isVertical) {
-            groups.sortedWith(compareBy({ -it.first().centroidX }, { it.first().centroidY }))
+            groups.sortedWith(compareBy({ -(it.first().aabb.left + it.first().aabb.width()) }, { it.first().aabb.top }))
         } else {
-            groups.sortedWith(compareBy({ it.first().centroidY }, { it.first().centroidX }))
+            groups.sortedWith(compareBy({ it.first().aabb.top + it.first().aabb.height() / 2 }, { it.first().aabb.left }))
         }
     }
 }
