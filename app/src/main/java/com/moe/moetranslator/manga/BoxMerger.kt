@@ -18,13 +18,14 @@ object BoxMerger {
 
     private const val TAG = "BoxMerger"
 
-    // 默认参数（与 manga-image-translator textline_merge/__init__.py:134 调用参数一致）
+    // 参数完全对齐 manga-image-translator textline_merge/__init__.py:134-135
+    // 官方调用: aspect_ratio_tol=1.3, font_size_ratio_tol=2, char_gap_tolerance=1, char_gap_tolerance2=3
     private const val RATIO = 1.9f
     private const val DISCARD_CONNECTION_GAP = 2f
-    private const val CHAR_GAP_TOLERANCE = 1.0f      // 官方调用用 1（你的 0.6 偏小）
-    private const val CHAR_GAP_TOLERANCE2 = 3.0f    // 官方调用用 3（你的 1.5 偏小）
-    private const val FONT_SIZE_RATIO_TOL = 2.0f     // 官方调用用 2（你的 1.5 偏小）
-    private const val ASPECT_RATIO_TOL = 1.3f        // 官方调用用 1.3（你的 2.0 偏大）
+    private const val CHAR_GAP_TOLERANCE = 1.0f      // Python: 1.0
+    private const val CHAR_GAP_TOLERANCE2 = 3.0f       // Python: 3.0
+    private const val FONT_SIZE_RATIO_TOL = 2.0f     // Python: 2.0
+    private const val ASPECT_RATIO_TOL = 1.3f         // Python: 1.3
 
     /**
      * 合并 box 列表，返回合并后的分组。
@@ -35,6 +36,8 @@ object BoxMerger {
     fun merge(bboxes: List<QuadBox>): List<List<QuadBox>> {
         if (bboxes.isEmpty()) return emptyList()
         if (bboxes.size == 1) return listOf(bboxes)
+
+        LogCollector.d(TAG, "merge start: ${bboxes.size} boxes, boxes=${bboxes.map { "Rect(${it.aabb.left},${it.aabb.top}-${it.aabb.right},${it.aabb.bottom}):fs=${it.fontSize}" }}")
 
         val n = bboxes.size
 
@@ -61,6 +64,7 @@ object BoxMerger {
         for (i in 0 until n) {
             for (j in i + 1 until n) {
                 if (canMergeRegion(bboxes[i], bboxes[j])) {
+                    LogCollector.d(TAG, "MERGE: i=$i(${bboxes[i].aabb}:fs=${bboxes[i].fontSize}) j=$j(${bboxes[j].aabb}:fs=${bboxes[j].fontSize})")
                     union(i, j)
                 }
             }
@@ -112,15 +116,19 @@ object BoxMerger {
         val charSize = min(a.fontSize, b.fontSize)
         if (charSize <= 0) return false
 
+        val dist = a.polyDistance(b)
+        val maxGap = DISCARD_CONNECTION_GAP * charSize
+        if (dist <= maxGap) {
+            LogCollector.d(TAG, "MERGE_CANDIDATE: a=${a.aabb}:fs=${String.format("%.1f", a.fontSize)}, b=${b.aabb}:fs=${String.format("%.1f", b.fontSize)}, dist=${String.format("%.1f", dist)}/${String.format("%.1f", maxGap)}")
+        }
+
         val x1 = aabb1.left.toFloat(); val y1 = aabb1.top.toFloat()
         val w1 = aabb1.width().toFloat(); val h1 = aabb1.height().toFloat()
         val x2 = aabb2.left.toFloat(); val y2 = aabb2.top.toFloat()
         val w2 = aabb2.width().toFloat(); val h2 = aabb2.height().toFloat()
 
         // 1. 距离粗筛（generic.py:663）
-        // 使用多边形距离而非 AABB Chebyshev 距离，与 manga-image-translator 一致
-        val dist = a.polyDistance(b)
-        if (dist > DISCARD_CONNECTION_GAP * charSize) return false
+        if (dist > maxGap) return false
 
         // 2. 字体大小比（generic.py:665）
         if (max(a.fontSize, b.fontSize) / min(a.fontSize, b.fontSize) > FONT_SIZE_RATIO_TOL) return false
@@ -133,9 +141,11 @@ object BoxMerger {
         val a_aa = a.isApproximateAxisAligned
         val b_aa = b.isApproximateAxisAligned
         if (a_aa && b_aa) {
+            // MIT generic: dist < char_size * char_gap_tolerance (0.6), MIT merge: dist < char_size * 1
+            // 改用与 MIT merge 调用一致的阈值: dist < char_size * CHAR_GAP_TOLERANCE (= 1.0 * char_size)
             if (dist < charSize * CHAR_GAP_TOLERANCE) {
                 // 中心对齐检查（generic.py:675）
-                if (abs(x1 + w1 / 2 - (x2 + w2 / 2)) < CHAR_GAP_TOLERANCE2) return true
+                if (abs(x1 + w1 / 2 - (x2 + w2 / 2)) < charSize * CHAR_GAP_TOLERANCE2) return true
                 // 横竖交叉拒绝（generic.py:677-680）
                 if (w1 > h1 * RATIO && h2 > w2 * RATIO) return false
                 if (w2 > h2 * RATIO && h1 > w1 * RATIO) return false
@@ -181,11 +191,13 @@ object BoxMerger {
         if (indices.size == 1) return listOf(connectedRegionIndices)
 
         // case 2: 两个 box
+        // Python textline_merge/__init__.py:35-36 使用 pattern-aware distance
+        // Kotlin 使用 polyDistance（凸多边形最小距离）更接近 Python 的 pattern-aware 行为
         if (indices.size == 2) {
             val fs1 = bboxes[indices[0]].fontSize
             val fs2 = bboxes[indices[1]].fontSize
             val fs = max(fs1, fs2)
-            if (bboxes[indices[0]].distance(bboxes[indices[1]]) < (1 + 0.5f) * fs &&
+            if (bboxes[indices[0]].polyDistance(bboxes[indices[1]]) < (1 + 0.5f) * fs &&
                 abs(bboxes[indices[0]].angle - bboxes[indices[1]].angle) < 0.2f * PI
             ) {
                 return listOf(connectedRegionIndices)
