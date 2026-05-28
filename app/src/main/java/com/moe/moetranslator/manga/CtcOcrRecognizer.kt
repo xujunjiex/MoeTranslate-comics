@@ -263,6 +263,20 @@ object CtcOcrRecognizer {
             floatBuffer.rewind()
             LogCollector.d(TAG, "Buffer: ${byteBuffer.capacity()} bytes, floatCount=$totalFloats")
 
+            // 诊断：打印输入 tensor 统计
+            if (floatBuffer.capacity() > 0) {
+                val allVals = FloatArray(floatBuffer.capacity())
+                floatBuffer.position(0)
+                floatBuffer.get(allVals)
+                floatBuffer.rewind()
+                val minVal = allVals.minOrNull() ?: 0f
+                val maxVal = allVals.maxOrNull() ?: 0f
+                val meanVal = allVals.average().toFloat()
+                LogCollector.d(TAG, "输入tensor统计: capacity=${floatBuffer.capacity()}, min=${String.format("%.4f", minVal)}, max=${String.format("%.4f", maxVal)}, mean=${String.format("%.4f", meanVal)}")
+                val first10 = allVals.take(10).joinToString(", ") { String.format("%.4f", it) }
+                LogCollector.d(TAG, "输入tensor前10值: $first10")
+            }
+
             // 推理（对齐 Python: char_logits + color_values 双输出）
             val inputTensor = OnnxTensor.createTensor(
                 ortEnv!!, floatBuffer,
@@ -273,6 +287,18 @@ object CtcOcrRecognizer {
             val logitsShape = logitsTensor.info.shape
             val actualSeqLen = logitsShape[1].toInt()
             val logits = logitsTensor.floatBuffer.array()
+
+            // 诊断：打印输出 tensor 统计
+            val logitsMin = logits.minOrNull() ?: 0f
+            val logitsMax = logits.maxOrNull() ?: 0f
+            val logitsMean = logits.average().toFloat()
+            LogCollector.d(TAG, "输出tensor: shape=${logitsShape.contentToString()}, arraySize=${logits.size}")
+            LogCollector.d(TAG, "输出tensor统计: min=${String.format("%.4f", logitsMin)}, max=${String.format("%.4f", logitsMax)}, mean=${String.format("%.4f", logitsMean)}")
+            // 打印第一个样本第一个时间步的 top-5 logits
+            if (logits.size >= dictSize) {
+                val top5 = logits.take(dictSize).withIndex().sortedByDescending { it.value }.take(5)
+                LogCollector.d(TAG, "样本0,步0 top5: ${top5.joinToString { "${tokenizer!!.getDictionary().getOrElse(it.index){"?"}}: ${String.format("%.4f", it.value)}" }}")
+            }
 
             inputTensor.close()
             logitsTensor.close()
