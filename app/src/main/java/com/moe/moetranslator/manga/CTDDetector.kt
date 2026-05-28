@@ -46,6 +46,10 @@ object CTDDetector {
     private const val MIN_AREA = 100       // 最小 AABB 面积阈值（100px²）
     private const val MAX_AREA_RATIO = 0.05f // 最大 AABB 面积占原图比例（过滤全图级别的误检，5%）
 
+    // 预分配的缓冲区（避免每次调用重复分配）
+    private val inputBuffer = FloatBuffer.allocate(1 * 3 * DETECT_SIZE * DETECT_SIZE)
+    private val pixelBuffer = IntArray(DETECT_SIZE * DETECT_SIZE)
+
     private var ortEnv: OrtEnvironment? = null
     private var session: OrtSession? = null
 
@@ -65,9 +69,9 @@ object CTDDetector {
             ortEnv = OrtEnvironment.getEnvironment()
 
             val sessionOptions = OrtSession.SessionOptions().apply {
-                setMemoryPatternOptimization(false)
-                setCPUArenaAllocator(false)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT)
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                setMemoryPatternOptimization(true)
+                setCPUArenaAllocator(true)
             }
 
             val modelPath = if (useAssets) {
@@ -422,29 +426,28 @@ object CTDDetector {
 
         if (scaled != bitmap) scaled.recycle()
 
-        // 提取像素
-        val floatBuffer = FloatBuffer.allocate(1 * 3 * DETECT_SIZE * DETECT_SIZE)
-        val pixels = IntArray(DETECT_SIZE * DETECT_SIZE)
-        padded.getPixels(pixels, 0, DETECT_SIZE, 0, 0, DETECT_SIZE, DETECT_SIZE)
+        // 提取像素（使用预分配缓冲区）
+        padded.getPixels(pixelBuffer, 0, DETECT_SIZE, 0, 0, DETECT_SIZE, DETECT_SIZE)
         padded.recycle()
 
-        // CHW 格式，RGB 通道，归一化到 [0, 1]（CTD 使用 [0,1] 而非 [-1,1]）
+        // CHW 格式，RGB 通道，归一化到 [0, 1]（使用预分配缓冲区避免重复分配）
+        inputBuffer.clear()
         for (c in 0 until 3) {
-            for (i in pixels.indices) {
-                val pixel = pixels[i]
+            for (i in pixelBuffer.indices) {
+                val pixel = pixelBuffer[i]
                 val value = when (c) {
                     0 -> (pixel shr 16 and 0xFF) / 255.0f  // R
                     1 -> (pixel shr 8 and 0xFF) / 255.0f   // G
                     2 -> (pixel and 0xFF) / 255.0f          // B
                     else -> 0f
                 }
-                floatBuffer.put(value)
+                inputBuffer.put(value)
             }
         }
-        floatBuffer.rewind()
+        inputBuffer.rewind()
 
         val tensor = OnnxTensor.createTensor(
-            ortEnv!!, floatBuffer,
+            ortEnv!!, inputBuffer,
             longArrayOf(1, 3, DETECT_SIZE.toLong(), DETECT_SIZE.toLong())
         )
         return Triple(tensor, contentH, contentW)
