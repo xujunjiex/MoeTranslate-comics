@@ -6,7 +6,10 @@ import com.moe.moetranslator.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.exp
 
@@ -88,6 +91,23 @@ object CtcOcrRecognizer {
                 LogCollector.e(TAG, "Tokenizer 字典为空，初始化失败")
                 release()
                 throw IllegalStateException("Tokenizer initialization failed - empty dictionary")
+            }
+
+            // 诊断：打印 ONNX 模型元数据
+            try {
+                val inputInfo = session?.inputInfo
+                val outputInfo = session?.outputInfo
+                LogCollector.d(TAG, "=== ONNX 模型元数据 ===")
+                inputInfo?.forEach { (name, info) ->
+                    val shape = (info.info as? TensorInfo)?.shape?.contentToString() ?: "N/A"
+                    LogCollector.d(TAG, "输入: name=$name, shape=$shape")
+                }
+                outputInfo?.forEach { (name, info) ->
+                    val shape = (info.info as? TensorInfo)?.shape?.contentToString() ?: "N/A"
+                    LogCollector.d(TAG, "输出: name=$name, shape=$shape")
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "获取模型元数据失败", e)
             }
 
             isInitialized = true
@@ -191,34 +211,61 @@ object CtcOcrRecognizer {
             LogCollector.d(TAG, "推理: N=$batchN, maxWidth=$maxWidth, alignedWidth=$alignedWidth, dictSize=$dictSize")
 
             // 构建输入 tensor [batchN, 3, 48, alignedWidth]
-            // NCHW 格式：buffer[n,c,h,w] = value，同一 image 内逐像素 RGB 交错排列
-            val buffer = FloatBuffer.allocate(batchN * 3 * IMAGE_HEIGHT * alignedWidth)
+            // Python 参考: einops.rearrange(images, 'N H W C -> N C H W')
+            // 即先全部 R，再全部 G，最后全部 B（按 channel 分组，不是逐像素交错）
+            val totalFloats = batchN * 3 * IMAGE_HEIGHT * alignedWidth
+            val byteBuffer = ByteBuffer.allocateDirect(totalFloats * 4).order(ByteOrder.nativeOrder())
+            val floatBuffer = byteBuffer.asFloatBuffer()
             for (origIdx in batchIndices) {
                 val bmp = resized[origIdx]
                 val w = bmp.width
                 val pixels = IntArray(w * IMAGE_HEIGHT)
                 bmp.getPixels(pixels, 0, w, 0, 0, w, IMAGE_HEIGHT)
+                // 提取 R/G/B 平面
+                val rPlane = FloatArray(w * IMAGE_HEIGHT)
+                val gPlane = FloatArray(w * IMAGE_HEIGHT)
+                val bPlane = FloatArray(w * IMAGE_HEIGHT)
+                for (i in pixels.indices) {
+                    val pixel = pixels[i]
+                    rPlane[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f
+                    gPlane[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f
+                    bPlane[i] = ((pixel and 0xFF) - 127.5f) / 127.5f
+                }
+                // 写入 R 平面（按 y,x 顺序）
                 for (y in 0 until IMAGE_HEIGHT) {
-                    // 实际像素数据（逐像素 RGB 交错）
                     for (x in 0 until w) {
-                        val pixel = pixels[y * w + x]
-                        buffer.put(((pixel shr 16 and 0xFF) - 127.5f) / 127.5f)  // R
-                        buffer.put(((pixel shr 8 and 0xFF) - 127.5f) / 127.5f)   // G
-                        buffer.put(((pixel and 0xFF) - 127.5f) / 127.5f)          // B
+                        floatBuffer.put(rPlane[y * w + x])
                     }
-                    // padding：右边补零（归一化后 -1）
                     for (x in w until alignedWidth) {
-                        buffer.put(-1f)
-                        buffer.put(-1f)
-                        buffer.put(-1f)
+                        floatBuffer.put(-1f)
+                    }
+                }
+                // 写入 G 平面
+                for (y in 0 until IMAGE_HEIGHT) {
+                    for (x in 0 until w) {
+                        floatBuffer.put(gPlane[y * w + x])
+                    }
+                    for (x in w until alignedWidth) {
+                        floatBuffer.put(-1f)
+                    }
+                }
+                // 写入 B 平面
+                for (y in 0 until IMAGE_HEIGHT) {
+                    for (x in 0 until w) {
+                        floatBuffer.put(bPlane[y * w + x])
+                    }
+                    for (x in w until alignedWidth) {
+                        floatBuffer.put(-1f)
                     }
                 }
             }
-            buffer.rewind()
+            byteBuffer.rewind()
+            floatBuffer.rewind()
+            LogCollector.d(TAG, "Buffer: ${byteBuffer.capacity()} bytes, floatCount=$totalFloats")
 
             // 推理（对齐 Python: char_logits + color_values 双输出）
             val inputTensor = OnnxTensor.createTensor(
-                ortEnv!!, buffer,
+                ortEnv!!, floatBuffer,
                 longArrayOf(batchN.toLong(), 3, IMAGE_HEIGHT.toLong(), alignedWidth.toLong())
             )
             val outputs = session!!.run(mapOf("images" to inputTensor))
@@ -289,34 +336,60 @@ object CtcOcrRecognizer {
             LogCollector.d(TAG, "推理(带颜色): N=$batchN, maxWidth=$maxWidth, alignedWidth=$alignedWidth, dictSize=$dictSize")
 
             // 构建输入 tensor [batchN, 3, 48, alignedWidth]
-            // NCHW 格式：buffer[n,c,h,w] = value，同一 image 内逐像素 RGB 交错排列
-            val buffer = FloatBuffer.allocate(batchN * 3 * IMAGE_HEIGHT * alignedWidth)
+            // Python 参考: einops.rearrange(images, 'N H W C -> N C H W')
+            // 即先全部 R，再全部 G，最后全部 B（按 channel 分组，不是逐像素交错）
+            val totalFloats = batchN * 3 * IMAGE_HEIGHT * alignedWidth
+            val byteBuffer = ByteBuffer.allocateDirect(totalFloats * 4).order(ByteOrder.nativeOrder())
+            val floatBuffer = byteBuffer.asFloatBuffer()
             for (origIdx in batchIndices) {
                 val bmp = resized[origIdx]
                 val w = bmp.width
                 val pixels = IntArray(w * IMAGE_HEIGHT)
                 bmp.getPixels(pixels, 0, w, 0, 0, w, IMAGE_HEIGHT)
+                // 提取 R/G/B 平面
+                val rPlane = FloatArray(w * IMAGE_HEIGHT)
+                val gPlane = FloatArray(w * IMAGE_HEIGHT)
+                val bPlane = FloatArray(w * IMAGE_HEIGHT)
+                for (i in pixels.indices) {
+                    val pixel = pixels[i]
+                    rPlane[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f
+                    gPlane[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f
+                    bPlane[i] = ((pixel and 0xFF) - 127.5f) / 127.5f
+                }
+                // 写入 R 平面（按 y,x 顺序）
                 for (y in 0 until IMAGE_HEIGHT) {
-                    // 实际像素数据（逐像素 RGB 交错）
                     for (x in 0 until w) {
-                        val pixel = pixels[y * w + x]
-                        buffer.put(((pixel shr 16 and 0xFF) - 127.5f) / 127.5f)  // R
-                        buffer.put(((pixel shr 8 and 0xFF) - 127.5f) / 127.5f)   // G
-                        buffer.put(((pixel and 0xFF) - 127.5f) / 127.5f)          // B
+                        floatBuffer.put(rPlane[y * w + x])
                     }
-                    // padding：右边补零（归一化后 -1）
                     for (x in w until alignedWidth) {
-                        buffer.put(-1f)
-                        buffer.put(-1f)
-                        buffer.put(-1f)
+                        floatBuffer.put(-1f)
+                    }
+                }
+                // 写入 G 平面
+                for (y in 0 until IMAGE_HEIGHT) {
+                    for (x in 0 until w) {
+                        floatBuffer.put(gPlane[y * w + x])
+                    }
+                    for (x in w until alignedWidth) {
+                        floatBuffer.put(-1f)
+                    }
+                }
+                // 写入 B 平面
+                for (y in 0 until IMAGE_HEIGHT) {
+                    for (x in 0 until w) {
+                        floatBuffer.put(bPlane[y * w + x])
+                    }
+                    for (x in w until alignedWidth) {
+                        floatBuffer.put(-1f)
                     }
                 }
             }
-            buffer.rewind()
+            byteBuffer.rewind()
+            floatBuffer.rewind()
 
             // 4. 推理（对齐 Python: char_logits + color_values 双输出）
             val inputTensor = OnnxTensor.createTensor(
-                ortEnv!!, buffer,
+                ortEnv!!, floatBuffer,
                 longArrayOf(batchN.toLong(), 3, IMAGE_HEIGHT.toLong(), alignedWidth.toLong())
             )
             val outputs = session!!.run(mapOf("images" to inputTensor))
@@ -436,7 +509,61 @@ object CtcOcrRecognizer {
     }
 
     /**
-     * 将 assets 文件复制到缓存目录
+     * 预热验证：尝试用临时 session 打开模型，成功才返回路径。
+     * 失败时返回 null，触发调用方重新复制。
+     */
+    private fun validateModelFile(modelPath: String): Boolean {
+        return try {
+            val env = OrtEnvironment.getEnvironment()
+            val session = env.createSession(modelPath, OrtSession.SessionOptions())
+            session.close()
+            env.close()
+            true
+        } catch (e: Exception) {
+            LogCollector.d(TAG, "模型验证失败: $modelPath, ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 强制重新复制 assets 文件到缓存目录
+     */
+    private fun forceCopyAssetToCache(context: Context, assetPath: String): String {
+        val fileName = assetPath.substringAfterLast("/")
+        val cacheFile = context.cacheDir.resolve(fileName)
+        // 删除可能存在的损坏缓存
+        if (cacheFile.exists()) {
+            LogCollector.d(TAG, "删除损坏的缓存文件: ${cacheFile.absolutePath}")
+            cacheFile.delete()
+        }
+        LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
+        context.assets.open(assetPath).use { input ->
+            cacheFile.outputStream().use { output -> input.copyTo(output) }
+        }
+        LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
+        // 复制 .data 文件
+        val dataAssetPath = "$assetPath.data"
+        val dataFileName = dataAssetPath.substringAfterLast("/")
+        val dataCacheFile = context.cacheDir.resolve(dataFileName)
+        try {
+            context.assets.open(dataAssetPath).use { input ->
+                dataCacheFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
+        } catch (e: Exception) {
+            LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
+        }
+        // 更新版本
+        val prefs = context.getSharedPreferences("ocr_ctc_cache", Context.MODE_PRIVATE)
+        val currentVersion = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        } catch (e: Exception) { 0L }
+        prefs.edit().putLong("version_code", currentVersion).apply()
+        return cacheFile.absolutePath
+    }
+
+    /**
+     * 将 assets 文件复制到缓存目录（带验证）
      */
     private fun copyAssetToCache(context: Context, assetPath: String): String {
         val fileName = assetPath.substringAfterLast("/")
@@ -448,27 +575,32 @@ object CtcOcrRecognizer {
         val cachedVersion = prefs.getLong("version_code", 0)
 
         if (cacheFile.exists() && cachedVersion == currentVersion) {
-            LogCollector.d(TAG, "模型已缓存，跳过复制: ${cacheFile.absolutePath}")
-        } else {
-            LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
-            context.assets.open(assetPath).use { input ->
-                cacheFile.outputStream().use { output -> input.copyTo(output) }
+            // 验证缓存文件是否有效
+            if (validateModelFile(cacheFile.absolutePath)) {
+                LogCollector.d(TAG, "模型已缓存，跳过复制: ${cacheFile.absolutePath}")
+                return cacheFile.absolutePath
+            } else {
+                LogCollector.d(TAG, "缓存文件无效，强制重新复制")
             }
-            LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
-            // 复制 .data 文件
-            val dataAssetPath = "$assetPath.data"
-            val dataFileName = dataAssetPath.substringAfterLast("/")
-            val dataCacheFile = context.cacheDir.resolve(dataFileName)
-            try {
-                context.assets.open(dataAssetPath).use { input ->
-                    dataCacheFile.outputStream().use { output -> input.copyTo(output) }
-                }
-                LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
-            } catch (e: Exception) {
-                LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
-            }
-            prefs.edit().putLong("version_code", currentVersion).apply()
         }
+        LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
+        context.assets.open(assetPath).use { input ->
+            cacheFile.outputStream().use { output -> input.copyTo(output) }
+        }
+        LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
+        // 复制 .data 文件
+        val dataAssetPath = "$assetPath.data"
+        val dataFileName = dataAssetPath.substringAfterLast("/")
+        val dataCacheFile = context.cacheDir.resolve(dataFileName)
+        try {
+            context.assets.open(dataAssetPath).use { input ->
+                dataCacheFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            LogCollector.d(TAG, "外部数据文件已复制: ${dataCacheFile.absolutePath} (${dataCacheFile.length()} bytes)")
+        } catch (e: Exception) {
+            LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
+        }
+        prefs.edit().putLong("version_code", currentVersion).apply()
         return cacheFile.absolutePath
     }
 
