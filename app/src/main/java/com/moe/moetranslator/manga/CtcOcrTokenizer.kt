@@ -117,9 +117,9 @@ class CtcOcrTokenizer(private val context: Context) {
             for (i in 0 until vocabSize) {
                 logSumExp += Math.exp((logits[offset + i] - maxVal).toDouble())
             }
-            val logNorm = maxVal - Math.log(logSumExp).toFloat()
+            val logNorm = (maxVal - Math.log(logSumExp)).toFloat()
 
-            // argmax
+            // argmax over log-softmax values (Python: logprobs.max(2))
             var maxId = 0
             for (i in 1 until vocabSize) {
                 if (logits[offset + i] > logits[offset + maxId]) maxId = i
@@ -129,14 +129,47 @@ class CtcOcrTokenizer(private val context: Context) {
             if (maxId != BLANK_ID && maxId != lastId) {
                 val ch = dictionary.getOrNull(maxId) ?: ""
                 if (ch == SPACE_TOKEN) sb.append(" ") else sb.append(ch)
-                // logNorm 已经是 log(softmax(logits)[maxId])，即 log-probability
-                totalLogprob += logNorm.toDouble()
+                // Python uses logprobs[b, t, pred_ch] = logNorm + logits[offset + maxId]
+                // (since log_softmax[pred_ch] = logits[pred_ch] - log(sum(exp))))
+                val charLogProb = (logits[offset + maxId] - logNorm).toDouble()
+                totalLogprob += charLogProb
                 charCount++
             }
             lastId = maxId
         }
 
         val prob = if (charCount > 0) Math.exp(totalLogprob / charCount).toFloat() else 0f
+        // 诊断：打印前 3 个非空字符的 log-softmax 中间值
+        if (charCount > 0) {
+            var diagCount = 0
+            var diagLastId = BLANK_ID
+            for (t in 0 until seqLen) {
+                if (diagCount >= 3) break
+                val offset = t * vocabSize
+                var maxVal = logits[offset]
+                for (i in 1 until vocabSize) {
+                    if (logits[offset + i] > maxVal) maxVal = logits[offset + i]
+                }
+                var logSumExp = 0.0
+                for (i in 0 until vocabSize) {
+                    logSumExp += Math.exp((logits[offset + i] - maxVal).toDouble())
+                }
+                val logNorm = (maxVal - Math.log(logSumExp)).toFloat()
+
+                var maxId = 0
+                for (i in 1 until vocabSize) {
+                    if (logits[offset + i] > logits[offset + maxId]) maxId = i
+                }
+                if (maxId != BLANK_ID && maxId != diagLastId) {
+                    val rawLogit = logits[offset + maxId]
+                    val charLP = (rawLogit - logNorm).toDouble()
+                    val ch = dictionary.getOrNull(maxId) ?: "?"
+                    LogCollector.d(TAG, "诊断 步$t: char='$ch', rawLogit=${String.format("%.4f", rawLogit)}, logNorm=${String.format("%.4f", logNorm)}, charLogProb=${String.format("%.6f", charLP)}, exp(charLP)=${String.format("%.6f", Math.exp(charLP))}")
+                    diagCount++
+                }
+                diagLastId = maxId
+            }
+        }
         if (charCount > 0) {
             LogCollector.d(TAG, "DEBUG decode: text='${sb}', charCount=$charCount, avgLogprob=${totalLogprob / charCount}, prob=$prob")
         }
