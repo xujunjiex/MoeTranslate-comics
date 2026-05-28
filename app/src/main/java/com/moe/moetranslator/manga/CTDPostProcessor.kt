@@ -40,9 +40,11 @@ object CTDPostProcessor {
     private const val BOX_THRESHOLD = 0.6f
     private const val UNCLIP_RATIO = 1.5f
     private const val MAX_CANDIDATES = 1000
-    // 过滤不合理框的参数
+    // 过滤不合理框的参数（对齐 Python 原装 + CTD 调试显示）
     private const val MIN_FONT_SIZE = 8f      // fontSize 小于此值认为是误检
     private const val MIN_WIDTH = 6f           // AABB 宽度小于此值认为是误检
+    // unclip 前原始坐标过滤（基于几何特征）
+    private const val MIN_RAW_AREA = 2f           // 原始轮廓 AABB 面积小于此值认为是误检
 
     /**
      * CTD 提取结果，包含通过过滤的框和被丢弃的框
@@ -85,6 +87,7 @@ object CTDPostProcessor {
         val quadBoxes = mutableListOf<QuadBox>()
         val discardedBoxes = mutableListOf<QuadBox>()
         var filteredByShortSide = 0
+        var filteredByUnclippedSside = 0
         var filteredByBoxScore = 0
 
         for (contour in contours) {
@@ -97,37 +100,40 @@ object CTDPostProcessor {
                 continue
             }
 
+            // 4.5 原始坐标过滤（unclip 前，基于几何特征过滤误检）
+            val contourW = (contour.maxOf { it.x } - contour.minOf { it.x }).toFloat()
+            val contourH = (contour.maxOf { it.y } - contour.minOf { it.y }).toFloat()
+            val rawArea = contourW * contourH
+            val rawAspect = if (contourW > contourH) {
+                contourW / maxOf(contourH, 1f)
+            } else {
+                contourH / maxOf(contourW, 1f)
+            }
+            // 狭长轮廓不过滤（漫画文字可能是狭长的）
+            // 面积太小过滤
+            if (rawArea < MIN_RAW_AREA) {
+                LogCollector.d(TAG, "原始过滤(面积小): area=${String.format("%.1f", rawArea)}, aspect=${String.format("%.1f", rawAspect)}")
+                continue
+            }
+
             // 5. box_score_fast: 计算轮廓内平均概率
             val score = boxScoreFast(probMap, width, height, contour)
 
             // 6. 动态 unclip_ratio：窄框用更大的 ratio，补偿 area/perimeter 公式对窄框扩展不足
-            val contourW = (contour.maxOf { it.x } - contour.minOf { it.x }).toFloat()
-            val contourH = (contour.maxOf { it.y } - contour.minOf { it.y }).toFloat()
             val aspect = maxOf(contourW, contourH) / maxOf(minOf(contourW, contourH), 1f)
             val dynamicRatio = maxOf(unclipRatio, unclipRatio * sqrt(aspect / 3f))
 
             // 7. unclipPolygon: 多边形扩张
             val unclipped = unclipPolygon(contour, dynamicRatio)
 
-            // 7. 扩张后重新计算 minAreaRect
+            // 8. 扩张后重新计算 minAreaRect
             val (unclippedPoints, unclippedSside) = getMiniBoxes(unclipped)
 
-            // 计算原始轮廓的 AABB（模型坐标）
-            val rawAabb = android.graphics.Rect(
-                contour.minOf { it.x }.toInt(),
-                contour.minOf { it.y }.toInt(),
-                contour.maxOf { it.x }.toInt(),
-                contour.maxOf { it.y }.toInt()
-            )
-
-            // 计算 unclip 后的 AABB（模型坐标）
-            val unclippedAabb = android.graphics.Rect(
-                unclippedPoints.minOf { it.x }.toInt(),
-                unclippedPoints.minOf { it.y }.toInt(),
-                unclippedPoints.maxOf { it.x }.toInt(),
-                unclippedPoints.maxOf { it.y }.toInt()
-            )
-
+            // 9. unclip 后 sside < 5 过滤（对齐 polygons_from_bitmap）
+            if (unclippedSside < 5f) {
+                filteredByUnclippedSside++
+                continue
+            }
 
             // 8. 构建 QuadBox（尚未缩放）
             // 注意：官方 boxes_from_bitmap 在 unclip 后没有 area 过滤！
@@ -144,7 +150,7 @@ object CTDPostProcessor {
             quadBoxes.add(quadBox)
         }
 
-        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, boxScore<$boxThreshold=$filteredByBoxScore")
+        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, unclippedSside<5=$filteredByUnclippedSside, boxScore<$boxThreshold=$filteredByBoxScore")
         LogCollector.d(TAG, "unclip 后 QuadBox 数量: ${quadBoxes.size}")
 
         // 10. 坐标缩放到原图尺寸
@@ -164,16 +170,11 @@ object CTDPostProcessor {
             )
         }.filter { it.area > 0f }
          .partition { qb ->
-            // 过滤不合理的框：fontSize 太小或 AABB 宽度太小
             val w = qb.aabb.width()
-            val pass = qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
-            if (!pass) {
-                LogCollector.d(TAG, "过滤不合理框: ${qb.aabb}, fontSize=${qb.fontSize}, w=$w")
-            }
-            pass
+            qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
          }
 
-        LogCollector.d(TAG, "最终 QuadBox 数量: ${result.first.size}, 丢弃: ${result.second.size}")
+        LogCollector.d(TAG, "最终 QuadBox 数量: ${result.first.size}, 丢弃(fontSize/w): ${result.second.size}")
         return result.first
     }
 
@@ -205,6 +206,7 @@ object CTDPostProcessor {
 
         val quadBoxes = mutableListOf<QuadBox>()
         var filteredByShortSide = 0
+        var filteredByUnclippedSside = 0
         var filteredByBoxScore = 0
 
         for (contour in contours) {
@@ -217,37 +219,40 @@ object CTDPostProcessor {
                 continue
             }
 
+            // 4.5 原始坐标过滤（unclip 前，基于几何特征过滤误检）
+            val contourW = (contour.maxOf { it.x } - contour.minOf { it.x }).toFloat()
+            val contourH = (contour.maxOf { it.y } - contour.minOf { it.y }).toFloat()
+            val rawArea = contourW * contourH
+            val rawAspect = if (contourW > contourH) {
+                contourW / maxOf(contourH, 1f)
+            } else {
+                contourH / maxOf(contourW, 1f)
+            }
+            // 狭长轮廓不过滤（漫画文字可能是狭长的）
+            // 面积太小过滤
+            if (rawArea < MIN_RAW_AREA) {
+                LogCollector.d(TAG, "原始过滤(面积小): area=${String.format("%.1f", rawArea)}, aspect=${String.format("%.1f", rawAspect)}")
+                continue
+            }
+
             // 5. box_score_fast: 计算轮廓内平均概率
             val score = boxScoreFast(probMap, width, height, contour)
 
             // 6. 动态 unclip_ratio：窄框用更大的 ratio，补偿 area/perimeter 公式对窄框扩展不足
-            val contourW = (contour.maxOf { it.x } - contour.minOf { it.x }).toFloat()
-            val contourH = (contour.maxOf { it.y } - contour.minOf { it.y }).toFloat()
             val aspect = maxOf(contourW, contourH) / maxOf(minOf(contourW, contourH), 1f)
             val dynamicRatio = maxOf(unclipRatio, unclipRatio * sqrt(aspect / 3f))
 
             // 7. unclipPolygon: 多边形扩张
             val unclipped = unclipPolygon(contour, dynamicRatio)
 
-            // 7. 扩张后重新计算 minAreaRect
+            // 8. 扩张后重新计算 minAreaRect
             val (unclippedPoints, unclippedSside) = getMiniBoxes(unclipped)
 
-            // 计算原始轮廓的 AABB（模型坐标）
-            val rawAabb = android.graphics.Rect(
-                contour.minOf { it.x }.toInt(),
-                contour.minOf { it.y }.toInt(),
-                contour.maxOf { it.x }.toInt(),
-                contour.maxOf { it.y }.toInt()
-            )
-
-            // 计算 unclip 后的 AABB（模型坐标）
-            val unclippedAabb = android.graphics.Rect(
-                unclippedPoints.minOf { it.x }.toInt(),
-                unclippedPoints.minOf { it.y }.toInt(),
-                unclippedPoints.maxOf { it.x }.toInt(),
-                unclippedPoints.maxOf { it.y }.toInt()
-            )
-
+            // 9. unclip 后 sside < 5 过滤（对齐 polygons_from_bitmap）
+            if (unclippedSside < 5f) {
+                filteredByUnclippedSside++
+                continue
+            }
 
             // 8. 构建 QuadBox（尚未缩放）
             val quadBox = QuadBox(
@@ -261,7 +266,7 @@ object CTDPostProcessor {
             quadBoxes.add(quadBox)
         }
 
-        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, boxScore<$boxThreshold=$filteredByBoxScore")
+        LogCollector.d(TAG, "过滤统计: sside<2=$filteredByShortSide, unclippedSside<5=$filteredByUnclippedSside, boxScore<$boxThreshold=$filteredByBoxScore")
         LogCollector.d(TAG, "unclip 后 QuadBox 数量: ${quadBoxes.size}")
 
         // 10. 坐标缩放到原图尺寸
@@ -281,11 +286,9 @@ object CTDPostProcessor {
             )
         }.filter { it.area > 0f }
          .partition { qb ->
+            // 过滤不合理的框：fontSize 太小或 AABB 宽度太小（CTD 调试显示用）
             val w = qb.aabb.width()
             val pass = qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
-            if (!pass) {
-                LogCollector.d(TAG, "丢弃不合理框: ${qb.aabb}, fontSize=${qb.fontSize}, w=$w")
-            }
             pass
          }
 

@@ -18,14 +18,15 @@ object BoxMerger {
 
     private const val TAG = "BoxMerger"
 
-    // 参数完全对齐 manga-image-translator textline_merge/__init__.py:134-135
+    // 参数对齐 manga-image-translator textline_merge/__init__.py:134 实际调用
     // 官方调用: aspect_ratio_tol=1.3, font_size_ratio_tol=2, char_gap_tolerance=1, char_gap_tolerance2=3
+    // generic.py:653 默认: ratio=1.9, discard_connection_gap=2, char_gap_tolerance=0.6, char_gap_tolerance2=1.5, font_size_ratio_tol=1.5, aspect_ratio_tol=2
     private const val RATIO = 1.9f
-    private const val DISCARD_CONNECTION_GAP = 2f
-    private const val CHAR_GAP_TOLERANCE = 1.0f      // Python: 1.0
-    private const val CHAR_GAP_TOLERANCE2 = 3.0f       // Python: 3.0
-    private const val FONT_SIZE_RATIO_TOL = 2.0f     // Python: 2.0
-    private const val ASPECT_RATIO_TOL = 1.3f         // Python: 1.3
+    private const val DISCARD_CONNECTION_GAP = 2.0f       // Python: 2
+    private const val CHAR_GAP_TOLERANCE = 0.6f           // Python: 0.6
+    private const val CHAR_GAP_TOLERANCE2 = 1.5f          // Python: 1.5
+    private const val FONT_SIZE_RATIO_TOL = 1.5f           // Python: 1.5
+    private const val ASPECT_RATIO_TOL = 2.0f             // Python: 2.0
 
     /**
      * 合并 box 列表，返回合并后的分组。
@@ -37,7 +38,7 @@ object BoxMerger {
         if (bboxes.isEmpty()) return emptyList()
         if (bboxes.size == 1) return listOf(bboxes)
 
-        LogCollector.d(TAG, "merge start: ${bboxes.size} boxes, boxes=${bboxes.map { "Rect(${it.aabb.left},${it.aabb.top}-${it.aabb.right},${it.aabb.bottom}):fs=${it.fontSize}" }}")
+        LogCollector.d(TAG, "merge start: ${bboxes.size} boxes")
 
         val n = bboxes.size
 
@@ -64,7 +65,6 @@ object BoxMerger {
         for (i in 0 until n) {
             for (j in i + 1 until n) {
                 if (canMergeRegion(bboxes[i], bboxes[j])) {
-                    LogCollector.d(TAG, "MERGE: i=$i(${bboxes[i].aabb}:fs=${bboxes[i].fontSize}) j=$j(${bboxes[j].aabb}:fs=${bboxes[j].fontSize})")
                     union(i, j)
                 }
             }
@@ -118,46 +118,44 @@ object BoxMerger {
 
         val dist = a.polyDistance(b)
         val maxGap = DISCARD_CONNECTION_GAP * charSize
-        if (dist <= maxGap) {
-            LogCollector.d(TAG, "MERGE_CANDIDATE: a=${a.aabb}:fs=${String.format("%.1f", a.fontSize)}, b=${b.aabb}:fs=${String.format("%.1f", b.fontSize)}, dist=${String.format("%.1f", dist)}/${String.format("%.1f", maxGap)}")
-        }
+        val fontSizeRatio = max(a.fontSize, b.fontSize) / min(a.fontSize, b.fontSize)
+        val a_aa = a.isApproximateAxisAligned
+        val b_aa = b.isApproximateAxisAligned
 
         val x1 = aabb1.left.toFloat(); val y1 = aabb1.top.toFloat()
         val w1 = aabb1.width().toFloat(); val h1 = aabb1.height().toFloat()
         val x2 = aabb2.left.toFloat(); val y2 = aabb2.top.toFloat()
         val w2 = aabb2.width().toFloat(); val h2 = aabb2.height().toFloat()
 
-        // 1. 距离粗筛（generic.py:663）
+        // 1. 距离粗筛
         if (dist > maxGap) return false
 
-        // 2. 字体大小比（generic.py:665）
-        if (max(a.fontSize, b.fontSize) / min(a.fontSize, b.fontSize) > FONT_SIZE_RATIO_TOL) return false
+        // 2. 字体大小比
+        if (fontSizeRatio > FONT_SIZE_RATIO_TOL) return false
 
-        // 3. 宽高比交叉检查（generic.py:667-670）
+        // 3. 宽高比交叉检查
         if (a.aspectRatio > ASPECT_RATIO_TOL && b.aspectRatio < 1f / ASPECT_RATIO_TOL) return false
         if (b.aspectRatio > ASPECT_RATIO_TOL && a.aspectRatio < 1f / ASPECT_RATIO_TOL) return false
 
-        // 4. 轴对齐分支（generic.py:671-687）
-        val a_aa = a.isApproximateAxisAligned
-        val b_aa = b.isApproximateAxisAligned
+        // 4. 方向一致性检查
+        if (a.isVertical != b.isVertical) return false
+
+        // 5. 轴对齐分支
         if (a_aa && b_aa) {
-            // MIT generic: dist < char_size * char_gap_tolerance (0.6), MIT merge: dist < char_size * 1
-            // 改用与 MIT merge 调用一致的阈值: dist < char_size * CHAR_GAP_TOLERANCE (= 1.0 * char_size)
             if (dist < charSize * CHAR_GAP_TOLERANCE) {
-                // 中心对齐检查（generic.py:675）
-                if (abs(x1 + w1 / 2 - (x2 + w2 / 2)) < charSize * CHAR_GAP_TOLERANCE2) return true
-                // 横竖交叉拒绝（generic.py:677-680）
+                val centerXDiff = abs(x1 + w1 / 2 - (x2 + w2 / 2))
+                if (centerXDiff < charSize * CHAR_GAP_TOLERANCE2) return true
                 if (w1 > h1 * RATIO && h2 > w2 * RATIO) return false
                 if (w2 > h2 * RATIO && h1 > w1 * RATIO) return false
-                // 两个都偏横 → x 边对齐（generic.py:681-682）
                 if (w1 > h1 * RATIO || w2 > h2 * RATIO) {
-                    return abs(x1 - x2) < charSize * CHAR_GAP_TOLERANCE2 ||
-                            abs(x1 + w1 - (x2 + w2)) < charSize * CHAR_GAP_TOLERANCE2
+                    val xEdge1 = abs(x1 - x2)
+                    val xEdge2 = abs(x1 + w1 - (x2 + w2))
+                    if (xEdge1 < charSize * CHAR_GAP_TOLERANCE2 || xEdge2 < charSize * CHAR_GAP_TOLERANCE2) return true
                 }
-                // 两个都偏竖 → y 边对齐（generic.py:683-684）
                 if (h1 > w1 * RATIO || h2 > w2 * RATIO) {
-                    return abs(y1 - y2) < charSize * CHAR_GAP_TOLERANCE2 ||
-                            abs(y1 + h1 - (y2 + h2)) < charSize * CHAR_GAP_TOLERANCE2
+                    val yEdge1 = abs(y1 - y2)
+                    val yEdge2 = abs(y1 + h1 - (y2 + h2))
+                    if (yEdge1 < charSize * CHAR_GAP_TOLERANCE2 || yEdge2 < charSize * CHAR_GAP_TOLERANCE2) return true
                 }
                 return false
             } else {
@@ -165,7 +163,7 @@ object BoxMerger {
             }
         }
 
-        // 5. 非轴对齐分支（generic.py:688-697）
+        // 6. 非轴对齐分支
         if (abs(a.angle - b.angle) < 15 * PI / 180) {
             val fsA = a.fontSize
             val fsB = b.fontSize
@@ -191,15 +189,20 @@ object BoxMerger {
         if (indices.size == 1) return listOf(connectedRegionIndices)
 
         // case 2: 两个 box
-        // Python textline_merge/__init__.py:35-36 使用 pattern-aware distance
-        // Kotlin 使用 polyDistance（凸多边形最小距离）更接近 Python 的 pattern-aware 行为
+        // 它们已经在 canMergeRegion 中通过了 isVertical、距离、字体大小、对齐检查。
+        // 对于 axis-aligned 盒子，对齐条件已足够，splitTextRegion 不需要再用 angle 二次卡。
+        // 对于 rotated 盒子，保留 angle 检查（与 Python 一致）。
         if (indices.size == 2) {
-            val fs1 = bboxes[indices[0]].fontSize
-            val fs2 = bboxes[indices[1]].fontSize
-            val fs = max(fs1, fs2)
-            if (bboxes[indices[0]].polyDistance(bboxes[indices[1]]) < (1 + 0.5f) * fs &&
-                abs(bboxes[indices[0]].angle - bboxes[indices[1]].angle) < 0.2f * PI
-            ) {
+            val bb1 = bboxes[indices[0]]
+            val bb2 = bboxes[indices[1]]
+            val fs = max(bb1.fontSize, bb2.fontSize)
+            val angleOk = if (bb1.isApproximateAxisAligned && bb2.isApproximateAxisAligned) {
+                true
+            } else {
+                abs(bb1.angle - bb2.angle) < 0.2f * PI
+            }
+            val distOk = bb1.polyDistance(bb2) < (1 + 0.5f) * fs
+            if (angleOk && distOk) {
                 return listOf(connectedRegionIndices)
             } else {
                 return listOf(setOf(indices[0]), setOf(indices[1]))
@@ -207,14 +210,13 @@ object BoxMerger {
         }
 
         // case 3: 3+ 个 box → MST 分析
-        // 构建完全图，边权 = Chebyshev 距离
         data class Edge(val u: Int, val v: Int, val weight: Float)
 
         val edges = mutableListOf<Edge>()
         for (i in indices) {
             for (j in indices) {
                 if (i < j) {
-                    edges.add(Edge(i, j, bboxes[i].distance(bboxes[j])))
+                    edges.add(Edge(i, j, bboxes[i].polyDistance(bboxes[j])))
                 }
             }
         }
@@ -247,11 +249,10 @@ object BoxMerger {
             abs(b1.centroidY - b2.centroidY)
         )
 
-        // 判断是否需要拆分（generic.py:66-69）
+        // 判断是否需要拆分
         if ((distances[0] <= distancesMean + distancesStd * 2 ||
                     distances[0] <= avgFontSize * (1 + 0.5f)) &&
-            (distancesStd < stdThreshold ||
-                    (maxPolyDistance == 0f && maxCentroidAlignment < 5))
+            distancesStd < stdThreshold
         ) {
             return listOf(connectedRegionIndices)
         } else {
