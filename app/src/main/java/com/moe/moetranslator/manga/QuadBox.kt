@@ -18,6 +18,44 @@ class QuadBox(
     val text: String = "",
     val prob: Float = 1f
 ) {
+    /** 文字方向：对齐官方 sort_pnts 算法 */
+    val isVertical: Boolean by lazy {
+        // 计算所有 16 个 pairwise 向量
+        val pairwiseNorms = mutableListOf<Float>()
+        for (i in 0 until 4) {
+            for (j in 0 until 4) {
+                val dx = pts[j].x - pts[i].x
+                val dy = pts[j].y - pts[i].y
+                pairwiseNorms.add(sqrt(dx * dx + dy * dy))
+            }
+        }
+        // 排序后取第 8、10 个（即 4 条最长的边，对角线）
+        val sortedNorms = pairwiseNorms.sorted()
+        val diag1Norm = sortedNorms[8]
+        val diag2Norm = sortedNorms[10]
+        // 找对应的对角线向量
+        val diag1Idx = pairwiseNorms.indexOfFirst { abs(it - diag1Norm) < 1e-6f }
+        val diag2Idx = pairwiseNorms.indexOfFirst { abs(it - diag2Norm) < 1e-6f }
+        val i1 = diag1Idx / 4; val j1 = diag1Idx % 4
+        val i2 = diag2Idx / 4; val j2 = diag2Idx % 4
+        val vec1x = pts[j1].x - pts[i1].x; val vec1y = pts[j1].y - pts[i1].y
+        val vec2x = pts[j2].x - pts[i2].x; val vec2y = pts[j2].y - pts[i2].y
+        // 点积，如果 < 0 说明方向相反
+        val innerProd = vec1x * vec2x + vec1y * vec2y
+        val correctedVec1x = if (innerProd < 0) -vec1x else vec1x
+        val correctedVec1y = if (innerProd < 0) -vec1y else vec1y
+        // 结构向量 = |v1 + v2| 的两个分量
+        val strucVecX = abs(correctedVec1x + vec2x)
+        val strucVecY = abs(correctedVec1y + vec2y)
+        // x <= y → 竖排
+        strucVecX <= strucVecY
+    }
+
+    /** 方向标识符（h = 横排，v = 竖排） */
+    val direction: String get() = if (isVertical) "v" else "h"
+
+    /** 文字方向（兼容属性名） */
+    val assignedDirection: String get() = direction
     // 结构线：对边中点连线
     // p1 = (pts[0]+pts[1])/2, p2 = (pts[2]+pts[3])/2 → 边1中点到边3中点
     // p3 = (pts[1]+pts[2])/2, p4 = (pts[3]+pts[0])/2 → 边2中点到边4中点
@@ -48,6 +86,13 @@ class QuadBox(
         val len01 = structureLen(0, 1)
         val len23 = structureLen(2, 3)
         if (len01 > len23) len01 / max(len23, 0.001f) else len23 / max(len01, 0.001f)
+    }
+
+    /** 结构线比例：||v_vec|| / ||h_vec||，对齐参考项目 get_transformed_region 的 ratio 计算 */
+    val structRatio: Float by lazy {
+        val len01 = structureLen(0, 1)
+        val len23 = structureLen(2, 3)
+        len01 / max(len23, 0.001f)
     }
 
     /** 主轴角度（弧度）：较长结构线的方向 */
@@ -143,21 +188,32 @@ class QuadBox(
 
     /**
      * 检查两个凸多边形是否相交或一个包含另一个。
-     * 使用分离轴定理（SAT）。
+     * 使用分离轴定理（SAT），要求分离轴归一化为单位向量。
      */
     private fun polygonsIntersectOrContain(other: QuadBox): Boolean {
-        for (box in arrayOf(this, other)) {
-            for (i in 0 until 4) {
-                val edge = PointF(box.pts[(i + 1) % 4].x - box.pts[i].x, box.pts[(i + 1) % 4].y - box.pts[i].y)
-                val nx = -edge.y; val ny = edge.x
+        val polygons = arrayOf(this, other)
+        val allPts = arrayOf(this.pts, other.pts)
 
+        for (box in polygons) {
+            for (i in 0 until 4) {
+                val edge = PointF(
+                    box.pts[(i + 1) % 4].x - box.pts[i].x,
+                    box.pts[(i + 1) % 4].y - box.pts[i].y
+                )
+                // 归一化为单位向量
+                var len = sqrt(edge.x * edge.x + edge.y * edge.y)
+                if (len < 1e-10f) continue
+                val nx = -edge.y / len
+                val ny = edge.x / len
+
+                // 投影所有点
                 var minA = Float.MAX_VALUE; var maxA = -Float.MAX_VALUE
-                for (p in pts) {
+                var minB = Float.MAX_VALUE; var maxB = -Float.MAX_VALUE
+                for (p in allPts[0]) {
                     val proj = p.x * nx + p.y * ny
                     if (proj < minA) minA = proj; if (proj > maxA) maxA = proj
                 }
-                var minB = Float.MAX_VALUE; var maxB = -Float.MAX_VALUE
-                for (p in other.pts) {
+                for (p in allPts[1]) {
                     val proj = p.x * nx + p.y * ny
                     if (proj < minB) minB = proj; if (proj > maxB) maxB = proj
                 }

@@ -380,13 +380,18 @@ object DetectionBridge {
                 it.assignedDirection == "v"
             } ?: globalIsVertical
 
+            // 参考项目 ratio = ||v_vec|| / ||h_vec||（结构线比例，非 AABB 尺寸）
+            // QuadBox.structRatio = structureLen(0,1) / structureLen(2,3)
+            val ratio = group.firstOrNull()?.structRatio
+                ?: (crop.height.toFloat() / crop.width.toFloat().coerceAtLeast(1f))
+
+            val textHeight = 48f
+            val cropW = crop.width.toFloat().coerceAtLeast(1f)
+            val cropH = crop.height.toFloat().coerceAtLeast(1f)
+
             if (isVertical) {
                 // 竖排：对齐 get_transformed_region 的 'v' 分支
                 // 参考: w = textheight = 48, h = round(textheight * ratio), rotate CCW 90°
-                val textHeight = 48f
-                val cropW = crop.width.toFloat().coerceAtLeast(1f)
-                val cropH = crop.height.toFloat().coerceAtLeast(1f)
-                val ratio = cropH / cropW
                 val targetW = textHeight.toInt()
                 val targetH = (textHeight * ratio).toInt().coerceAtLeast(1)
 
@@ -401,15 +406,11 @@ object DetectionBridge {
                     crop, 0, 0, crop.width, crop.height,
                     matrix, true
                 )
-                LogCollector.d(TAG, "CTC预处理[$i]: isVertical=true, crop=${crop.width}x${crop.height}, ratio=$ratio, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
+                LogCollector.d(TAG, "CTC预处理[$i]: isVertical=true, crop=${crop.width}x${crop.height}, structRatio=$ratio, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
                 result.add(transformed)
             } else {
                 // 横排：对齐 get_transformed_region 的 'h' 分支
                 // 参考: h = textheight = 48, w = round(textheight / ratio)
-                val textHeight = 48f
-                val cropW = crop.width.toFloat().coerceAtLeast(1f)
-                val cropH = crop.height.toFloat().coerceAtLeast(1f)
-                val ratio = cropH / cropW
                 val targetH = textHeight.toInt()
                 val targetW = (textHeight / ratio).toInt().coerceAtLeast(1)
 
@@ -422,7 +423,7 @@ object DetectionBridge {
                     crop, 0, 0, crop.width, crop.height,
                     matrix, true
                 )
-                LogCollector.d(TAG, "CTC预处理[$i]: isVertical=false, crop=${crop.width}x${crop.height}, ratio=$ratio, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
+                LogCollector.d(TAG, "CTC预处理[$i]: isVertical=false, crop=${crop.width}x${crop.height}, structRatio=$ratio, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
                 result.add(transformed)
             }
         }
