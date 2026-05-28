@@ -221,20 +221,20 @@ object CtcOcrRecognizer {
                 val w = bmp.width
                 val pixels = IntArray(w * IMAGE_HEIGHT)
                 bmp.getPixels(pixels, 0, w, 0, 0, w, IMAGE_HEIGHT)
-                // 提取 R/G/B 平面
-                val rPlane = FloatArray(w * IMAGE_HEIGHT)
-                val gPlane = FloatArray(w * IMAGE_HEIGHT)
-                val bPlane = FloatArray(w * IMAGE_HEIGHT)
+                // 提取 B/G/R 平面（CTC 模型训练用 BGR 顺序）
+                val plane0 = FloatArray(w * IMAGE_HEIGHT)  // B
+                val plane1 = FloatArray(w * IMAGE_HEIGHT)  // G
+                val plane2 = FloatArray(w * IMAGE_HEIGHT)  // R
                 for (i in pixels.indices) {
                     val pixel = pixels[i]
-                    rPlane[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f
-                    gPlane[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f
-                    bPlane[i] = ((pixel and 0xFF) - 127.5f) / 127.5f
+                    plane0[i] = ((pixel and 0xFF) - 127.5f) / 127.5f           // B → plane[0]
+                    plane1[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f    // G → plane[1]
+                    plane2[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f   // R → plane[2]
                 }
-                // 写入 R 平面（按 y,x 顺序）
+                // 写入 B 平面（按 y,x 顺序）
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
-                        floatBuffer.put(rPlane[y * w + x])
+                        floatBuffer.put(plane0[y * w + x])
                     }
                     for (x in w until alignedWidth) {
                         floatBuffer.put(-1f)
@@ -243,16 +243,16 @@ object CtcOcrRecognizer {
                 // 写入 G 平面
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
-                        floatBuffer.put(gPlane[y * w + x])
+                        floatBuffer.put(plane1[y * w + x])
                     }
                     for (x in w until alignedWidth) {
                         floatBuffer.put(-1f)
                     }
                 }
-                // 写入 B 平面
+                // 写入 R 平面
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
-                        floatBuffer.put(bPlane[y * w + x])
+                        floatBuffer.put(plane2[y * w + x])
                     }
                     for (x in w until alignedWidth) {
                         floatBuffer.put(-1f)
@@ -372,20 +372,20 @@ object CtcOcrRecognizer {
                 val w = bmp.width
                 val pixels = IntArray(w * IMAGE_HEIGHT)
                 bmp.getPixels(pixels, 0, w, 0, 0, w, IMAGE_HEIGHT)
-                // 提取 R/G/B 平面
-                val rPlane = FloatArray(w * IMAGE_HEIGHT)
-                val gPlane = FloatArray(w * IMAGE_HEIGHT)
-                val bPlane = FloatArray(w * IMAGE_HEIGHT)
+                // 提取 B/G/R 平面（CTC 模型训练用 BGR 顺序）
+                val plane0 = FloatArray(w * IMAGE_HEIGHT)  // B
+                val plane1 = FloatArray(w * IMAGE_HEIGHT)  // G
+                val plane2 = FloatArray(w * IMAGE_HEIGHT)  // R
                 for (i in pixels.indices) {
                     val pixel = pixels[i]
-                    rPlane[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f
-                    gPlane[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f
-                    bPlane[i] = ((pixel and 0xFF) - 127.5f) / 127.5f
+                    plane0[i] = ((pixel and 0xFF) - 127.5f) / 127.5f           // B → plane[0]
+                    plane1[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f    // G → plane[1]
+                    plane2[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f   // R → plane[2]
                 }
-                // 写入 R 平面（按 y,x 顺序）
+                // 写入 B 平面（按 y,x 顺序）
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
-                        floatBuffer.put(rPlane[y * w + x])
+                        floatBuffer.put(plane0[y * w + x])
                     }
                     for (x in w until alignedWidth) {
                         floatBuffer.put(-1f)
@@ -394,16 +394,16 @@ object CtcOcrRecognizer {
                 // 写入 G 平面
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
-                        floatBuffer.put(gPlane[y * w + x])
+                        floatBuffer.put(plane1[y * w + x])
                     }
                     for (x in w until alignedWidth) {
                         floatBuffer.put(-1f)
                     }
                 }
-                // 写入 B 平面
+                // 写入 R 平面
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
-                        floatBuffer.put(bPlane[y * w + x])
+                        floatBuffer.put(plane2[y * w + x])
                     }
                     for (x in w until alignedWidth) {
                         floatBuffer.put(-1f)
