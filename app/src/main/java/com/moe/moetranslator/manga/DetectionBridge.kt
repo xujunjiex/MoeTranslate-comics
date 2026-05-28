@@ -375,14 +375,13 @@ object DetectionBridge {
         for (i in croppedBitmaps.indices) {
             val crop = croppedBitmaps[i]
             val group = mergedGroups.getOrElse(i) { emptyList() }
-            val cropRect = expandedRects.getOrElse(i) { Rect(0, 0, crop.width, crop.height) }
 
             // 判断该组的方向：优先用 QuadBox.assignedDirection
             val isVertical = group.firstOrNull()?.let {
                 it.assignedDirection == "v"
             } ?: globalIsVertical
 
-            // 参考项目 ratio = ||v_vec|| / ||h_vec||（结构线比例，非 AABB 尺寸）
+            // 参考项目 ratio = ||v_vec|| / ||h_vec||（结构线比例）
             val ratio = group.firstOrNull()?.structRatio
                 ?: (crop.height.toFloat() / crop.width.toFloat().coerceAtLeast(1f))
 
@@ -390,47 +389,26 @@ object DetectionBridge {
             val cropW = crop.width.toFloat().coerceAtLeast(1f)
             val cropH = crop.height.toFloat().coerceAtLeast(1f)
 
-            // 目标尺寸（对齐参考项目）
             val targetW: Int
             val targetH: Int
             if (isVertical) {
+                // 竖排：w = 48, h = 48 * ratio, rotate CCW 90°
                 targetW = textHeight.toInt()
                 targetH = (textHeight * ratio).toInt().coerceAtLeast(1)
             } else {
+                // 横排：h = 48, w = 48 / ratio
                 targetH = textHeight.toInt()
                 targetW = (textHeight / ratio).toInt().coerceAtLeast(1)
             }
 
-            // 尝试使用 QuadBox 角点做仿射变换（近似参考项目的透视变换）
-            val qb = group.firstOrNull()
-            val useAffine = qb != null && qb.pts.size >= 4
-
+            // 简单缩放（createBitmap + setScale 保证输出尺寸 = target）
             val matrix = android.graphics.Matrix()
-            if (useAffine) {
-                // 将 QuadBox 角点从原图坐标转换为 crop 内坐标
-                val srcPts = FloatArray(8)
-                for (j in 0 until 4) {
-                    srcPts[j * 2] = qb!!.pts[j].x - cropRect.left
-                    srcPts[j * 2 + 1] = qb.pts[j].y - cropRect.top
-                }
-                // 目标矩形四角
-                val dstPts = floatArrayOf(
-                    0f, 0f,
-                    (targetW - 1).toFloat(), 0f,
-                    (targetW - 1).toFloat(), (targetH - 1).toFloat(),
-                    0f, (targetH - 1).toFloat()
-                )
-                // 仿射变换：4 个点对 → setPolyToPoly
-                matrix.setPolyToPoly(srcPts, 0, dstPts, 0, 4)
-            } else {
-                // 回退：简单缩放
-                val scaleX = targetW.toFloat() / cropW
-                val scaleY = targetH.toFloat() / cropH
-                matrix.setScale(scaleX, scaleY)
-            }
+            val scaleX = targetW.toFloat() / cropW
+            val scaleY = targetH.toFloat() / cropH
+            matrix.setScale(scaleX, scaleY)
 
             if (isVertical) {
-                // 竖排：逆时针 90°（对齐参考项目 cv2.ROTATE_90_COUNTERCLOCKWISE）
+                // 对齐参考项目 cv2.ROTATE_90_COUNTERCLOCKWISE（逆时针 90°）
                 matrix.postRotate(-90f)
             }
 
@@ -438,7 +416,7 @@ object DetectionBridge {
                 crop, 0, 0, crop.width, crop.height,
                 matrix, true
             )
-            LogCollector.d(TAG, "CTC预处理[$i]: isVertical=$isVertical, crop=${crop.width}x${crop.height}, structRatio=${String.format("%.3f", ratio)}, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}, affine=$useAffine")
+            LogCollector.d(TAG, "CTC预处理[$i]: isVertical=$isVertical, crop=${crop.width}x${crop.height}, structRatio=${String.format("%.3f", ratio)}, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
             result.add(transformed)
         }
         return result
