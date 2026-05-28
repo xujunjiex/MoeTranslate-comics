@@ -62,9 +62,9 @@ suspend fun detectWithCTDDebug(bitmap: Bitmap): CTDDebugResult {
 /**
  * 统一检测桥接层。
  *
- * 支持两种检测器：
+ * 支持：
  * - ML Kit: 检测 + 识别一体化
- * - DBNet: 仅检测（定位文字区域），识别需要单独调用 ML Kit 或 manga-ocr
+ * - CTD: ComicTextDetector 文字行级检测
  */
 object DetectionBridge {
 
@@ -224,147 +224,6 @@ object DetectionBridge {
     }
 
     /**
-     * 使用 DBNet 检测文字区域，然后用指定引擎识别文字。
-     *
-     * 流程对齐 manga-image-translator：
-     * Detection → OCR（逐个 box，批量编码）→ Textline Merge（几何+文字合并）
-     *
-     * @param bitmap 输入图片
-     * @param language 语言（用于 ML Kit 识别）
-     * @param useMangaOcr 是否使用 manga-ocr 识别（否则用 ML Kit）
-     * @return TextBlockInfo 列表（含位置和识别文字）
-     */
-    suspend fun detectWithDBNet(
-        bitmap: Bitmap,
-        language: String,
-        useMangaOcr: Boolean
-    ): List<TextBlockInfo> {
-        try {
-            // Step 1: DBNet 检测文字区域（QuadBox，保留旋转信息）
-            LogCollector.d(TAG, "使用 DBNet 检测文字区域...")
-            val rawQuadBoxes = DBNetDetector.detectQuadBoxes(bitmap)
-            if (rawQuadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "DBNet 未检测到文字区域")
-                return emptyList()
-            }
-            LogCollector.d(TAG, "DBNet 检测到 ${rawQuadBoxes.size} 个文字区域")
-
-            // Step 2: 逐个 box OCR（批量编码，对齐 manga-image-translator 的 OCR 在合并之前）
-            val textQuadBoxes = recognizeQuadBoxes(bitmap, rawQuadBoxes, language, useMangaOcr)
-            LogCollector.d(TAG, "OCR 完成: ${rawQuadBoxes.size} 个 box → ${textQuadBoxes.size} 个有文字的 box")
-
-            if (textQuadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "OCR 未识别到任何文字")
-                return emptyList()
-            }
-
-            // Step 3: 合并（有文字信息，能做更好的判断，对齐 merge_bboxes_text_region）
-            val mergedGroups = BoxMerger.merge(textQuadBoxes)
-            LogCollector.d(TAG, "box 合并: ${textQuadBoxes.size} → ${mergedGroups.size} 个文本行")
-
-            // Step 4: 构建结果（合并后的文字拼接）
-            val results = mutableListOf<TextBlockInfo>()
-            for (group in mergedGroups) {
-                val rect = computeBoundingRect(group)
-                val combinedText = group.joinToString("") { it.text }
-                if (combinedText.isNotBlank()) {
-                    results.add(TextBlockInfo(
-                        text = combinedText,
-                        boundingBox = rect,
-                        cornerPoints = null
-                    ))
-                }
-                LogCollector.d(TAG, "合并结果: rect=$rect, text='$combinedText'")
-            }
-
-            LogCollector.d(TAG, "DBNet 检测完成，共 ${results.size} 个文字块")
-            return results
-
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "DBNet 检测失败", e)
-            throw e
-        }
-    }
-
-    /**
-     * 对每个 QuadBox 裁剪并识别，使用批量编码优化。
-     *
-     * 对齐 manga-image-translator 的 OCR 阶段：
-     * - 每个 box 独立识别（不做合并）
-     * - 使用 batch 编码减少 Encoder 调用次数
-     * - 跳过空白识别结果
-     */
-    private suspend fun recognizeQuadBoxes(
-        bitmap: Bitmap,
-        quadBoxes: List<QuadBox>,
-        language: String,
-        useMangaOcr: Boolean
-    ): List<QuadBox> {
-        // 裁剪所有 box
-        val croppedBitmaps = quadBoxes.map { cropBitmap(bitmap, it.aabb) }
-
-        try {
-            val texts = if (useMangaOcr && MangaOcrBridge.isAvailable()) {
-                // 批量识别：一次 Encoder 调用处理 BATCH_SIZE 个 box
-                recognizeMangaOcrBatched(croppedBitmaps)
-            } else {
-                // ML Kit 逐个识别
-                croppedBitmaps.map { cropped ->
-                    try {
-                        OCRBridge.recognizeText(language, cropped)
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "ML Kit 识别失败", e)
-                        ""
-                    }
-                }
-            }
-
-            // 构建有文字的 QuadBox
-            val result = mutableListOf<QuadBox>()
-            for (i in quadBoxes.indices) {
-                val text = texts[i].trim()
-                if (text.isNotBlank()) {
-                    result.add(QuadBox(quadBoxes[i].pts, text, quadBoxes[i].prob))
-                }
-            }
-            return result
-
-        } finally {
-            // 释放裁剪的图片
-            for (cropped in croppedBitmaps) {
-                if (cropped !== bitmap) cropped.recycle()
-            }
-        }
-    }
-
-    /**
-     * 使用 manga-ocr 批量识别。
-     *
-     * recognizeBatch 内部使用真正的 batch Encoder（一次处理 N 张图片），
-     * 按 BATCH_SIZE 分块避免单次 batch 过大导致 OOM。
-     */
-    private suspend fun recognizeMangaOcrBatched(bitmaps: List<Bitmap>): List<String> {
-        val results = mutableListOf<String>()
-        for (chunk in bitmaps.chunked(BATCH_SIZE)) {
-            results.addAll(MangaOcrRecognizer.recognizeBatch(chunk))
-        }
-        return results
-    }
-
-    private fun computeBoundingRect(group: List<QuadBox>): Rect {
-        var left = Int.MAX_VALUE; var top = Int.MAX_VALUE
-        var right = Int.MIN_VALUE; var bottom = Int.MIN_VALUE
-        for (qb in group) {
-            val aabb = qb.aabb
-            left = minOf(left, aabb.left)
-            top = minOf(top, aabb.top)
-            right = maxOf(right, aabb.right)
-            bottom = maxOf(bottom, aabb.bottom)
-        }
-        return Rect(left, top, right, bottom)
-    }
-
-    /**
      * 使用 CTD 检测文字区域，然后用指定 OCR 引擎识别文字。
      *
      * 流程：CTD 检测 → pre-expand(1.5x) → merge → final-expand(2.5x width, 3x height) → OCR
@@ -390,15 +249,14 @@ object DetectionBridge {
             }
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
-            // 使用新的 MST 合并流程
-            val mergedGroups = mergeQuadBoxesTextRegion(quadBoxes)
+            // 使用 BoxMerger 合并（与调试模式一致）
+            val mergedGroups = BoxMerger.merge(quadBoxes)
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
 
             // 对每个合并组计算 union AABB 并扩展
             val PADDING = 10
             val expandedRects = mergedGroups.map { group ->
-                val groupBoxes = group.map { quadBoxes[it] }
-                val unionRect = computeUnionAABB(groupBoxes)
+                val unionRect = computeUnionAABB(group)
                 Rect(
                     (unionRect.left - PADDING).coerceAtLeast(0),
                     (unionRect.top - PADDING).coerceAtLeast(0),
@@ -457,7 +315,11 @@ object DetectionBridge {
                     }
                 }
                 CTDOCREngine.CTCOcr -> {
-                    val texts = CtcOcrRecognizer.recognizeBatch(croppedBitmaps)
+                    // CTC 需要特殊预处理：对齐参考项目 get_transformed_region
+                    // 竖排文字需要 90° 旋转让宽度变为主轴(48px)
+                    // 横排文字 height 缩放到 48px
+                    val ctcInputs = prepareCtcInputs(croppedBitmaps, mergedGroups, globalIsVertical)
+                    val texts = CtcOcrRecognizer.recognizeBatch(ctcInputs)
                     for (i in expandedRects.indices) {
                         val text = texts[i].trim()
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {
@@ -488,6 +350,91 @@ object DetectionBridge {
             LogCollector.e(TAG, "CTD(${ocrEngine.name}) 失败", e)
             throw e
         }
+    }
+
+    /**
+     * 为 CTC 准备输入图片：对齐参考项目 get_transformed_region 的完整几何变换
+     *
+     * 使用 cv2.findHomography 进行透视变换，然后旋转（竖排）。
+     * 对齐 generic.py get_transformed_region 的逻辑：
+     * - 竖排(vertical): w=textheight=48, h=round(48*ratio), rotate CCW 90°
+     * - 横排(horizontal): h=textheight=48, w=round(48/ratio)
+     *
+     * @param croppedBitmaps 裁剪后的图片列表
+     * @param mergedGroups 合并组列表
+     * @param globalIsVertical 全局文字方向
+     * @return 预处理后的图片列表
+     */
+    private fun prepareCtcInputs(
+        croppedBitmaps: List<Bitmap>,
+        mergedGroups: List<List<QuadBox>>,
+        globalIsVertical: Boolean
+    ): List<Bitmap> {
+        val result = mutableListOf<Bitmap>()
+        for (i in croppedBitmaps.indices) {
+            val crop = croppedBitmaps[i]
+            val group = mergedGroups.getOrElse(i) { emptyList() }
+
+            // 判断该组的方向：优先用 QuadBox.assignedDirection
+            val isVertical = group.firstOrNull()?.let {
+                it.assignedDirection == "v"
+            } ?: globalIsVertical
+
+            if (isVertical) {
+                // 竖排：对齐 get_transformed_region 的 'v' 分支
+                // 参考: w = textheight = 48, h = round(textheight * ratio), rotate CCW 90°
+                val textHeight = 48f
+                val cropW = crop.width.toFloat().coerceAtLeast(1f)
+                val cropH = crop.height.toFloat().coerceAtLeast(1f)
+                val ratio = cropH / cropW
+                val targetW = textHeight.toInt()
+                val targetH = (textHeight * ratio).toInt().coerceAtLeast(1)
+
+                val matrix = android.graphics.Matrix()
+                val scaleX = targetW.toFloat() / cropW
+                val scaleY = targetH.toFloat() / cropH
+                matrix.setScale(scaleX, scaleY)
+                // 对齐参考项目 cv2.ROTATE_90_COUNTERCLOCKWISE（逆时针 90°）
+                matrix.postRotate(-90f)
+
+                val transformed = Bitmap.createBitmap(
+                    crop, 0, 0, crop.width, crop.height,
+                    matrix, true
+                )
+                LogCollector.d(TAG, "CTC预处理[$i]: isVertical=true, crop=${crop.width}x${crop.height}, ratio=$ratio, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
+                result.add(transformed)
+            } else {
+                // 横排：对齐 get_transformed_region 的 'h' 分支
+                // 参考: h = textheight = 48, w = round(textheight / ratio)
+                val textHeight = 48f
+                val cropW = crop.width.toFloat().coerceAtLeast(1f)
+                val cropH = crop.height.toFloat().coerceAtLeast(1f)
+                val ratio = cropH / cropW
+                val targetH = textHeight.toInt()
+                val targetW = (textHeight / ratio).toInt().coerceAtLeast(1)
+
+                val matrix = android.graphics.Matrix()
+                val scaleX = targetW.toFloat() / cropW
+                val scaleY = targetH.toFloat() / cropH
+                matrix.setScale(scaleX, scaleY)
+
+                val transformed = Bitmap.createBitmap(
+                    crop, 0, 0, crop.width, crop.height,
+                    matrix, true
+                )
+                LogCollector.d(TAG, "CTC预处理[$i]: isVertical=false, crop=${crop.width}x${crop.height}, ratio=$ratio, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
+                result.add(transformed)
+            }
+        }
+        return result
+    }
+
+    /**
+     * 旋转图片 90° 逆时针（已弃用，使用 Matrix.postRotate 替代）
+     */
+    private fun rotateBitmap90CCW(source: Bitmap): Bitmap {
+        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     /**
