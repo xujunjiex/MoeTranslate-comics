@@ -343,7 +343,10 @@ object ComicBubbleDetector {
 
     private fun copyAssetToCache(context: Context, assetPath: String): String {
         val fileName = assetPath.substringAfterLast("/")
-        val cacheFile = context.cacheDir.resolve(fileName)
+        // 使用子目录避免与其他模型的 model.onnx 冲突
+        val cacheDir = java.io.File(context.cacheDir, MODEL_DIR)
+        cacheDir.mkdirs()
+        val cacheFile = java.io.File(cacheDir, fileName)
         LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
         context.assets.open(assetPath).use { input ->
             cacheFile.outputStream().use { output ->
