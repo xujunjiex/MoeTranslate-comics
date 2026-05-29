@@ -1161,6 +1161,18 @@ class MangaFloatingService : LifecycleService() {
                 return
             }
 
+            // RT-DETR-V2 调试模式：只检测，不翻译，显示所有类别检测框
+            if (prefs.getBoolean("RTDetrV2_Debug_View", false) && config.detEngine == DetEngine.RT_DETR_V2) {
+                LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: 开始检测")
+                initRTDetrV2IfNeeded()
+                val debugResult = withContext(Dispatchers.IO) {
+                    DetectionBridge.detectWithRTDetrV2Debug(bitmap)
+                }
+                LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
+                showRTDetrV2DebugView(bitmap, debugResult)
+                return
+            }
+
             // 确保选中的模型已初始化
             when (config.detEngine) {
                 DetEngine.CTD -> initCTDIfNeeded()
@@ -1801,6 +1813,107 @@ class MangaFloatingService : LifecycleService() {
 
         val mergedCount = debugResult.mergedGroups.count { it.size > 1 }
         showToast("CTD Debug: ${debugResult.rawBoxes.size} 个原始框, ${debugResult.mergedGroups.size} 个组合, $mergedCount 个实际合并, ${debugResult.discardedBoxes.size} 个丢弃")
+
+        // Keep floating ball on top
+        if (isViewAdded(floatingBallView)) {
+            windowManager.removeView(floatingBallView)
+            windowManager.addView(floatingBallView, floatingBallParams)
+        }
+    }
+
+    /**
+     * RT-DETR-V2 调试模式：渲染检测结果到图片上并显示
+     */
+    private fun showRTDetrV2DebugView(bitmap: Bitmap, debugResult: RTDetrV2DebugResult) {
+        val debugBitmap = renderRTDetrV2DebugOverlay(bitmap, debugResult)
+        showRTDetrV2DebugResultOverlay(debugBitmap, debugResult)
+    }
+
+    private fun renderRTDetrV2DebugOverlay(bitmap: Bitmap, debugResult: RTDetrV2DebugResult): Bitmap {
+        val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(result)
+
+        val textPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 28f
+            isAntiAlias = true
+            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+
+        val fillPaint = android.graphics.Paint().apply {
+            style = android.graphics.Paint.Style.FILL
+        }
+
+        val strokePaint = android.graphics.Paint().apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+
+        // 0: bubble（无文字气泡）— 红色
+        for ((idx, b) in debugResult.emptyBubbles.withIndex()) {
+            fillPaint.color = android.graphics.Color.argb(50, 255, 0, 0)
+            strokePaint.color = android.graphics.Color.RED
+            strokePaint.strokeWidth = 2f
+            canvas.drawRect(b.rect.left.toFloat(), b.rect.top.toFloat(), b.rect.right.toFloat(), b.rect.bottom.toFloat(), fillPaint)
+            canvas.drawRect(b.rect.left.toFloat(), b.rect.top.toFloat(), b.rect.right.toFloat(), b.rect.bottom.toFloat(), strokePaint)
+            textPaint.color = android.graphics.Color.RED
+            canvas.drawText("bubble[$idx] ${String.format("%.0f%%", b.confidence * 100)}", b.rect.left.toFloat() + 4, b.rect.top.toFloat() + 24, textPaint)
+        }
+
+        // 1: text_bubble（气泡内文字）— 绿色
+        for ((idx, b) in debugResult.textBubbles.withIndex()) {
+            fillPaint.color = android.graphics.Color.argb(60, 0, 255, 0)
+            strokePaint.color = android.graphics.Color.GREEN
+            strokePaint.strokeWidth = 4f
+            canvas.drawRect(b.rect.left.toFloat(), b.rect.top.toFloat(), b.rect.right.toFloat(), b.rect.bottom.toFloat(), fillPaint)
+            canvas.drawRect(b.rect.left.toFloat(), b.rect.top.toFloat(), b.rect.right.toFloat(), b.rect.bottom.toFloat(), strokePaint)
+            textPaint.color = android.graphics.Color.GREEN
+            canvas.drawText("text_bubble[$idx] ${String.format("%.0f%%", b.confidence * 100)}", b.rect.left.toFloat() + 4, b.rect.top.toFloat() + 24, textPaint)
+        }
+
+        // 2: text_free（自由文字）— 蓝色
+        for ((idx, b) in debugResult.textFree.withIndex()) {
+            fillPaint.color = android.graphics.Color.argb(60, 0, 100, 255)
+            strokePaint.color = android.graphics.Color.CYAN
+            strokePaint.strokeWidth = 4f
+            canvas.drawRect(b.rect.left.toFloat(), b.rect.top.toFloat(), b.rect.right.toFloat(), b.rect.bottom.toFloat(), fillPaint)
+            canvas.drawRect(b.rect.left.toFloat(), b.rect.top.toFloat(), b.rect.right.toFloat(), b.rect.bottom.toFloat(), strokePaint)
+            textPaint.color = android.graphics.Color.CYAN
+            canvas.drawText("text_free[$idx] ${String.format("%.0f%%", b.confidence * 100)}", b.rect.left.toFloat() + 4, b.rect.top.toFloat() + 24, textPaint)
+        }
+
+        // 图例
+        val legendY = bitmap.height - 40f
+        textPaint.textSize = 24f
+        textPaint.color = android.graphics.Color.GREEN
+        canvas.drawText("绿色=text_bubble(${debugResult.textBubbles.size})", 20f, legendY - 70f, textPaint)
+        textPaint.color = android.graphics.Color.CYAN
+        canvas.drawText("蓝色=text_free(${debugResult.textFree.size})", 20f, legendY - 40f, textPaint)
+        textPaint.color = android.graphics.Color.RED
+        canvas.drawText("红色=bubble(${debugResult.emptyBubbles.size})", 20f, legendY - 10f, textPaint)
+
+        return result
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showRTDetrV2DebugResultOverlay(debugBitmap: Bitmap, debugResult: RTDetrV2DebugResult) {
+        if (isResultShowing) {
+            dismissResultOverlay()
+        }
+
+        resultOverlayView.setImageBitmap(debugBitmap)
+        resultOverlayView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                dismissResultOverlay()
+            }
+            true
+        }
+
+        resultOverlayView.scaleType = ImageView.ScaleType.FIT_CENTER
+        windowManager.addView(resultOverlayView, resultOverlayParams)
+        isResultShowing = true
+
+        showToast("RT-DETR-V2 Debug: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
 
         // Keep floating ball on top
         if (isViewAdded(floatingBallView)) {

@@ -22,6 +22,16 @@ data class CTDDebugResult(
     val discardedBoxes: List<QuadBox>       // CTD 检测中被过滤丢弃的 boxes
 )
 
+/**
+ * RT-DETR-V2 调试模式结果
+ */
+data class RTDetrV2DebugResult(
+    val allBubbles: List<ComicBubbleDetector.DetectedBubble>,  // 所有检测结果（含 classId=0）
+    val textBubbles: List<ComicBubbleDetector.DetectedBubble>,  // classId=1
+    val textFree: List<ComicBubbleDetector.DetectedBubble>,     // classId=2
+    val emptyBubbles: List<ComicBubbleDetector.DetectedBubble>   // classId=0
+)
+
 private const val DEBUG_TAG = "DetectionBridge"
 
 /**
@@ -1368,5 +1378,30 @@ object DetectionBridge {
             LogCollector.e(TAG, "RT-DETR-V2 检测失败", e)
             throw e
         }
+    }
+
+    /**
+     * RT-DETR-V2 调试模式：只检测，不翻译，显示所有类别的检测框。
+     */
+    fun detectWithRTDetrV2Debug(bitmap: Bitmap): RTDetrV2DebugResult {
+        val allBubbles = ComicBubbleDetector.detectBubblesAllClasses(bitmap)
+        LogCollector.d(TAG, "RT-DETR-V2 Debug: 检测到 ${allBubbles.size} 个区域")
+
+        for ((idx, b) in allBubbles.withIndex()) {
+            val className = when (b.classId) {
+                0 -> "bubble"
+                1 -> "text_bubble"
+                2 -> "text_free"
+                else -> "unknown"
+            }
+            LogCollector.d(TAG, "  [$idx] rect=[${b.rect.left},${b.rect.top},${b.rect.right},${b.rect.bottom}] class=$className(${b.classId}) conf=${String.format("%.3f", b.confidence)}")
+        }
+
+        return RTDetrV2DebugResult(
+            allBubbles = allBubbles,
+            textBubbles = allBubbles.filter { it.classId == 1 },
+            textFree = allBubbles.filter { it.classId == 2 },
+            emptyBubbles = allBubbles.filter { it.classId == 0 }
+        )
     }
 }

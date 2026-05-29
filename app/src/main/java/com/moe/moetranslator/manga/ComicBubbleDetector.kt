@@ -95,7 +95,7 @@ object ComicBubbleDetector {
             val inputTensor = preprocessImage(bitmap)
             val sizeTensor = OnnxTensor.createTensor(
                 ortEnv!!,
-                FloatBuffer.wrap(floatArrayOf(origW.toFloat(), origH.toFloat())),
+                java.nio.LongBuffer.wrap(longArrayOf(origW.toLong(), origH.toLong())),
                 longArrayOf(1, 2)
             )
 
@@ -127,6 +127,61 @@ object ComicBubbleDetector {
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "检测失败", e)
+            throw e
+        }
+    }
+
+    /**
+     * 调试用：返回所有类别的检测结果（含 classId=0 的空气泡）。
+     */
+    fun detectBubblesAllClasses(bitmap: Bitmap, confThreshold: Float = 0.3f): List<DetectedBubble> {
+        if (!isInitialized) {
+            throw IllegalStateException("ComicBubbleDetector 未初始化")
+        }
+
+        try {
+            val origW = bitmap.width
+            val origH = bitmap.height
+            val inputTensor = preprocessImage(bitmap)
+            val sizeTensor = OnnxTensor.createTensor(
+                ortEnv!!,
+                java.nio.LongBuffer.wrap(longArrayOf(origW.toLong(), origH.toLong())),
+                longArrayOf(1, 2)
+            )
+            val results = session!!.run(mapOf("images" to inputTensor, "orig_target_sizes" to sizeTensor))
+            inputTensor.close()
+            sizeTensor.close()
+
+            val labelsTensor = results.get("labels").get() as OnnxTensor
+            val boxesTensor = results.get("boxes").get() as OnnxTensor
+            val scoresTensor = results.get("scores").get() as OnnxTensor
+            val labels = extractLongArray(labelsTensor)
+            val boxes = extractFloatArray(boxesTensor)
+            val scores = extractFloatArray(scoresTensor)
+            labelsTensor.close()
+            boxesTensor.close()
+            scoresTensor.close()
+            results.close()
+
+            // 调试模式：不过滤 classId=0，全部返回
+            val candidates = mutableListOf<Triple<Int, RectF, Float>>()
+            for (i in 0 until labels.size) {
+                if (scores[i] < confThreshold) continue
+                val x1 = boxes[i * 4]; val y1 = boxes[i * 4 + 1]
+                val x2 = boxes[i * 4 + 2]; val y2 = boxes[i * 4 + 3]
+                candidates.add(Triple(i, RectF(x1, y1, x2, y2), scores[i]))
+            }
+            val keepIndices = nms(candidates.map { it.second }, candidates.map { it.third }, NMS_IOU_THRESHOLD)
+            return keepIndices.map { idx ->
+                val (origIdx, box, score) = candidates[idx]
+                DetectedBubble(
+                    rect = Rect(box.left.toInt().coerceAtLeast(0), box.top.toInt().coerceAtLeast(0), box.right.toInt(), box.bottom.toInt()),
+                    classId = labels[origIdx].toInt(),
+                    confidence = score
+                )
+            }
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "调试检测失败", e)
             throw e
         }
     }
