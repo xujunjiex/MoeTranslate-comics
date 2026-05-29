@@ -31,8 +31,8 @@ object BubbleDetector {
         val textLines = textBlocks.mapNotNull { it.toTextLine(config) }
         if (textLines.isEmpty()) return emptyList()
 
-        // 2. 多条件合并（方向感知、字体大小、对齐、宽高比）
-        val mergedGroups = BubbleMerger.merge(textLines, config)
+        // 2. 不再做合并（BoxMerger 已处理），每个 TextLine 独立处理
+        val mergedGroups = textLines.map { listOf(it) }
 
         // 3. MST 分割（过大的区域拆分）
         val splitGroups = mergedGroups.flatMap { TextRegionSplitter.split(it) }

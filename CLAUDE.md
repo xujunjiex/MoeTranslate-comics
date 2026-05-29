@@ -12,6 +12,9 @@ MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11
 # 构建 debug APK
 ./gradlew assembleDebug
 
+# 安装 debug APK 到设备
+adb install app/build/outputs/apk/debug/app-debug.apk
+
 # 构建 release APK
 ./gradlew assembleRelease
 
@@ -66,11 +69,35 @@ MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11
 - `TranslateBridge` 从 `CustomPreference` 读取配置，实例化对应的 `TranslationTextAPI`
 
 ### 漫画模块
-**文件：** `MangaFloatingService.kt`、`MangaModeConfig.kt`、`VerticalTextRenderer.kt`、`OverlayRenderer.kt`、`BubbleDetector.kt`、`BackgroundAnalyzer.kt`、`DetectionBridge.kt`、`CTDDetector.kt`、`CTDPostProcessor.kt`、`BoxMerger.kt`、`BubbleMerger.kt`、`TextLine.kt`、`QuadBox.kt`、`MangaOcrRecognizer.kt`
+**文件：** `MangaFloatingService.kt`、`MangaModeConfig.kt`、`VerticalTextRenderer.kt`、`OverlayRenderer.kt`、`BubbleDetector.kt`、`BackgroundAnalyzer.kt`、`DetectionBridge.kt`、`CTDDetector.kt`、`CTDPostProcessor.kt`、`BoxMerger.kt`、`BubbleMerger.kt`、`TextLine.kt`、`QuadBox.kt`、`MangaOcrRecognizer.kt`、`MangaOcrBridge.kt`、`CtcOcrRecognizer.kt`
 
-**检测引擎：**
-- `detectWithCTD` — CTD 检测 + ML Kit/manga-ocr 识别，保留旋转四边形信息，对漫画竖排文字更精确
-- `detectWithMLKit` — ML Kit 检测+识别，一体化，返回轴对齐矩形，稳健但丢失旋转角度
+**检测引擎（DetEngine 枚举）：**
+- `CTD` — CTD 检测 + 指定 OCR 引擎，保留旋转四边形信息
+- `HYBRID` — CTD 检测 + 混合 OCR（合并组→manga-ocr，单框→MLKit）
+- `DBNET` — DBNet 检测 + 指定 OCR 引擎
+- `MLKIT` — ML Kit 检测+识别，一体化
+
+**OCR 引擎（OcrEngine 枚举）：**
+- `MLKit` — ML Kit 识别，逐个调用，支持 language 参数
+- `MangaOcr` — manga-ocr 识别，`recognizeBatch` 内部逐个调用（resize 224x224 扭曲问题未解决），过滤纯符号
+- `CTCOcr` — 48px_ctc 识别，真正 batch（CTC 支持可变高度），过滤纯符号
+
+**检测引擎特点：**
+- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎，统一入口，对漫画竖排文字更精确
+- `detectWithCTDHybrid` — CTD + 混合模式，合并组走 manga-ocr，单框走 MLKit
+- `detectWithDBNet` — DBNet 检测 + OCR 后合并，支持批量识别
+- `detectWithMLKit` — ML Kit 检测+识别，一体化，返回轴对齐矩形
+
+**参考项目：** `.reference/manga-image-translator/` — manga-image-translator 官方源码，textline_merge/__init__.py 是核心参考
+
+**unclip 实现：**
+- 使用 JTS `BufferOp`（Vatti clipping 算法）进行多边形扩张，与 manga-image-translator 的 pyclipper 行为一致
+- 旧版 `utils/clipper/` 实现已删除（符号处理有 bug）
+
+**BoxMerger.merge() vs splitTextRegion：**
+- `canMergeRegion()` 使用 `polyDistance`（多边形最近边距离）判断是否连接（`discared_connection_gap=2f`）
+- `splitTextRegion()` 使用 MST（Kruskal）+ 标准差判断是否需要拆分（`sigma=2`, `gamma=0.5`, `std_threshold=max(0.3*avgFontSize+5, 5)`）
+- Kotlin 实现完全对齐 Python `textline_merge/__init__.py` 第 10-83 行（split）和 134-141 行（merge）
 
 ### CTD 检测特点
 - `detectQuadBoxes` 返回旋转四边形（含 font_size、angle），用于精确 merge
@@ -102,6 +129,36 @@ MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11
 | `app/src/main/res/values-en/arrays.xml` | 添加漫画菜单项数组（英文） |
 | `app/src/main/res/layout/dialog_manga_menu.xml` | 漫画菜单对话框布局 |
 | `app/src/main/res/drawable/fullscreen_translate.xml` | 全屏翻译图标 |
+
+## 日志规范
+
+**所有日志必须通过 `LogCollector` 写入**，不能直接用 `Log.d/i/e`。
+
+`LogCollector` 同时写入：
+- Android logcat（通过 `Log.d(tag, msg)`）
+- 软件内置日志缓冲区（内存，最多 500 条，用户可在设置页面查看）
+
+在 Android Studio logcat 过滤框输入以下内容，按 `|` 分隔（不需要 Regex 模式）：
+
+```
+tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:CtcOcrRecognizer | tag:DBNetDetector | tag:DBNetPostProcessor | tag:OCRTextRecognizer
+```
+
+常用 tag：
+
+| tag | 模块 |
+|-----|------|
+| `OCRBridge` | OCR 桥接（`recognizeWithLocation`、`recognizeText`） |
+| `OCRTextRecognizer` | ML Kit 识别（`getPicText`） |
+| `DetectionBridge` | 检测桥接（CTD Hybrid 裁剪尺寸） |
+| `CTDDetector` | CTD 检测 |
+| `CTDPostProcessor` | CTD 后处理 |
+| `BoxMerger` | box 合并 |
+| `MangaOcrBridge` | manga-ocr 桥接 |
+| `MangaOcrRecognizer` | manga-ocr 识别 |
+| `CtcOcrRecognizer` | 48px_ctc 识别 |
+| `BubbleDetector` | 气泡检测 |
+| `OverlayRenderer` | 渲染 |
 
 ## 关键约束
 

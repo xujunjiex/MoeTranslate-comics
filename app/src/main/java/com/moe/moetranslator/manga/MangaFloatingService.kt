@@ -186,7 +186,6 @@ class MangaFloatingService : LifecycleService() {
 
         // 初始化检测引擎
         when (config.detEngine) {
-            DetEngine.DBNET -> initDBNet()
             DetEngine.CTD, DetEngine.HYBRID -> initCTD()
             DetEngine.MLKIT -> {}
         }
@@ -209,7 +208,6 @@ class MangaFloatingService : LifecycleService() {
 
         // 释放检测引擎资源
         when (config.detEngine) {
-            DetEngine.DBNET -> releaseDBNet()
             DetEngine.CTD, DetEngine.HYBRID -> releaseCTD()
             DetEngine.MLKIT -> {}
         }
@@ -306,30 +304,6 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    private fun initDBNet() {
-        lifecycleScope.launch {
-            try {
-                LogCollector.d(TAG, "initDBNet: 开始初始化 DBNet")
-                val modelDir = DBNetModelManager.getModelDir()
-                DBNetDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
-                LogCollector.d(TAG, "initDBNet: DBNet 初始化完成")
-                showToast(getString(R.string.manga_det_init_complete))
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "initDBNet: 初始化失败", e)
-                showToast(getString(R.string.manga_det_init_failed, e.message ?: "未知错误"))
-            }
-        }
-    }
-
-    private fun releaseDBNet() {
-        try {
-            LogCollector.d(TAG, "releaseDBNet: 释放 DBNet 资源")
-            DBNetDetector.release()
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "releaseDBNet: 释放失败", e)
-        }
-    }
-
     private fun initCTD() {
         lifecycleScope.launch {
             try {
@@ -351,27 +325,6 @@ class MangaFloatingService : LifecycleService() {
             CTDDetector.release()
         } catch (e: Exception) {
             LogCollector.e(TAG, "releaseCTD: 释放失败", e)
-        }
-    }
-
-    /**
-     * 同步初始化 DBNet（如果需要），在 processMangaScreenshot 中调用。
-     */
-    private suspend fun initDBNetIfNeeded() {
-        if (DBNetDetector.isInitialized) return
-        try {
-            LogCollector.d(TAG, "initDBNetIfNeeded: 开始初始化 DBNet")
-            withContext(Dispatchers.IO) {
-                val modelDir = DBNetModelManager.getModelDir()
-                DBNetDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
-            }
-            LogCollector.d(TAG, "initDBNetIfNeeded: DBNet 初始化完成")
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "initDBNetIfNeeded: 初始化失败", e)
-            withContext(Dispatchers.Main) {
-                showToast("DBNet 初始化失败: ${e.message}")
-            }
-            throw e
         }
     }
 
@@ -767,7 +720,6 @@ class MangaFloatingService : LifecycleService() {
         val detModelLabel = when (config.detEngine) {
             DetEngine.CTD -> "CTD"
             DetEngine.HYBRID -> "HYBRID"
-            DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
         }
         val ocrEngineLabel = when (config.ocrEngine) {
@@ -899,8 +851,7 @@ class MangaFloatingService : LifecycleService() {
     private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
         // 循环切换：MLKIT -> DBNET -> CTD -> HYBRID -> MLKIT
         val newEngine = when (config.detEngine) {
-            DetEngine.MLKIT -> DetEngine.DBNET
-            DetEngine.DBNET -> DetEngine.CTD
+            DetEngine.MLKIT -> DetEngine.CTD
             DetEngine.CTD -> DetEngine.HYBRID
             DetEngine.HYBRID -> DetEngine.MLKIT
         }
@@ -911,18 +862,12 @@ class MangaFloatingService : LifecycleService() {
         val label = when (newEngine) {
             DetEngine.CTD -> "CTD"
             DetEngine.HYBRID -> "HYBRID"
-            DetEngine.DBNET -> getString(R.string.manga_det_dbnet)
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
         }
         adapter.updateLabel(2, "${getString(R.string.manga_det_toggle)}：$label")
 
         // 释放旧引擎，初始化新引擎
         when (newEngine) {
-            DetEngine.DBNET -> {
-                releaseCTD()  // 确保 CTD 已释放
-                showToast(getString(R.string.manga_det_initializing))
-                initDBNet()
-            }
             DetEngine.CTD -> {
                 showToast("CTD 初始化中...")
                 initCTD()
@@ -932,7 +877,6 @@ class MangaFloatingService : LifecycleService() {
                 initCTD()
             }
             DetEngine.MLKIT -> {
-                releaseDBNet()
                 releaseCTD()
                 showToast(getString(R.string.manga_det_mlkit))
             }
@@ -1177,19 +1121,47 @@ class MangaFloatingService : LifecycleService() {
 
             // 确保选中的模型已初始化
             when (config.detEngine) {
-                DetEngine.DBNET -> initDBNetIfNeeded()
-                DetEngine.CTD, DetEngine.HYBRID -> initCTDIfNeeded()
+                DetEngine.CTD -> initCTDIfNeeded()
+                DetEngine.HYBRID -> {
+                    // HYBRID 忽略 ocrEngine 配置，始终初始化 CTD + manga-ocr + CTC
+                    initCTDIfNeeded()
+                    // 直接初始化 manga-ocr（不走 ensureMangaOcrInitialized，因为它会检查 ocrEngine）
+                    if (!MangaOcrRecognizer.isInitialized) {
+                        val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@MangaFloatingService)
+                        if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    MangaOcrBridge.initializeDownloaded(this@MangaFloatingService, activeVersion)
+                                }
+                                currentLoadedMangaOcrVersion = activeVersion.name
+                                LogCollector.d(TAG, "HYBRID: manga-ocr 初始化完成: $activeVersion")
+                            } catch (e: Exception) {
+                                LogCollector.e(TAG, "HYBRID: manga-ocr 初始化失败", e)
+                            }
+                        } else {
+                            LogCollector.w(TAG, "HYBRID: manga-ocr 未下载，合并组将无法识别")
+                        }
+                    }
+                    if (CtcOcrModelManager.isModelDownloaded(applicationContext)) {
+                        initCTCOcrIfNeeded()
+                    } else {
+                        LogCollector.w(TAG, "CTC 模型未下载，HYBRID 单框将无法识别")
+                    }
+                }
                 DetEngine.MLKIT -> {}
             }
             when (config.ocrEngine) {
-                OcrEngine.MLKit -> {}  // MLKit 无需初始化
-                OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
+                // HYBRID 模式已在上面初始化了所有需要的模型，此处只处理非 HYBRID 的 CTD 模式
+                OcrEngine.MLKit -> {}
+                OcrEngine.MangaOcr -> if (config.detEngine != DetEngine.HYBRID) ensureMangaOcrInitialized()
                 OcrEngine.CTCOcr -> {
-                    if (!CtcOcrModelManager.isModelDownloaded(applicationContext)) {
-                        showToast(getString(R.string.model_missing_hint))
-                        return
+                    if (config.detEngine != DetEngine.HYBRID) {
+                        if (!CtcOcrModelManager.isModelDownloaded(applicationContext)) {
+                            showToast(getString(R.string.model_missing_hint))
+                            return
+                        }
+                        initCTCOcrIfNeeded()
                     }
-                    initCTCOcrIfNeeded()
                 }
             }
 
@@ -1207,13 +1179,8 @@ class MangaFloatingService : LifecycleService() {
                         DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
                     }
                     DetEngine.HYBRID -> {
-                        LogCollector.d(TAG, "使用 CTD 检测 + 混合 OCR（合并组→manga-ocr, 单框→MLKit）")
+                        LogCollector.d(TAG, "使用 CTD 检测 + 混合 OCR（合并组→manga-ocr, 单框→CTC）")
                         DetectionBridge.detectWithCTDHybrid(bitmap, config.sourceLang)
-                    }
-                    DetEngine.DBNET -> {
-                        val useMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
-                        LogCollector.d(TAG, "使用 DBNet 检测 + ${if (useMangaOcr) "manga-ocr" else if (config.ocrEngine == OcrEngine.CTCOcr) "48px_ctc" else "ML Kit"} 识别")
-                        DetectionBridge.detectWithDBNet(bitmap, config.sourceLang, useMangaOcr)
                     }
                     DetEngine.MLKIT -> {
                         when (config.ocrEngine) {

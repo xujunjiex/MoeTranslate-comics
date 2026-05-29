@@ -10,6 +10,10 @@ import android.util.Log
  */
 object LogCollector {
 
+    // 日志 tag 常量
+    const val TAG_OCR = "OCR"
+    const val TAG_DETECTION = "DetectionBridge"
+
     data class LogEntry(
         val level: String,  // D, I, W, E, V
         val tag: String,

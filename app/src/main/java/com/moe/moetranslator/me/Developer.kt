@@ -29,6 +29,7 @@ import android.widget.ImageView
 import androidx.core.content.res.ResourcesCompat
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentDeveloperBinding
+import com.moe.moetranslator.utils.CustomPreference
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
 import nl.dionsegijn.konfetti.core.emitter.Emitter
@@ -38,6 +39,7 @@ import java.util.concurrent.TimeUnit
 
 class Developer : Fragment() {
     private lateinit var binding: FragmentDeveloperBinding
+    private lateinit var prefs: CustomPreference
     private val party = Party(
         angle = 300,
         spread = 60,
@@ -75,6 +77,8 @@ class Developer : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        prefs = CustomPreference.getInstance(requireContext())
+
         val cele = binding.konfettiViewd
         cele.start(party)
         cele.start(party2)
@@ -145,6 +149,21 @@ class Developer : Fragment() {
             }
             startActivity(intent)
         }
+
+        // CTD 调试开关 - 暂时只用开关状态，实际截图通过 MangaFloatingService 的截图功能
+        val ctdDebugEnabled = prefs.getBoolean("CTD_Debug_View", false)
+        binding.ctdDebugSwitch.isChecked = ctdDebugEnabled
+
+        binding.ctdDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("CTD_Debug_View", isChecked)
+            if (isChecked) {
+                showToast("CTD 调试模式已开启，请在漫画翻译界面截图测试")
+            }
+        }
+    }
+
+    private fun showToast(message: String) {
+        android.widget.Toast.makeText(requireContext(), message, android.widget.Toast.LENGTH_SHORT).show()
     }
 
 }

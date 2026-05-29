@@ -147,6 +147,9 @@ dependencies {
     // Live2D依赖模块
     implementation project(path: ':framework')
 
+    // JTS 多边形偏移库（替代 pyclipper 的 Vatti clipping）
+    implementation 'org.locationtech.jts:jts-core:1.19.0'
+
     // room数据库相关组件
     def room_version = "2.6.1"
     // 处理Kotlin注解

@@ -10,10 +10,11 @@ import java.util.zip.ZipFile
  * CTC OCR 模型管理器
  *
  * 模型文件：
- * - model.onnx (if converted from ocr-ctc.ckpt)
- * - alphabet-all-v5.txt (字符表)
+ * - model.onnx (由 ocr-ctc.ckpt 转换而来，已内置于 assets)
+ * - alphabet-all-v5.txt (字符表，已内置于 assets)
  *
- * 下载地址: https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/ocr-ctc.zip
+ * 模型由 scripts/export_ctc_to_onnx.py 从 ocr-ctc.ckpt 转换生成。
+ * 用户可选择下载更新版本的模型，但内置版本已可直接使用。
  */
 object CtcOcrModelManager {
 

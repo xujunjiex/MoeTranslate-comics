@@ -375,6 +375,7 @@
     <string name="feedback">意见反馈</string>
     <string name="official_account">微信公众号</string>
     <string name="open_source_statement">开放源代码声明</string>
+    <string name="ctd_debug">CTD 调试模式</string>
     <string name="proj_rtranslator_title">RTranslator</string>
     <string name="proj_rtranslator_content">本地运行的适用于 Android 的开源实时翻译应用程序。\nhttps://github.com/niedev/RTranslator</string>
     <string name="proj_magireco_title">魔法纪录</string>
@@ -469,13 +470,8 @@
     <string name="manga_ocr_download_required">manga-ocr 模型未下载，请到设置 > 模型管理 中下载</string>
     <string name="manga_det_toggle">检测模型</string>
     <string name="manga_det_mlkit">ML Kit</string>
-    <string name="manga_det_dbnet">DBNet</string>
-    <string name="manga_det_initializing">正在初始化 DBNet…</string>
-    <string name="manga_det_init_complete">DBNet 已启用</string>
-    <string name="manga_det_init_failed">DBNet 初始化失败：%s</string>
     <string name="manga_model_settings_title">漫画翻译模型设置</string>
     <string name="manga_det_model_title">文字检测模型</string>
-    <string name="manga_det_model_summary">当前：%s\n漫画文字检测不完整或重叠时，可切换为 DBNet 获得更准确的文字区域定位。ML Kit 速度快但可能漏检。</string>
     <string name="manga_rec_model_title">文字识别模型</string>
     <string name="manga_rec_model_summary">当前：%s\n漫画文字识别有误时，可切换为 manga-ocr 获得更准确的识别结果，但翻译速度会大幅下降。</string>
     <string name="view_logs">查看日志</string>

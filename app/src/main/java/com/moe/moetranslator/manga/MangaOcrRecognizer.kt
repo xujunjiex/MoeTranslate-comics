@@ -145,10 +145,11 @@ object MangaOcrRecognizer {
     }
 
     /**
-     * 批量识别图片中的文字（真正 batch 推理）。
+     * 批量识别入口，内部逐个调用 [recognize]。
      *
-     * Encoder 一次处理 N 张图片（[N,3,224,224] → [N,197,768]），
-     * 然后 Decoder 逐个/并行解码每个 hidden states。
+     * MangaOCR 的 Encoder 接收固定尺寸 [N,3,224,224]，
+     * 裁剪图片宽高比各异，统一 resize 到正方形会严重扭曲文字。
+     * 因此所谓 batch 只是循环调用单图识别，不存在真正的批量加速。
      *
      * @param bitmaps 待识别的裁剪图片列表
      * @return 识别结果列表，与输入顺序一一对应
@@ -164,10 +165,10 @@ object MangaOcrRecognizer {
         val tok = tokenizer!!
 
         try {
-            // 1. 批量预处理：堆叠为 [N, 3, 224, 224] tensor
+            // 1. 统一 resize 到 [N, 3, 224, 224] 并堆叠（但 resize 扭曲问题未解决）
             val inputTensor = preprocessImages(bitmaps)
 
-            // 2. Encoder 一次推理：[N, 3, 224, 224] → [N, 197, 768]
+            // 2. Encoder 一次推理
             LogCollector.d(TAG, "Encoder batch 推理: ${bitmaps.size} 张图片")
             val t0 = System.currentTimeMillis()
             val encoderResults = encSession.run(Collections.singletonMap("pixel_values", inputTensor))
@@ -175,7 +176,7 @@ object MangaOcrRecognizer {
             inputTensor.close()
             LogCollector.d(TAG, "Encoder batch 完成: ${System.currentTimeMillis() - t0}ms")
 
-            // 3. 逐个 Decoder 解码（多 Session 并行）
+            // 3. 逐个 Decoder 解码
             val t1 = System.currentTimeMillis()
             val results = coroutineScope {
                 (0 until bitmaps.size).map { i ->
@@ -187,7 +188,7 @@ object MangaOcrRecognizer {
                     }
                 }.awaitAll()
             }
-            LogCollector.d(TAG, "Decoder 并行完成: ${System.currentTimeMillis() - t1}ms, 共 ${bitmaps.size} 个")
+            LogCollector.d(TAG, "Decoder 完成: ${System.currentTimeMillis() - t1}ms, 共 ${bitmaps.size} 个")
 
             encoderOutputs.close()
             return results

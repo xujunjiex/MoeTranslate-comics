@@ -2,6 +2,8 @@ package com.moe.moetranslator.bridge
 
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.util.Log
+import com.moe.moetranslator.utils.LogCollector
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
@@ -21,16 +23,20 @@ data class TextBlockInfo(
 
 object OCRBridge {
 
+    private const val TAG = "OCRBridge"
+
     suspend fun recognizeWithLocation(
         language: String,
         bitmap: Bitmap
     ): List<TextBlockInfo> = suspendCancellableCoroutine { continuation ->
         val recognizer = getTextRecognizer(language)
+        LogCollector.d(TAG, "recognizeWithLocation: bitmap=${bitmap.width}x${bitmap.height}")
         val image = InputImage.fromBitmap(bitmap, 0)
 
         recognizer.process(image)
             .addOnSuccessListener { result ->
                 val blocks = result.textBlocks.map { block ->
+                    LogCollector.d(TAG, "recognizeWithLocation: block boundingBox=${block.boundingBox}, text='${block.text.take(20)}'")
                     TextBlockInfo(
                         text = block.text,
                         boundingBox = block.boundingBox,
@@ -48,6 +54,7 @@ object OCRBridge {
     }
 
     suspend fun recognizeText(language: String, bitmap: Bitmap): String {
+        LogCollector.d(TAG, "recognizeText: bitmap=${bitmap.width}x${bitmap.height}")
         return com.moe.moetranslator.translate.OCRTextRecognizer.getPicText(language, bitmap, 0)
     }
 

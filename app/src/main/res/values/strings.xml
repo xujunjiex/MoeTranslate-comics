@@ -375,6 +375,7 @@
     <string name="feedback">Feedback</string>
     <string name="official_account">Wechat Account</string>
     <string name="open_source_statement">Open Source Statement</string>
+    <string name="ctd_debug">CTD Debug Mode</string>
     <string name="proj_rtranslator_title">RTranslator</string>
     <string name="proj_rtranslator_content">Open source real-time translation app for Android that runs locally.\nhttps://github.com/niedev/RTranslator</string>
     <string name="proj_magireco_title">Magia Record</string>
@@ -476,13 +477,8 @@
     <string name="manga_ocr_ctc_download_failed">Model download failed: %s</string>
     <string name="manga_det_toggle">Detection Model</string>
     <string name="manga_det_mlkit">ML Kit</string>
-    <string name="manga_det_dbnet">DBNet</string>
-    <string name="manga_det_initializing">Initializing DBNet…</string>
-    <string name="manga_det_init_complete">DBNet enabled</string>
-    <string name="manga_det_init_failed">DBNet init failed: %s</string>
     <string name="manga_model_settings_title">Manga Translation Model Settings</string>
     <string name="manga_det_model_title">Text Detection Model</string>
-    <string name="manga_det_model_summary">Current: %s\nSwitch to DBNet for more accurate text region detection when manga text is incomplete or overlapping. ML Kit is faster but may miss some text.</string>
     <string name="manga_rec_model_title">Text Recognition Model</string>
     <string name="manga_rec_model_summary">Current: %s\nSwitch to manga-ocr for more accurate text recognition when manga text is misread, but translation speed will be significantly slower.</string>
     <string name="manga_rec_model_version_title">识别模型版本</string>

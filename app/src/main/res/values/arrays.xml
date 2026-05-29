@@ -68,8 +68,8 @@
 
     <string-array name="manga_det_model_entries">
         <item>ML Kit</item>
-        <item>DBNet</item>
         <item>CTD</item>
+        <item>HYBRID</item>
     </string-array>
 
     <string-array name="manga_det_model_values">
@@ -80,8 +80,7 @@
 
     <string-array name="manga_rec_model_entries">
         <item>MLKit</item>
-        <item>manga-ocr（下载版）</item>
-        <item>测试用 manga-ocr（assets）</item>
+        <item>manga-ocr</item>
         <item>48px CTC</item>
     </string-array>
 
@@ -89,7 +88,6 @@
         <item>0</item>
         <item>1</item>
         <item>2</item>
-        <item>3</item>
     </string-array>
 
     <string-array name="request_methods">

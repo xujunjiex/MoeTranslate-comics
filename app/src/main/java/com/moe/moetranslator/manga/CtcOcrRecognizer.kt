@@ -24,7 +24,7 @@ object CtcOcrRecognizer {
 
     private const val TAG = "CtcOcrRecognizer"
     private const val IMAGE_HEIGHT = 48
-    private const val MAX_BATCH_SIZE = 16
+    private const val MAX_BATCH_SIZE = 8
     // 对齐官方阈值 0.5（48px_ctc执行流程.md: prob < threshold → 丢弃）
     private const val PROB_THRESHOLD = 0.5f
     private const val DEBUG_LOGS = false
@@ -59,20 +59,34 @@ object CtcOcrRecognizer {
         try {
             LogCollector.d(TAG, "开始初始化 48px_ctc 模型 (useAssets=$actualUseAssets)...")
             ortEnv = OrtEnvironment.getEnvironment()
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setMemoryPatternOptimization(true)
-                setCPUArenaAllocator(true)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                setIntraOpNumThreads(4)
-            }
 
-            // 使用 actualUseAssets 决定模型路径
+            // 优先尝试 NNAPI 硬件加速，失败则回退 CPU
             val modelPath = if (actualUseAssets) {
                 copyAssetToCache(context, "$modelDir/${CtcOcrModelManager.MODEL_FILE}")
             } else {
                 File(context.filesDir, "$modelDir/${CtcOcrModelManager.MODEL_FILE}").absolutePath
             }
-            session = ortEnv!!.createSession(modelPath, sessionOptions)
+
+            session = try {
+                val nnapiOptions = OrtSession.SessionOptions().apply {
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    addNnapi()
+                }
+                LogCollector.d(TAG, "NNAPI 加速已启用")
+                ortEnv!!.createSession(modelPath, nnapiOptions)
+            } catch (e: Exception) {
+                LogCollector.d(TAG, "NNAPI 不可用，回退 CPU: ${e.message}")
+                val cpuOptions = OrtSession.SessionOptions().apply {
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setIntraOpNumThreads(4)
+                }
+                ortEnv!!.createSession(modelPath, cpuOptions)
+            }
+
             LogCollector.d(TAG, "模型加载完成")
 
             tokenizer = CtcOcrTokenizer(context).apply {
@@ -197,16 +211,45 @@ object CtcOcrRecognizer {
         // 2. 按宽度排序（对齐 Python perm = sorted(..., key=width)）
         val sortedIndices = (0 until N).sortedBy { resized[it].width }
 
-        // 3. 按排序顺序构建输入 tensor，每 batch 最多 MAX_BATCH_SIZE 个
+        // 3. 按宽度相似度分组：组内最大宽度不超过最小宽度的 1.5 倍
+        //    同时确保 alignedWidth >= MIN_ALIGNED_WIDTH，否则合并到下一组
+        val MIN_ALIGNED_WIDTH = 128
+        val groups = mutableListOf<List<Int>>()
+        var groupStart = 0
+        while (groupStart < sortedIndices.size) {
+            val firstWidth = resized[sortedIndices[groupStart]].width
+            val maxAllowedWidth = (firstWidth * 1.5f).toInt().coerceAtLeast(firstWidth + 4)
+            var groupEnd = groupStart + 1
+            while (groupEnd < sortedIndices.size &&
+                   groupEnd - groupStart < MAX_BATCH_SIZE &&
+                   resized[sortedIndices[groupEnd]].width <= maxAllowedWidth) {
+                groupEnd++
+            }
+            // 检查 alignedWidth 是否足够大，不够则继续添加下一组
+            val groupMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
+            var groupAlignedWidth = 4 * ((groupMaxWidth + 7) / 4)
+            while (groupAlignedWidth < MIN_ALIGNED_WIDTH &&
+                   groupEnd < sortedIndices.size &&
+                   groupEnd - groupStart < MAX_BATCH_SIZE) {
+                groupEnd++
+                if (groupEnd <= sortedIndices.size) {
+                    val newMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
+                    groupAlignedWidth = 4 * ((newMaxWidth + 7) / 4)
+                }
+            }
+            groups.add(sortedIndices.subList(groupStart, groupEnd))
+            groupStart = groupEnd
+        }
+        LogCollector.d(TAG, "宽度分组: ${sortedIndices.size} 个样本 → ${groups.size} 组 (${groups.joinToString { "${it.size}个@宽${resized[it.first()].width}-${resized[it.last()].width}" }})")
+
+        // 4. 按组构建输入 tensor 推理
         val results = arrayOfNulls<Pair<String, Float>>(N)
-        for (batchStart in sortedIndices.indices step MAX_BATCH_SIZE) {
-            val batchEnd = minOf(batchStart + MAX_BATCH_SIZE, sortedIndices.size)
-            val batchIndices = sortedIndices.subList(batchStart, batchEnd)
+        for (batchIndices in groups) {
             val batchN = batchIndices.size
 
             // padding 到 batch 内最大宽度
             val maxWidth = batchIndices.maxOf { resized[it].width }
-            val alignedWidth = (4 * ((maxWidth + 7) / 4)) + 128
+            val alignedWidth = 4 * ((maxWidth + 7) / 4)
 
             LogCollector.d(TAG, "推理: N=$batchN, maxWidth=$maxWidth, alignedWidth=$alignedWidth, dictSize=$dictSize")
 
@@ -221,17 +264,17 @@ object CtcOcrRecognizer {
                 val w = bmp.width
                 val pixels = IntArray(w * IMAGE_HEIGHT)
                 bmp.getPixels(pixels, 0, w, 0, 0, w, IMAGE_HEIGHT)
-                // 提取 B/G/R 平面（CTC 模型训练用 BGR 顺序）
-                val plane0 = FloatArray(w * IMAGE_HEIGHT)  // B
+                // 提取 R/G/B 平面（Python pipeline: PIL→RGB, warpPerspective→RGB, 模型训练用 RGB）
+                val plane0 = FloatArray(w * IMAGE_HEIGHT)  // R
                 val plane1 = FloatArray(w * IMAGE_HEIGHT)  // G
-                val plane2 = FloatArray(w * IMAGE_HEIGHT)  // R
+                val plane2 = FloatArray(w * IMAGE_HEIGHT)  // B
                 for (i in pixels.indices) {
                     val pixel = pixels[i]
-                    plane0[i] = ((pixel and 0xFF) - 127.5f) / 127.5f           // B → plane[0]
+                    plane0[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f   // R → plane[0]
                     plane1[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f    // G → plane[1]
-                    plane2[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f   // R → plane[2]
+                    plane2[i] = ((pixel and 0xFF) - 127.5f) / 127.5f           // B → plane[2]
                 }
-                // 写入 B 平面（按 y,x 顺序）
+                // 写入 R 平面（按 y,x 顺序）
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
                         floatBuffer.put(plane0[y * w + x])
@@ -249,7 +292,7 @@ object CtcOcrRecognizer {
                         floatBuffer.put(-1f)
                     }
                 }
-                // 写入 R 平面
+                // 写入 B 平面
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
                         floatBuffer.put(plane2[y * w + x])
@@ -348,16 +391,44 @@ object CtcOcrRecognizer {
         // 2. 按宽度排序（对齐 Python perm = sorted(..., key=width)）
         val sortedIndices = (0 until N).sortedBy { resized[it].width }
 
-        // 3. 按排序顺序构建输入 tensor，每 batch 最多 MAX_BATCH_SIZE 个
+        // 3. 按宽度相似度分组：组内最大宽度不超过最小宽度的 1.5 倍
+        //    同时确保 alignedWidth >= MIN_ALIGNED_WIDTH，否则合并到下一组
+        val MIN_ALIGNED_WIDTH = 128
+        val groups = mutableListOf<List<Int>>()
+        var groupStart = 0
+        while (groupStart < sortedIndices.size) {
+            val firstWidth = resized[sortedIndices[groupStart]].width
+            val maxAllowedWidth = (firstWidth * 1.5f).toInt().coerceAtLeast(firstWidth + 4)
+            var groupEnd = groupStart + 1
+            while (groupEnd < sortedIndices.size &&
+                   groupEnd - groupStart < MAX_BATCH_SIZE &&
+                   resized[sortedIndices[groupEnd]].width <= maxAllowedWidth) {
+                groupEnd++
+            }
+            // 检查 alignedWidth 是否足够大，不够则继续添加下一组
+            val groupMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
+            var groupAlignedWidth = 4 * ((groupMaxWidth + 7) / 4)
+            while (groupAlignedWidth < MIN_ALIGNED_WIDTH &&
+                   groupEnd < sortedIndices.size &&
+                   groupEnd - groupStart < MAX_BATCH_SIZE) {
+                groupEnd++
+                if (groupEnd <= sortedIndices.size) {
+                    val newMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
+                    groupAlignedWidth = 4 * ((newMaxWidth + 7) / 4)
+                }
+            }
+            groups.add(sortedIndices.subList(groupStart, groupEnd))
+            groupStart = groupEnd
+        }
+
+        // 4. 按组构建输入 tensor 推理
         val results = arrayOfNulls<FloatArray>(N)
-        for (batchStart in sortedIndices.indices step MAX_BATCH_SIZE) {
-            val batchEnd = minOf(batchStart + MAX_BATCH_SIZE, sortedIndices.size)
-            val batchIndices = sortedIndices.subList(batchStart, batchEnd)
+        for (batchIndices in groups) {
             val batchN = batchIndices.size
 
-            // padding 到 batch 内最大宽度（对齐 Python: (4*(max+7)//4)+128）
+            // padding 到 batch 内最大宽度
             val maxWidth = batchIndices.maxOf { resized[it].width }
-            val alignedWidth = (4 * ((maxWidth + 7) / 4)) + 128
+            val alignedWidth = 4 * ((maxWidth + 7) / 4)
 
             LogCollector.d(TAG, "推理(带颜色): N=$batchN, maxWidth=$maxWidth, alignedWidth=$alignedWidth, dictSize=$dictSize")
 
@@ -372,17 +443,17 @@ object CtcOcrRecognizer {
                 val w = bmp.width
                 val pixels = IntArray(w * IMAGE_HEIGHT)
                 bmp.getPixels(pixels, 0, w, 0, 0, w, IMAGE_HEIGHT)
-                // 提取 B/G/R 平面（CTC 模型训练用 BGR 顺序）
-                val plane0 = FloatArray(w * IMAGE_HEIGHT)  // B
+                // 提取 R/G/B 平面（Python pipeline: PIL→RGB, warpPerspective→RGB, 模型训练用 RGB）
+                val plane0 = FloatArray(w * IMAGE_HEIGHT)  // R
                 val plane1 = FloatArray(w * IMAGE_HEIGHT)  // G
-                val plane2 = FloatArray(w * IMAGE_HEIGHT)  // R
+                val plane2 = FloatArray(w * IMAGE_HEIGHT)  // B
                 for (i in pixels.indices) {
                     val pixel = pixels[i]
-                    plane0[i] = ((pixel and 0xFF) - 127.5f) / 127.5f           // B → plane[0]
+                    plane0[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f   // R → plane[0]
                     plane1[i] = ((pixel shr 8 and 0xFF) - 127.5f) / 127.5f    // G → plane[1]
-                    plane2[i] = ((pixel shr 16 and 0xFF) - 127.5f) / 127.5f   // R → plane[2]
+                    plane2[i] = ((pixel and 0xFF) - 127.5f) / 127.5f           // B → plane[2]
                 }
-                // 写入 B 平面（按 y,x 顺序）
+                // 写入 R 平面（按 y,x 顺序）
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
                         floatBuffer.put(plane0[y * w + x])
@@ -400,7 +471,7 @@ object CtcOcrRecognizer {
                         floatBuffer.put(-1f)
                     }
                 }
-                // 写入 R 平面
+                // 写入 B 平面
                 for (y in 0 until IMAGE_HEIGHT) {
                     for (x in 0 until w) {
                         floatBuffer.put(plane2[y * w + x])

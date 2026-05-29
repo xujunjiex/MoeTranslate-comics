@@ -19,6 +19,7 @@ package com.moe.moetranslator.translate
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.moe.moetranslator.utils.LogCollector
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
@@ -35,6 +36,7 @@ import kotlin.coroutines.resumeWithException
 
 
 object OCRTextRecognizer {
+    private const val TAG = "OCRTextRecognizer"
     private val recognizers = mutableMapOf<String, TextRecognizer>()
 
     private fun getOrCreateRecognizer(language: String): TextRecognizer {
@@ -63,12 +65,11 @@ object OCRTextRecognizer {
                             } else {
                                 visionText.text
                             }
-                            Log.d("OCR", resultText)
+                            LogCollector.d(TAG, "getPicText: bitmap=${bitmap.width}x${bitmap.height}")
                             continuation.resume(resultText)
                         }
                         .addOnFailureListener { e ->
                             e.printStackTrace()
-                            Log.d("OCR", e.toString())
                             continuation.resumeWithException(e)
                         }
                 } catch (e: Exception) {

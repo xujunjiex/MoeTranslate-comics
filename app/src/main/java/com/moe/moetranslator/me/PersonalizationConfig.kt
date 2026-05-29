@@ -200,9 +200,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             prefs.setInt("Manga_Det_Model", newValue.toString().toInt())
             true
         }
-        mangaDetModel.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
-            getString(R.string.manga_det_model_summary, mangaDetModel.entry)
-        }
 
         mangaRecModel.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Manga_Rec_Model", newValue.toString().toInt())

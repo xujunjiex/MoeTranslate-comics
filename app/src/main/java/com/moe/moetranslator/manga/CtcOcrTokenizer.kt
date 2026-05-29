@@ -132,6 +132,11 @@ class CtcOcrTokenizer(private val context: Context) {
                 // Python uses logprobs[b, t, pred_ch] = logNorm + logits[offset + maxId]
                 // (since log_softmax[pred_ch] = logits[pred_ch] - log(sum(exp))))
                 val charLogProb = (logits[offset + maxId] - logNorm).toDouble()
+                // 诊断：如果 charLogProb > 0，说明 log-softmax 计算有异常
+                if (charLogProb > 0) {
+                    val rawLogit = logits[offset + maxId]
+                    LogCollector.e(TAG, "异常 charLogProb>0: 步$t, char='$ch', rawLogit=$rawLogit, maxVal=$maxVal, logNorm=$logNorm, logSumExp=$logSumExp, charLogProb=$charLogProb")
+                }
                 totalLogprob += charLogProb
                 charCount++
             }

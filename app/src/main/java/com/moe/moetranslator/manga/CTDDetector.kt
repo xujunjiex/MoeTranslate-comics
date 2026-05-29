@@ -72,6 +72,7 @@ object CTDDetector {
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 setMemoryPatternOptimization(true)
                 setCPUArenaAllocator(true)
+                setIntraOpNumThreads(4)
             }
 
             val modelPath = if (useAssets) {

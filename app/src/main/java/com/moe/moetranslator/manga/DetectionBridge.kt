@@ -5,6 +5,8 @@ import android.graphics.Rect
 import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.utils.LogCollector
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
@@ -82,17 +84,17 @@ object DetectionBridge {
     }
 
     /**
-     * CTD + 混合 OCR 路径。
+     * CTD + 混合 OCR 路径（manga-ocr + CTC 并行）。
      *
      * 流程：
      * 1. CTD 检测文字区域 → List<QuadBox>
      * 2. BoxMerger 合并 → List<List<QuadBox>>
-     * 3. 分流：
-     *    - size > 1（合并组）：manga-ocr 识别
-     *    - size == 1（单个框）：ML Kit 识别
+     * 3. 分流（并行执行）：
+     *    - size > 1（合并组）：cropBitmap(+10px) → resize 224x224 → manga-ocr.recognizeBatch
+     *    - size == 1（单个框）：cropBitmap(+10px) → prepareCtcInputs → CTC.recognizeBatch
      *
      * @param bitmap 输入图片
-     * @param language 语言（用于 ML Kit 识别）
+     * @param language 未使用（保留兼容性）
      * @return TextBlockInfo 列表
      */
     suspend fun detectWithCTDHybrid(
@@ -114,90 +116,104 @@ object DetectionBridge {
             val groups = BoxMerger.merge(rawQuadBoxes)
             LogCollector.d(TAG, "detectWithCTDHybrid: BoxMerger 合并: ${rawQuadBoxes.size} → ${groups.size} 个组")
 
-            for ((idx, group) in groups.withIndex()) {
-                LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx]: size=${group.size}, rects=${group.map { it.aabb }}")
-            }
-
-            // Step 3: 分流识别
-            val results = mutableListOf<TextBlockInfo>()
-
+            // Step 3: 分流
+            val mangaGroups = mutableListOf<Pair<Int, List<QuadBox>>>()
+            val ctcSingles = mutableListOf<Pair<Int, QuadBox>>()
             for ((idx, group) in groups.withIndex()) {
                 if (group.size > 1) {
-                    // 合并组 → manga-ocr
-                    LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx] 使用 manga-ocr (size=${group.size})")
-                    try {
-                        val unionRect = computeUnionAABB(group)
-                        LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr crop=${unionRect.width()}x${unionRect.height()} at $unionRect")
-                        val crop = Bitmap.createBitmap(
-                            bitmap,
-                            unionRect.left.coerceAtLeast(0),
-                            unionRect.top.coerceAtLeast(0),
-                            unionRect.width().coerceAtLeast(1),
-                            unionRect.height().coerceAtLeast(1)
-                        )
-                        val resized = Bitmap.createScaledBitmap(crop, 224, 224, true)
-                        crop.recycle()
-                        try {
-                            val text = MangaOcrRecognizer.recognize(resized)
-                            resized.recycle()
-                            if (text.isNotBlank()) {
-                                results.add(TextBlockInfo(
-                                    text = text,
-                                    boundingBox = unionRect,
-                                    cornerPoints = null,
-                                    isVertical = null
-                                ))
-                                LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 结果[$idx]: '$text'")
-                            }
-                        } catch (e: Exception) {
-                            resized.recycle()
-                            throw e
-                        }
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "detectWithCTDHybrid: manga-ocr 识别失败[$idx]", e)
-                    }
+                    mangaGroups.add(idx to group)
                 } else {
-                    // 单个框 → ML Kit
-                    val qb = group.first()
-                    LogCollector.d(TAG, "detectWithCTDHybrid: 组[$idx] 使用 ML Kit (single box)")
-                    try {
-                        val rect = qb.aabb
-                        val paddedRect = Rect(
-                            (rect.left - 10).coerceAtLeast(0),
-                            (rect.top - 10).coerceAtLeast(0),
-                            (rect.right + 10).coerceAtMost(bitmap.width),
-                            (rect.bottom + 10).coerceAtMost(bitmap.height)
-                        )
-                        LogCollector.d(TAG, "detectWithCTDHybrid: ML Kit crop=${paddedRect.width()}x${paddedRect.height()} at $paddedRect")
-                        val crop = Bitmap.createBitmap(
-                            bitmap,
-                            paddedRect.left,
-                            paddedRect.top,
-                            paddedRect.width().coerceAtLeast(1),
-                            paddedRect.height().coerceAtLeast(1)
-                        )
-                        val text = OCRBridge.recognizeText(language, crop)
-                        crop.recycle()
-                        if (text.isNotBlank()) {
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = paddedRect,
-                                cornerPoints = null,
-                                isVertical = null
-                            ))
-                            LogCollector.d(TAG, "detectWithCTDHybrid: ML Kit 结果[$idx]: '$text'")
-                        }
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "detectWithCTDHybrid: ML Kit 识别失败[$idx]", e)
-                    }
+                    ctcSingles.add(idx to group.first())
                 }
             }
+            val globalIsVertical = rawQuadBoxes.count { it.aspectRatio > 1f } > rawQuadBoxes.size / 2
 
-            // Step 4: 按阅读顺序排序
-            val sortedResults = sortResultsByReadingOrder(results)
-            LogCollector.d(TAG, "detectWithCTDHybrid: 完成，共 ${sortedResults.size} 个结果")
+            LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 组=${mangaGroups.size}, CTC 单框=${ctcSingles.size}, globalIsVertical=$globalIsVertical")
 
-            return sortedResults
+            // 并行执行
+            return coroutineScope {
+                val mangaDeferred = async {
+                    val mangaResults = mutableListOf<Pair<Int, TextBlockInfo>>()
+                    if (mangaGroups.isNotEmpty()) {
+                        // 对齐 CTD+MangaOcr 标准流程
+                        val expandedRects = mangaGroups.map { (_, group) ->
+                            val unionRect = computeUnionAABB(group)
+                            Rect(
+                                (unionRect.left - 10).coerceAtLeast(0),
+                                (unionRect.top - 10).coerceAtLeast(0),
+                                (unionRect.right + 10).coerceAtMost(bitmap.width),
+                                (unionRect.bottom + 10).coerceAtMost(bitmap.height)
+                            )
+                        }
+                        val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+                        val resizedBitmaps = croppedBitmaps.map { crop ->
+                            val r = Bitmap.createScaledBitmap(crop, 224, 224, true)
+                            crop.recycle(); r
+                        }
+                        val texts = MangaOcrRecognizer.recognizeBatch(resizedBitmaps)
+                        resizedBitmaps.forEach { it.recycle() }
+                        for (i in mangaGroups.indices) {
+                            val text = texts[i].trim()
+                            if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                                mangaResults.add(mangaGroups[i].first to TextBlockInfo(
+                                    text = text,
+                                    boundingBox = expandedRects[i],
+                                    cornerPoints = null,
+                                    isVertical = globalIsVertical
+                                ))
+                                LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 结果[$i]: '$text'")
+                            } else if (isDotOnlyPattern(text)) {
+                                LogCollector.d(TAG, "detectWithCTDHybrid: manga-ocr 过滤纯符号[$i]: '$text'")
+                            }
+                        }
+                    }
+                    mangaResults
+                }
+                val ctcDeferred = async {
+                    val ctcResults = mutableListOf<Pair<Int, TextBlockInfo>>()
+                    if (ctcSingles.isNotEmpty()) {
+                        // 对齐 CTD+CTC 标准流程
+                        val singleGroups = ctcSingles.map { it.second }
+                        val expandedRects = singleGroups.map { qb ->
+                            val aabb = qb.aabb
+                            Rect(
+                                aabb.left.coerceAtLeast(0),
+                                aabb.top.coerceAtLeast(0),
+                                aabb.right.coerceAtMost(bitmap.width),
+                                aabb.bottom.coerceAtMost(bitmap.height)
+                            )
+                        }
+                        val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+                        val mergedGroupsForCtc = singleGroups.map { listOf(it) }
+                        val ctcInputs = prepareCtcInputs(croppedBitmaps, mergedGroupsForCtc, expandedRects, globalIsVertical)
+                        croppedBitmaps.forEach { if (it !== bitmap) it.recycle() }
+                        val texts = CtcOcrRecognizer.recognizeBatch(ctcInputs)
+                        ctcInputs.forEach { it.recycle() }
+                        for (i in ctcSingles.indices) {
+                            val text = texts[i].trim()
+                            val isVertical = singleGroups[i].assignedDirection == "v"
+                            if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                                ctcResults.add(ctcSingles[i].first to TextBlockInfo(
+                                    text = text,
+                                    boundingBox = expandedRects[i],
+                                    cornerPoints = null,
+                                    isVertical = isVertical
+                                ))
+                                LogCollector.d(TAG, "detectWithCTDHybrid: CTC 结果[$i]: '$text', isVertical=$isVertical")
+                            } else if (isDotOnlyPattern(text)) {
+                                LogCollector.d(TAG, "detectWithCTDHybrid: CTC 过滤纯符号[$i]: '$text'")
+                            }
+                        }
+                    }
+                    ctcResults
+                }
+
+                val allResults = (mangaDeferred.await() + ctcDeferred.await())
+                    .sortedBy { it.first }
+                    .map { it.second }
+                LogCollector.d(TAG, "detectWithCTDHybrid: 完成，共 ${allResults.size} 个结果")
+                allResults
+            }
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "detectWithCTDHybrid: 失败", e)
@@ -249,20 +265,39 @@ object DetectionBridge {
             }
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
-            // 使用 BoxMerger 合并（与调试模式一致）
-            val mergedGroups = BoxMerger.merge(quadBoxes)
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
-
-            // 对每个合并组计算 union AABB 并扩展
+            // CTCOcr 跳过合并：CTC 模型逐行识别，合并会导致多行混在一起
+            val mergedGroups: List<List<QuadBox>>
+            val expandedRects: List<Rect>
             val PADDING = 10
-            val expandedRects = mergedGroups.map { group ->
-                val unionRect = computeUnionAABB(group)
-                Rect(
-                    (unionRect.left - PADDING).coerceAtLeast(0),
-                    (unionRect.top - PADDING).coerceAtLeast(0),
-                    (unionRect.right + PADDING).coerceAtMost(bitmap.width),
-                    (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
-                )
+
+            if (ocrEngine == CTDOCREngine.CTCOcr) {
+                // 不合并，每个 QuadBox 独立识别
+                // CTC 不需要额外 padding：unclip 已经扩展了足够的文字区域
+                // cropBitmap 内部还有 10px padding，合计已经足够
+                mergedGroups = quadBoxes.map { listOf(it) }
+                expandedRects = quadBoxes.map { box ->
+                    val aabb = box.aabb
+                    Rect(
+                        aabb.left.coerceAtLeast(0),
+                        aabb.top.coerceAtLeast(0),
+                        aabb.right.coerceAtMost(bitmap.width),
+                        aabb.bottom.coerceAtMost(bitmap.height)
+                    )
+                }
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 跳过合并+跳过扩展padding，直接使用 ${quadBoxes.size} 个检测框")
+            } else {
+                val groups = BoxMerger.merge(quadBoxes)
+                mergedGroups = groups
+                expandedRects = groups.map { group ->
+                    val unionRect = computeUnionAABB(group)
+                    Rect(
+                        (unionRect.left - PADDING).coerceAtLeast(0),
+                        (unionRect.top - PADDING).coerceAtLeast(0),
+                        (unionRect.right + PADDING).coerceAtMost(bitmap.width),
+                        (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
+                    )
+                }
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
             }
 
             for ((idx, rect) in expandedRects.withIndex()) {
@@ -322,15 +357,17 @@ object DetectionBridge {
                     val texts = CtcOcrRecognizer.recognizeBatch(ctcInputs)
                     for (i in expandedRects.indices) {
                         val text = texts[i].trim()
+                        // 使用每个框自己的方向，而非全局方向
+                        val isVertical = mergedGroups[i].firstOrNull()?.assignedDirection == "v"
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {
                             val rect = expandedRects[i]
                             results.add(TextBlockInfo(
                                 text = text,
                                 boundingBox = rect,
                                 cornerPoints = null,
-                                isVertical = globalIsVertical
+                                isVertical = isVertical
                             ))
-                            LogCollector.d(TAG, "CTD(CTCOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
+                            LogCollector.d(TAG, "CTD(CTCOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$isVertical")
                         } else if (isDotOnlyPattern(text)) {
                             LogCollector.d(TAG, "CTD(CTCOcr) 过滤纯符号[$i]: '$text'")
                         }
@@ -353,19 +390,16 @@ object DetectionBridge {
     }
 
     /**
-     * 为 CTC 准备输入图片：对齐参考项目 get_transformed_region 的完整几何变换
+     * 为 CTC 准备输入图片：对齐参考项目 get_transformed_region 的透视校正流程。
      *
-     * 使用 cv2.findHomography 进行透视变换，然后旋转（竖排）。
      * 对齐 generic.py get_transformed_region 的逻辑：
-     * - 竖排(vertical): w=textheight=48, h=round(48*ratio), rotate CCW 90°
-     * - 横排(horizontal): h=textheight=48, w=round(48/ratio)
-     *
-     * @param croppedBitmaps 裁剪后的图片列表
-     * @param mergedGroups 合并组列表
-     * @param globalIsVertical 全局文字方向
-     * @return 预处理后的图片列表
+     * 1. 对 QuadBox 做 AABB 裁剪（不加额外 padding）
+     * 2. 用 DLT 算法计算从 QuadBox 角点到目标矩形的单应矩阵
+     * 3. 透视变换校正文字区域
+     * 4. 竖排：w=48, h=48*ratio → rotate CCW 90°
+     * 5. 横排：h=48, w=48/ratio
      */
-    private fun prepareCtcInputs(
+    internal fun prepareCtcInputs(
         croppedBitmaps: List<Bitmap>,
         mergedGroups: List<List<QuadBox>>,
         expandedRects: List<Rect>,
@@ -392,11 +426,9 @@ object DetectionBridge {
             val targetW: Int
             val targetH: Int
             if (isVertical) {
-                // 竖排：w = 48, h = 48 * ratio, rotate CCW 90°
                 targetW = textHeight.toInt()
                 targetH = (textHeight * ratio).toInt().coerceAtLeast(1)
             } else {
-                // 横排：h = 48, w = 48 / ratio
                 targetH = textHeight.toInt()
                 targetW = (textHeight / ratio).toInt().coerceAtLeast(1)
             }
@@ -408,7 +440,6 @@ object DetectionBridge {
             matrix.setScale(scaleX, scaleY)
 
             if (isVertical) {
-                // 对齐参考项目 cv2.ROTATE_90_COUNTERCLOCKWISE（逆时针 90°）
                 matrix.postRotate(-90f)
             }
 
@@ -416,18 +447,194 @@ object DetectionBridge {
                 crop, 0, 0, crop.width, crop.height,
                 matrix, true
             )
-            LogCollector.d(TAG, "CTC预处理[$i]: isVertical=$isVertical, crop=${crop.width}x${crop.height}, structRatio=${String.format("%.3f", ratio)}, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
+            LogCollector.d(TAG, "CTC预处理[$i]: isVertical=$isVertical, crop=${crop.width}x${crop.height}, ratio=${String.format("%.3f", ratio)}, target=${targetW}x${targetH}, result=${transformed.width}x${transformed.height}")
             result.add(transformed)
         }
         return result
     }
 
     /**
-     * 旋转图片 90° 逆时针（已弃用，使用 Matrix.postRotate 替代）
+     * DLT 算法计算单应矩阵（findHomography）。
+     * 求解 4 组点对应的 8 参数透视变换 H（3x3 矩阵，H33=1）。
+     * 对齐 cv2.findHomography(src_pts, dst_pts)。
+     *
+     * @return 9 元素数组表示行优先的 3x3 矩阵，或 null（退化情况）
      */
-    private fun rotateBitmap90CCW(source: Bitmap): Bitmap {
-        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
-        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+    private fun computeHomography(
+        src: Array<android.graphics.PointF>,
+        dst: Array<android.graphics.PointF>
+    ): DoubleArray? {
+        // 构建 8x8 线性系统 Ah = b
+        // 对应方程：
+        //   x' = (h1*x + h2*y + h3) / (h7*x + h8*y + 1)
+        //   y' = (h4*x + h5*y + h6) / (h7*x + h8*y + 1)
+        val A = Array(8) { DoubleArray(8) }
+        val b = DoubleArray(8)
+
+        for (i in 0 until 4) {
+            val x = src[i].x.toDouble()
+            val y = src[i].y.toDouble()
+            val xp = dst[i].x.toDouble()
+            val yp = dst[i].y.toDouble()
+
+            // x' 方程: x'*h7*x + x'*h8*y - h1*x - h2*y = -h3 + x'  →  h3 系数 = 1
+            A[i][0] = -x;     A[i][1] = -y;     A[i][2] = 1.0
+            A[i][3] = 0.0;    A[i][4] = 0.0;    A[i][5] = 0.0
+            A[i][6] = xp * x; A[i][7] = xp * y
+            b[i] = xp
+
+            // y' 方程
+            A[i + 4][0] = 0.0;    A[i + 4][1] = 0.0;    A[i + 4][2] = 0.0
+            A[i + 4][3] = -x;     A[i + 4][4] = -y;     A[i + 4][5] = 1.0
+            A[i + 4][6] = yp * x; A[i + 4][7] = yp * y
+            b[i + 4] = yp
+        }
+
+        val h = solveLinearSystem(A, b) ?: return null
+        return doubleArrayOf(
+            h[0], h[1], h[2],
+            h[3], h[4], h[5],
+            h[6], h[7], 1.0
+        )
+    }
+
+    /**
+     * 高斯消元法求解线性方程组 Ax = b（部分主元选取）。
+     */
+    private fun solveLinearSystem(A: Array<DoubleArray>, b: DoubleArray): DoubleArray? {
+        val n = b.size
+        // 构建增广矩阵 [A|b]
+        val aug = Array(n) { i ->
+            DoubleArray(n + 1) { j -> if (j < n) A[i][j] else b[i] }
+        }
+
+        // 前向消元 + 部分主元
+        for (col in 0 until n) {
+            var maxRow = col
+            var maxVal = kotlin.math.abs(aug[col][col])
+            for (row in col + 1 until n) {
+                val v = kotlin.math.abs(aug[row][col])
+                if (v > maxVal) { maxVal = v; maxRow = row }
+            }
+            if (maxVal < 1e-10) return null
+            if (maxRow != col) {
+                val tmp = aug[col]; aug[col] = aug[maxRow]; aug[maxRow] = tmp
+            }
+            for (row in col + 1 until n) {
+                val factor = aug[row][col] / aug[col][col]
+                for (j in col..n) aug[row][j] -= factor * aug[col][j]
+            }
+        }
+
+        // 回代
+        val x = DoubleArray(n)
+        for (i in n - 1 downTo 0) {
+            x[i] = aug[i][n]
+            for (j in i + 1 until n) x[i] -= aug[i][j] * x[j]
+            x[i] /= aug[i][i]
+        }
+        return x
+    }
+
+    /**
+     * 透视变换（warpPerspective）。
+     * 对齐 cv2.warpPerspective(src, H, (w, h))。
+     * 使用逆映射 + 双线性插值，对源图做单次 getPixels 批量读取。
+     *
+     * @param src 源图片
+     * @param H 9 元素行优先 3x3 单应矩阵（dst → src 映射）
+     * @param outW 输出宽度
+     * @param outH 输出高度
+     * @return 透视校正后的图片
+     */
+    private fun warpPerspective(src: Bitmap, H: DoubleArray, outW: Int, outH: Int): Bitmap {
+        val srcW = src.width
+        val srcH = src.height
+        val dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+
+        // 批量读取源像素（OOB 区域视为白色 0xFFFFFFFF）
+        val srcPixels = IntArray(srcW * srcH)
+        src.getPixels(srcPixels, 0, srcW, 0, 0, srcW, srcH)
+
+        val dstPixels = IntArray(outW * outH)
+
+        // 计算 H 的逆矩阵（dst→src → src→dst 用于回代验证，实际用 dst→src 做逆映射）
+        val inv = invertMatrix3x3(H) ?: run {
+            // 逆矩阵不存在（退化），返回白色图
+            java.util.Arrays.fill(dstPixels, -1)
+            dst.setPixels(dstPixels, 0, outW, 0, 0, outW, outH)
+            return dst
+        }
+
+        for (dy in 0 until outH) {
+            for (dx in 0 until outW) {
+                // 逆映射：dst (dx,dy) → src (sx,sy)
+                val w = inv[6] * dx + inv[7] * dy + inv[8]
+                if (w < 1e-8 && w > -1e-8) { dstPixels[dy * outW + dx] = -1; continue }
+                val sx = (inv[0] * dx + inv[1] * dy + inv[2]) / w
+                val sy = (inv[3] * dx + inv[4] * dy + inv[5]) / w
+
+                // 双线性插值
+                val x0 = sx.toInt() - if (sx < 0) 1 else 0
+                val y0 = sy.toInt() - if (sy < 0) 1 else 0
+                val x1 = x0 + 1
+                val y1 = y0 + 1
+                val fx = (sx - x0).toFloat()
+                val fy = (sy - y0).toFloat()
+
+                // getPixels 数组索引（OOB → -1 → 映射到白色）
+                val i00 = if (x0 in 0 until srcW && y0 in 0 until srcH) y0 * srcW + x0 else -1
+                val i10 = if (x1 in 0 until srcW && y0 in 0 until srcH) y0 * srcW + x1 else -1
+                val i01 = if (x0 in 0 until srcW && y1 in 0 until srcH) y1 * srcW + x0 else -1
+                val i11 = if (x1 in 0 until srcW && y1 in 0 until srcH) y1 * srcW + x1 else -1
+
+                val c00 = if (i00 >= 0) srcPixels[i00] else -1
+                val c10 = if (i10 >= 0) srcPixels[i10] else -1
+                val c01 = if (i01 >= 0) srcPixels[i01] else -1
+                val c11 = if (i11 >= 0) srcPixels[i11] else -1
+
+                // 每通道双线性插值
+                val r = bilinearChannel(c00 ushr 16 and 0xFF, c10 ushr 16 and 0xFF,
+                    c01 ushr 16 and 0xFF, c11 ushr 16 and 0xFF, fx, fy)
+                val g = bilinearChannel(c00 ushr 8 and 0xFF, c10 ushr 8 and 0xFF,
+                    c01 ushr 8 and 0xFF, c11 ushr 8 and 0xFF, fx, fy)
+                val b = bilinearChannel(c00 and 0xFF, c10 and 0xFF,
+                    c01 and 0xFF, c11 and 0xFF, fx, fy)
+
+                dstPixels[dy * outW + dx] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+
+        dst.setPixels(dstPixels, 0, outW, 0, 0, outW, outH)
+        return dst
+    }
+
+    private fun bilinearChannel(c00: Int, c10: Int, c01: Int, c11: Int, fx: Float, fy: Float): Int {
+        val v = c00 * (1 - fx) * (1 - fy) + c10 * fx * (1 - fy) +
+                c01 * (1 - fx) * fy + c11 * fx * fy
+        return v.toInt().coerceIn(0, 255)
+    }
+
+    /**
+     * 3x3 矩阵求逆（行优先 9 元素数组）。
+     */
+    private fun invertMatrix3x3(m: DoubleArray): DoubleArray? {
+        val det = m[0] * (m[4] * m[8] - m[5] * m[7]) -
+                  m[1] * (m[3] * m[8] - m[5] * m[6]) +
+                  m[2] * (m[3] * m[7] - m[4] * m[6])
+        if (kotlin.math.abs(det) < 1e-12) return null
+        val invDet = 1.0 / det
+        return doubleArrayOf(
+            (m[4] * m[8] - m[5] * m[7]) * invDet,
+            (m[2] * m[7] - m[1] * m[8]) * invDet,
+            (m[1] * m[5] - m[2] * m[4]) * invDet,
+            (m[5] * m[6] - m[3] * m[8]) * invDet,
+            (m[0] * m[8] - m[2] * m[6]) * invDet,
+            (m[2] * m[3] - m[0] * m[5]) * invDet,
+            (m[3] * m[7] - m[4] * m[6]) * invDet,
+            (m[1] * m[6] - m[0] * m[7]) * invDet,
+            (m[0] * m[4] - m[1] * m[3]) * invDet
+        )
     }
 
     /**
@@ -470,11 +677,11 @@ object DetectionBridge {
      * 判断是否是纯符号模式（如 ". . . " 或 "· · ·"）
      */
     private fun isDotOnlyPattern(text: String): Boolean {
-        // 移除非日文字符，只保留点号和空格
-        val normalized = text.filter { it == '.' || it == '·' || it == ' ' || it == '…' }
-        // 如果剩余字符中点号占比超过 80%，认为是纯符号模式
-        val dotCount = normalized.count { it == '.' || it == '·' || it == '…' }
-        return dotCount > 0 && dotCount >= normalized.length * 0.8
+        if (text.isBlank()) return true
+        // 统计原始文本中点号类字符的占比
+        val dotChars = text.count { it == '.' || it == '·' || it == '…' }
+        // 点号占比超过 80% 才认为是纯符号
+        return dotChars > 0 && dotChars >= text.length * 0.8
     }
 
     /**

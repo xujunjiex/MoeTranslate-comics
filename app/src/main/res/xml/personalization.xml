@@ -110,7 +110,6 @@
             app:iconSpaceReserved="false"
             android:defaultValue="0"
             android:title="@string/manga_det_model_title"
-            android:summary="@string/manga_det_model_summary"
             android:entries="@array/manga_det_model_entries"
             android:entryValues="@array/manga_det_model_values" />
 

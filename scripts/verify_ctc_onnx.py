@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """
-CTC (48px_ctc) .ckpt -> .onnx conversion script.
+CTC ONNX 模型验证脚本
 
-Converts manga-image-translator's ocr-ctc.ckpt to ONNX format for Android ONNX Runtime.
-
-Architecture: ResNet(3,320) + TransformerEncoder(320,8,1280) x3 + CTC head
-Input:  [batch, 3, 48, width]  (dynamic width)
-Output: char_logits [batch, seqLen, dictSize]
-        color_values [batch, seqLen, 6]
-
-Usage:
-    python scripts/export_ctc_to_onnx.py
-
-Requires:
-    pip install torch onnx onnxscript einops
+对比 PyTorch 模型和 ONNX 模型的推理输出，确保数值一致。
 """
 
 import sys
@@ -24,19 +13,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from typing import List, Tuple, Optional
+from typing import Tuple, List, Optional
+import numpy as np
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
 MODEL_DIR = REPO_ROOT / ".reference" / "models"
-OUTPUT_DIR = REPO_ROOT / "tools" / "ctc_onnx"
 CHECKPOINT_PATH = MODEL_DIR / "ocr-ctc.ckpt"
 ALPHABET_PATH = MODEL_DIR / "alphabet-all-v5.txt"
+ONNX_PATH = REPO_ROOT / "tools" / "ctc_onnx" / "model.onnx"
 
 
 # ============================================================
-# Model architecture (copied from manga-image-translator)
+# Model architecture (same as export script)
 # ============================================================
 
 class PositionalEncoding(nn.Module):
@@ -221,112 +211,232 @@ class OCR(nn.Module):
         self.color_pred1 = nn.Linear(320, 6)
 
     def forward(self, img: Tensor) -> Tuple[Tensor, Tensor]:
-        feats = self.backbone(img).squeeze(2)          # [B, 320, W/8]
-        feats = self.encoders(feats.permute(0, 2, 1))   # [B, W/8, 320]
-        pred_char_logits = self.char_pred(self.char_pred_norm(feats))  # [B, W/8, dict_size]
-        pred_color_values = self.color_pred1(feats)                     # [B, W/8, 6]
+        feats = self.backbone(img).squeeze(2)
+        feats = self.encoders(feats.permute(0, 2, 1))
+        pred_char_logits = self.char_pred(self.char_pred_norm(feats))
+        pred_color_values = self.color_pred1(feats)
         return pred_char_logits, pred_color_values
 
 
-# ============================================================
-# Export
-# ============================================================
-
-def export_to_onnx(checkpoint_path: Path, alphabet_path: Path, output_path: Path):
-    print("Loading alphabet: {}".format(alphabet_path))
+def load_pytorch_model(checkpoint_path, alphabet_path):
+    print("Loading alphabet...")
     with open(alphabet_path, 'r', encoding='utf-8') as fp:
         dictionary = [s[:-1] for s in fp.readlines()]
     print("  Dictionary size: {}".format(len(dictionary)))
 
-    print("Loading checkpoint: {}".format(checkpoint_path))
+    print("Loading checkpoint...")
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     state_dict = checkpoint['model'] if 'model' in checkpoint else checkpoint
-
-    # Delete positional encoding buffers (will be re-created by model init)
     keys_to_delete = [k for k in state_dict.keys() if '.pe.pe' in k]
     for k in keys_to_delete:
         del state_dict[k]
-        print("  Deleted buffer: {}".format(k))
+        print("  Deleted: {}".format(k))
 
     model = OCR(dictionary, 768)
     model.load_state_dict(state_dict, strict=False)
     model.eval()
-    print("  Model loaded successfully")
+    print("  Model loaded OK")
+    return model
 
-    # Dummy input: batch=1, 3, 48, 256 (width=256 is arbitrary, will be dynamic)
-    dummy_input = torch.randn(1, 3, 48, 256)
 
-    # Verify forward pass
-    with torch.no_grad():
-        char_logits, color_values = model(dummy_input)
-    print("  Forward pass OK: char_logits={}, color_values={}".format(char_logits.shape, color_values.shape))
+def verify_onnx_model(onnx_path):
+    print("Verifying ONNX model...")
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import onnx
+        model = onnx.load(str(onnx_path))
+        onnx.checker.check_model(model)
+        print("  onnx.checker.check_model passed")
+    except ImportError:
+        print("  onnx not installed, skipping onnx check")
+        return
 
-    print("Exporting to ONNX: {}".format(output_path))
-    torch.onnx.export(
-        model,
-        dummy_input,
-        str(output_path),
-        export_params=True,
-        opset_version=18,
-        do_constant_folding=True,
-        input_names=["images"],
-        output_names=["char_logits", "color_values"],
-        dynamic_axes={
-            "images": {0: "batch_size", 3: "width"},
-            "char_logits": {0: "batch_size", 1: "seq_len"},
-            "color_values": {0: "batch_size", 1: "seq_len"},
-        },
-        dynamo=False,
-    )
-
-    file_size = output_path.stat().st_size
-    print("  Export complete: {:.1f} MB".format(file_size / 1024 / 1024))
-
-    # Verify the exported model
-    import onnx
-    onnx_model = onnx.load(str(output_path))
-    onnx.checker.check_model(onnx_model)
-    print("  ONNX model verification passed")
-
-    # Print model info
-    print("")
+    # Check model structure
     print("  Inputs:")
-    for inp in onnx_model.graph.input:
+    for inp in model.graph.input:
         dims = [d.dim_param or d.dim_value for d in inp.type.tensor_type.shape.dim]
         print("    {}: {}".format(inp.name, dims))
+
     print("  Outputs:")
-    for out in onnx_model.graph.output:
+    for out in model.graph.output:
         dims = [d.dim_param or d.dim_value for d in out.type.tensor_type.shape.dim]
         print("    {}: {}".format(out.name, dims))
+
+    # Check for quantization/dequantization nodes (should be none)
+    node_types = [n.op_type for n in model.graph.node]
+    if 'QuantizeLinear' in node_types or 'DequantizeLinear' in node_types:
+        print("  WARNING: Model contains quantization nodes!")
+    else:
+        print("  No quantization nodes found (FP32 model)")
+
+    return model
+
+
+def compare_pytorch_vs_onnx(pt_model, onnx_path, test_inputs):
+    print("\nComparing PyTorch vs ONNX inference...")
+
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        print("  onnxruntime not installed, skipping runtime comparison")
+        print("  (Install with: pip install onnxruntime)")
+        return
+
+    print("  Loading ONNX model with ONNX Runtime...")
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    sess = ort.InferenceSession(str(onnx_path), sess_options)
+
+    for i, (name, tensor) in enumerate(test_inputs):
+        print("\n  Test input #{}: {}".format(i + 1, name))
+        print("    Shape: {}".format(tensor.shape))
+
+        # PyTorch inference
+        with torch.no_grad():
+            pt_logits, pt_colors = pt_model(tensor)
+
+        # ONNX Runtime inference
+        onnx_inputs = {"images": tensor.numpy().astype(np.float32)}
+        onnx_outputs = sess.run(None, onnx_inputs)
+        onnx_logits = onnx_outputs[0]
+        onnx_colors = onnx_outputs[1]
+
+        # Compare char_logits
+        diff_logits = np.abs(pt_logits.numpy() - onnx_logits)
+        max_diff_logits = np.max(diff_logits)
+        mean_diff_logits = np.mean(diff_logits)
+        print("    char_logits:")
+        print("      Max diff:   {:.6e}".format(max_diff_logits))
+        print("      Mean diff:  {:.6e}".format(mean_diff_logits))
+        print("      Match: {}".format("YES" if max_diff_logits < 1e-4 else "NO"))
+
+        # Compare color_values
+        diff_colors = np.abs(pt_colors.numpy() - onnx_colors)
+        max_diff_colors = np.max(diff_colors)
+        mean_diff_colors = np.mean(diff_colors)
+        print("    color_values:")
+        print("      Max diff:   {:.6e}".format(max_diff_colors))
+        print("      Mean diff:  {:.6e}".format(mean_diff_colors))
+        print("      Match: {}".format("YES" if max_diff_colors < 1e-4 else "NO"))
+
+        # Check shapes
+        print("    Shapes:")
+        print("      PT char_logits:   {}".format(pt_logits.shape))
+        print("      ONNX char_logits: {}".format(onnx_logits.shape))
+        print("      PT color_values:  {}".format(pt_colors.shape))
+        print("      ONNX color_values: {}".format(onnx_colors.shape))
+        shape_match = (pt_logits.shape == onnx_logits.shape and pt_colors.shape == onnx_colors.shape)
+        print("      Shape match: {}".format("YES" if shape_match else "NO"))
+
+        # Argmax comparison (CTC decoding)
+        pt_argmax = np.argmax(pt_logits.numpy(), axis=-1)
+        onnx_argmax = np.argmax(onnx_logits, axis=-1)
+        argmax_match = np.array_equal(pt_argmax, onnx_argmax)
+        print("    Argmax match: {}".format("YES" if argmax_match else "PARTIAL"))
+
+
+def ctc_decode_simple(logits, dict_size, blank=0):
+    """Simple CTC decoding (greedy)"""
+    log_probs = np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
+    log_probs = np.log(log_probs + 1e-8)
+    preds = np.argmax(log_probs, axis=-1)
+
+    decoded = []
+    last = blank
+    for p in preds:
+        if p != blank and p != last:
+            decoded.append(int(p))
+        last = p
+    return decoded
+
+
+def test_ctc_decoding(pt_model, onnx_path):
+    print("\nTesting CTC decoding...")
+
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        print("  onnxruntime not installed")
+        return
+
+    with open(ALPHABET_PATH, 'r', encoding='utf-8') as fp:
+        dictionary = [s[:-1] for s in fp.readlines()]
+
+    sess = ort.InferenceSession(str(onnx_path))
+
+    # Create a test image (simulate text)
+    np.random.seed(42)
+    test_img = np.random.randn(1, 3, 48, 256).astype(np.float32)
+
+    # PyTorch inference
+    with torch.no_grad():
+        pt_logits, pt_colors = pt_model(torch.from_numpy(test_img))
+
+    # ONNX inference
+    onnx_outputs = sess.run(None, {"images": test_img})
+    onnx_logits = onnx_outputs[0]
+    onnx_colors = onnx_outputs[1]
+
+    # CTC decode both
+    pt_decoded = ctc_decode_simple(pt_logits.numpy()[0], len(dictionary))
+    onnx_decoded = ctc_decode_simple(onnx_logits[0], len(dictionary))
+
+    print("  Decoded char IDs (PT):    {}".format(pt_decoded[:10]))
+    print("  Decoded char IDs (ONNX):  {}".format(onnx_decoded[:10]))
+    print("  Match: {}".format("YES" if pt_decoded == onnx_decoded else "NO"))
+
+    # Convert to text
+    def ids_to_text(ids, dictionary):
+        chars = []
+        for idx in ids:
+            ch = dictionary[idx] if idx < len(dictionary) else "?"
+            if ch == '<SP>':
+                ch = ' '
+            chars.append(ch)
+        return ''.join(chars)
+
+    pt_text = ids_to_text(pt_decoded, dictionary)
+    onnx_text = ids_to_text(onnx_decoded, dictionary)
+    print("  Text (PT):   {}".format(repr(pt_text[:50])))
+    print("  Text (ONNX): {}".format(repr(onnx_text[:50])))
 
 
 def main():
     if not CHECKPOINT_PATH.exists():
         print("Error: checkpoint not found: {}".format(CHECKPOINT_PATH))
-        print("Please download ocr-ctc.ckpt first")
         sys.exit(1)
 
-    if not ALPHABET_PATH.exists():
-        print("Error: alphabet not found: {}".format(ALPHABET_PATH))
+    if not ONNX_PATH.exists():
+        print("Error: ONNX model not found: {}".format(ONNX_PATH))
         sys.exit(1)
 
-    output_path = OUTPUT_DIR / "model.onnx"
-    export_to_onnx(CHECKPOINT_PATH, ALPHABET_PATH, output_path)
+    print("=" * 60)
+    print("CTC ONNX Model Verification")
+    print("=" * 60)
 
-    # Also copy alphabet to output dir
-    import shutil
-    alphabet_out = OUTPUT_DIR / "alphabet-all-v5.txt"
-    shutil.copy2(ALPHABET_PATH, alphabet_out)
-    print("")
-    print("Alphabet copied: {}".format(alphabet_out))
+    # 1. Load PyTorch model
+    pt_model = load_pytorch_model(CHECKPOINT_PATH, ALPHABET_PATH)
 
-    print("")
-    print("Done! Output directory: {}".format(OUTPUT_DIR))
-    print("Next steps:")
-    print("  1. Copy {} to app/src/main/assets/ocr_ctc/model.onnx".format(output_path))
-    print("  2. Copy {} to app/src/main/assets/ocr_ctc/alphabet-all-v5.txt".format(alphabet_out))
+    # 2. Verify ONNX structure
+    verify_onnx_model(ONNX_PATH)
+
+    # 3. Create test inputs
+    test_inputs = [
+        ("small", torch.randn(1, 3, 48, 128)),
+        ("medium", torch.randn(1, 3, 48, 256)),
+        ("large", torch.randn(1, 3, 48, 512)),
+        ("actual_text", torch.randn(1, 3, 48, 200)),
+    ]
+
+    # 4. Compare PyTorch vs ONNX
+    compare_pytorch_vs_onnx(pt_model, ONNX_PATH, test_inputs)
+
+    # 5. Test CTC decoding
+    test_ctc_decoding(pt_model, ONNX_PATH)
+
+    print("\n" + "=" * 60)
+    print("Verification complete!")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

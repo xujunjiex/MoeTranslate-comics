@@ -469,13 +469,8 @@
     <string name="manga_ocr_download_required">manga-ocr model not downloaded. Please go to Settings > Model Management to download.</string>
     <string name="manga_det_toggle">Detection Model</string>
     <string name="manga_det_mlkit">ML Kit</string>
-    <string name="manga_det_dbnet">DBNet</string>
-    <string name="manga_det_initializing">Initializing DBNet…</string>
-    <string name="manga_det_init_complete">DBNet enabled</string>
-    <string name="manga_det_init_failed">DBNet init failed: %s</string>
     <string name="manga_model_settings_title">Manga Translation Model Settings</string>
     <string name="manga_det_model_title">Text Detection Model</string>
-    <string name="manga_det_model_summary">Current: %s\nSwitch to DBNet for more accurate text region detection when manga text is incomplete or overlapping. ML Kit is faster but may miss some text.</string>
     <string name="manga_rec_model_title">Text Recognition Model</string>
     <string name="manga_rec_model_summary">Current: %s\nSwitch to manga-ocr for more accurate text recognition when manga text is misread, but translation speed will be significantly slower.</string>
     <!-- 模型管理 -->
@@ -483,7 +478,6 @@
     <string name="model_management_tip">Manage downloaded recognition models</string>
     <string name="detector_section">Detector</string>
     <string name="detector_ctd_desc">CTD Detector - Embedded in app</string>
-    <string name="detector_dbnet_desc">DBNet Detector - Embedded in app</string>
     <string name="recognizer_section">Recognizer</string>
     <string name="recognizer_ctc_desc">48px CTC Recognizer - Multilingual fast OCR, requires download</string>
     <string name="recognizer_mlkit_desc">MLKit - Built-in system OCR</string>

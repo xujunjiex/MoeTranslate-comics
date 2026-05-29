@@ -22,14 +22,12 @@ enum class TextDirection {
 /**
  * 文字检测引擎。
  * MLKIT: ML Kit 检测+识别一体化
- * DBNET: DBNet 字符级检测 + BoxMerger 合并
  * CTD: ComicTextDetector 文字行级检测（无需合并）
  */
 enum class DetEngine(val value: Int) {
     MLKIT(0),
-    DBNET(1),
-    CTD(2),
-    HYBRID(3);
+    CTD(1),
+    HYBRID(2);
 
     companion object {
         fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKIT
