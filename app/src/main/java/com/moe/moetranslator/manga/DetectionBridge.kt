@@ -29,7 +29,8 @@ data class RTDetrV2DebugResult(
     val allBubbles: List<ComicBubbleDetector.DetectedBubble>,  // 所有检测结果（含 classId=0）
     val textBubbles: List<ComicBubbleDetector.DetectedBubble>,  // classId=1
     val textFree: List<ComicBubbleDetector.DetectedBubble>,     // classId=2
-    val emptyBubbles: List<ComicBubbleDetector.DetectedBubble>   // classId=0
+    val emptyBubbles: List<ComicBubbleDetector.DetectedBubble>, // classId=0
+    val finalRegions: List<Rect>                                // 最终提交给OCR的区域（压缩+去重后）
 )
 
 private const val DEBUG_TAG = "DetectionBridge"
@@ -684,6 +685,34 @@ object DetectionBridge {
     }
 
     /**
+     * 计算两个矩形的 IoU (Intersection over Union)。
+     */
+    private fun calcIoU(a: Rect, b: Rect): Float {
+        val interLeft = maxOf(a.left, b.left)
+        val interTop = maxOf(a.top, b.top)
+        val interRight = minOf(a.right, b.right)
+        val interBottom = minOf(a.bottom, b.bottom)
+        val interArea = maxOf(0, interRight - interLeft) * maxOf(0, interBottom - interTop).toFloat()
+        val unionArea = (a.right - a.left) * (a.bottom - a.top).toFloat() +
+                (b.right - b.left) * (b.bottom - b.top).toFloat() - interArea
+        return if (unionArea > 0) interArea / unionArea else 0f
+    }
+
+    /**
+     * 计算 containment：inner 有多少比例被 outer 包含。
+     * 返回值 1.0 表示 inner 完全在 outer 内部。
+     */
+    private fun calcContainment(outer: Rect, inner: Rect): Float {
+        val interLeft = maxOf(outer.left, inner.left)
+        val interTop = maxOf(outer.top, inner.top)
+        val interRight = minOf(outer.right, inner.right)
+        val interBottom = minOf(outer.bottom, inner.bottom)
+        val interArea = maxOf(0, interRight - interLeft) * maxOf(0, interBottom - interTop).toFloat()
+        val innerArea = (inner.right - inner.left) * (inner.bottom - inner.top).toFloat()
+        return if (innerArea > 0) interArea / innerArea else 0f
+    }
+
+    /**
      * 判断是否是纯符号模式（如 ". . . " 或 "· · ·"）
      */
     private fun isDotOnlyPattern(text: String): Boolean {
@@ -1289,18 +1318,49 @@ object DetectionBridge {
         try {
             LogCollector.d(TAG, "使用 RT-DETR-V2 + ${ocrEngine.name} 检测文字区域...")
 
-            // Step 1: RT-DETR-V2 检测
-            val bubbles = ComicBubbleDetector.detectBubbles(bitmap)
-            if (bubbles.isEmpty()) {
+            // Step 1: RT-DETR-V2 检测（返回所有类别）
+            val allBubbles = ComicBubbleDetector.detectBubbles(bitmap)
+            if (allBubbles.isEmpty()) {
                 LogCollector.d(TAG, "RT-DETR-V2 未检测到文字区域")
                 return emptyList()
             }
-            LogCollector.d(TAG, "RT-DETR-V2 检测到 ${bubbles.size} 个文字区域")
+            LogCollector.d(TAG, "RT-DETR-V2 原始检测到 ${allBubbles.size} 个区域")
 
-            // Step 2: 按 confidence 降序排序
-            val sortedBubbles = bubbles.sortedByDescending { it.confidence }
+            // Step 2: 分类处理
+            // - text_bubble(绿色, classId=1): 直接保留
+            // - text_free(蓝色, classId=2): 丢弃
+            // - bubble(红色, classId=0): 压缩50%后保留（减轻OCR压力）
+            val greenBubbles = allBubbles.filter { it.classId == 1 }
+            val redBubbles = allBubbles.filter { it.classId == 0 }.map { bubble ->
+                // 压缩15%，去除气泡外框多余的边距
+                val cx = (bubble.rect.left + bubble.rect.right) / 2
+                val cy = (bubble.rect.top + bubble.rect.bottom) / 2
+                val halfW = (bubble.rect.right - bubble.rect.left) / 2 * 0.85f
+                val halfH = (bubble.rect.bottom - bubble.rect.top) / 2 * 0.85f
+                bubble.copy(rect = Rect(
+                    (cx - halfW).toInt().coerceAtLeast(0),
+                    (cy - halfH).toInt().coerceAtLeast(0),
+                    (cx + halfW).toInt(),
+                    (cy + halfH).toInt()
+                ))
+            }
 
-            // Step 3: 裁剪图片（10px padding）
+            // Step 3: 去重 — 红色区域与绿色区域有重叠时，丢弃红色（优先用更紧凑的绿色）
+            val dedupedBubbles = greenBubbles.toMutableList()
+            for (red in redBubbles) {
+                // 红色完全包裹绿色时丢弃红色（绿色面积90%以上在红色内部）
+                val fullyContained = greenBubbles.any { green -> calcContainment(red.rect, green.rect) > 0.9f }
+                if (!fullyContained) {
+                    dedupedBubbles.add(red)
+                }
+            }
+
+            // Step 4: 按 confidence 降序排序
+            val sortedBubbles = dedupedBubbles.sortedByDescending { it.confidence }
+
+            LogCollector.d(TAG, "RT-DETR-V2 过滤后 ${sortedBubbles.size} 个区域 (绿色=${greenBubbles.size}, 红色保留=${dedupedBubbles.size - greenBubbles.size})")
+
+            // Step 5: 裁剪图片（10px padding）
             val croppedBitmaps = sortedBubbles.map { bubble -> cropBitmap(bitmap, bubble.rect) }
 
             // Step 4: OCR 识别
@@ -1397,11 +1457,35 @@ object DetectionBridge {
             LogCollector.d(TAG, "  [$idx] rect=[${b.rect.left},${b.rect.top},${b.rect.right},${b.rect.bottom}] class=$className(${b.classId}) conf=${String.format("%.3f", b.confidence)}")
         }
 
+        // 计算最终提交区域（与 detectWithRTDetrV2 一致的逻辑）
+        val greenBubbles = allBubbles.filter { it.classId == 1 }
+        val redBubbles = allBubbles.filter { it.classId == 0 }.map { bubble ->
+            // 压缩15%，去除气泡外框多余的边距
+            val cx = (bubble.rect.left + bubble.rect.right) / 2
+            val cy = (bubble.rect.top + bubble.rect.bottom) / 2
+            val halfW = (bubble.rect.right - bubble.rect.left) / 2 * 0.85f
+            val halfH = (bubble.rect.bottom - bubble.rect.top) / 2 * 0.85f
+            bubble.copy(rect = Rect(
+                (cx - halfW).toInt().coerceAtLeast(0),
+                (cy - halfH).toInt().coerceAtLeast(0),
+                (cx + halfW).toInt(),
+                (cy + halfH).toInt()
+            ))
+        }
+        val finalRegions = greenBubbles.map { it.rect }.toMutableList()
+        for (red in redBubbles) {
+            val fullyContained = greenBubbles.any { green -> calcContainment(red.rect, green.rect) > 0.9f }
+            if (!fullyContained) {
+                finalRegions.add(red.rect)
+            }
+        }
+
         return RTDetrV2DebugResult(
             allBubbles = allBubbles,
             textBubbles = allBubbles.filter { it.classId == 1 },
             textFree = allBubbles.filter { it.classId == 2 },
-            emptyBubbles = allBubbles.filter { it.classId == 0 }
+            emptyBubbles = allBubbles.filter { it.classId == 0 },
+            finalRegions = finalRegions
         )
     }
 }

@@ -63,16 +63,6 @@ class AboutMe : Fragment() {
 
         binding.cachesize.text = getCacheSize()
         setupButton()
-        setupDebugSwitch()
-    }
-
-    private fun setupDebugSwitch() {
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
-        binding.debugSwitch.isChecked = prefs.getBoolean("RTDetrV2_Debug_View", false)
-        binding.debugSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setBoolean("RTDetrV2_Debug_View", isChecked)
-            showToast(if (isChecked) "RT-DETR-V2 调试模式已开启" else "RT-DETR-V2 调试模式已关闭")
-        }
     }
 
     private fun setupButton(){

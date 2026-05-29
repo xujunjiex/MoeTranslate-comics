@@ -160,6 +160,15 @@ class Developer : Fragment() {
                 showToast("CTD 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
+
+        // RT-DETR-V2 调试开关
+        binding.rtdetrDebugSwitch.isChecked = prefs.getBoolean("RTDetrV2_Debug_View", false)
+        binding.rtdetrDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("RTDetrV2_Debug_View", isChecked)
+            if (isChecked) {
+                showToast("RT-DETR-V2 调试模式已开启，请在漫画翻译界面截图测试")
+            }
+        }
     }
 
     private fun showToast(message: String) {

@@ -1882,15 +1882,27 @@ class MangaFloatingService : LifecycleService() {
             canvas.drawText("text_free[$idx] ${String.format("%.0f%%", b.confidence * 100)}", b.rect.left.toFloat() + 4, b.rect.top.toFloat() + 24, textPaint)
         }
 
+        // 最终提交给OCR的区域 — 黄色粗框（最上层）
+        for ((idx, rect) in debugResult.finalRegions.withIndex()) {
+            strokePaint.color = android.graphics.Color.YELLOW
+            strokePaint.strokeWidth = 6f
+            canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), strokePaint)
+            textPaint.color = android.graphics.Color.YELLOW
+            textPaint.textSize = 28f
+            canvas.drawText("OCR[$idx]", rect.left.toFloat() + 4, rect.bottom.toFloat() - 8, textPaint)
+        }
+
         // 图例
         val legendY = bitmap.height - 40f
         textPaint.textSize = 24f
         textPaint.color = android.graphics.Color.GREEN
-        canvas.drawText("绿色=text_bubble(${debugResult.textBubbles.size})", 20f, legendY - 70f, textPaint)
+        canvas.drawText("绿色=text_bubble(${debugResult.textBubbles.size})", 20f, legendY - 100f, textPaint)
         textPaint.color = android.graphics.Color.CYAN
-        canvas.drawText("蓝色=text_free(${debugResult.textFree.size})", 20f, legendY - 40f, textPaint)
+        canvas.drawText("蓝色=text_free(${debugResult.textFree.size}) 丢弃", 20f, legendY - 70f, textPaint)
         textPaint.color = android.graphics.Color.RED
-        canvas.drawText("红色=bubble(${debugResult.emptyBubbles.size})", 20f, legendY - 10f, textPaint)
+        canvas.drawText("红色=bubble(${debugResult.emptyBubbles.size}) 压缩15%", 20f, legendY - 40f, textPaint)
+        textPaint.color = android.graphics.Color.YELLOW
+        canvas.drawText("黄色=最终提交(${debugResult.finalRegions.size})", 20f, legendY - 10f, textPaint)
 
         return result
     }
@@ -1913,7 +1925,7 @@ class MangaFloatingService : LifecycleService() {
         windowManager.addView(resultOverlayView, resultOverlayParams)
         isResultShowing = true
 
-        showToast("RT-DETR-V2 Debug: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
+        showToast("RT-DETR-V2 Debug: green=${debugResult.textBubbles.size}, blue=${debugResult.textFree.size}(丢弃), red=${debugResult.emptyBubbles.size}(压缩), 最终提交=${debugResult.finalRegions.size}")
 
         // Keep floating ball on top
         if (isViewAdded(floatingBallView)) {

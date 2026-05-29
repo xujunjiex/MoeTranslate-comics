@@ -122,8 +122,8 @@ object ComicBubbleDetector {
             scoresTensor.close()
             results.close()
 
-            // 后处理：过滤 + NMS
-            return postprocess(labels, boxes, scores, confThreshold)
+            // 后处理：NMS 去重（不过滤类别，由调用方决定保留哪些）
+            return postprocessAllClasses(labels, boxes, scores, confThreshold)
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "检测失败", e)
@@ -238,6 +238,56 @@ object ComicBubbleDetector {
                     box.bottom.toInt()
                 ),
                 classId = classId,
+                confidence = score
+            )
+        }
+
+        LogCollector.d(TAG, "后处理完成: ${result.size} 个检测结果")
+        for ((idx, b) in result.withIndex()) {
+            LogCollector.d(TAG, "  [$idx] rect=[${b.rect.left},${b.rect.top},${b.rect.right},${b.rect.bottom}] class=${b.classId} conf=${String.format("%.3f", b.confidence)}")
+        }
+
+        return result
+    }
+
+    /**
+     * 后处理：不过滤类别，NMS 去重，返回所有检测结果。
+     * 由调用方决定保留哪些类别。
+     */
+    private fun postprocessAllClasses(
+        labels: LongArray,
+        boxes: FloatArray,
+        scores: FloatArray,
+        confThreshold: Float
+    ): List<DetectedBubble> {
+        val numQueries = labels.size
+
+        val candidates = mutableListOf<Triple<Int, RectF, Float>>() // (index, box, score)
+        for (i in 0 until numQueries) {
+            if (scores[i] < confThreshold) continue
+            val x1 = boxes[i * 4]; val y1 = boxes[i * 4 + 1]
+            val x2 = boxes[i * 4 + 2]; val y2 = boxes[i * 4 + 3]
+            candidates.add(Triple(i, RectF(x1, y1, x2, y2), scores[i]))
+        }
+
+        if (candidates.isEmpty()) {
+            LogCollector.d(TAG, "后处理: 无有效检测结果")
+            return emptyList()
+        }
+
+        LogCollector.d(TAG, "后处理(全部类别): 过滤后 ${candidates.size} 个候选 (置信度>=$confThreshold)")
+
+        val keepIndices = nms(candidates.map { it.second }, candidates.map { it.third }, NMS_IOU_THRESHOLD)
+        val result = keepIndices.map { idx ->
+            val (origIdx, box, score) = candidates[idx]
+            DetectedBubble(
+                rect = Rect(
+                    box.left.toInt().coerceAtLeast(0),
+                    box.top.toInt().coerceAtLeast(0),
+                    box.right.toInt(),
+                    box.bottom.toInt()
+                ),
+                classId = labels[origIdx].toInt(),
                 confidence = score
             )
         }
