@@ -1256,4 +1256,117 @@ object DetectionBridge {
             groups.sortedWith(compareBy({ it.first().aabb.top + it.first().aabb.height() / 2 }, { it.first().aabb.left }))
         }
     }
+
+    /**
+     * RT-DETR-V2 气泡检测 + 指定 OCR 引擎识别。
+     *
+     * 流程：
+     * 1. ComicBubbleDetector 检测气泡/文字区域 → List<DetectedBubble>
+     * 2. 过滤 classId==0（无文字气泡），只保留 text_bubble(1) + text_free(2)
+     * 3. 逐个裁剪区域 → OCR 引擎识别
+     * 4. 返回 TextBlockInfo 列表
+     *
+     * @param bitmap 输入图片
+     * @param language OCR 语言代码
+     * @param ocrEngine OCR 引擎类型（复用 CTDOCREngine 枚举）
+     * @return TextBlockInfo 列表
+     */
+    suspend fun detectWithRTDetrV2(
+        bitmap: Bitmap,
+        language: String,
+        ocrEngine: CTDOCREngine
+    ): List<TextBlockInfo> {
+        try {
+            LogCollector.d(TAG, "使用 RT-DETR-V2 + ${ocrEngine.name} 检测文字区域...")
+
+            // Step 1: RT-DETR-V2 检测
+            val bubbles = ComicBubbleDetector.detectBubbles(bitmap)
+            if (bubbles.isEmpty()) {
+                LogCollector.d(TAG, "RT-DETR-V2 未检测到文字区域")
+                return emptyList()
+            }
+            LogCollector.d(TAG, "RT-DETR-V2 检测到 ${bubbles.size} 个文字区域")
+
+            // Step 2: 按 confidence 降序排序
+            val sortedBubbles = bubbles.sortedByDescending { it.confidence }
+
+            // Step 3: 裁剪图片（10px padding）
+            val croppedBitmaps = sortedBubbles.map { bubble -> cropBitmap(bitmap, bubble.rect) }
+
+            // Step 4: OCR 识别
+            val results = mutableListOf<TextBlockInfo>()
+            when (ocrEngine) {
+                CTDOCREngine.MLKit -> {
+                    for (i in sortedBubbles.indices) {
+                        try {
+                            val text = OCRBridge.recognizeText(language, croppedBitmaps[i])
+                            if (text.isNotBlank()) {
+                                results.add(TextBlockInfo(
+                                    text = text,
+                                    boundingBox = sortedBubbles[i].rect,
+                                    cornerPoints = null,
+                                    isVertical = false
+                                ))
+                                LogCollector.d(TAG, "RT-DETR-V2(MLKit) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='$text'")
+                            }
+                        } catch (e: Exception) {
+                            LogCollector.e(TAG, "RT-DETR-V2(MLKit) 识别失败[$i]", e)
+                        }
+                    }
+                }
+                CTDOCREngine.MangaOcr -> {
+                    val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+                    for (i in sortedBubbles.indices) {
+                        val text = texts[i].trim()
+                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = sortedBubbles[i].rect,
+                                cornerPoints = null,
+                                isVertical = false
+                            ))
+                            LogCollector.d(TAG, "RT-DETR-V2(MangaOcr) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='$text'")
+                        }
+                    }
+                }
+                CTDOCREngine.CTCOcr -> {
+                    // CTC 需要预处理：resize height 到 48px（横排假设）
+                    val ctcInputs = croppedBitmaps.map { crop ->
+                        val targetH = 48
+                        val targetW = (crop.width.toFloat() / crop.height.toFloat() * targetH).toInt().coerceAtLeast(1)
+                        Bitmap.createScaledBitmap(crop, targetW, targetH, true)
+                    }
+                    val texts = CtcOcrRecognizer.recognizeBatch(ctcInputs)
+                    // 释放 CTC 预处理的临时 bitmap
+                    for (ctcInput in ctcInputs) {
+                        if (ctcInput !in croppedBitmaps) ctcInput.recycle()
+                    }
+                    for (i in sortedBubbles.indices) {
+                        val text = texts[i].trim()
+                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = sortedBubbles[i].rect,
+                                cornerPoints = null,
+                                isVertical = false
+                            ))
+                            LogCollector.d(TAG, "RT-DETR-V2(CTCOcr) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='$text'")
+                        }
+                    }
+                }
+            }
+
+            // 释放裁剪的图片
+            for (cropped in croppedBitmaps) {
+                if (cropped !== bitmap) cropped.recycle()
+            }
+
+            LogCollector.d(TAG, "RT-DETR-V2 + ${ocrEngine.name} 完成，共 ${results.size} 个文字块")
+            return results
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "RT-DETR-V2 检测失败", e)
+            throw e
+        }
+    }
 }

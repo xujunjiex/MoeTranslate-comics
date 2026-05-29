@@ -188,6 +188,7 @@ class MangaFloatingService : LifecycleService() {
         when (config.detEngine) {
             DetEngine.CTD, DetEngine.HYBRID -> initCTD()
             DetEngine.MLKIT -> {}
+            DetEngine.RT_DETR_V2 -> lifecycleScope.launch { initRTDetrV2() }
         }
 
         LogCollector.d(TAG, "MangaFloatingService created")
@@ -210,6 +211,7 @@ class MangaFloatingService : LifecycleService() {
         when (config.detEngine) {
             DetEngine.CTD, DetEngine.HYBRID -> releaseCTD()
             DetEngine.MLKIT -> {}
+            DetEngine.RT_DETR_V2 -> releaseRTDetrV2()
         }
 
         // 发送广播通知 UI 更新按钮状态
@@ -346,6 +348,44 @@ class MangaFloatingService : LifecycleService() {
                 showToast("CTD 初始化失败: ${e.message}")
             }
             throw e
+        }
+    }
+
+    private fun initRTDetrV2() {
+        lifecycleScope.launch {
+            try {
+                initRTDetrV2IfNeeded()
+                showToast("RT-DETR-V2 初始化完成")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "RT-DETR-V2 初始化失败", e)
+                showToast("RT-DETR-V2 初始化失败: ${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    private suspend fun initRTDetrV2IfNeeded() {
+        if (ComicBubbleDetector.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initRTDetrV2IfNeeded: 开始初始化 RT-DETR-V2")
+            withContext(Dispatchers.IO) {
+                ComicBubbleDetector.initialize(this@MangaFloatingService)
+            }
+            LogCollector.d(TAG, "initRTDetrV2IfNeeded: RT-DETR-V2 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initRTDetrV2IfNeeded: 初始化失败", e)
+            withContext(Dispatchers.Main) {
+                showToast("RT-DETR-V2 初始化失败: ${e.message}")
+            }
+            throw e
+        }
+    }
+
+    private fun releaseRTDetrV2() {
+        try {
+            LogCollector.d(TAG, "releaseRTDetrV2: 释放 RT-DETR-V2 资源")
+            ComicBubbleDetector.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releaseRTDetrV2: 释放失败", e)
         }
     }
 
@@ -714,6 +754,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.CTD -> "CTD"
             DetEngine.HYBRID -> "HYBRID"
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
+            DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
         }
         val ocrEngineLabel = when (config.ocrEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
@@ -842,11 +883,12 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKIT -> DBNET -> CTD -> HYBRID -> MLKIT
+        // 循环切换：MLKIT -> CTD -> HYBRID -> RT_DETR_V2 -> MLKIT
         val newEngine = when (config.detEngine) {
             DetEngine.MLKIT -> DetEngine.CTD
             DetEngine.CTD -> DetEngine.HYBRID
-            DetEngine.HYBRID -> DetEngine.MLKIT
+            DetEngine.HYBRID -> DetEngine.RT_DETR_V2
+            DetEngine.RT_DETR_V2 -> DetEngine.MLKIT
         }
         config = config.copy(detEngine = newEngine)
         prefs.setInt("Manga_Det_Model", newEngine.value)
@@ -856,6 +898,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.CTD -> "CTD"
             DetEngine.HYBRID -> "HYBRID"
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
+            DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
         }
         adapter.updateLabel(2, "${getString(R.string.manga_det_toggle)}：$label")
 
@@ -871,7 +914,13 @@ class MangaFloatingService : LifecycleService() {
             }
             DetEngine.MLKIT -> {
                 releaseCTD()
+                releaseRTDetrV2()
                 showToast(getString(R.string.manga_det_mlkit))
+            }
+            DetEngine.RT_DETR_V2 -> {
+                releaseCTD()
+                showToast("RT-DETR-V2 初始化中...")
+                lifecycleScope.launch { initRTDetrV2() }
             }
         }
     }
@@ -1142,6 +1191,7 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 DetEngine.MLKIT -> {}
+                DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
             }
             when (config.ocrEngine) {
                 // HYBRID 模式已在上面初始化了所有需要的模型，此处只处理非 HYBRID 的 CTD 模式
@@ -1215,6 +1265,16 @@ class MangaFloatingService : LifecycleService() {
                                 } else mlKitBlocks
                             }
                         }
+                    }
+                    DetEngine.RT_DETR_V2 -> {
+                        // RT-DETR-V2 气泡检测 + 指定 OCR 引擎识别
+                        val rtdetrOcrEngine = when (config.ocrEngine) {
+                            OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
+                            OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
+                            OcrEngine.CTCOcr -> DetectionBridge.CTDOCREngine.CTCOcr
+                        }
+                        LogCollector.d(TAG, "使用 RT-DETR-V2 + ${rtdetrOcrEngine.name} 识别")
+                        DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine)
                     }
                 }
             }
