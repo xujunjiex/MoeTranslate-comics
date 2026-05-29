@@ -380,18 +380,11 @@ class MangaFloatingService : LifecycleService() {
                         return
                     }
                 } else {
-                    // 下载版未下载，不初始化，提示用户去下载
+                    // 未下载，提示用户去下载
                     LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 未下载，提示用户")
                     withContext(Dispatchers.Main) {
                         Toast.makeText(applicationContext, R.string.manga_ocr_download_required, Toast.LENGTH_LONG).show()
                     }
-                    return
-                }
-            }
-            OcrEngine.MangaOcr -> {
-                val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@MangaFloatingService)
-                if (activeVersion == null || !MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
-                    Toast.makeText(this@MangaFloatingService, getString(R.string.manga_ocr_download_required), Toast.LENGTH_LONG).show()
                     return
                 }
             }

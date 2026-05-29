@@ -64,7 +64,7 @@ object MangaOcrBridge {
                 blocksToRecognize.add(block to cropBitmap(bitmap, rect))
             }
 
-            // 3. 批量并行识别（使用多 Session 并发）
+            // 3. 批量并行识别（根据活跃识别器选择 ONNX 或 TFLite）
             if (blocksToRecognize.isNotEmpty()) {
                 LogCollector.d(TAG, "批量并行识别 ${blocksToRecognize.size} 个文字块...")
                 val croppedBitmaps = blocksToRecognize.map { it.second }
@@ -126,12 +126,20 @@ object MangaOcrBridge {
     }
 
     /**
+     * 批量识别
+     */
+    suspend fun recognizeBatch(bitmaps: List<Bitmap>): List<String> {
+        return MangaOcrRecognizer.recognizeBatch(bitmaps)
+    }
+
+    /**
      * 初始化下载的 manga-ocr 模型
      *
      * @param context Context
-     * @param version 模型版本（FULL/FP16/QUANTIZED）
+     * @param version 模型版本
      */
     suspend fun initializeDownloaded(context: Context, version: ModelVersion) {
+        LogCollector.d(TAG, "initializeDownloaded: version=${version.name} (${version.description})")
         MangaOcrRecognizer.initialize(context, useAssets = false, version = version)
     }
 

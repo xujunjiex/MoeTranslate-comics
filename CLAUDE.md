@@ -55,6 +55,73 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 **配置存储：** `CustomPreference` 单例封装 `SharedPreferences`。API 密钥通过 `KeystoreManager` 加密存储。
 
+## 模型管理
+
+### 架构
+
+三层结构：统一下载器 → 模型管理器 → 检测器/识别器初始化
+
+```
+ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、进度回调）
+├── CtcOcrModelManager        # CTC OCR 模型（zip 下载+解压）
+├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载）
+└── CTDModelManager           # CTD 模型（内置 assets，无下载）
+```
+
+### ModelDownloadManager（统一下载器）
+
+`ModelDownloadManager.kt`：通用 HTTP 下载，支持：
+- 断点续传（Range 请求）
+- 自动重试（最多 3 次，指数退避）
+- 进度回调（bytesRead, totalBytes, speed）
+- SHA256 校验（可选，HuggingFace 不提供时传空字符串）
+- **404/403 不重试**（客户端错误直接失败）
+
+```kotlin
+suspend fun downloadModel(
+    context: Context,
+    url: String,
+    sha256Hash: String,      // 空字符串跳过校验
+    destFile: File,
+    onProgress: ProgressCallback? = null,
+    maxRetries: Int = 3
+): Result<Unit>
+```
+
+### 模型存储策略
+
+| 来源 | 路径 | 用途 |
+|------|------|------|
+| `assets/` | APK 内置 | 默认模型，首次使用无需下载 |
+| `filesDir/` | `/data/.../files/<modelDir>/` | 用户下载的模型，可删除 |
+
+初始化时检查顺序：`filesDir` 优先 → `assets` 回退。见各检测器 `initialize()` 方法。
+
+### 添加新模型下载的步骤
+
+1. **创建 ModelManager**（参考 `CtcOcrModelManager`）：
+   - 定义 `MODEL_DIR`、`MODEL_FILE` 常量
+   - 实现 `getModelDir()`、`getModelFile()`、`isModelDownloaded()`
+   - 实现 `downloadModel()` 调用 `ModelDownloadManager.downloadModel()`
+   - 实现 `deleteModel()`、`getModelSize()`
+
+2. **如果是多文件模型**（参考 `MangaOcrDownloadManager`）：
+   - 用枚举定义版本（`ModelVersion`），每个版本指定文件名和 baseUrl
+   - 逐文件下载，**每个文件下载前检查是否已存在**（跳过已下载）
+   - 某个文件 404 时记录警告但不阻断整体（如 vocab.txt）
+
+3. **在检测器中集成**：
+   - `initialize()` 先检查 `filesDir` 是否有模型，没有则用 `assets`
+   - 提供触发下载的入口（从 UI 调用）
+
+### 关键规则
+
+- **所有日志用 `LogCollector`**，不用 `Log.d/i/e`
+- **下载前检查文件是否存在**，避免重复下载
+- **404/403 不重试**，其他错误最多重试 3 次
+- **下载使用代理** `127.0.0.1:7897`（GitHub/HuggingFace 国内需要）
+- **大文件用 `.part` 后缀**，下载完成再 rename，避免不完整文件被加载
+
 **UI：** 传统 Android Views + ViewBinding（非 Jetpack Compose）。导航使用 Navigation Component。
 
 **构建模块：** `:app` + `:framework`（Live2D SDK）。原生代码通过 CMake 构建（`app/src/main/cpp/`）。

@@ -19,13 +19,25 @@ object MangaOcrDownloadManager {
 
     private const val TAG = "MangaOcrDownloadManager"
 
-    // 模型版本枚举（仅保留完整版）
-    enum class ModelVersion(val encoderFile: String, val decoderFile: String, val description: String) {
-        FULL("encoder_model.onnx", "decoder_model.onnx", "完整版 (343MB+117MB)")
+    // 模型版本枚举
+    enum class ModelVersion(
+        val encoderFile: String,
+        val decoderFile: String,
+        val vocabFile: String,
+        val description: String,
+        val baseUrl: String
+    ) {
+        FULL(
+            "encoder_model.onnx", "decoder_model.onnx", "vocab.txt",
+            "原版 (343MB+117MB)",
+            "https://huggingface.co/onnx-community/manga-ocr-base-ONNX/resolve/main/onnx"
+        ),
+        V2025(
+            "encoder_model.onnx", "decoder_model.onnx", "vocab.txt",
+            "2025版 (22MB+113MB)",
+            "https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main"
+        )
     }
-
-    // HuggingFace 基础 URL
-    private const val HF_BASE_URL = "https://huggingface.co/onnx-community/manga-ocr-base-ONNX/resolve/main/onnx"
 
     // 存储目录
     const val MODEL_DIR = "manga_ocr_download"
@@ -76,6 +88,13 @@ object MangaOcrDownloadManager {
     }
 
     /**
+     * 获取指定版本的 vocab 文件路径
+     */
+    fun getVocabFile(context: Context, version: ModelVersion): File {
+        return File(getModelDir(context, version), version.vocabFile)
+    }
+
+    /**
      * 检查模型是否已下载
      */
     fun isModelDownloaded(context: Context): Boolean {
@@ -90,7 +109,8 @@ object MangaOcrDownloadManager {
     fun isVersionDownloaded(context: Context, version: ModelVersion): Boolean {
         val encoder = getEncoderFile(context, version)
         val decoder = getDecoderFile(context, version)
-        return encoder.exists() && decoder.exists() && encoder.length() > 1000
+        val vocab = getVocabFile(context, version)
+        return encoder.exists() && decoder.exists() && vocab.exists() && encoder.length() > 1000
     }
 
     /**
@@ -197,45 +217,71 @@ object MangaOcrDownloadManager {
 
         LogCollector.d(TAG, "开始下载 manga-ocr ${version.name} 版本...")
 
-        // 下载 encoder
-        val encoderUrl = "$HF_BASE_URL/${version.encoderFile}"
         val encoderFile = File(modelDir, version.encoderFile)
-        LogCollector.d(TAG, "下载 encoder: $encoderUrl")
+        val decoderFile = File(modelDir, version.decoderFile)
+        val vocabFile = File(modelDir, version.vocabFile)
 
-        val result1 = ModelDownloadManager.downloadModel(
-            context = context,
-            url = encoderUrl,
-            sha256Hash = "",  // HuggingFace 不提供 hash，我们跳过校验
-            destFile = encoderFile,
-            onProgress = object : ModelDownloadManager.ProgressCallback {
-                override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                    onProgress?.onProgress(bytesRead, totalBytes, speed)
+        // 下载 encoder（跳过已存在的文件）
+        if (encoderFile.exists() && encoderFile.length() > 0) {
+            LogCollector.d(TAG, "Encoder 已存在，跳过: ${encoderFile.absolutePath}")
+        } else {
+            val encoderUrl = "${version.baseUrl}/${version.encoderFile}"
+            LogCollector.d(TAG, "下载 encoder: $encoderUrl")
+            val result = ModelDownloadManager.downloadModel(
+                context = context, url = encoderUrl, sha256Hash = "",
+                destFile = encoderFile,
+                onProgress = object : ModelDownloadManager.ProgressCallback {
+                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                        onProgress?.onProgress(bytesRead, totalBytes, speed)
+                    }
                 }
+            )
+            if (result.isFailure) {
+                LogCollector.e(TAG, "Encoder 下载失败", result.exceptionOrNull())
+                return result
             }
-        )
-
-        if (result1.isFailure) {
-            LogCollector.e(TAG, "Encoder 下载失败", result1.exceptionOrNull())
-            return result1
         }
 
-        // 下载 decoder
-        val decoderUrl = "$HF_BASE_URL/${version.decoderFile}"
-        val decoderFile = File(modelDir, version.decoderFile)
-        LogCollector.d(TAG, "下载 decoder: $decoderUrl")
+        // 下载 decoder（跳过已存在的文件）
+        if (decoderFile.exists() && decoderFile.length() > 0) {
+            LogCollector.d(TAG, "Decoder 已存在，跳过: ${decoderFile.absolutePath}")
+        } else {
+            val decoderUrl = "${version.baseUrl}/${version.decoderFile}"
+            LogCollector.d(TAG, "下载 decoder: $decoderUrl")
+            val result = ModelDownloadManager.downloadModel(
+                context = context, url = decoderUrl, sha256Hash = "",
+                destFile = decoderFile,
+                onProgress = object : ModelDownloadManager.ProgressCallback {
+                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                        onProgress?.onProgress(bytesRead, totalBytes, speed)
+                    }
+                }
+            )
+            if (result.isFailure) {
+                LogCollector.e(TAG, "Decoder 下载失败", result.exceptionOrNull())
+                return result
+            }
+        }
 
-        // 进度回调重置
-        val decoderResult = ModelDownloadManager.downloadModel(
-            context = context,
-            url = decoderUrl,
-            sha256Hash = "",
-            destFile = decoderFile,
-            onProgress = null  // decoder 下载不单独显示进度
-        )
-
-        if (decoderResult.isFailure) {
-            LogCollector.e(TAG, "Decoder 下载失败", decoderResult.exceptionOrNull())
-            return decoderResult
+        // 下载 vocab（跳过已存在的文件，404 时跳过不报错）
+        if (vocabFile.exists() && vocabFile.length() > 0) {
+            LogCollector.d(TAG, "Vocab 已存在，跳过: ${vocabFile.absolutePath}")
+        } else {
+            val vocabUrl = "${version.baseUrl}/${version.vocabFile}"
+            LogCollector.d(TAG, "下载 vocab: $vocabUrl")
+            val result = ModelDownloadManager.downloadModel(
+                context = context, url = vocabUrl, sha256Hash = "",
+                destFile = vocabFile,
+                onProgress = object : ModelDownloadManager.ProgressCallback {
+                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                        onProgress?.onProgress(bytesRead, totalBytes, speed)
+                    }
+                }
+            )
+            if (result.isFailure) {
+                // vocab 404 不影响整体，只记录警告
+                LogCollector.w(TAG, "Vocab 下载失败（可能不存在于 HuggingFace），跳过: ${result.exceptionOrNull()?.message}")
+            }
         }
 
         LogCollector.d(TAG, "下载完成!")

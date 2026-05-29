@@ -59,7 +59,8 @@ object MangaOcrRecognizer {
             val sessionOptions = OrtSession.SessionOptions().apply {
                 setMemoryPatternOptimization(true)
                 setCPUArenaAllocator(true)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                // BASIC_OPT：ALL_OPT 会把 Conv 转成 ConvInteger，Android ORT 不支持
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
                 setIntraOpNumThreads(2)
             }
 
@@ -89,7 +90,13 @@ object MangaOcrRecognizer {
 
             // 加载 tokenizer
             tokenizer = MangaOcrTokenizer(context).apply {
-                loadFromAssets(modelDir)
+                if (!useAssets && version != null) {
+                    // 下载模型：从模型目录加载 vocab
+                    loadFromFile(MangaOcrDownloadManager.getVocabFile(context, version))
+                } else {
+                    // assets 模式：从 assets 加载
+                    loadFromAssets(modelDir)
+                }
             }
             LogCollector.d(TAG, "Tokenizer 加载完成")
 
@@ -347,14 +354,16 @@ object MangaOcrRecognizer {
         val fileName = assetPath.substringAfterLast("/")
         val cacheFile = context.cacheDir.resolve(fileName)
 
-        // 检查 APK 版本，只在升级后才重新复制
+        // 使用 asset 文件大小 + APK 版本作为缓存 key，assets 内容变化时自动失效
         val prefs = context.getSharedPreferences("manga_ocr_cache", Context.MODE_PRIVATE)
-        val currentVersion = try {
+        val assetSize = try { context.assets.open(assetPath).use { it.available().toLong() } } catch (_: Exception) { 0L }
+        val apkVersion = try {
             context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
         } catch (e: Exception) { 0L }
-        val cachedVersion = prefs.getLong("version_code", 0)
+        val currentKey = "$apkVersion-$assetSize"
+        val cachedKey = prefs.getString("cache_key", "")
 
-        if (cacheFile.exists() && cachedVersion == currentVersion) {
+        if (cacheFile.exists() && cachedKey == currentKey) {
             LogCollector.d(TAG, "模型已缓存且版本一致，跳过复制: ${cacheFile.absolutePath}")
         } else {
             LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
@@ -380,7 +389,7 @@ object MangaOcrRecognizer {
                     LogCollector.d(TAG, "外部数据文件不存在，跳过: $dataAssetPath")
                 }
             }
-            prefs.edit().putLong("version_code", currentVersion).apply()
+            prefs.edit().putString("cache_key", currentKey).apply()
         }
         return cacheFile.absolutePath
     }

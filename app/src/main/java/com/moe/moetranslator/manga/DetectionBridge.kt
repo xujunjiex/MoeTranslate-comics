@@ -150,7 +150,7 @@ object DetectionBridge {
                             val r = Bitmap.createScaledBitmap(crop, 224, 224, true)
                             crop.recycle(); r
                         }
-                        val texts = MangaOcrRecognizer.recognizeBatch(resizedBitmaps)
+                        val texts = MangaOcrBridge.recognizeBatch(resizedBitmaps)
                         resizedBitmaps.forEach { it.recycle() }
                         for (i in mangaGroups.indices) {
                             val text = texts[i].trim()
@@ -332,7 +332,7 @@ object DetectionBridge {
                     }
                 }
                 CTDOCREngine.MangaOcr -> {
-                    val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+                    val texts = MangaOcrBridge.recognizeBatch(croppedBitmaps)
                     for (i in expandedRects.indices) {
                         val text = texts[i].trim()
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {

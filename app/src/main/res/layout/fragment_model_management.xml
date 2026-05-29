@@ -120,8 +120,11 @@
                     android:textSize="16sp"
                     android:layout_marginBottom="8dp"/>
 
-                <!-- 完整版 -->
+                <!-- 原版 -->
                 <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_full_row"/>
+
+                <!-- 2025版 -->
+                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_v2025_row"/>
             </LinearLayout>
 
                     </LinearLayout>

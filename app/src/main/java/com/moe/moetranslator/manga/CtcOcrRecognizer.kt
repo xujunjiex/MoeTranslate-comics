@@ -208,48 +208,17 @@ object CtcOcrRecognizer {
             }
         }
 
-        // 2. 按宽度排序（对齐 Python perm = sorted(..., key=width)）
+        // 2. 按宽度排序 + 每批 MAX_BATCH_SIZE 张（对齐参考项目 chunks(perm, max_chunk_size)）
         val sortedIndices = (0 until N).sortedBy { resized[it].width }
 
-        // 3. 按宽度相似度分组：组内最大宽度不超过最小宽度的 1.5 倍
-        //    同时确保 alignedWidth >= MIN_ALIGNED_WIDTH，否则合并到下一组
-        val MIN_ALIGNED_WIDTH = 128
-        val groups = mutableListOf<List<Int>>()
-        var groupStart = 0
-        while (groupStart < sortedIndices.size) {
-            val firstWidth = resized[sortedIndices[groupStart]].width
-            val maxAllowedWidth = (firstWidth * 1.5f).toInt().coerceAtLeast(firstWidth + 4)
-            var groupEnd = groupStart + 1
-            while (groupEnd < sortedIndices.size &&
-                   groupEnd - groupStart < MAX_BATCH_SIZE &&
-                   resized[sortedIndices[groupEnd]].width <= maxAllowedWidth) {
-                groupEnd++
-            }
-            // 检查 alignedWidth 是否足够大，不够则继续添加下一组
-            val groupMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
-            var groupAlignedWidth = 4 * ((groupMaxWidth + 7) / 4)
-            while (groupAlignedWidth < MIN_ALIGNED_WIDTH &&
-                   groupEnd < sortedIndices.size &&
-                   groupEnd - groupStart < MAX_BATCH_SIZE) {
-                groupEnd++
-                if (groupEnd <= sortedIndices.size) {
-                    val newMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
-                    groupAlignedWidth = 4 * ((newMaxWidth + 7) / 4)
-                }
-            }
-            groups.add(sortedIndices.subList(groupStart, groupEnd))
-            groupStart = groupEnd
-        }
-        LogCollector.d(TAG, "宽度分组: ${sortedIndices.size} 个样本 → ${groups.size} 组 (${groups.joinToString { "${it.size}个@宽${resized[it.first()].width}-${resized[it.last()].width}" }})")
-
-        // 4. 按组构建输入 tensor 推理
+        // 3. 按组构建输入 tensor 推理
         val results = arrayOfNulls<Pair<String, Float>>(N)
-        for (batchIndices in groups) {
+        for (batchIndices in sortedIndices.chunked(MAX_BATCH_SIZE)) {
             val batchN = batchIndices.size
 
-            // padding 到 batch 内最大宽度
+            // padding: alignedWidth = (4 * ((maxWidth + 7) // 4)) + 128
             val maxWidth = batchIndices.maxOf { resized[it].width }
-            val alignedWidth = 4 * ((maxWidth + 7) / 4)
+            val alignedWidth = 4 * ((maxWidth + 7) / 4) + 128
 
             LogCollector.d(TAG, "推理: N=$batchN, maxWidth=$maxWidth, alignedWidth=$alignedWidth, dictSize=$dictSize")
 
@@ -388,47 +357,17 @@ object CtcOcrRecognizer {
             }
         }
 
-        // 2. 按宽度排序（对齐 Python perm = sorted(..., key=width)）
+        // 2. 按宽度排序 + 每批 MAX_BATCH_SIZE 张（对齐参考项目 chunks(perm, max_chunk_size)）
         val sortedIndices = (0 until N).sortedBy { resized[it].width }
 
-        // 3. 按宽度相似度分组：组内最大宽度不超过最小宽度的 1.5 倍
-        //    同时确保 alignedWidth >= MIN_ALIGNED_WIDTH，否则合并到下一组
-        val MIN_ALIGNED_WIDTH = 128
-        val groups = mutableListOf<List<Int>>()
-        var groupStart = 0
-        while (groupStart < sortedIndices.size) {
-            val firstWidth = resized[sortedIndices[groupStart]].width
-            val maxAllowedWidth = (firstWidth * 1.5f).toInt().coerceAtLeast(firstWidth + 4)
-            var groupEnd = groupStart + 1
-            while (groupEnd < sortedIndices.size &&
-                   groupEnd - groupStart < MAX_BATCH_SIZE &&
-                   resized[sortedIndices[groupEnd]].width <= maxAllowedWidth) {
-                groupEnd++
-            }
-            // 检查 alignedWidth 是否足够大，不够则继续添加下一组
-            val groupMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
-            var groupAlignedWidth = 4 * ((groupMaxWidth + 7) / 4)
-            while (groupAlignedWidth < MIN_ALIGNED_WIDTH &&
-                   groupEnd < sortedIndices.size &&
-                   groupEnd - groupStart < MAX_BATCH_SIZE) {
-                groupEnd++
-                if (groupEnd <= sortedIndices.size) {
-                    val newMaxWidth = (groupStart until groupEnd).maxOf { resized[sortedIndices[it]].width }
-                    groupAlignedWidth = 4 * ((newMaxWidth + 7) / 4)
-                }
-            }
-            groups.add(sortedIndices.subList(groupStart, groupEnd))
-            groupStart = groupEnd
-        }
-
-        // 4. 按组构建输入 tensor 推理
+        // 3. 按组构建输入 tensor 推理
         val results = arrayOfNulls<FloatArray>(N)
-        for (batchIndices in groups) {
+        for (batchIndices in sortedIndices.chunked(MAX_BATCH_SIZE)) {
             val batchN = batchIndices.size
 
-            // padding 到 batch 内最大宽度
+            // padding: alignedWidth = (4 * ((maxWidth + 7) // 4)) + 128
             val maxWidth = batchIndices.maxOf { resized[it].width }
-            val alignedWidth = 4 * ((maxWidth + 7) / 4)
+            val alignedWidth = 4 * ((maxWidth + 7) / 4) + 128
 
             LogCollector.d(TAG, "推理(带颜色): N=$batchN, maxWidth=$maxWidth, alignedWidth=$alignedWidth, dictSize=$dictSize")
 

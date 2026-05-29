@@ -24,6 +24,10 @@ android {
     namespace 'com.moe.moetranslator'
     compileSdk 35
 
+    aaptOptions {
+        noCompress 'onnx', 'tflite'
+    }
+
     defaultConfig {
         applicationId "com.moe.moetranslator"
         minSdk 29

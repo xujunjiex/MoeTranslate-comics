@@ -71,7 +71,11 @@ object ModelDownloadManager {
                 LogCollector.d(TAG, "HTTP $responseCode, Content-Length: $totalBytes")
 
                 if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
-                    return@withContext Result.failure(Exception("HTTP $responseCode"))
+                    // 404/403 等客户端错误不需要重试
+                    val permanent = responseCode == 404 || responseCode == 403
+                    return@withContext Result.failure(
+                        Exception("HTTP $responseCode${if (permanent) " (文件不存在)" else ""}")
+                    )
                 }
 
                 // 实际总大小

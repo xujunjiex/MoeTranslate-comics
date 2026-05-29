@@ -38,13 +38,17 @@ object CTDPostProcessor {
     // CTD 参数（对齐 manga-image-translator）
     private const val TEXT_THRESHOLD = 0.3f
     private const val BOX_THRESHOLD = 0.6f
-    private const val UNCLIP_RATIO = 1.5f
+    private const val UNCLIP_RATIO = 1.2f
     private const val MAX_CANDIDATES = 1000
+    // 模型参考尺寸（原始训练尺寸 1024），像素阈值基于此尺寸
+    private const val REFERENCE_SIZE = 1024
     // 过滤不合理框的参数（对齐 Python 原装 + CTD 调试显示）
-    private const val MIN_FONT_SIZE = 8f      // fontSize 小于此值认为是误检
-    private const val MIN_WIDTH = 6f           // AABB 宽度小于此值认为是误检
-    // unclip 前原始坐标过滤（基于几何特征）
-    private const val MIN_RAW_AREA = 2f           // 原始轮廓 AABB 面积小于此值认为是误检
+    // 注意：这些是 REFERENCE_SIZE 空间的阈值，实际使用时按比例缩放
+    private const val REF_MIN_SSHORT_SIDE = 2f        // 原始轮廓短边
+    private const val REF_MIN_UNCLIPPED_SSHORT_SIDE = 5f  // unclip 后短边
+    private const val REF_MIN_FONT_SIZE = 8f           // fontSize 阈值
+    private const val REF_MIN_WIDTH = 6f               // AABB 宽度阈值
+    private const val REF_MIN_RAW_AREA = 2f            // 原始轮廓 AABB 面积
 
     /**
      * CTD 提取结果，包含通过过滤的框和被丢弃的框
@@ -73,6 +77,10 @@ object CTDPostProcessor {
         maxCandidates: Int = MAX_CANDIDATES,
         trackDiscarded: Boolean = false
     ): List<QuadBox> {
+        // 计算缩放比例（当前模型输出尺寸 / 参考尺寸 1024）
+        // 所有像素阈值按此比例缩放
+        val scale = height.toFloat() / REFERENCE_SIZE
+
         // 1. 阈值化 → 二值图
         val binary = BooleanArray(height * width)
         for (i in probMap.indices) {
@@ -82,7 +90,14 @@ object CTDPostProcessor {
         // 2. findContours - BFS 连通域提取（等价于 cv2.findContours）
         val contours = findContours(binary, width, height, maxCandidates)
 
-        LogCollector.d(TAG, "轮廓数量: ${contours.size}")
+        LogCollector.d(TAG, "轮廓数量: ${contours.size}, scale=$scale")
+
+        // 缩放后的阈值
+        val minSshortSide = REF_MIN_SSHORT_SIDE * scale
+        val minUnclippedSside = REF_MIN_UNCLIPPED_SSHORT_SIDE * scale
+        val minFontSize = REF_MIN_FONT_SIZE * scale
+        val minWidth = REF_MIN_WIDTH * scale
+        val minRawArea = REF_MIN_RAW_AREA * scale
 
         val quadBoxes = mutableListOf<QuadBox>()
         val discardedBoxes = mutableListOf<QuadBox>()
@@ -94,8 +109,8 @@ object CTDPostProcessor {
             // 3. get_mini_boxes: 计算 minAreaRect 和 short side
             val (_, sside) = getMiniBoxes(contour)
 
-            // 4. sside < 2 过滤（只过滤原始轮廓，不过滤 unclip 后）
-            if (sside < 2f) {
+            // 4. sside < 阈值过滤（只过滤原始轮廓，不过滤 unclip 后）
+            if (sside < minSshortSide) {
                 filteredByShortSide++
                 continue
             }
@@ -111,7 +126,7 @@ object CTDPostProcessor {
             }
             // 狭长轮廓不过滤（漫画文字可能是狭长的）
             // 面积太小过滤
-            if (rawArea < MIN_RAW_AREA) {
+            if (rawArea < minRawArea) {
                 LogCollector.d(TAG, "原始过滤(面积小): area=${String.format("%.1f", rawArea)}, aspect=${String.format("%.1f", rawAspect)}")
                 continue
             }
@@ -130,7 +145,7 @@ object CTDPostProcessor {
             val (unclippedPoints, unclippedSside) = getMiniBoxes(unclipped)
 
             // 9. unclip 后 sside < 5 过滤（对齐 polygons_from_bitmap）
-            if (unclippedSside < 5f) {
+            if (unclippedSside < minUnclippedSside) {
                 filteredByUnclippedSside++
                 continue
             }
@@ -171,7 +186,7 @@ object CTDPostProcessor {
         }.filter { it.area > 0f }
          .partition { qb ->
             val w = qb.aabb.width()
-            qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
+            qb.fontSize >= minFontSize && w >= minWidth
          }
 
         LogCollector.d(TAG, "最终 QuadBox 数量: ${result.first.size}, 丢弃(fontSize/w): ${result.second.size}")
@@ -193,6 +208,9 @@ object CTDPostProcessor {
         unclipRatio: Float = UNCLIP_RATIO,
         maxCandidates: Int = MAX_CANDIDATES
     ): ExtractResult {
+        // 计算缩放比例
+        val scale = height.toFloat() / REFERENCE_SIZE
+
         // 1. 阈值化 → 二值图
         val binary = BooleanArray(height * width)
         for (i in probMap.indices) {
@@ -202,7 +220,14 @@ object CTDPostProcessor {
         // 2. findContours - BFS 连通域提取（等价于 cv2.findContours）
         val contours = findContours(binary, width, height, maxCandidates)
 
-        LogCollector.d(TAG, "轮廓数量: ${contours.size}")
+        LogCollector.d(TAG, "轮廓数量: ${contours.size}, scale=$scale")
+
+        // 缩放后的阈值
+        val minSshortSide = REF_MIN_SSHORT_SIDE * scale
+        val minUnclippedSside = REF_MIN_UNCLIPPED_SSHORT_SIDE * scale
+        val minFontSize = REF_MIN_FONT_SIZE * scale
+        val minWidth = REF_MIN_WIDTH * scale
+        val minRawArea = REF_MIN_RAW_AREA * scale
 
         val quadBoxes = mutableListOf<QuadBox>()
         var filteredByShortSide = 0
@@ -213,8 +238,8 @@ object CTDPostProcessor {
             // 3. get_mini_boxes: 计算 minAreaRect 和 short side
             val (_, sside) = getMiniBoxes(contour)
 
-            // 4. sside < 2 过滤（只过滤原始轮廓，不过滤 unclip 后）
-            if (sside < 2f) {
+            // 4. sside < 阈值过滤（只过滤原始轮廓，不过滤 unclip 后）
+            if (sside < minSshortSide) {
                 filteredByShortSide++
                 continue
             }
@@ -230,7 +255,7 @@ object CTDPostProcessor {
             }
             // 狭长轮廓不过滤（漫画文字可能是狭长的）
             // 面积太小过滤
-            if (rawArea < MIN_RAW_AREA) {
+            if (rawArea < minRawArea) {
                 LogCollector.d(TAG, "原始过滤(面积小): area=${String.format("%.1f", rawArea)}, aspect=${String.format("%.1f", rawAspect)}")
                 continue
             }
@@ -249,7 +274,7 @@ object CTDPostProcessor {
             val (unclippedPoints, unclippedSside) = getMiniBoxes(unclipped)
 
             // 9. unclip 后 sside < 5 过滤（对齐 polygons_from_bitmap）
-            if (unclippedSside < 5f) {
+            if (unclippedSside < minUnclippedSside) {
                 filteredByUnclippedSside++
                 continue
             }
@@ -288,7 +313,7 @@ object CTDPostProcessor {
          .partition { qb ->
             // 过滤不合理的框：fontSize 太小或 AABB 宽度太小（CTD 调试显示用）
             val w = qb.aabb.width()
-            val pass = qb.fontSize >= MIN_FONT_SIZE && w >= MIN_WIDTH
+            val pass = qb.fontSize >= minFontSize && w >= minWidth
             pass
          }
 

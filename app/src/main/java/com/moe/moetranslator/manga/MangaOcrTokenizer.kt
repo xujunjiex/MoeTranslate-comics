@@ -2,6 +2,7 @@ package com.moe.moetranslator.manga
 
 import android.content.Context
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 
 /**
@@ -25,6 +26,18 @@ class MangaOcrTokenizer(private val context: Context) {
      */
     fun loadFromAssets(assetDir: String = "manga_ocr") {
         val vocabText = loadAssetText("$assetDir/vocab.txt")
+        parseVocab(vocabText)
+    }
+
+    /**
+     * 从文件加载 tokenizer
+     */
+    fun loadFromFile(vocabFile: File) {
+        val vocabText = vocabFile.readText(Charsets.UTF_8)
+        parseVocab(vocabText)
+    }
+
+    private fun parseVocab(vocabText: String) {
         val idMap = HashMap<Int, String>()
         val tokenMap = HashMap<String, Int>()
 
