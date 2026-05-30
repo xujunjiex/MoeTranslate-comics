@@ -181,7 +181,7 @@ class MangaFloatingService : LifecycleService() {
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}  // MLKit 无需初始化
             OcrEngine.MangaOcr -> lifecycleScope.launch { ensureMangaOcrInitialized() }
-            OcrEngine.PPOcrV4 -> lifecycleScope.launch { initPPOcrV4IfNeeded() }
+            OcrEngine.PPOcrV5 -> lifecycleScope.launch { initPPOcrV5() }
         }
 
         // 初始化检测引擎
@@ -189,6 +189,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.CTD -> initCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> lifecycleScope.launch { initRTDetrV2() }
+            DetEngine.PP_OCR_V5 -> lifecycleScope.launch { initPPOcrV5() }
         }
 
         LogCollector.d(TAG, "MangaFloatingService created")
@@ -204,7 +205,7 @@ class MangaFloatingService : LifecycleService() {
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}
             OcrEngine.MangaOcr -> releaseMangaOcr()
-            OcrEngine.PPOcrV4 -> releasePPOcrV4()
+            OcrEngine.PPOcrV5 -> releasePPOcrV5()
         }
 
         // 释放检测引擎资源
@@ -212,6 +213,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.CTD -> releaseCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> releaseRTDetrV2()
+            DetEngine.PP_OCR_V5 -> releasePPOcrV5()
         }
 
         // 发送广播通知 UI 更新按钮状态
@@ -274,15 +276,6 @@ class MangaFloatingService : LifecycleService() {
             MangaOcrRecognizer.release()
         } catch (e: Exception) {
             LogCollector.e(TAG, "releaseMangaOcr: 释放失败", e)
-        }
-    }
-
-    private fun releasePPOcrV4() {
-        try {
-            LogCollector.d(TAG, "releasePPOcrV4: 释放 PP-OCRv4 rec 资源")
-            PPOcrV4RecRecognizer.release()
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "releasePPOcrV4: 释放失败", e)
         }
     }
 
@@ -381,6 +374,46 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
+    // ---------- PP-OCRv5 ----------
+
+    private fun initPPOcrV5() {
+        lifecycleScope.launch {
+            try {
+                initPPOcrV5IfNeeded()
+                showToast("PP-OCRv5 初始化完成")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "PP-OCRv5 初始化失败", e)
+                showToast("PP-OCRv5 初始化失败: ${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    private suspend fun initPPOcrV5IfNeeded() {
+        if (PPOcrV5Engine.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initPPOcrV5IfNeeded: 开始初始化 PP-OCRv5")
+            withContext(Dispatchers.IO) {
+                PPOcrV5Engine.initialize(this@MangaFloatingService)
+            }
+            LogCollector.d(TAG, "initPPOcrV5IfNeeded: PP-OCRv5 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initPPOcrV5IfNeeded: 初始化失败", e)
+            withContext(Dispatchers.Main) {
+                showToast("PP-OCRv5 初始化失败: ${e.message}")
+            }
+            throw e
+        }
+    }
+
+    private fun releasePPOcrV5() {
+        try {
+            LogCollector.d(TAG, "releasePPOcrV5: 释放 PP-OCRv5 资源")
+            PPOcrV5Engine.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releasePPOcrV5: 释放失败", e)
+        }
+    }
+
     /**
      * 确保 manga-ocr 已初始化。
      * 优先使用已下载的模型（通过 MangaOcrDownloadManager 管理），
@@ -426,24 +459,6 @@ class MangaFloatingService : LifecycleService() {
             }
         }
         LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 初始化完成")
-    }
-
-    private suspend fun initPPOcrV4IfNeeded() {
-        if (PPOcrV4RecRecognizer.isInitialized) return
-
-        try {
-            LogCollector.d(TAG, "initPPOcrV4IfNeeded: 开始初始化 PP-OCRv4 rec")
-            withContext(Dispatchers.IO) {
-                PPOcrV4RecRecognizer.initialize(this@MangaFloatingService)
-            }
-            LogCollector.d(TAG, "initPPOcrV4IfNeeded: PP-OCRv4 rec 初始化完成")
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "initPPOcrV4IfNeeded: 初始化失败", e)
-            withContext(Dispatchers.Main) {
-                showToast("PP-OCRv4 初始化失败: ${e.message}")
-            }
-            throw e
-        }
     }
 
     private fun loadConfig(): MangaModeConfig {
@@ -656,11 +671,12 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.CTD -> "CTD"
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
             DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
+            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
         }
         val ocrEngineLabel = when (config.ocrEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
             OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.PPOcrV4 -> "PP-OCRv4"
+            OcrEngine.PPOcrV5 -> "PP-OCRv5"
         }
 
         val (dialog, listView) = Dialogs.mangaMenuDialog(
@@ -746,11 +762,11 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Menu actions ----------
 
     private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKit -> MangaOcr -> PPOcrV4 -> MLKit
+        // 循环切换：MLKit -> MangaOcr -> PPOcrV5 -> MLKit
         val newEngine = when (config.ocrEngine) {
             OcrEngine.MLKit -> OcrEngine.MangaOcr
-            OcrEngine.MangaOcr -> OcrEngine.PPOcrV4
-            OcrEngine.PPOcrV4 -> OcrEngine.MLKit
+            OcrEngine.MangaOcr -> OcrEngine.PPOcrV5
+            OcrEngine.PPOcrV5 -> OcrEngine.MLKit
         }
         config = config.copy(ocrEngine = newEngine)
         prefs.setInt("Manga_Rec_Model", newEngine.ordinal)
@@ -759,7 +775,7 @@ class MangaFloatingService : LifecycleService() {
         val label = when (newEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
             OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.PPOcrV4 -> "PP-OCRv4"
+            OcrEngine.PPOcrV5 -> "PP-OCRv5"
         }
         adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：$label")
 
@@ -767,39 +783,29 @@ class MangaFloatingService : LifecycleService() {
         when (newEngine) {
             OcrEngine.MLKit -> {
                 releaseMangaOcr()
-                releasePPOcrV4()
+                releasePPOcrV5()
                 showToast(getString(R.string.manga_ocr_mlkit))
             }
             OcrEngine.MangaOcr -> {
-                releasePPOcrV4()
+                releasePPOcrV5()
                 showToast(getString(R.string.manga_ocr_initializing))
                 lifecycleScope.launch { ensureMangaOcrInitialized() }
             }
-            OcrEngine.PPOcrV4 -> {
+            OcrEngine.PPOcrV5 -> {
                 releaseMangaOcr()
-                showToast("PP-OCRv4 日文识别器")
-                lifecycleScope.launch {
-                    try {
-                        PPOcrV4RecRecognizer.initialize(this@MangaFloatingService)
-                        withContext(Dispatchers.Main) {
-                            showToast("PP-OCRv4 初始化完成")
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
-                            showToast("PP-OCRv4 初始化失败: ${e.message}")
-                        }
-                    }
-                }
+                showToast("PP-OCRv5 初始化中...")
+                lifecycleScope.launch { initPPOcrV5() }
             }
         }
     }
 
     private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKIT -> CTD -> RT_DETR_V2 -> MLKIT
+        // 循环切换：MLKIT -> CTD -> RT_DETR_V2 -> PP_OCR_V5 -> MLKIT
         val newEngine = when (config.detEngine) {
             DetEngine.MLKIT -> DetEngine.CTD
             DetEngine.CTD -> DetEngine.RT_DETR_V2
-            DetEngine.RT_DETR_V2 -> DetEngine.MLKIT
+            DetEngine.RT_DETR_V2 -> DetEngine.PP_OCR_V5
+            DetEngine.PP_OCR_V5 -> DetEngine.MLKIT
         }
         config = config.copy(detEngine = newEngine)
         prefs.setInt("Manga_Det_Model", newEngine.value)
@@ -809,6 +815,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.CTD -> "CTD"
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
             DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
+            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
         }
         adapter.updateLabel(2, "${getString(R.string.manga_det_toggle)}：$label")
 
@@ -821,12 +828,20 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.MLKIT -> {
                 releaseCTD()
                 releaseRTDetrV2()
+                releasePPOcrV5()
                 showToast(getString(R.string.manga_det_mlkit))
             }
             DetEngine.RT_DETR_V2 -> {
                 releaseCTD()
+                releasePPOcrV5()
                 showToast("RT-DETR-V2 初始化中...")
                 lifecycleScope.launch { initRTDetrV2() }
+            }
+            DetEngine.PP_OCR_V5 -> {
+                releaseCTD()
+                releaseRTDetrV2()
+                showToast("PP-OCRv5 初始化中...")
+                lifecycleScope.launch { initPPOcrV5() }
             }
         }
     }
@@ -1095,11 +1110,12 @@ class MangaFloatingService : LifecycleService() {
                 DetEngine.CTD -> initCTDIfNeeded()
                 DetEngine.MLKIT -> {}
                 DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
+                DetEngine.PP_OCR_V5 -> initPPOcrV5IfNeeded()
             }
             when (config.ocrEngine) {
                 OcrEngine.MLKit -> {}
                 OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
-                OcrEngine.PPOcrV4 -> initPPOcrV4IfNeeded()
+                OcrEngine.PPOcrV5 -> initPPOcrV5IfNeeded()
             }
 
             // Step 1: 文字检测 + 识别
@@ -1110,10 +1126,10 @@ class MangaFloatingService : LifecycleService() {
                         val ctdOcrEngine = when (config.ocrEngine) {
                             OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
                             OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                            OcrEngine.PPOcrV4 -> DetectionBridge.CTDOCREngine.PPOcrV4
+                            OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
                         }
                         LogCollector.d(TAG, "使用 CTD(${ctdOcrEngine.name}) 识别")
-                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
+                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine, this@MangaFloatingService)
                     }
                     DetEngine.MLKIT -> {
                         when (config.ocrEngine) {
@@ -1125,33 +1141,9 @@ class MangaFloatingService : LifecycleService() {
                                 LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion}) 识别")
                                 MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
                             }
-                            OcrEngine.PPOcrV4 -> {
-                                LogCollector.d(TAG, "使用 ML Kit 检测 + PP-OCRv4 识别")
-                                val mlKitBlocks = OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
-                                if (mlKitBlocks.isNotEmpty()) {
-                                    val bitmaps = mlKitBlocks.mapNotNull { block ->
-                                        block.boundingBox?.let { rect ->
-                                            android.graphics.Bitmap.createBitmap(
-                                                bitmap,
-                                                rect.left.toInt().coerceAtLeast(0),
-                                                rect.top.toInt().coerceAtLeast(0),
-                                                rect.width().toInt().coerceAtLeast(1),
-                                                rect.height().toInt().coerceAtLeast(1)
-                                            )
-                                        }
-                                    }
-                                    if (bitmaps.isNotEmpty()) {
-                                        val ppTexts = PPOcrV4RecRecognizer.recognizeBatch(bitmaps)
-                                        bitmaps.forEachIndexed { index, bmp ->
-                                            bmp.recycle()
-                                        }
-                                        mlKitBlocks.mapIndexed { index, block ->
-                                            if (index < ppTexts.size) {
-                                                block.copy(text = ppTexts[index])
-                                            } else block
-                                        }
-                                    } else mlKitBlocks
-                                } else mlKitBlocks
+                            OcrEngine.PPOcrV5 -> {
+                                LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别 (MLKIT detEngine override)")
+                                DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
                             }
                         }
                     }
@@ -1160,10 +1152,14 @@ class MangaFloatingService : LifecycleService() {
                         val rtdetrOcrEngine = when (config.ocrEngine) {
                             OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
                             OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                            OcrEngine.PPOcrV4 -> DetectionBridge.CTDOCREngine.PPOcrV4
+                            OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
                         }
                         LogCollector.d(TAG, "使用 RT-DETR-V2 + ${rtdetrOcrEngine.name} 识别")
-                        DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine)
+                        DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService)
+                    }
+                    DetEngine.PP_OCR_V5 -> {
+                        LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别")
+                        DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
                     }
                 }
             }

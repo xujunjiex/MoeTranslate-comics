@@ -1,5 +1,6 @@
 package com.moe.moetranslator.manga
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Point
 import android.graphics.Rect
@@ -13,6 +14,8 @@ import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -132,7 +135,7 @@ object DetectionBridge {
     enum class CTDOCREngine {
         MLKit,
         MangaOcr,
-        PPOcrV4
+        PPOcrV5
     }
 
     /**
@@ -166,7 +169,8 @@ object DetectionBridge {
     suspend fun detectWithCTD(
         bitmap: Bitmap,
         language: String,
-        ocrEngine: CTDOCREngine
+        ocrEngine: CTDOCREngine,
+        context: Context
     ): List<TextBlockInfo> {
         try {
             LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 检测文字区域...")
@@ -242,25 +246,25 @@ object DetectionBridge {
                         }
                     }
                 }
-                CTDOCREngine.PPOcrV4 -> {
-                    // PP-OCRv4 rec：复用 CTC 的预处理（竖排 90° 旋转，横排缩放 height 到 48px）
-                    val ppInputs = prepareCtcInputs(croppedBitmaps, mergedGroups, expandedRects, globalIsVertical)
-                    val texts = PPOcrV4RecRecognizer.recognizeBatch(ppInputs)
-                    for (i in expandedRects.indices) {
-                        val text = texts[i].trim()
-                        val isVertical = mergedGroups[i].firstOrNull()?.assignedDirection == "v"
-                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
-                            val rect = expandedRects[i]
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = rect,
-                                cornerPoints = null,
-                                isVertical = isVertical
-                            ))
-                            LogCollector.d(TAG, "CTD(PPOcrV4) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$isVertical")
-                        } else if (isDotOnlyPattern(text)) {
-                            LogCollector.d(TAG, "CTD(PPOcrV4) 过滤纯符号[$i]: '$text'")
+                CTDOCREngine.PPOcrV5 -> {
+                    val recLang = PPOcrV5Engine.getRecLang(language)
+                    if (recLang != null) {
+                        val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
+                        for (i in expandedRects.indices) {
+                            val result = texts.getOrElse(i) { RecResult("", 0f) }
+                            if (result.text.isNotBlank() && result.score >= 0.5f) {
+                                val rect = expandedRects[i]
+                                results.add(TextBlockInfo(
+                                    text = result.text,
+                                    boundingBox = rect,
+                                    cornerPoints = null,
+                                    isVertical = globalIsVertical
+                                ))
+                                LogCollector.d(TAG, "CTD(PPOcrV5) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='${result.text}', score=${String.format("%.3f", result.score)}, isVertical=$globalIsVertical")
+                            }
                         }
+                    } else {
+                        LogCollector.w(TAG, "CTD(PPOcrV5) 不支持的语言: $language")
                     }
                 }
             }
@@ -1192,7 +1196,8 @@ object DetectionBridge {
     suspend fun detectWithRTDetrV2(
         bitmap: Bitmap,
         language: String,
-        ocrEngine: CTDOCREngine
+        ocrEngine: CTDOCREngine,
+        context: Context
     ): List<TextBlockInfo> {
         try {
             LogCollector.d(TAG, "使用 RT-DETR-V2 + ${ocrEngine.name} 检测文字区域...")
@@ -1278,28 +1283,24 @@ object DetectionBridge {
                         }
                     }
                 }
-                CTDOCREngine.PPOcrV4 -> {
-                    // PP-OCRv4 rec：复用 CTC 的预处理（resize height 到 48px）
-                    val ppInputs = croppedBitmaps.map { crop ->
-                        val targetH = 48
-                        val targetW = (crop.width.toFloat() / crop.height.toFloat() * targetH).toInt().coerceAtLeast(1)
-                        Bitmap.createScaledBitmap(crop, targetW, targetH, true)
-                    }
-                    val texts = PPOcrV4RecRecognizer.recognizeBatch(ppInputs)
-                    for (ppInput in ppInputs) {
-                        if (ppInput !in croppedBitmaps) ppInput.recycle()
-                    }
-                    for (i in sortedBubbles.indices) {
-                        val text = texts[i].trim()
-                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = sortedBubbles[i].rect,
-                                cornerPoints = null,
-                                isVertical = false
-                            ))
-                            LogCollector.d(TAG, "RT-DETR-V2(PPOcrV4) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='$text'")
+                CTDOCREngine.PPOcrV5 -> {
+                    val recLang = PPOcrV5Engine.getRecLang(language)
+                    if (recLang != null) {
+                        val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
+                        for (i in sortedBubbles.indices) {
+                            val result = texts.getOrElse(i) { RecResult("", 0f) }
+                            if (result.text.isNotBlank() && result.score >= 0.5f) {
+                                results.add(TextBlockInfo(
+                                    text = result.text,
+                                    boundingBox = sortedBubbles[i].rect,
+                                    cornerPoints = null,
+                                    isVertical = false
+                                ))
+                                LogCollector.d(TAG, "RT-DETR-V2(PPOcrV5) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='${result.text}', score=${String.format("%.3f", result.score)}")
+                            }
                         }
+                    } else {
+                        LogCollector.w(TAG, "RT-DETR-V2(PPOcrV5) 不支持的语言: $language")
                     }
                 }
             }
@@ -1365,6 +1366,69 @@ object DetectionBridge {
             emptyBubbles = allBubbles.filter { it.classId == 0 },
             finalRegions = finalRegions
         )
+    }
+
+    /**
+     * 使用 PP-OCRv5 独立检测 + 识别（det + cls + rec 完整流水线）。
+     *
+     * @param bitmap 输入图片
+     * @param language 语言代码
+     * @return TextBlockInfo 列表
+     */
+    suspend fun detectWithPPOcrV5(
+        bitmap: Bitmap,
+        language: String,
+        context: Context
+    ): List<TextBlockInfo> {
+        try {
+            LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别, language=$language")
+
+            val recLang = PPOcrV5Engine.getRecLang(language)
+            if (recLang == null) {
+                LogCollector.w(TAG, "PP-OCRv5 不支持的语言: $language")
+                return emptyList()
+            }
+
+            val result = withContext(Dispatchers.IO) {
+                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = true)
+            }
+
+            val textBlocks = result.texts.indices.mapNotNull { i ->
+                val text = result.texts[i]
+                if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
+
+                // 从 boxes 获取检测框 (FloatArray: x0,y0,x1,y1,x2,y2,x3,y3)
+                val box = result.boxes.getOrNull(i) ?: return@mapNotNull null
+                var xMin = Float.MAX_VALUE
+                var yMin = Float.MAX_VALUE
+                var xMax = Float.MIN_VALUE
+                var yMax = Float.MIN_VALUE
+                for (k in box.indices step 2) {
+                    if (box[k] < xMin) xMin = box[k]
+                    if (box[k] > xMax) xMax = box[k]
+                }
+                for (k in 1 until box.size step 2) {
+                    if (box[k] < yMin) yMin = box[k]
+                    if (box[k] > yMax) yMax = box[k]
+                }
+                val rect = Rect(
+                    xMin.toInt().coerceAtLeast(0),
+                    yMin.toInt().coerceAtLeast(0),
+                    xMax.toInt().coerceAtMost(bitmap.width - 1),
+                    yMax.toInt().coerceAtMost(bitmap.height - 1)
+                )
+                val isVertical = rect.height() > rect.width()
+
+                TextBlockInfo(text = text, boundingBox = rect, cornerPoints = null, isVertical = isVertical)
+            }
+
+            LogCollector.d(TAG, "PP-OCRv5 独立完成，共 ${textBlocks.size} 个文字块")
+            return textBlocks
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "PP-OCRv5 检测失败", e)
+            throw e
+        }
     }
 
     /**

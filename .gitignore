@@ -60,5 +60,24 @@ docs/superpowers/plans/*.md
 # Reference repos
 .reference/
 
+# Claude Code
+.claude/
+
+# Tools and scripts
+tools/
+scripts/
+
+# 模型文件 (太大不适合 git)
+app/src/main/assets/**/*.onnx
+app/src/main/assets/**/*.onnx.bak
+app/src/main/assets/**/*.onnx.data
+app/src/main/assets/**/*.ckpt
+app/src/main/assets/**/*.safetensors
+
+# Internal docs
+docs/superpowers/
+docs/manga-*.md
+docs/ocr-*.md
+
 # Local logs
 logs/
