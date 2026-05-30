@@ -49,7 +49,15 @@ class ModelManagementFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         updateCtdStatus()
+        updatePPOcrV5Status()
         updateMangaOcrStatus()
+    }
+
+    // ========== PP-OCRv5 内置状态 ==========
+
+    private fun updatePPOcrV5Status() {
+        val statusText = rootView.findViewById<TextView>(R.id.ppocrv5_status)
+        statusText.text = "已内置 (det + cls + rec 4语言，~52MB)"
     }
 
     // ========== CTD 下载相关 ==========

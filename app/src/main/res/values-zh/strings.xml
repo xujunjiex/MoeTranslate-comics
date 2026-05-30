@@ -506,6 +506,7 @@
     <string name="model_download_speed">速度: %.1f MB/s</string>
     <string name="model_missing_hint">模型未下载，请到设置 > 模型管理 中下载</string>
     <string name="model_built_in">内置</string>
+    <string name="model_builtin">已内置</string>
     <string name="detector_tip">检测器：识别图片中的文字区域</string>
     <string name="recognizer_tip">识别器：将图片中的文字转换为文本</string>
 </resources>
