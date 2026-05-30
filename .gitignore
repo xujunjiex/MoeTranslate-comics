@@ -1,5 +1,7 @@
-# Android Studio / IntelliJ IDEA
+# IDE
 /.idea
+.claude/
+.vscode/
 *.iml
 .idea/workspace.xml
 .idea/tasks.xml

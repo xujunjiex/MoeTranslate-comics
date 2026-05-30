@@ -66,6 +66,17 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 ├── CtcOcrModelManager        # CTC OCR 模型（zip 下载+解压）
 ├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载）
 └── CTDModelManager           # CTD 模型（内置 assets，无下载）
+
+### manga-ocr 版本管理
+
+`MangaOcrDownloadManager.ModelVersion` 枚举定义可用版本：
+
+| 版本 | 文件 | 大小 | 说明 |
+|------|------|------|------|
+| `FULL` | encoder + decoder + vocab | ~460MB | 原版 manga-ocr (ONNX) |
+| `V2025` | encoder + decoder + vocab | ~135MB | 2025 版，速度更快 (ONNX) |
+
+用户通过 `ModelManagementFragment` 下载/切换/删除版本。`MangaOcrBridge.initializeDownloaded()` 根据版本初始化 `MangaOcrRecognizer`。所有模型通过 `MangaOcrDownloadManager` 下载，不再内置 assets。`MangaOcrTokenizer` 支持从外部文件加载词表（`loadFromFile`）。
 ```
 
 ### ModelDownloadManager（统一下载器）
@@ -92,10 +103,10 @@ suspend fun downloadModel(
 
 | 来源 | 路径 | 用途 |
 |------|------|------|
-| `assets/` | APK 内置 | 默认模型，首次使用无需下载 |
-| `filesDir/` | `/data/.../files/<modelDir>/` | 用户下载的模型，可删除 |
+| `assets/` | APK 内置 | CTD 模型，首次使用自动复制到 cache |
+| `filesDir/` | `/data/.../files/<modelDir>/` | 用户下载的模型（manga-ocr、CTC），可删除 |
 
-初始化时检查顺序：`filesDir` 优先 → `assets` 回退。见各检测器 `initialize()` 方法。
+初始化时检查顺序：`filesDir` 优先 → `assets` 回退。manga-ocr 和 CTC 完全通过下载管理获取（无内置 assets）。见各检测器 `initialize()` 方法。
 
 ### 添加新模型下载的步骤
 
@@ -119,7 +130,6 @@ suspend fun downloadModel(
 - **所有日志用 `LogCollector`**，不用 `Log.d/i/e`
 - **下载前检查文件是否存在**，避免重复下载
 - **404/403 不重试**，其他错误最多重试 3 次
-- **下载使用代理** `127.0.0.1:7897`（GitHub/HuggingFace 国内需要）
 - **大文件用 `.part` 后缀**，下载完成再 rename，避免不完整文件被加载
 
 **UI：** 传统 Android Views + ViewBinding（非 Jetpack Compose）。导航使用 Navigation Component。
@@ -136,11 +146,11 @@ suspend fun downloadModel(
 - `TranslateBridge` 从 `CustomPreference` 读取配置，实例化对应的 `TranslationTextAPI`
 
 ### 漫画模块
-**文件：** `MangaFloatingService.kt`、`MangaModeConfig.kt`、`VerticalTextRenderer.kt`、`OverlayRenderer.kt`、`BubbleDetector.kt`、`BackgroundAnalyzer.kt`、`DetectionBridge.kt`、`CTDDetector.kt`、`CTDPostProcessor.kt`、`BoxMerger.kt`、`BubbleMerger.kt`、`TextLine.kt`、`QuadBox.kt`、`MangaOcrRecognizer.kt`、`MangaOcrBridge.kt`、`CtcOcrRecognizer.kt`
+**文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`DBNetDetector.kt`/`DBNetPostProcessor.kt`（DBNet 检测）、`MangaOcrRecognizer.kt`/`MangaOcrBridge.kt`（manga-ocr ONNX 推理）、`CtcOcrRecognizer.kt`（48px_ctc 推理）、`MangaOcrDownloadManager.kt`（版本管理）、`ModelDownloadManager.kt`（统一下载器）、`BoxMerger.kt`/`BubbleMerger.kt`（合并）、`QuadBox.kt`（旋转四边形）、`OverlayRenderer.kt`（渲染）
 
 **检测引擎（DetEngine 枚举）：**
 - `CTD` — CTD 检测 + 指定 OCR 引擎，保留旋转四边形信息
-- `HYBRID` — CTD 检测 + 混合 OCR（合并组→manga-ocr，单框→MLKit）
+- `HYBRID` — CTD 检测 + 混合 OCR（合并组→manga-ocr，单框→CTC）
 - `DBNET` — DBNet 检测 + 指定 OCR 引擎
 - `MLKIT` — ML Kit 检测+识别，一体化
 
@@ -151,7 +161,7 @@ suspend fun downloadModel(
 
 **检测引擎特点：**
 - `detectWithCTD` — CTD 检测 + 指定 OCR 引擎，统一入口，对漫画竖排文字更精确
-- `detectWithCTDHybrid` — CTD + 混合模式，合并组走 manga-ocr，单框走 MLKit
+- `detectWithCTDHybrid` — CTD + 混合模式，合并组走 manga-ocr，单框走 CTC
 - `detectWithDBNet` — DBNet 检测 + OCR 后合并，支持批量识别
 - `detectWithMLKit` — ML Kit 检测+识别，一体化，返回轴对齐矩形
 
@@ -170,7 +180,7 @@ suspend fun downloadModel(
 - `detectQuadBoxes` 返回旋转四边形（含 font_size、angle），用于精确 merge
 - `canMergeWithDynamicThreshold` 对齐 manga-image-translator 过滤器模式
 - 使用 QuadBox 结构线计算真实 font_size，而非 AABB 代理
-- CTD 模型位于 `ctd/` 目录，需单独下载
+- CTD 模型内置 `assets/ctd/`，首次使用自动复制到 cache
 
 **翻译流程：** 截图 → OCR（ML Kit 带位置信息）→ 气泡检测（聚类文字块）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
 
@@ -205,22 +215,18 @@ suspend fun downloadModel(
 - Android logcat（通过 `Log.d(tag, msg)`）
 - 软件内置日志缓冲区（内存，最多 500 条，用户可在设置页面查看）
 
-在 Android Studio logcat 过滤框输入以下内容，按 `|` 分隔（不需要 Regex 模式）：
+logcat 过滤器（按 `|` 分隔，不需要 Regex）：
 
 ```
 tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:CtcOcrRecognizer | tag:DBNetDetector | tag:DBNetPostProcessor | tag:OCRTextRecognizer
 ```
 
-常用 tag：
-
 | tag | 模块 |
 |-----|------|
-| `OCRBridge` | OCR 桥接（`recognizeWithLocation`、`recognizeText`） |
-| `OCRTextRecognizer` | ML Kit 识别（`getPicText`） |
-| `DetectionBridge` | 检测桥接（CTD Hybrid 裁剪尺寸） |
+| `OCRBridge` | OCR 桥接 |
 | `CTDDetector` | CTD 检测 |
 | `CTDPostProcessor` | CTD 后处理 |
-| `BoxMerger` | box 合并 |
+| `DetectionBridge` | 检测桥接 |
 | `MangaOcrBridge` | manga-ocr 桥接 |
 | `MangaOcrRecognizer` | manga-ocr 识别 |
 | `CtcOcrRecognizer` | 48px_ctc 识别 |
