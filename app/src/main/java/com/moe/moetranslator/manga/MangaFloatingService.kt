@@ -769,7 +769,7 @@ class MangaFloatingService : LifecycleService() {
             OcrEngine.PPOcrV5 -> OcrEngine.MLKit
         }
         config = config.copy(ocrEngine = newEngine)
-        prefs.setInt("Manga_Rec_Model", newEngine.ordinal)
+        prefs.setInt("Manga_Rec_Model", newEngine.value)
 
         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
         val label = when (newEngine) {
