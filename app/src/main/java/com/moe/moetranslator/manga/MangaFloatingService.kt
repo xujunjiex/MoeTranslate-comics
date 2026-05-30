@@ -1069,58 +1069,60 @@ class MangaFloatingService : LifecycleService() {
         try {
             LogCollector.d(TAG, "processMangaScreenshot: START")
 
-            // CTD 调试模式：只检测，不翻译，显示结果后直接返回
-            if (prefs.getBoolean("CTD_Debug_View", false)) {
-                LogCollector.d(TAG, "CTD Debug Mode: 开始检测")
-                val debugResult = withContext(Dispatchers.IO) {
-                    detectWithCTDDebug(bitmap)
-                }
-                LogCollector.d(TAG, "CTD Debug Mode: raw=${debugResult.rawBoxes.size}, merged=${debugResult.mergedGroups.size}")
-
-                // 显示调试视图
-                showCTDDebugView(bitmap, debugResult)
-                return
-            }
-
-            // RT-DETR-V2 调试模式：只检测，不翻译，显示所有类别检测框
-            if (prefs.getBoolean("RTDetrV2_Debug_View", false) && config.detEngine == DetEngine.RT_DETR_V2) {
-                LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: 开始检测")
-                initRTDetrV2IfNeeded()
-                val debugResult = withContext(Dispatchers.IO) {
-                    DetectionBridge.detectWithRTDetrV2Debug(bitmap)
-                }
-                LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
-                showRTDetrV2DebugView(bitmap, debugResult)
-                return
-            }
-
-            // ML Kit 调试模式：只识别，不翻译，显示所有返回数据
-            if (prefs.getBoolean("MLKit_Debug_View", false)) {
-                LogCollector.d(TAG, "ML Kit Debug Mode: 开始识别")
-                val mlKitResult = withContext(Dispatchers.IO) {
-                    detectWithMLKitDebug(bitmap, config.sourceLang)
-                }
-                LogCollector.d(TAG, "ML Kit Debug Mode: blocks=${mlKitResult.textBlocks.size}, totalLines=${mlKitResult.totalLines}, totalElements=${mlKitResult.totalElements}")
-                showMLKitDebugView(bitmap, mlKitResult)
-                return
-            }
-
-            // PP-OCRv5 调试模式：det+cls+rec 全流程，用 visRes 可视化
-            if (prefs.getBoolean("PPOcrV5_Debug_View", false)) {
-                LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
-                initPPOcrV5IfNeeded()
-                val recLang = PPOcrV5Engine.getRecLang(config.sourceLang)
-                if (recLang != null) {
-                    val ocrResult = withContext(Dispatchers.IO) {
-                        PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = true)
+            // 调试模式：按当前选择的检测模型决定 debug 路径
+            when (config.detEngine) {
+                DetEngine.CTD -> {
+                    if (prefs.getBoolean("CTD_Debug_View", false)) {
+                        LogCollector.d(TAG, "CTD Debug Mode: 开始检测")
+                        val debugResult = withContext(Dispatchers.IO) {
+                            detectWithCTDDebug(bitmap)
+                        }
+                        LogCollector.d(TAG, "CTD Debug Mode: raw=${debugResult.rawBoxes.size}, merged=${debugResult.mergedGroups.size}")
+                        showCTDDebugView(bitmap, debugResult)
+                        return
                     }
-                    LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}")
-                    showPPOcrV5DebugView(bitmap, ocrResult)
-                } else {
-                    LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
-                    showToast("PP-OCRv5 不支持语言: ${config.sourceLang}")
                 }
-                return
+                DetEngine.RT_DETR_V2 -> {
+                    if (prefs.getBoolean("RTDetrV2_Debug_View", false)) {
+                        LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: 开始检测")
+                        initRTDetrV2IfNeeded()
+                        val debugResult = withContext(Dispatchers.IO) {
+                            DetectionBridge.detectWithRTDetrV2Debug(bitmap)
+                        }
+                        LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
+                        showRTDetrV2DebugView(bitmap, debugResult)
+                        return
+                    }
+                }
+                DetEngine.MLKIT -> {
+                    if (prefs.getBoolean("MLKit_Debug_View", false)) {
+                        LogCollector.d(TAG, "ML Kit Debug Mode: 开始识别")
+                        val mlKitResult = withContext(Dispatchers.IO) {
+                            detectWithMLKitDebug(bitmap, config.sourceLang)
+                        }
+                        LogCollector.d(TAG, "ML Kit Debug Mode: blocks=${mlKitResult.textBlocks.size}, totalLines=${mlKitResult.totalLines}, totalElements=${mlKitResult.totalElements}")
+                        showMLKitDebugView(bitmap, mlKitResult)
+                        return
+                    }
+                }
+                DetEngine.PP_OCR_V5 -> {
+                    if (prefs.getBoolean("PPOcrV5_Debug_View", false)) {
+                        LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
+                        initPPOcrV5IfNeeded()
+                        val recLang = PPOcrV5Engine.getRecLang(config.sourceLang)
+                        if (recLang != null) {
+                            val ocrResult = withContext(Dispatchers.IO) {
+                                PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = true)
+                            }
+                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}")
+                            showPPOcrV5DebugView(bitmap, ocrResult)
+                        } else {
+                            LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
+                            showToast("PP-OCRv5 不支持语言: ${config.sourceLang}")
+                        }
+                        return
+                    }
+                }
             }
 
             // 确保选中的模型已初始化
