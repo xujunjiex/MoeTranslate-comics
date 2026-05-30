@@ -77,27 +77,18 @@ object CTDDetector {
 
             ortEnv = OrtEnvironment.getEnvironment()
 
-            // 尝试 NNAPI 硬件加速，失败则回退 CPU+多线程
-            session = try {
-                val nnapiOptions = OrtSession.SessionOptions().apply {
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    setMemoryPatternOptimization(true)
-                    setCPUArenaAllocator(true)
-                    addNnapi()
-                }
-                LogCollector.d(TAG, "CTD NNAPI 加速已启用")
-                ortEnv!!.createSession(modelPath, nnapiOptions)
-            } catch (e: Exception) {
-                LogCollector.d(TAG, "CTD NNAPI 不可用，回退 CPU: ${e.message}")
-                val cpuOptions = OrtSession.SessionOptions().apply {
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    setMemoryPatternOptimization(true)
-                    setCPUArenaAllocator(true)
-                    setIntraOpNumThreads(4)
-                }
-                ortEnv!!.createSession(modelPath, cpuOptions)
+            // 直接使用 CPU+多线程（NNAPI 初始化太慢，跳过）
+            val cpuOptions = OrtSession.SessionOptions().apply {
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                setMemoryPatternOptimization(true)
+                setCPUArenaAllocator(true)
+                setIntraOpNumThreads(4)
             }
+            session = ortEnv!!.createSession(modelPath, cpuOptions)
+            LogCollector.d(TAG, "CTD 模型加载完成 (CPU)")
             LogCollector.d(TAG, "CTD 模型加载完成")
+
+            isInitialized = true
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "CTD 初始化失败", e)

@@ -184,18 +184,37 @@ object DetectionBridge {
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
             val PADDING = 10
-            val groups = BoxMerger.merge(quadBoxes)
-            val mergedGroups = groups
-            val expandedRects = groups.map { group ->
-                val unionRect = computeUnionAABB(group)
-                Rect(
-                    (unionRect.left - PADDING).coerceAtLeast(0),
-                    (unionRect.top - PADDING).coerceAtLeast(0),
-                    (unionRect.right + PADDING).coerceAtMost(bitmap.width),
-                    (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
-                )
+            // PP-OCRv5 rec 是单行模型，跳过合并；其他引擎需要合并多行
+            val (groups, expandedRects) = if (ocrEngine == CTDOCREngine.PPOcrV5) {
+                // 跳过合并：每个 QuadBox 独立裁剪
+                val rects = quadBoxes.map { qb ->
+                    val aabb = qb.aabb
+                    Rect(
+                        (aabb.left - PADDING).coerceAtLeast(0),
+                        (aabb.top - PADDING).coerceAtLeast(0),
+                        (aabb.right + PADDING).coerceAtMost(bitmap.width),
+                        (aabb.bottom + PADDING).coerceAtMost(bitmap.height)
+                    )
+                }
+                Pair(quadBoxes.map { listOf(it) }, rects)
+            } else {
+                val merged = BoxMerger.merge(quadBoxes)
+                val rects = merged.map { group ->
+                    val unionRect = computeUnionAABB(group)
+                    Rect(
+                        (unionRect.left - PADDING).coerceAtLeast(0),
+                        (unionRect.top - PADDING).coerceAtLeast(0),
+                        (unionRect.right + PADDING).coerceAtMost(bitmap.width),
+                        (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
+                    )
+                }
+                Pair(merged, rects)
             }
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
+            if (ocrEngine == CTDOCREngine.PPOcrV5) {
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 跳过合并: ${quadBoxes.size} 个独立区域")
+            } else {
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${groups.size} 个区域")
+            }
 
             for ((idx, rect) in expandedRects.withIndex()) {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终区域[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
