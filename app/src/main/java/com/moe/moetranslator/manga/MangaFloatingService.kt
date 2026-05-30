@@ -1139,7 +1139,9 @@ class MangaFloatingService : LifecycleService() {
             }
 
             // Step 1: 文字检测 + 识别
-            LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR starting, sourceLang=${config.sourceLang}, ocrEngine=${config.ocrEngine}, detEngine=${config.detEngine}")
+            val ppRecLang = PPOcrV5Engine.getRecLang(config.sourceLang)
+            LogCollector.d(TAG, "Step 1 配置: detEngine=${config.detEngine}, ocrEngine=${config.ocrEngine}, sourceLang=${config.sourceLang}" +
+                if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
             val textBlocks: List<TextBlockInfo> = withContext(Dispatchers.IO) {
                 when (config.detEngine) {
                     DetEngine.CTD -> {
@@ -1148,21 +1150,22 @@ class MangaFloatingService : LifecycleService() {
                             OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
                             OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
                         }
-                        LogCollector.d(TAG, "使用 CTD(${ctdOcrEngine.name}) 识别")
+                        LogCollector.d(TAG, "使用 CTD(检测) + ${ctdOcrEngine.name}(识别), lang=${config.sourceLang}" +
+                            if (ctdOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
                         DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine, this@MangaFloatingService)
                     }
                     DetEngine.MLKIT -> {
                         when (config.ocrEngine) {
                             OcrEngine.MLKit -> {
-                                LogCollector.d(TAG, "使用 ML Kit 检测 + 识别")
+                                LogCollector.d(TAG, "使用 ML Kit(检测+识别), lang=${config.sourceLang}")
                                 OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
                             }
                             OcrEngine.MangaOcr -> {
-                                LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion}) 识别")
+                                LogCollector.d(TAG, "使用 ML Kit(检测) + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion})(识别), lang=${config.sourceLang}")
                                 MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
                             }
                             OcrEngine.PPOcrV5 -> {
-                                LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别 (MLKIT detEngine override)")
+                                LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
                                 DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
                             }
                         }
@@ -1174,11 +1177,12 @@ class MangaFloatingService : LifecycleService() {
                             OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
                             OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
                         }
-                        LogCollector.d(TAG, "使用 RT-DETR-V2 + ${rtdetrOcrEngine.name} 识别")
+                        LogCollector.d(TAG, "使用 RT-DETR-V2(检测) + ${rtdetrOcrEngine.name}(识别), lang=${config.sourceLang}" +
+                            if (rtdetrOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
                         DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService)
                     }
                     DetEngine.PP_OCR_V5 -> {
-                        LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别")
+                        LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
                         DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
                     }
                 }
