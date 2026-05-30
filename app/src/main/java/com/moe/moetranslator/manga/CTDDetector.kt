@@ -40,7 +40,7 @@ data class DetectedRectWithFont(
 object CTDDetector {
 
     private const val TAG = "CTDDetector"
-    private const val DETECT_SIZE = 640  // CTD 输入尺寸
+    private const val DETECT_SIZE = 1024  // CTD 输入尺寸
     private const val STRIDE = 64         // CTD stride 对齐
     private const val TEXT_THRESHOLD = 0.3f
     private const val MIN_AREA = 100       // 最小 AABB 面积阈值（100px²）
