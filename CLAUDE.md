@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11+（API 29+）。使用 Accessibility Service 截屏，ML Kit 本地 OCR 识别文字，然后调用各种翻译 API 进行翻译。
+MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11+（API 29+）。使用 Accessibility Service 截屏，PP-OCRv5 / ML Kit 本地 OCR 识别文字，然后调用各种翻译 API 进行翻译。
 
 ## 目录规范
 
@@ -14,9 +14,8 @@ MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11
   - `RapidOcrAndroidOnnxCompose/` — RapidOCR Kotlin 版 Android 集成参考
   - `RapidOcrAndroidOnnx/` — RapidOCR C++ 版 Android 集成参考
 - **`tools/`** — 测试模型和脚本。用于本地测试转换后的模型（ONNX、TFLite 等），模型文件放这里。
-  - `ppocrv4_ja_rec.onnx` — PP-OCRv4 日文识别模型（9.3MB）
-  - `ppocrv4_ch_rec.onnx` — PP-OCRv4 中文识别模型（10.4MB）
-  - `ctd_512.onnx` / `ctd_640.onnx` — CTD 检测模型
+  - `ppocrv5_onnx/` — PP-OCRv5 ONNX 模型（det + rec_zh）
+  - `ctd_640.onnx` / `ctd_640.onnx.data` — CTD 640 检测模型
 - 禁止在项目根目录或其他非标准位置放置模型文件或参考项目。
 
 ## 构建命令
@@ -85,13 +84,28 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 
 | 模型 | 用途 | 大小 | 来源 | 存储位置 |
 |------|------|------|------|----------|
-| **CTD** (Comic Text Detector) | 文字区域检测 | ~94MB | [dmMaze/comic-text-detector](https://github.com/dmMaze/comic-text-detector) | filesDir/ 下载 |
-| **RT-DETR v2** | 文字/气泡检测（备选） | 11~172MB | [ogkalu](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) | .reference/ 待集成 |
-| **48px_ctc** (CTC OCR) | 文字识别 | ~165MB | [manga-image-translator](https://github.com/zyddnys/manga-image-translator) | assets/ocr_ctc/ |
-| **PP-OCRv4 JA** | 文字识别（日文） | ~9.3MB | [HuggingFace](https://huggingface.co/cycloneboy/japan_PP-OCRv4_rec_infer) | assets/ppocrv4_ja/ |
-| **manga-ocr** | 文字识别（竖排日文） | ~460MB | [HuggingFace](https://huggingface.co/onnx-community/manga-ocr-base-ONNX) | filesDir/ 下载 |
+| **PP-OCRv5 det** | 文字区域检测 | ~84MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
+| **PP-OCRv5 cls** | 方向分类 | ~1MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
+| **PP-OCRv5 rec zh** | 中文识别 | ~81MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
+| **PP-OCRv4 rec ja** | 日文识别 | ~9.4MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
+| **PP-OCRv3 latin rec** | 英文/拉丁文识别 | ~8.6MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
+| **PP-OCRv4 rec ko** | 韩文识别 | ~23MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
+| **CTD** (Comic Text Detector) | 文字区域检测 | ~94MB | GitHub releases | filesDir/ 下载 |
+| **RT-DETR v2** | 文字/气泡检测 | ~11MB | [ogkalu](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) | 已集成 |
+| **manga-ocr** | 竖排日文识别 | ~460MB | [HuggingFace](https://huggingface.co/onnx-community/manga-ocr-base-ONNX) | filesDir/ 下载 |
 
 ### 模型详解
+
+**PP-OCRv5 — 文字检测+识别（默认，内置 ~207MB）**
+- 三阶段流水线：det → cls → rec，对齐 RapidOCR Python 实现
+- det：DBPostProcess（thresh=0.3, box_thresh=0.5, unclip_ratio=1.6），JTS BufferOp 替代 pyclipper
+- cls：PP-OCRv5 shape=[3,80,160]，score>0.9 旋转 180°
+- rec：CTCLabelDecode（blank=0, remove_duplicate），单行识别
+- rec 模型按语言懒加载：zh(81MB)、ja(9.4MB)、en(8.6MB)、ko(23MB)
+- `getRotateCropImage`：DLT 透视变换 + 竖排自动旋转 90°
+- 所有模型输入名均为 `x`，ONNX Runtime Android 1.19.0
+- 引擎类：`PPOcrV5Engine.kt`（singleton object）
+- 字典加载：blank 插入 index 0，space 插入末尾
 
 **CTD（Comic Text Detector）— 文字检测（需下载，~94MB）**
 - 用途：检测漫画/图片中的文字行区域，输出旋转四边形（保留文字倾斜角度）
@@ -104,7 +118,7 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 - 下载地址：`https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx`
 - 参考：`.reference/comic-text-detector-master/`
 
-**RT-DETR v2（文字/气泡检测器）— 待集成**
+**RT-DETR v2（文字/气泡检测器）— 已集成**
 - 用途：同时检测文字和对话气泡，区分气泡内文字和自由文字
 - 适用场景：漫画翻译（需要区分对话气泡和旁白），支持日漫、韩漫、美漫
 - 输入：640×640
@@ -155,7 +169,7 @@ suspend fun downloadModel(
 
 | 来源 | 路径 | 模型 |
 |------|------|------|
-| `assets/` | APK 内置 | 48px_ctc（CTC OCR） |
+| `assets/` | APK 内置 | PP-OCRv5 全套（det+cls+rec 4语言，~207MB） |
 | `filesDir/` | `/data/.../files/<modelDir>/` | CTD、manga-ocr（需下载，可删除） |
 
 初始化时检查顺序：`filesDir` 优先 → `assets` 回退。见各检测器 `initialize()` 方法。
@@ -199,24 +213,26 @@ suspend fun downloadModel(
 - `TranslateBridge` 从 `CustomPreference` 读取配置，实例化对应的 `TranslationTextAPI`
 
 ### 漫画模块
-**文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`DBNetDetector.kt`/`DBNetPostProcessor.kt`（DBNet 检测）、`MangaOcrRecognizer.kt`/`MangaOcrBridge.kt`（manga-ocr ONNX 推理）、`CtcOcrRecognizer.kt`（48px_ctc 推理）、`MangaOcrDownloadManager.kt`（版本管理）、`ModelDownloadManager.kt`（统一下载器）、`BoxMerger.kt`/`BubbleMerger.kt`（合并）、`QuadBox.kt`（旋转四边形）、`OverlayRenderer.kt`（渲染）
+**文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrRecognizer.kt`/`MangaOcrBridge.kt`（manga-ocr ONNX 推理）、`MangaOcrDownloadManager.kt`（版本管理）、`ModelDownloadManager.kt`（统一下载器）、`BoxMerger.kt`/`BubbleMerger.kt`（合并）、`QuadBox.kt`（旋转四边形）、`OverlayRenderer.kt`（渲染）
 
 **检测引擎（DetEngine 枚举）：**
-- `CTD` — CTD 检测 + 指定 OCR 引擎，保留旋转四边形信息
-- `HYBRID` — CTD 检测 + 混合 OCR（合并组→manga-ocr，单框→CTC）
-- `DBNET` — DBNet 检测 + 指定 OCR 引擎
-- `MLKIT` — ML Kit 检测+识别，一体化
+- `MLKIT(0)` — ML Kit 检测+识别一体化（默认值已改为 PP-OCRv5）
+- `CTD(1)` — CTD 检测 + 指定 OCR 引擎，保留旋转四边形信息
+- `RT_DETR_V2(3)` — RT-DETR-V2 气泡/文字检测 + 指定 OCR 引擎
+- `PP_OCR_V5(4)` — PP-OCRv5 独立 det+cls+rec 全流水线（**默认**）
 
 **OCR 引擎（OcrEngine 枚举）：**
-- `MLKit` — ML Kit 识别，逐个调用，支持 language 参数
-- `MangaOcr` — manga-ocr 识别，`recognizeBatch` 内部逐个调用（resize 224x224 扭曲问题未解决），过滤纯符号
-- `CTCOcr` — 48px_ctc 识别，真正 batch（CTC 支持可变高度），过滤纯符号
+- `MLKit(0)` — ML Kit 识别
+- `MangaOcr(1)` — manga-ocr 识别
+- `PPOcrV5(4)` — PP-OCRv5 识别（**默认**）
 
 **检测引擎特点：**
-- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎，统一入口，对漫画竖排文字更精确
-- `detectWithCTDHybrid` — CTD + 混合模式，合并组走 manga-ocr，单框走 CTC
-- `detectWithDBNet` — DBNet 检测 + OCR 后合并，支持批量识别
-- `detectWithMLKit` — ML Kit 检测+识别，一体化，返回轴对齐矩形
+- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎；**PP-OCRv5 路径跳过 BoxMerger 合并**（rec 是单行模型，合并反而变差）
+- `detectWithRTDetrV2` — RT-DETR-V2 气泡检测 + 指定 OCR 引擎
+- `detectWithMLKit` — ML Kit 检测+识别一体化
+- `detectWithPPOcrV5` — PP-OCRv5 独立 det+cls+rec 全流水线
+
+**Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径，其余正常翻译。
 
 **参考项目：** `.reference/manga-image-translator/` — manga-image-translator 官方源码，textline_merge/__init__.py 是核心参考
 
@@ -233,7 +249,7 @@ suspend fun downloadModel(
 - `detectQuadBoxes` 返回旋转四边形（含 font_size、angle），用于精确 merge
 - `canMergeWithDynamicThreshold` 对齐 manga-image-translator 过滤器模式
 - 使用 QuadBox 结构线计算真实 font_size，而非 AABB 代理
-- CTD 模型内置 `assets/ctd/`，首次使用自动复制到 cache
+- CTD 模型需下载（~94MB），存储在 `filesDir/ctd/`，DETECT_SIZE=1024
 
 **翻译流程：** 截图 → OCR（ML Kit 带位置信息）→ 气泡检测（聚类文字块）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
 
@@ -271,7 +287,7 @@ suspend fun downloadModel(
 logcat 过滤器（按 `|` 分隔，不需要 Regex）：
 
 ```
-tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:CtcOcrRecognizer | tag:DBNetDetector | tag:DBNetPostProcessor | tag:OCRTextRecognizer
+tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer
 ```
 
 | tag | 模块 |
@@ -280,9 +296,9 @@ tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:Det
 | `CTDDetector` | CTD 检测 |
 | `CTDPostProcessor` | CTD 后处理 |
 | `DetectionBridge` | 检测桥接 |
+| `PPOcrV5Engine` | PP-OCRv5 引擎（det+cls+rec） |
 | `MangaOcrBridge` | manga-ocr 桥接 |
 | `MangaOcrRecognizer` | manga-ocr 识别 |
-| `CtcOcrRecognizer` | 48px_ctc 识别 |
 | `BubbleDetector` | 气泡检测 |
 | `OverlayRenderer` | 渲染 |
 
