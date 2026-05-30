@@ -27,7 +27,8 @@ enum class TextDirection {
 enum class DetEngine(val value: Int) {
     MLKIT(0),
     CTD(1),
-    HYBRID(2);
+    HYBRID(2),
+    RT_DETR_V2(3);
 
     companion object {
         fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKIT
