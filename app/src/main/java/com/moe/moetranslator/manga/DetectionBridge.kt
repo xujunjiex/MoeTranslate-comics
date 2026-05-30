@@ -184,9 +184,9 @@ object DetectionBridge {
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
             val PADDING = 10
-            // PP-OCRv5 rec 是单行模型，跳过合并；其他引擎需要合并多行
+            // PP-OCRv5 rec 是单行模型，跳过合并 + 使用透视校正裁剪；其他引擎需要合并 + AABB 裁剪
             val (groups, expandedRects) = if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                // 跳过合并：每个 QuadBox 独立裁剪
+                // 跳过合并：每个 QuadBox 独立，使用 QuadBox AABB 作为位置参考
                 val rects = quadBoxes.map { qb ->
                     val aabb = qb.aabb
                     Rect(
@@ -220,8 +220,16 @@ object DetectionBridge {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终区域[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
             }
 
-            // 裁剪图片
-            val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+            // 裁剪图片：PPOcrV5 使用透视校正裁剪（利用 QuadBox 角点），其他使用 AABB 裁剪
+            val croppedBitmaps: List<Bitmap>
+            if (ocrEngine == CTDOCREngine.PPOcrV5) {
+                // 透视校正裁剪：DLT 单应矩阵 + warpPerspective + 竖排自动旋转 90°
+                croppedBitmaps = quadBoxes.map { qb ->
+                    PPOcrV5Engine.getRotateCropImage(bitmap, qb.pts)
+                }
+            } else {
+                croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
+            }
 
             // OCR 识别
             val globalIsVertical = quadBoxes.count { it.aspectRatio > 1f } > quadBoxes.size / 2
@@ -273,13 +281,16 @@ object DetectionBridge {
                             val result = texts.getOrElse(i) { RecResult("", 0f) }
                             if (result.text.isNotBlank() && result.score >= 0.5f) {
                                 val rect = expandedRects[i]
+                                val isVertical = quadBoxes.getOrNull(i)?.isVertical ?: globalIsVertical
                                 results.add(TextBlockInfo(
                                     text = result.text,
                                     boundingBox = rect,
                                     cornerPoints = null,
-                                    isVertical = globalIsVertical
+                                    isVertical = isVertical
                                 ))
-                                LogCollector.d(TAG, "CTD(PPOcrV5) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='${result.text}', score=${String.format("%.3f", result.score)}, isVertical=$globalIsVertical")
+                                LogCollector.d(TAG, "CTD(PPOcrV5) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='${result.text}', score=${String.format("%.3f", result.score)}, isVertical=$isVertical")
+                            } else {
+                                LogCollector.d(TAG, "CTD(PPOcrV5) 未识别[$i]: text='${result.text}', score=${String.format("%.3f", result.score)}, crop=${croppedBitmaps[i].width}x${croppedBitmaps[i].height}")
                             }
                         }
                     } else {
