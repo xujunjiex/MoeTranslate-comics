@@ -193,11 +193,15 @@ MangaFloatingService.processMangaScreenshot()
     → CTD 检测 → BoxMerger 合并 → 裁剪
     → PPOcrV5Engine.rec(croppedBitmaps)
       → for each bitmap:
+          crop = getRotateCropImage(bitmap, box)  ← 透视校正 + 竖排旋转90°
           cls: resize_norm_img → ONNX → rotate if 180°
           rec: resize_norm_img → ONNX → CTCLabelDecode → text
       → List<String>
     → TextBlockInfo
 ```
+
+注意：`rec()` 输入是 CTD/RT-DETR-V2 裁剪的轴对齐 Bitmap，不做 `get_rotate_crop_image`。
+CTD 已有 QuadBox 透视校正逻辑在 `DetectionBridge.prepareCtcInputs` 中，这里复用即可。
 
 ---
 
@@ -249,6 +253,44 @@ MangaFloatingService.processMangaScreenshot()
 - rec_results: 每个框的识别文字和置信度
 
 在 MangaFloatingService 中可通过 debug 模式触发，绘制检测框到图片上显示。
+
+---
+
+## 漫画场景流程分析
+
+对照官方 `run_ocr_steps` 完整流程，标注漫画场景下的执行策略：
+
+```
+官方流程：
+  ori_img
+    → preprocess_img (resize_image_within_bounds)     ← 必须做，坐标映射依赖
+    → detect_and_crop:
+        → apply_vertical_padding                      ← 漫画跳过：width_height_ratio=-1 默认关闭
+        → text_det (det ONNX)                         ← 必须
+        → crop_text_regions (get_rotate_crop_image)   ← 必须：透视校正 + 竖排旋转90°
+    → cls_and_rotate                                  ← 必须：处理倒排文字(180°)
+    → recognize_txt                                   ← 必须
+    → build_final_output:
+        → map_boxes_to_original                       ← 必须：坐标映射回原图
+        → filter empty rec results                    ← 必须
+        → calc_word_boxes (return_word_box)            ← 漫画跳过：不需要逐字坐标
+        → filter_by_text_score                        ← 必须：过滤低置信度
+```
+
+| 步骤 | 漫画场景 | 原因 |
+|------|:---:|------|
+| `preprocess_img` | ✅ 执行 | det 在缩小图上跑更快 |
+| `apply_vertical_padding` | ⏭️ 跳过 | `width_height_ratio=-1` 默认关闭，漫画截图不窄 |
+| `text_det` | ✅ 执行 | 核心检测 |
+| `get_rotate_crop_image` | ✅ 执行 | 透视校正 + **竖排文字自动旋转 90°**（漫画关键） |
+| `cls_and_rotate` | ✅ 执行 | 检测倒排文字(180°) |
+| `recognize_txt` | ✅ 执行 | 核心识别 |
+| `map_boxes_to_original` | ✅ 执行 | 坐标映射 |
+| `filterByTextScore` | ✅ 执行 | 过滤低分结果 |
+| `calcWordBoxes` | ⏭️ 跳过 | 不传 `return_word_box` 即可 |
+| `drawDetBoxes` (VisRes) | ⏭️ 跳过 | 默认不启用，debug 时启用 |
+
+所有功能全部实现，漫画场景默认执行的跳过项通过参数控制（`width_height_ratio=-1`、`return_word_box=false`）。
 
 ---
 
