@@ -178,6 +178,15 @@ class Developer : Fragment() {
                 showToast("ML Kit 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
+
+        // PP-OCRv5 调试开关
+        binding.ppocrv5DebugSwitch.isChecked = prefs.getBoolean("PPOcrV5_Debug_View", false)
+        binding.ppocrv5DebugSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("PPOcrV5_Debug_View", isChecked)
+            if (isChecked) {
+                showToast("PP-OCRv5 调试模式已开启，请在漫画翻译界面截图测试")
+            }
+        }
     }
 
     private fun showToast(message: String) {

@@ -1105,6 +1105,24 @@ class MangaFloatingService : LifecycleService() {
                 return
             }
 
+            // PP-OCRv5 调试模式：det+cls+rec 全流程，用 visRes 可视化
+            if (prefs.getBoolean("PPOcrV5_Debug_View", false)) {
+                LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
+                initPPOcrV5IfNeeded()
+                val recLang = PPOcrV5Engine.getRecLang(config.sourceLang)
+                if (recLang != null) {
+                    val ocrResult = withContext(Dispatchers.IO) {
+                        PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = true)
+                    }
+                    LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}")
+                    showPPOcrV5DebugView(bitmap, ocrResult)
+                } else {
+                    LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
+                    showToast("PP-OCRv5 不支持语言: ${config.sourceLang}")
+                }
+                return
+            }
+
             // 确保选中的模型已初始化
             when (config.detEngine) {
                 DetEngine.CTD -> initCTDIfNeeded()
@@ -2103,6 +2121,92 @@ class MangaFloatingService : LifecycleService() {
                 isResultShowing = true
             } catch (e: Exception) {
                 LogCollector.e(TAG, "ML Kit Debug: 显示失败", e)
+            }
+        }
+    }
+
+    /**
+     * PP-OCRv5 调试模式：使用 visRes 渲染检测+识别结果并显示
+     */
+    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult) {
+        val debugBitmap = PPOcrV5Engine.visRes(bitmap, ocrResult)
+        showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult)
+    }
+
+    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            if (isResultShowing) {
+                dismissResultOverlay()
+            }
+            dismissProgressOverlay()
+
+            val overlayView = android.widget.FrameLayout(this@MangaFloatingService)
+            val imageView = android.widget.ImageView(this@MangaFloatingService).apply {
+                setImageBitmap(debugBitmap)
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = true
+            }
+
+            // 底部信息栏
+            val infoText = android.widget.TextView(this@MangaFloatingService).apply {
+                text = buildString {
+                    appendLine("PP-OCRv5 调试模式")
+                    appendLine("检测框: ${ocrResult.boxes.size}  识别结果: ${ocrResult.texts.size}")
+                    appendLine("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
+                        "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
+                        "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
+                        "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
+                    appendLine("")
+                    for (i in ocrResult.texts.indices) {
+                        val text = ocrResult.texts[i]
+                        val score = ocrResult.scores.getOrElse(i) { 0f }
+                        val box = ocrResult.boxes.getOrNull(i)
+                        val boxStr = if (box != null && box.size >= 8) {
+                            "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
+                        } else ""
+                        appendLine("[$i] ${String.format("%.2f", score)} $boxStr \"$text\"")
+                    }
+                }
+                textSize = 11f
+                setTextColor(android.graphics.Color.WHITE)
+                setBackgroundColor(android.graphics.Color.argb(220, 0, 0, 0))
+                setPadding(16, 16, 16, 16)
+            }
+
+            val scrollView = android.widget.ScrollView(this@MangaFloatingService).apply {
+                addView(infoText)
+            }
+
+            overlayView.addView(imageView, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            overlayView.addView(scrollView, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                600
+            ).apply { gravity = android.view.Gravity.BOTTOM })
+
+            overlayView.setOnClickListener {
+                try {
+                    windowManager.removeView(overlayView)
+                    isResultShowing = false
+                    debugBitmap.recycle()
+                } catch (e: Exception) { }
+            }
+
+            val params = android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                android.graphics.PixelFormat.TRANSLUCENT
+            )
+
+            try {
+                windowManager.addView(overlayView, params)
+                isResultShowing = true
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
             }
         }
     }
