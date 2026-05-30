@@ -154,8 +154,11 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // ONNX 会话
     // -----------------------------------------------------------------------
+    @Volatile
     private var ortEnv: OrtEnvironment? = null
+    @Volatile
     private var detSession: OrtSession? = null
+    @Volatile
     private var clsSession: OrtSession? = null
     private val recSessions = EnumMap<RecLang, OrtSession>(RecLang::class.java)
 
@@ -169,6 +172,9 @@ object PPOcrV5Engine {
     // rec 会话加载锁
     private val recLocks = EnumMap<RecLang, Any>(RecLang::class.java)
 
+    // 初始化/释放锁
+    private val lock = Any()
+
     // ========================================================================
     // 初始化 / 释放
     // ========================================================================
@@ -178,52 +184,54 @@ object PPOcrV5Engine {
      * rec 会话按需懒加载（首次调用 [getRecSession] 时）。
      */
     fun initialize(context: Context) {
-        if (isInitialized) return
+        synchronized(lock) {
+            if (isInitialized) return
 
-        try {
-            LogCollector.d(TAG, "开始初始化 PP-OCRv5 引擎...")
-
-            ortEnv = OrtEnvironment.getEnvironment()
-
-            val sessionOpts = OrtSession.SessionOptions().apply {
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                setMemoryPatternOptimization(true)
-                setCPUArenaAllocator(true)
-                setIntraOpNumThreads(4)
-            }
-
-            // det
-            LogCollector.d(TAG, "加载 det 模型...")
-            val detBytes = context.assets.open("ppocrv5/det_v5.onnx").use { it.readBytes() }
-            detSession = ortEnv!!.createSession(detBytes, sessionOpts)
-            LogCollector.d(TAG, "det 模型加载完成")
-
-            // cls（可选）
             try {
-                LogCollector.d(TAG, "加载 cls 模型...")
-                val clsBytes = context.assets.open("ppocrv5/cls.onnx").use { it.readBytes() }
-                clsSession = ortEnv!!.createSession(clsBytes, sessionOpts)
-                LogCollector.d(TAG, "cls 模型加载完成")
+                LogCollector.d(TAG, "开始初始化 PP-OCRv5 引擎...")
+
+                ortEnv = OrtEnvironment.getEnvironment()
+
+                val sessionOpts = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setIntraOpNumThreads(4)
+                }
+
+                // det
+                LogCollector.d(TAG, "加载 det 模型...")
+                val detBytes = context.assets.open("ppocrv5/det_v5.onnx").use { it.readBytes() }
+                detSession = ortEnv!!.createSession(detBytes, sessionOpts)
+                LogCollector.d(TAG, "det 模型加载完成")
+
+                // cls（可选）
+                try {
+                    LogCollector.d(TAG, "加载 cls 模型...")
+                    val clsBytes = context.assets.open("ppocrv5/cls.onnx").use { it.readBytes() }
+                    clsSession = ortEnv!!.createSession(clsBytes, sessionOpts)
+                    LogCollector.d(TAG, "cls 模型加载完成")
+                } catch (e: Exception) {
+                    LogCollector.w(TAG, "cls 模型不可用，将跳过方向分类: ${e.message}")
+                    clsSession = null
+                }
+
+                // 初始化 rec 锁
+                for (lang in RecLang.entries) {
+                    recLocks[lang] = Any()
+                }
+
+                // 字典
+                loadDictionary(context)
+
+                isInitialized = true
+                LogCollector.d(TAG, "PP-OCRv5 引擎初始化完成")
+
             } catch (e: Exception) {
-                LogCollector.w(TAG, "cls 模型不可用，将跳过方向分类: ${e.message}")
-                clsSession = null
+                LogCollector.e(TAG, "PP-OCRv5 初始化失败", e)
+                release()
+                throw e
             }
-
-            // 初始化 rec 锁
-            for (lang in RecLang.values()) {
-                recLocks[lang] = Any()
-            }
-
-            // 字典
-            loadDictionary(context)
-
-            isInitialized = true
-            LogCollector.d(TAG, "PP-OCRv5 引擎初始化完成")
-
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "PP-OCRv5 初始化失败", e)
-            release()
-            throw e
         }
     }
 
@@ -262,7 +270,7 @@ object PPOcrV5Engine {
     private fun loadDictionary(context: Context) {
         val dicts = mutableMapOf<RecLang, List<String>>()
 
-        for (lang in RecLang.values()) {
+        for (lang in RecLang.entries) {
             try {
                 val lines = context.assets.open(lang.dictFile())
                     .bufferedReader()
@@ -288,20 +296,22 @@ object PPOcrV5Engine {
      * 释放所有资源
      */
     fun release() {
-        try {
-            detSession?.close()
-            clsSession?.close()
-            recSessions.values.forEach { try { it.close() } catch (_: Exception) {} }
-            ortEnv?.close()
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "释放资源失败", e)
-        } finally {
-            detSession = null
-            clsSession = null
-            recSessions.clear()
-            ortEnv = null
-            dictionary = emptyMap()
-            isInitialized = false
+        synchronized(lock) {
+            try {
+                detSession?.close()
+                clsSession?.close()
+                recSessions.values.forEach { try { it.close() } catch (_: Exception) {} }
+                ortEnv?.close()
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "释放资源失败", e)
+            } finally {
+                detSession = null
+                clsSession = null
+                recSessions.clear()
+                ortEnv = null
+                dictionary = emptyMap()
+                isInitialized = false
+            }
         }
     }
 
@@ -400,7 +410,7 @@ object PPOcrV5Engine {
         predW: Int,
         srcH: Int,
         srcW: Int
-    ): List<FloatArray> {
+    ): BoxScoreResult {
         // 1. 阈值化
         val cBitmap = Bitmap.createBitmap(predW, predH, Bitmap.Config.ARGB_8888)
         for (i in 0 until predH * predW) {
@@ -412,7 +422,7 @@ object PPOcrV5Engine {
         val contours = findContours(cBitmap, predW, predH)
         cBitmap.recycle()
 
-        if (contours.isEmpty()) return emptyList()
+        if (contours.isEmpty()) return BoxScoreResult(emptyList(), emptyList())
 
         // 3. 限制候选数量
         val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
@@ -434,6 +444,9 @@ object PPOcrV5Engine {
             // 概率评分
             val score = boxScoreFast(pred, predW, predH, boxPoints)
 
+            // box_thresh 过滤：低于阈值的候选框直接跳过
+            if (score < DET_BOX_THRESH) continue
+
             // unclip
             val unclipBoxes = unclip(boxPoints, DET_UNCLIP_RATIO)
             for (ub in unclipBoxes) {
@@ -452,17 +465,22 @@ object PPOcrV5Engine {
         return filterDetRes(boxes, scores, srcH, srcW)
     }
 
+    private data class BoxScoreResult(
+        val boxes: List<FloatArray>,
+        val scores: List<Float>
+    )
+
     /**
      * 过滤检测结果：裁剪到图像范围 + 最小尺寸检查
      */
-    @Suppress("UNUSED_PARAMETER")
     private fun filterDetRes(
         boxes: List<FloatArray>,
         scores: List<Float>,
         h: Int,
         w: Int
-    ): List<FloatArray> {
-        val result = mutableListOf<FloatArray>()
+    ): BoxScoreResult {
+        val resultBoxes = mutableListOf<FloatArray>()
+        val resultScores = mutableListOf<Float>()
         for (i in boxes.indices) {
             val box = boxes[i]
             val clipped = FloatArray(8)
@@ -485,10 +503,11 @@ object PPOcrV5Engine {
             val boxHeight = max(heightA, heightB)
 
             if (boxWidth >= DET_MIN_SIZE && boxHeight >= DET_MIN_SIZE) {
-                result.add(clipped)
+                resultBoxes.add(clipped)
+                if (i < scores.size) resultScores.add(scores[i])
             }
         }
-        return result
+        return BoxScoreResult(resultBoxes, resultScores)
     }
 
     // -----------------------------------------------------------------------
@@ -843,7 +862,8 @@ object PPOcrV5Engine {
         // 3. 透视变换
         val srcArr = points.map { floatArrayOf(it.x, it.y) }.toTypedArray()
         val dstArr = dstPts.map { floatArrayOf(it.x, it.y) }.toTypedArray()
-        val H = computePerspectiveTransform(srcArr, dstArr) ?: return bitmap
+        val H = computePerspectiveTransform(srcArr, dstArr)
+            ?: return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
 
         // 4. Warp
         val cropImg = warpPerspective(bitmap, H, maxWidth, maxHeight)
@@ -1072,17 +1092,21 @@ object PPOcrV5Engine {
         val results = session.run(mapOf("x" to inputTensor))
         inputTensor.close()
 
-        var outputTensor: OnnxTensor? = null
-        for (name in session.outputNames) {
-            val value = results.get(name)
-            if (value.isPresent && value.get() is OnnxTensor) {
-                outputTensor = value.get() as OnnxTensor
-                break
+        var outputData: FloatArray
+        try {
+            var outputTensor: OnnxTensor? = null
+            for (name in session.outputNames) {
+                val value = results.get(name)
+                if (value.isPresent && value.get() is OnnxTensor) {
+                    outputTensor = value.get() as OnnxTensor
+                    break
+                }
             }
+            outputData = outputTensor!!.floatBuffer.array()
+            outputTensor.close()
+        } finally {
+            results.close()
         }
-        val outputData = outputTensor!!.floatBuffer.array()
-        outputTensor.close()
-        results.close()
 
         // 后处理：恢复原始顺序
         val sortedResults = (0 until batchSize).map { i ->
@@ -1200,21 +1224,26 @@ object PPOcrV5Engine {
             val results = session.run(mapOf("x" to inputTensor))
             inputTensor.close()
 
-            var batchOutputTensor: OnnxTensor? = null
-            for (name in session.outputNames) {
-                val value = results.get(name)
-                if (value.isPresent && value.get() is OnnxTensor) {
-                    batchOutputTensor = value.get() as OnnxTensor
-                    break
+            var outputData: FloatArray
+            var seqLen: Int
+            var numClasses: Int
+            try {
+                var batchOutputTensor: OnnxTensor? = null
+                for (name in session.outputNames) {
+                    val value = results.get(name)
+                    if (value.isPresent && value.get() is OnnxTensor) {
+                        batchOutputTensor = value.get() as OnnxTensor
+                        break
+                    }
                 }
+                outputData = batchOutputTensor!!.floatBuffer.array()
+                val outputShape = batchOutputTensor.info.shape // [batch, seq_len, num_classes]
+                batchOutputTensor.close()
+                seqLen = outputShape[1].toInt()
+                numClasses = outputShape[2].toInt()
+            } finally {
+                results.close()
             }
-            val outputData = batchOutputTensor!!.floatBuffer.array()
-            val outputShape = batchOutputTensor.info.shape // [batch, seq_len, num_classes]
-            batchOutputTensor.close()
-            results.close()
-
-            val seqLen = outputShape[1].toInt()
-            val numClasses = outputShape[2].toInt()
 
             // CTCLabelDecode per sample
             for (j in 0 until batchSize) {
@@ -1476,24 +1505,27 @@ object PPOcrV5Engine {
         val results = detSession!!.run(mapOf("x" to inputTensor))
         inputTensor.close()
 
-        var detOutputTensor: OnnxTensor? = null
-        for (name in detSession!!.outputNames) {
-            val value = results.get(name)
-            if (value.isPresent && value.get() is OnnxTensor) {
-                detOutputTensor = value.get() as OnnxTensor
-                break
+        try {
+            var detOutputTensor: OnnxTensor? = null
+            for (name in detSession!!.outputNames) {
+                val value = results.get(name)
+                if (value.isPresent && value.get() is OnnxTensor) {
+                    detOutputTensor = value.get() as OnnxTensor
+                    break
+                }
             }
+            val outputData = detOutputTensor!!.floatBuffer.array()
+            val outputShape = detOutputTensor.info.shape // [1, 1, H, W]
+            detOutputTensor.close()
+
+            val predH = outputShape[2].toInt()
+            val predW = outputShape[3].toInt()
+            val pred = outputData.sliceArray(0 until predH * predW)
+
+            return postprocessDet(pred, predH, predW, bitmap.height, bitmap.width).boxes
+        } finally {
+            results.close()
         }
-        val outputData = detOutputTensor!!.floatBuffer.array()
-        val outputShape = detOutputTensor.info.shape // [1, 1, H, W]
-        detOutputTensor.close()
-        results.close()
-
-        val predH = outputShape[2].toInt()
-        val predW = outputShape[3].toInt()
-        val pred = outputData.sliceArray(0 until predH * predW)
-
-        return postprocessDet(pred, predH, predW, bitmap.height, bitmap.width)
     }
 
     /**
@@ -1572,30 +1604,30 @@ object PPOcrV5Engine {
     // visRes: 可视化
     // ========================================================================
 
+    private val boxPaint = Paint().apply {
+        color = Color.GREEN
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
+
+    private val textPaint = Paint().apply {
+        color = Color.RED
+        textSize = 24f
+        isAntiAlias = true
+    }
+
+    private val bgPaint = Paint().apply {
+        color = Color.argb(180, 0, 0, 0)
+        style = Paint.Style.FILL
+    }
+
     /**
      * 在图片上绘制检测框和文字标签。
      */
     fun visRes(bitmap: Bitmap, result: OcrResult): Bitmap {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
-
-        val boxPaint = Paint().apply {
-            color = Color.GREEN
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            isAntiAlias = true
-        }
-
-        val textPaint = Paint().apply {
-            color = Color.RED
-            textSize = 24f
-            isAntiAlias = true
-        }
-
-        val bgPaint = Paint().apply {
-            color = Color.argb(180, 0, 0, 0)
-            style = Paint.Style.FILL
-        }
 
         for (i in result.boxes.indices) {
             val box = result.boxes[i]
@@ -1718,19 +1750,21 @@ object PPOcrV5Engine {
         minSideLen: Int = 30,
         maxSideLen: Int = 960
     ): Triple<Bitmap, Float, Float> {
-        var result = bitmap
+        var result: Bitmap
         var ratioH = 1f
         var ratioW = 1f
 
         // 缩小：最大边超出
-        val maxSide = max(result.width, result.height)
+        val maxSide = max(bitmap.width, bitmap.height)
         if (maxSide > maxSideLen) {
             val ratio = maxSideLen.toFloat() / maxSide
-            val newW = (result.width * ratio).roundToInt().coerceAtLeast(1)
-            val newH = (result.height * ratio).roundToInt().coerceAtLeast(1)
-            result = Bitmap.createScaledBitmap(result, newW, newH, true)
+            val newW = (bitmap.width * ratio).roundToInt().coerceAtLeast(1)
+            val newH = (bitmap.height * ratio).roundToInt().coerceAtLeast(1)
+            result = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
             ratioH *= ratio
             ratioW *= ratio
+        } else {
+            result = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
         }
 
         // 放大：最小边不足
@@ -1739,7 +1773,9 @@ object PPOcrV5Engine {
             val ratio = minSideLen.toFloat() / minSide
             val newW = (result.width * ratio).roundToInt().coerceAtLeast(1)
             val newH = (result.height * ratio).roundToInt().coerceAtLeast(1)
-            result = Bitmap.createScaledBitmap(result, newW, newH, true)
+            val scaled = Bitmap.createScaledBitmap(result, newW, newH, true)
+            if (scaled !== result) result.recycle()
+            result = scaled
             ratioH *= ratio
             ratioW *= ratio
         }
