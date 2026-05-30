@@ -60,32 +60,44 @@ object CTDDetector {
     /**
      * 初始化模型
      */
-    suspend fun initialize(context: Context, modelDir: String = "ctd", useAssets: Boolean = true) {
+    suspend fun initialize(context: Context) {
         if (isInitialized) return
 
         try {
             LogCollector.d(TAG, "开始初始化 CTD 模型...")
 
+            // 检查模型是否存在
+            if (!CTDModelManager.isModelInFilesDir(context)) {
+                LogCollector.e(TAG, "CTD 模型未下载，请先下载")
+                throw IllegalStateException("CTD model not downloaded")
+            }
+
+            val modelPath = CTDModelManager.getFilesDirModelFile(context).absolutePath
+            LogCollector.d(TAG, "从 filesDir 加载 CTD 模型: $modelPath")
+
             ortEnv = OrtEnvironment.getEnvironment()
 
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                setMemoryPatternOptimization(true)
-                setCPUArenaAllocator(true)
-                setIntraOpNumThreads(4)
+            // 尝试 NNAPI 硬件加速，失败则回退 CPU+多线程
+            session = try {
+                val nnapiOptions = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    addNnapi()
+                }
+                LogCollector.d(TAG, "CTD NNAPI 加速已启用")
+                ortEnv!!.createSession(modelPath, nnapiOptions)
+            } catch (e: Exception) {
+                LogCollector.d(TAG, "CTD NNAPI 不可用，回退 CPU: ${e.message}")
+                val cpuOptions = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setIntraOpNumThreads(4)
+                }
+                ortEnv!!.createSession(modelPath, cpuOptions)
             }
-
-            val modelPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/${CTDModelManager.getModelFileName()}")
-            } else {
-                "$modelDir/${CTDModelManager.getModelFileName()}"
-            }
-
-            session = ortEnv!!.createSession(modelPath, sessionOptions)
             LogCollector.d(TAG, "CTD 模型加载完成")
-
-            isInitialized = true
-            LogCollector.d(TAG, "CTD 模型初始化完成")
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "CTD 初始化失败", e)

@@ -7,11 +7,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
+import com.moe.moetranslator.manga.CTDModelManager
 import com.moe.moetranslator.manga.MangaOcrDownloadManager
 import com.moe.moetranslator.manga.ModelDownloadManager
 import com.moe.moetranslator.utils.LogCollector
@@ -25,6 +27,10 @@ class ModelManagementFragment : Fragment() {
     private val TAG = "ModelManagementFragment"
     private lateinit var rootView: View
     private val handler = Handler(Looper.getMainLooper())
+
+    // CTD 下载相关
+    private var ctdDownloadJob: Job? = null
+    private var ctdIsCancelled = false
 
     // manga-ocr 下载相关
     private var mangaOcrDownloadJob: Job? = null
@@ -42,7 +48,120 @@ class ModelManagementFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        updateCtdStatus()
         updateMangaOcrStatus()
+    }
+
+    // ========== CTD 下载相关 ==========
+
+    private fun updateCtdStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.ctd_status)
+        val actionBtn = rootView.findViewById<Button>(R.id.ctd_action_button)
+        val progressBar = rootView.findViewById<ProgressBar>(R.id.ctd_progress)
+
+        val isDownloaded = CTDModelManager.isModelAvailable(requireContext())
+        val isDownloading = ctdDownloadJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                actionBtn.setOnClickListener { cancelCtdDownload() }
+                progressBar.visibility = View.VISIBLE
+            }
+            isDownloaded -> {
+                val size = CTDModelManager.getModelSizeString(requireContext())
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                actionBtn.setOnClickListener { showCtdDeleteConfirmDialog() }
+                progressBar.visibility = View.GONE
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                actionBtn.setOnClickListener { startCtdDownload() }
+                progressBar.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun cancelCtdDownload() {
+        ctdIsCancelled = true
+        ctdDownloadJob?.cancel()
+        ctdDownloadJob = null
+        LogCollector.d(TAG, "CTD 下载已取消")
+        updateCtdStatus()
+    }
+
+    private fun startCtdDownload() {
+        ctdIsCancelled = false
+        ctdDownloadJob = lifecycleScope.launch(Dispatchers.IO) {
+            LogCollector.d(TAG, "开始下载 CTD 模型...")
+            try {
+                val result = CTDModelManager.downloadModel(
+                    requireContext(),
+                    object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            if (ctdIsCancelled || !isAdded) return
+                            handler.post {
+                                if (ctdIsCancelled || !isAdded) return@post
+                                val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                                val progressBar = rootView.findViewById<ProgressBar>(R.id.ctd_progress)
+                                progressBar.progress = progress
+                                val statusText = rootView.findViewById<TextView>(R.id.ctd_status)
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
+                                statusText.text = "${getString(R.string.model_downloading)} $progress%  ${mbRead}/${mbTotal} MB$speedStr"
+                            }
+                        }
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    ctdDownloadJob = null
+                    if (ctdIsCancelled) return@withContext
+                    if (result.isSuccess) {
+                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.model_download_failed, result.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
+                    }
+                    updateCtdStatus()
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "CTD 下载异常", e)
+                withContext(Dispatchers.Main) {
+                    ctdDownloadJob = null
+                    if (ctdIsCancelled) return@withContext
+                    Toast.makeText(requireContext(), getString(R.string.model_download_failed, e.message), Toast.LENGTH_LONG).show()
+                    updateCtdStatus()
+                }
+            }
+        }
+        updateCtdStatus()
+    }
+
+    private fun showCtdDeleteConfirmDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(R.string.model_delete)
+            .setMessage(getString(R.string.model_delete_confirm, "CTD"))
+            .setPositiveButton(R.string.confirm) { _, _ -> deleteCtdModel() }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    private fun deleteCtdModel() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = CTDModelManager.deleteModel(requireContext())
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
+                }
+                updateCtdStatus()
+            }
+        }
     }
 
     // ========== manga-ocr 下载相关（版本列表）==========
@@ -221,6 +340,8 @@ class ModelManagementFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         handler.removeCallbacksAndMessages(null)
+        ctdDownloadJob?.cancel()
+        ctdDownloadJob = null
         mangaOcrDownloadJob?.cancel()
         mangaOcrDownloadJob = null
         mangaOcrCurrentDownloadingVersion = null

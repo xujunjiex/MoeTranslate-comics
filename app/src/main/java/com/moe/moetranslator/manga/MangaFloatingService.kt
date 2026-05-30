@@ -181,12 +181,12 @@ class MangaFloatingService : LifecycleService() {
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}  // MLKit 无需初始化
             OcrEngine.MangaOcr -> lifecycleScope.launch { ensureMangaOcrInitialized() }
-            OcrEngine.CTCOcr -> initCTCOcr()
+            OcrEngine.PPOcrV4 -> lifecycleScope.launch { initPPOcrV4IfNeeded() }
         }
 
         // 初始化检测引擎
         when (config.detEngine) {
-            DetEngine.CTD, DetEngine.HYBRID -> initCTD()
+            DetEngine.CTD -> initCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> lifecycleScope.launch { initRTDetrV2() }
         }
@@ -204,12 +204,12 @@ class MangaFloatingService : LifecycleService() {
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}
             OcrEngine.MangaOcr -> releaseMangaOcr()
-            OcrEngine.CTCOcr -> releaseCTCOcr()
+            OcrEngine.PPOcrV4 -> releasePPOcrV4()
         }
 
         // 释放检测引擎资源
         when (config.detEngine) {
-            DetEngine.CTD, DetEngine.HYBRID -> releaseCTD()
+            DetEngine.CTD -> releaseCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> releaseRTDetrV2()
         }
@@ -277,41 +277,26 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    private fun initCTCOcr() {
-        lifecycleScope.launch {
-            try {
-                // 检查模型是否已下载
-                if (!CtcOcrModelManager.isModelDownloaded(this@MangaFloatingService)) {
-                    showToast(getString(R.string.model_missing_hint))
-                    return@launch
-                }
-
-                LogCollector.d(TAG, "initCTCOcr: 开始初始化 48px_ctc")
-                CtcOcrRecognizer.initialize(this@MangaFloatingService)
-                LogCollector.d(TAG, "initCTCOcr: 48px_ctc 初始化完成")
-                showToast(getString(R.string.manga_ocr_ctc_init_complete))
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "initCTCOcr: 初始化失败", e)
-                showToast(getString(R.string.manga_ocr_ctc_init_failed, e.message ?: "未知错误"))
-            }
-        }
-    }
-
-    private fun releaseCTCOcr() {
+    private fun releasePPOcrV4() {
         try {
-            LogCollector.d(TAG, "releaseCTCOcr: 释放 48px_ctc 资源")
-            CtcOcrRecognizer.release()
+            LogCollector.d(TAG, "releasePPOcrV4: 释放 PP-OCRv4 rec 资源")
+            PPOcrV4RecRecognizer.release()
         } catch (e: Exception) {
-            LogCollector.e(TAG, "releaseCTCOcr: 释放失败", e)
+            LogCollector.e(TAG, "releasePPOcrV4: 释放失败", e)
         }
     }
 
     private fun initCTD() {
         lifecycleScope.launch {
             try {
+                // 检查模型是否已下载
+                if (!CTDModelManager.isModelAvailable(this@MangaFloatingService)) {
+                    LogCollector.d(TAG, "initCTD: CTD 模型未下载")
+                    showToast("CTD 模型未下载，请先在模型管理中下载")
+                    return@launch
+                }
                 LogCollector.d(TAG, "initCTD: 开始初始化 CTD")
-                val modelDir = CTDModelManager.getModelDir()
-                CTDDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+                CTDDetector.initialize(this@MangaFloatingService)
                 LogCollector.d(TAG, "initCTD: CTD 初始化完成")
                 showToast("CTD 初始化完成")
             } catch (e: Exception) {
@@ -335,11 +320,18 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun initCTDIfNeeded() {
         if (CTDDetector.isInitialized) return
+        // 检查模型是否已下载
+        if (!CTDModelManager.isModelAvailable(this@MangaFloatingService)) {
+            LogCollector.d(TAG, "initCTDIfNeeded: CTD 模型未下载")
+            withContext(Dispatchers.Main) {
+                showToast("CTD 模型未下载，请先在模型管理中下载")
+            }
+            throw IllegalStateException("CTD model not downloaded")
+        }
         try {
             LogCollector.d(TAG, "initCTDIfNeeded: 开始初始化 CTD")
             withContext(Dispatchers.IO) {
-                val modelDir = CTDModelManager.getModelDir()
-                CTDDetector.initialize(this@MangaFloatingService, modelDir, useAssets = true)
+                CTDDetector.initialize(this@MangaFloatingService)
             }
             LogCollector.d(TAG, "initCTDIfNeeded: CTD 初始化完成")
         } catch (e: Exception) {
@@ -428,9 +420,6 @@ class MangaFloatingService : LifecycleService() {
                     return
                 }
             }
-            OcrEngine.CTCOcr -> {
-                // CTCOcr 不走这里
-            }
             else -> {
                 // MLKit 不需要 manga-ocr
                 return
@@ -439,109 +428,22 @@ class MangaFloatingService : LifecycleService() {
         LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 初始化完成")
     }
 
-    /**
-     * 同步初始化 CTCOcr（如果需要），在 processMangaScreenshot 中调用。
-     * 注意：此方法仅初始化已下载的模型，不触发下载。
-     * 模型未下载时由 processMangaScreenshot 中的检查提前返回。
-     */
-    private suspend fun initCTCOcrIfNeeded() {
-        if (CtcOcrRecognizer.isInitialized) return
-
-        // 模型未下载检查已在 processMangaScreenshot 中完成，此处不应发生
-        if (!CtcOcrModelManager.isModelDownloaded(this)) {
-            withContext(Dispatchers.Main) {
-                showToast(getString(R.string.model_missing_hint))
-            }
-            throw RuntimeException("CTCOcr model not downloaded")
-        }
+    private suspend fun initPPOcrV4IfNeeded() {
+        if (PPOcrV4RecRecognizer.isInitialized) return
 
         try {
-            LogCollector.d(TAG, "initCTCOcrIfNeeded: 开始初始化 48px_ctc")
+            LogCollector.d(TAG, "initPPOcrV4IfNeeded: 开始初始化 PP-OCRv4 rec")
             withContext(Dispatchers.IO) {
-                CtcOcrRecognizer.initialize(this@MangaFloatingService)
+                PPOcrV4RecRecognizer.initialize(this@MangaFloatingService)
             }
-            LogCollector.d(TAG, "initCTCOcrIfNeeded: 48px_ctc 初始化完成")
+            LogCollector.d(TAG, "initPPOcrV4IfNeeded: PP-OCRv4 rec 初始化完成")
         } catch (e: Exception) {
-            LogCollector.e(TAG, "initCTCOcrIfNeeded: 初始化失败", e)
+            LogCollector.e(TAG, "initPPOcrV4IfNeeded: 初始化失败", e)
             withContext(Dispatchers.Main) {
-                showToast("48px_ctc 初始化失败: ${e.message}")
+                showToast("PP-OCRv4 初始化失败: ${e.message}")
             }
             throw e
         }
-    }
-
-    /**
-     * 显示 CTCOcr 模型下载进度对话框
-     * @return true 下载成功（包括已下载），false 用户取消
-     */
-    private suspend fun showCTCOcrDownloadDialog(): Boolean = withContext(Dispatchers.Main) {
-        var downloadJob: kotlinx.coroutines.Job? = null
-        var dialogDismissed = false
-        val progressDialog = android.app.AlertDialog.Builder(applicationContext)
-            .setTitle(getString(R.string.manga_ocr_ctc_download_title))
-            .setMessage(getString(R.string.manga_ocr_ctc_download_progress, 0))
-            .setCancelable(true)
-            .setNegativeButton(R.string.user_cancel) { dialog, _ ->
-                dialog.dismiss()
-                dialogDismissed = true
-                downloadJob?.cancel()
-            }
-            .create()
-
-        progressDialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        progressDialog.show()
-
-        var downloadResult: Boolean = false
-        downloadJob = lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val result = CtcOcrModelManager.downloadModel(
-                    context = this@MangaFloatingService,
-                    onProgress = object : ModelDownloadManager.ProgressCallback {
-                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                            val progress = if (totalBytes > 0) {
-                                (bytesRead * 100 / totalBytes).toInt()
-                            } else {
-                                -1
-                            }
-                            handler.post {
-                                if (progress >= 0) {
-                                    progressDialog.setMessage(
-                                        getString(R.string.manga_ocr_ctc_download_progress, progress)
-                                    )
-                                } else {
-                                    val mbRead = bytesRead / (1024 * 1024)
-                                    progressDialog.setMessage(
-                                        getString(R.string.manga_ocr_ctc_download_progress_mb, mbRead)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                )
-                downloadResult = result.isSuccess
-            } catch (e: Exception) {
-                // 下载被取消或失败
-                LogCollector.e(TAG, "CTCOcr download failed", e)
-                downloadResult = false
-                if (e !is kotlinx.coroutines.CancellationException) {
-                    handler.post {
-                        AlertDialog.Builder(applicationContext)
-                            .setTitle(R.string.error_occurred)
-                            .setMessage(e.message ?: "Download failed")
-                            .setPositiveButton(android.R.string.ok, null)
-                            .show()
-                    }
-                }
-            } finally {
-                handler.post {
-                    if (!dialogDismissed) {
-                        progressDialog.dismiss()
-                    }
-                }
-            }
-        }
-        downloadJob!!.join()
-        downloadResult
     }
 
     private fun loadConfig(): MangaModeConfig {
@@ -752,14 +654,13 @@ class MangaFloatingService : LifecycleService() {
         }
         val detModelLabel = when (config.detEngine) {
             DetEngine.CTD -> "CTD"
-            DetEngine.HYBRID -> "HYBRID"
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
             DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
         }
         val ocrEngineLabel = when (config.ocrEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
             OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.CTCOcr -> getString(R.string.manga_ocr_ctc)
+            OcrEngine.PPOcrV4 -> "PP-OCRv4"
         }
 
         val (dialog, listView) = Dialogs.mangaMenuDialog(
@@ -845,11 +746,11 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Menu actions ----------
 
     private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKit -> MangaOcr -> CTCOcr -> MLKit
+        // 循环切换：MLKit -> MangaOcr -> PPOcrV4 -> MLKit
         val newEngine = when (config.ocrEngine) {
             OcrEngine.MLKit -> OcrEngine.MangaOcr
-            OcrEngine.MangaOcr -> OcrEngine.CTCOcr
-            OcrEngine.CTCOcr -> OcrEngine.MLKit
+            OcrEngine.MangaOcr -> OcrEngine.PPOcrV4
+            OcrEngine.PPOcrV4 -> OcrEngine.MLKit
         }
         config = config.copy(ocrEngine = newEngine)
         prefs.setInt("Manga_Rec_Model", newEngine.ordinal)
@@ -858,7 +759,7 @@ class MangaFloatingService : LifecycleService() {
         val label = when (newEngine) {
             OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
             OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.CTCOcr -> getString(R.string.manga_ocr_ctc)
+            OcrEngine.PPOcrV4 -> "PP-OCRv4"
         }
         adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：$label")
 
@@ -866,28 +767,38 @@ class MangaFloatingService : LifecycleService() {
         when (newEngine) {
             OcrEngine.MLKit -> {
                 releaseMangaOcr()
-                releaseCTCOcr()
+                releasePPOcrV4()
                 showToast(getString(R.string.manga_ocr_mlkit))
             }
             OcrEngine.MangaOcr -> {
-                releaseCTCOcr()
+                releasePPOcrV4()
                 showToast(getString(R.string.manga_ocr_initializing))
                 lifecycleScope.launch { ensureMangaOcrInitialized() }
             }
-            OcrEngine.CTCOcr -> {
+            OcrEngine.PPOcrV4 -> {
                 releaseMangaOcr()
-                showToast(getString(R.string.manga_ocr_ctc_initializing))
-                initCTCOcr()
+                showToast("PP-OCRv4 日文识别器")
+                lifecycleScope.launch {
+                    try {
+                        PPOcrV4RecRecognizer.initialize(this@MangaFloatingService)
+                        withContext(Dispatchers.Main) {
+                            showToast("PP-OCRv4 初始化完成")
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            showToast("PP-OCRv4 初始化失败: ${e.message}")
+                        }
+                    }
+                }
             }
         }
     }
 
     private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKIT -> CTD -> HYBRID -> RT_DETR_V2 -> MLKIT
+        // 循环切换：MLKIT -> CTD -> RT_DETR_V2 -> MLKIT
         val newEngine = when (config.detEngine) {
             DetEngine.MLKIT -> DetEngine.CTD
-            DetEngine.CTD -> DetEngine.HYBRID
-            DetEngine.HYBRID -> DetEngine.RT_DETR_V2
+            DetEngine.CTD -> DetEngine.RT_DETR_V2
             DetEngine.RT_DETR_V2 -> DetEngine.MLKIT
         }
         config = config.copy(detEngine = newEngine)
@@ -896,7 +807,6 @@ class MangaFloatingService : LifecycleService() {
         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
         val label = when (newEngine) {
             DetEngine.CTD -> "CTD"
-            DetEngine.HYBRID -> "HYBRID"
             DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
             DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
         }
@@ -906,10 +816,6 @@ class MangaFloatingService : LifecycleService() {
         when (newEngine) {
             DetEngine.CTD -> {
                 showToast("CTD 初始化中...")
-                initCTD()
-            }
-            DetEngine.HYBRID -> {
-                showToast("HYBRID 初始化中...")
                 initCTD()
             }
             DetEngine.MLKIT -> {
@@ -1173,51 +1079,27 @@ class MangaFloatingService : LifecycleService() {
                 return
             }
 
+            // ML Kit 调试模式：只识别，不翻译，显示所有返回数据
+            if (prefs.getBoolean("MLKit_Debug_View", false)) {
+                LogCollector.d(TAG, "ML Kit Debug Mode: 开始识别")
+                val mlKitResult = withContext(Dispatchers.IO) {
+                    detectWithMLKitDebug(bitmap, config.sourceLang)
+                }
+                LogCollector.d(TAG, "ML Kit Debug Mode: blocks=${mlKitResult.textBlocks.size}, totalLines=${mlKitResult.totalLines}, totalElements=${mlKitResult.totalElements}")
+                showMLKitDebugView(bitmap, mlKitResult)
+                return
+            }
+
             // 确保选中的模型已初始化
             when (config.detEngine) {
                 DetEngine.CTD -> initCTDIfNeeded()
-                DetEngine.HYBRID -> {
-                    // HYBRID 忽略 ocrEngine 配置，始终初始化 CTD + manga-ocr + CTC
-                    initCTDIfNeeded()
-                    // 直接初始化 manga-ocr（不走 ensureMangaOcrInitialized，因为它会检查 ocrEngine）
-                    if (!MangaOcrRecognizer.isInitialized) {
-                        val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@MangaFloatingService)
-                        if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    MangaOcrBridge.initializeDownloaded(this@MangaFloatingService, activeVersion)
-                                }
-                                currentLoadedMangaOcrVersion = activeVersion.name
-                                LogCollector.d(TAG, "HYBRID: manga-ocr 初始化完成: $activeVersion")
-                            } catch (e: Exception) {
-                                LogCollector.e(TAG, "HYBRID: manga-ocr 初始化失败", e)
-                            }
-                        } else {
-                            LogCollector.w(TAG, "HYBRID: manga-ocr 未下载，合并组将无法识别")
-                        }
-                    }
-                    if (CtcOcrModelManager.isModelDownloaded(applicationContext)) {
-                        initCTCOcrIfNeeded()
-                    } else {
-                        LogCollector.w(TAG, "CTC 模型未下载，HYBRID 单框将无法识别")
-                    }
-                }
                 DetEngine.MLKIT -> {}
                 DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
             }
             when (config.ocrEngine) {
-                // HYBRID 模式已在上面初始化了所有需要的模型，此处只处理非 HYBRID 的 CTD 模式
                 OcrEngine.MLKit -> {}
-                OcrEngine.MangaOcr -> if (config.detEngine != DetEngine.HYBRID) ensureMangaOcrInitialized()
-                OcrEngine.CTCOcr -> {
-                    if (config.detEngine != DetEngine.HYBRID) {
-                        if (!CtcOcrModelManager.isModelDownloaded(applicationContext)) {
-                            showToast(getString(R.string.model_missing_hint))
-                            return
-                        }
-                        initCTCOcrIfNeeded()
-                    }
-                }
+                OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
+                OcrEngine.PPOcrV4 -> initPPOcrV4IfNeeded()
             }
 
             // Step 1: 文字检测 + 识别
@@ -1228,14 +1110,10 @@ class MangaFloatingService : LifecycleService() {
                         val ctdOcrEngine = when (config.ocrEngine) {
                             OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
                             OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                            OcrEngine.CTCOcr -> DetectionBridge.CTDOCREngine.CTCOcr
+                            OcrEngine.PPOcrV4 -> DetectionBridge.CTDOCREngine.PPOcrV4
                         }
                         LogCollector.d(TAG, "使用 CTD(${ctdOcrEngine.name}) 识别")
                         DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine)
-                    }
-                    DetEngine.HYBRID -> {
-                        LogCollector.d(TAG, "使用 CTD 检测 + 混合 OCR（合并组→manga-ocr, 单框→CTC）")
-                        DetectionBridge.detectWithCTDHybrid(bitmap, config.sourceLang)
                     }
                     DetEngine.MLKIT -> {
                         when (config.ocrEngine) {
@@ -1247,9 +1125,8 @@ class MangaFloatingService : LifecycleService() {
                                 LogCollector.d(TAG, "使用 ML Kit 检测 + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion}) 识别")
                                 MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
                             }
-                            OcrEngine.CTCOcr -> {
-                                LogCollector.d(TAG, "使用 ML Kit 检测 + 48px_ctc 识别")
-                                // ML Kit 检测，CTCOcr 识别
+                            OcrEngine.PPOcrV4 -> {
+                                LogCollector.d(TAG, "使用 ML Kit 检测 + PP-OCRv4 识别")
                                 val mlKitBlocks = OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
                                 if (mlKitBlocks.isNotEmpty()) {
                                     val bitmaps = mlKitBlocks.mapNotNull { block ->
@@ -1264,13 +1141,13 @@ class MangaFloatingService : LifecycleService() {
                                         }
                                     }
                                     if (bitmaps.isNotEmpty()) {
-                                        val ctcTexts = CtcOcrRecognizer.recognizeBatch(bitmaps)
+                                        val ppTexts = PPOcrV4RecRecognizer.recognizeBatch(bitmaps)
                                         bitmaps.forEachIndexed { index, bmp ->
                                             bmp.recycle()
                                         }
                                         mlKitBlocks.mapIndexed { index, block ->
-                                            if (index < ctcTexts.size) {
-                                                block.copy(text = ctcTexts[index])
+                                            if (index < ppTexts.size) {
+                                                block.copy(text = ppTexts[index])
                                             } else block
                                         }
                                     } else mlKitBlocks
@@ -1283,7 +1160,7 @@ class MangaFloatingService : LifecycleService() {
                         val rtdetrOcrEngine = when (config.ocrEngine) {
                             OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
                             OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                            OcrEngine.CTCOcr -> DetectionBridge.CTDOCREngine.CTCOcr
+                            OcrEngine.PPOcrV4 -> DetectionBridge.CTDOCREngine.PPOcrV4
                         }
                         LogCollector.d(TAG, "使用 RT-DETR-V2 + ${rtdetrOcrEngine.name} 识别")
                         DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine)
@@ -2057,5 +1934,180 @@ class MangaFloatingService : LifecycleService() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
+    }
+
+    // ========== ML Kit 调试模式 ==========
+
+    private suspend fun detectWithMLKitDebug(bitmap: Bitmap, language: String): MLKitDebugResult {
+        return DetectionBridge.detectWithMLKitDebug(bitmap, language)
+    }
+
+    /**
+     * ML Kit 调试模式：渲染所有识别数据到图片上
+     */
+    private fun showMLKitDebugView(bitmap: Bitmap, result: MLKitDebugResult) {
+        val debugBitmap = renderMLKitDebugOverlay(bitmap, result)
+        showMLKitDebugResultOverlay(debugBitmap, result)
+    }
+
+    private fun renderMLKitDebugOverlay(original: Bitmap, result: MLKitDebugResult): Bitmap {
+        val mutableBitmap = original.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(mutableBitmap)
+
+        // 块级框（绿色）
+        val blockPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GREEN
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+
+        // 行级框（黄色）
+        val linePaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.YELLOW
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 2f
+            isAntiAlias = true
+        }
+
+        // 元素级框（红色）
+        val elementPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.RED
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 1f
+            isAntiAlias = true
+        }
+
+        // 四角点圆点画笔
+        val blockPointPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GREEN
+            style = android.graphics.Paint.Style.FILL
+        }
+        val linePointPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.YELLOW
+            style = android.graphics.Paint.Style.FILL
+        }
+        val elementPointPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.RED
+            style = android.graphics.Paint.Style.FILL
+        }
+
+        // 绘制每个块（只画框和角点，不画文字）
+        for (block in result.textBlocks) {
+            // 块边界框（绿色）+ 四角点
+            block.blockRect?.let { rect ->
+                canvas.drawRect(rect, blockPaint)
+            }
+            block.blockCorners?.let { corners ->
+                for (pt in corners) {
+                    canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 5f, blockPointPaint)
+                }
+            }
+
+            // 行（黄色）+ 四角点
+            for (line in block.lines) {
+                line.lineRect?.let { rect ->
+                    canvas.drawRect(rect, linePaint)
+                }
+                line.lineCorners?.let { corners ->
+                    for (pt in corners) {
+                        canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 3f, linePointPaint)
+                    }
+                }
+
+                // 元素（红色）+ 四角点
+                for (element in line.elements) {
+                    element.elementRect?.let { rect ->
+                        canvas.drawRect(rect, elementPaint)
+                    }
+                    element.elementCorners?.let { corners ->
+                        for (pt in corners) {
+                            canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 2f, elementPointPaint)
+                        }
+                    }
+                }
+            }
+        }
+
+        return mutableBitmap
+    }
+
+    private fun showMLKitDebugResultOverlay(debugBitmap: Bitmap, result: MLKitDebugResult) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            if (isResultShowing) {
+                dismissResultOverlay()
+            }
+            dismissProgressOverlay()
+
+            val overlayView = android.widget.FrameLayout(this@MangaFloatingService)
+            val imageView = android.widget.ImageView(this@MangaFloatingService).apply {
+                setImageBitmap(debugBitmap)
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = true
+            }
+
+            // 底部信息栏
+            val infoText = android.widget.TextView(this@MangaFloatingService).apply {
+                text = buildString {
+                    appendLine("ML Kit 调试模式")
+                    appendLine("块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements}")
+                    appendLine("语言: ${result.detectedLanguage ?: "未知"}")
+                    appendLine("绿=块  黄=行  红=元素")
+                    appendLine("")
+                    for ((i, block) in result.textBlocks.withIndex()) {
+                        val bRect = block.blockRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
+                        appendLine("B${i} $bRect \"${block.blockText.take(25)}\" ${block.language ?: ""}")
+                        for ((j, line) in block.lines.withIndex()) {
+                            val lRect = line.lineRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
+                            appendLine("  L${j} $lRect ${String.format("%.1f", line.angle)}° ${line.elements.size}elem \"${line.lineText.take(20)}\"")
+                            for (element in line.elements) {
+                                val eRect = element.elementRect?.let { "[${it.left},${it.top}]" } ?: ""
+                                appendLine("    $eRect \"${element.elementText}\"")
+                            }
+                        }
+                    }
+                }
+                textSize = 11f
+                setTextColor(android.graphics.Color.WHITE)
+                setBackgroundColor(android.graphics.Color.argb(220, 0, 0, 0))
+                setPadding(16, 16, 16, 16)
+            }
+
+            val scrollView = android.widget.ScrollView(this@MangaFloatingService).apply {
+                addView(infoText)
+            }
+
+            overlayView.addView(imageView, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            overlayView.addView(scrollView, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                600
+            ).apply { gravity = android.view.Gravity.BOTTOM })
+
+            overlayView.setOnClickListener {
+                try {
+                    windowManager.removeView(overlayView)
+                    isResultShowing = false
+                    debugBitmap.recycle()
+                } catch (e: Exception) { }
+            }
+
+            val params = android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                android.graphics.PixelFormat.TRANSLUCENT
+            )
+
+            try {
+                windowManager.addView(overlayView, params)
+                isResultShowing = true
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "ML Kit Debug: 显示失败", e)
+            }
+        }
     }
 }

@@ -169,6 +169,15 @@ class Developer : Fragment() {
                 showToast("RT-DETR-V2 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
+
+        // ML Kit 调试开关
+        binding.mlkitDebugSwitch.isChecked = prefs.getBoolean("MLKit_Debug_View", false)
+        binding.mlkitDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("MLKit_Debug_View", isChecked)
+            if (isChecked) {
+                showToast("ML Kit 调试模式已开启，请在漫画翻译界面截图测试")
+            }
+        }
     }
 
     private fun showToast(message: String) {

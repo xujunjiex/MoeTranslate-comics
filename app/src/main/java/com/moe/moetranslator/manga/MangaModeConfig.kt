@@ -6,7 +6,7 @@ package com.moe.moetranslator.manga
 enum class OcrEngine(val value: Int) {
     MLKit(0),      // 系统 OCR（默认，无需下载）
     MangaOcr(1),   // manga-ocr（下载版，从 HuggingFace 下载）
-    CTCOcr(2);     // 48px_ctc（多语言，快，需下载）
+    PPOcrV4(3);    // PP-OCRv4 JA rec（日文，内置）
 
     companion object {
         fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKit
@@ -27,7 +27,6 @@ enum class TextDirection {
 enum class DetEngine(val value: Int) {
     MLKIT(0),
     CTD(1),
-    HYBRID(2),
     RT_DETR_V2(3);
 
     companion object {

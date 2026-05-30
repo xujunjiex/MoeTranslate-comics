@@ -34,29 +34,132 @@
             android:padding="12dp"
             android:layout_marginTop="8dp">
 
-            <!-- CTD 检测器 -->
+            <!-- MLKit 检测（内置） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:padding="8dp">
 
-                <TextView
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="CTD"
-                    android:textSize="16sp"/>
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MLKit"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/detector_mlkit_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/detector_ctd_desc"
+                    android:text="@string/model_built_in"
                     android:textSize="12sp"
                     android:textColor="#888"/>
             </LinearLayout>
 
-                    </LinearLayout>
+            <!-- RT-DETR v2（内置） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="RT-DETR v2"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/detector_rtdetr_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/model_built_in"
+                    android:textSize="12sp"
+                    android:textColor="#888"/>
+            </LinearLayout>
+
+            <!-- CTD（需下载） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="8dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CTD"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/detector_ctd_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/ctd_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="8dp"/>
+
+                <Button
+                    android:id="@+id/ctd_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- CTD 进度条 -->
+            <ProgressBar
+                android:id="@+id/ctd_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:visibility="gone"/>
+
+        </LinearLayout>
 
         <!-- 识别器区域 -->
         <TextView
@@ -83,29 +186,79 @@
             android:padding="12dp"
             android:layout_marginTop="8dp">
 
-            <!-- MLKit -->
+            <!-- MLKit 识别（内置） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:padding="8dp">
 
-                <TextView
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="MLKit"
-                    android:textSize="16sp"/>
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MLKit"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/recognizer_mlkit_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/recognizer_mlkit_desc"
+                    android:text="@string/model_built_in"
                     android:textSize="12sp"
                     android:textColor="#888"/>
             </LinearLayout>
 
-            <!-- manga-ocr 版本列表 -->
+            <!-- CTC OCR（内置） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="48px CTC"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/recognizer_ctc_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/model_built_in"
+                    android:textSize="12sp"
+                    android:textColor="#888"/>
+            </LinearLayout>
+
+            <!-- manga-ocr（需下载） -->
             <LinearLayout
                 android:id="@+id/manga_ocr_version_list"
                 android:layout_width="match_parent"
@@ -118,6 +271,14 @@
                     android:layout_height="wrap_content"
                     android:text="manga-ocr (ONNX)"
                     android:textSize="16sp"
+                    android:layout_marginBottom="4dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/recognizer_manga_onnx_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
                     android:layout_marginBottom="8dp"/>
 
                 <!-- 原版 -->
@@ -127,6 +288,6 @@
                 <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_v2025_row"/>
             </LinearLayout>
 
-                    </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>
