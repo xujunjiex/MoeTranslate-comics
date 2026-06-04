@@ -60,6 +60,7 @@ object BubbleDetector {
         return ReadingOrderSorter.sort(bubbles)
     }
 
+
     /**
      * 按距离和方向合并相邻文字行。
      * 对齐参考项目 merge_bboxes_text_region 的连通分量分组逻辑：
@@ -142,10 +143,10 @@ object BubbleDetector {
             val yGap = max(0, max(rectB.top - rectA.bottom, rectA.top - rectB.bottom))
             val xGap = max(0, max(rectB.left - rectA.right, rectA.left - rectB.right))
 
-            // Y 轴重叠超过半个字号，或纵向间隙 < 字号 → 可能同列
-            val yClose = yOverlap > maxFS * 0.5f || yGap < maxFS
-            // X 轴间隙 < 字号 → 在同一列附近
-            val xClose = xGap < maxFS
+            // Y 轴重叠超过半个字号，或纵向间隙 < 0.8×字号 → 可能同列
+            val yClose = yOverlap > maxFS * 0.5f || yGap < maxFS * 0.8f
+            // X 轴间隙 < 0.8×字号 → 在同一列附近
+            val xClose = xGap < maxFS * 0.8f
 
             yClose && xClose
         } else {
@@ -154,10 +155,10 @@ object BubbleDetector {
             val xGap = max(0, max(rectB.left - rectA.right, rectA.left - rectB.right))
             val yGap = max(0, max(rectB.top - rectA.bottom, rectA.top - rectB.bottom))
 
-            // X 轴重叠超过半个字号，或横向间隙 < 字号
-            val xClose = xOverlap > maxFS * 0.5f || xGap < maxFS
-            // Y 轴间隙 < 字号 * 2（行间距通常大于字间距）
-            val yClose = yGap < maxFS * 2
+            // X 轴重叠超过半个字号，或横向间隙 < 0.8×字号
+            val xClose = xOverlap > maxFS * 0.5f || xGap < maxFS * 0.8f
+            // Y 轴间隙 < 字号 * 1.5（行间距通常大于字间距）
+            val yClose = yGap < maxFS * 1.5f
 
             xClose && yClose
         }

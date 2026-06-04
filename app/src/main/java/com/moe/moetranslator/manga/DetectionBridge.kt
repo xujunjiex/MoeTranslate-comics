@@ -184,9 +184,9 @@ object DetectionBridge {
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
             val PADDING = 10
-            // PP-OCRv5 rec 是单行模型，跳过合并 + 使用透视校正裁剪；其他引擎需要合并 + AABB 裁剪
+            // PPOcrV5 是单行识别器，跳过前合并，每个 QuadBox 独立透视裁剪
+            // MLKit/MangaOcr 可处理多行输入，走 BoxMerger 前合并，AABB 裁剪
             val (groups, expandedRects) = if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                // 跳过合并：每个 QuadBox 独立，使用 QuadBox AABB 作为位置参考
                 val rects = quadBoxes.map { qb ->
                     val aabb = qb.aabb
                     Rect(
@@ -211,19 +211,18 @@ object DetectionBridge {
                 Pair(merged, rects)
             }
             if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 跳过合并: ${quadBoxes.size} 个独立区域")
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 跳过前合并(单行识别): ${quadBoxes.size} 个独立区域")
             } else {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) MST合并: ${quadBoxes.size} → ${groups.size} 个区域")
+                LogCollector.d(TAG, "CTD(${ocrEngine.name}) BoxMerger前合并: ${quadBoxes.size} → ${groups.size} 个区域")
             }
 
             for ((idx, rect) in expandedRects.withIndex()) {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终区域[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
             }
 
-            // 裁剪图片：PPOcrV5 使用透视校正裁剪（利用 QuadBox 角点），其他使用 AABB 裁剪
+            // PPOcrV5 透视校正裁剪（单个 QuadBox），MLKit/MangaOcr AABB 裁剪（已合并）
             val croppedBitmaps: List<Bitmap>
             if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                // 透视校正裁剪：DLT 单应矩阵 + warpPerspective + 竖排自动旋转 90°
                 croppedBitmaps = quadBoxes.map { qb ->
                     PPOcrV5Engine.getRotateCropImage(bitmap, qb.pts)
                 }
@@ -239,6 +238,7 @@ object DetectionBridge {
                 CTDOCREngine.MLKit -> {
                     for (i in expandedRects.indices) {
                         val cropped = croppedBitmaps[i]
+                        val isVertical = groups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
                         try {
                             val text = OCRBridge.recognizeText(language, cropped)
                             if (text.isNotBlank()) {
@@ -246,9 +246,9 @@ object DetectionBridge {
                                     text = text,
                                     boundingBox = expandedRects[i],
                                     cornerPoints = null,
-                                    isVertical = globalIsVertical
+                                    isVertical = isVertical
                                 ))
-                                LogCollector.d(TAG, "CTD(MLKit) 识别结果[$i]: rect=[${expandedRects[i].left}, ${expandedRects[i].top}, ${expandedRects[i].right}, ${expandedRects[i].bottom}], text='$text', isVertical=$globalIsVertical")
+                                LogCollector.d(TAG, "CTD(MLKit) 识别结果[$i]: rect=[${expandedRects[i].left}, ${expandedRects[i].top}, ${expandedRects[i].right}, ${expandedRects[i].bottom}], text='$text', isVertical=$isVertical")
                             }
                         } catch (e: Exception) {
                             LogCollector.e(TAG, "CTD(MLKit) ML Kit 识别失败[$i]", e)
@@ -259,15 +259,16 @@ object DetectionBridge {
                     val texts = MangaOcrBridge.recognizeBatch(croppedBitmaps)
                     for (i in expandedRects.indices) {
                         val text = texts[i].trim()
+                        val isVertical = groups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {
                             val rect = expandedRects[i]
                             results.add(TextBlockInfo(
                                 text = text,
                                 boundingBox = rect,
                                 cornerPoints = null,
-                                isVertical = globalIsVertical
+                                isVertical = isVertical
                             ))
-                            LogCollector.d(TAG, "CTD(MangaOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$globalIsVertical")
+                            LogCollector.d(TAG, "CTD(MangaOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$isVertical")
                         } else if (isDotOnlyPattern(text)) {
                             LogCollector.d(TAG, "CTD(MangaOcr) 过滤纯符号[$i]: '$text'")
                         }
@@ -1285,13 +1286,15 @@ object DetectionBridge {
                         try {
                             val text = OCRBridge.recognizeText(language, croppedBitmaps[i])
                             if (text.isNotBlank()) {
+                                val rect = sortedBubbles[i].rect
+                                val isVertical = rect.height() > rect.width()
                                 results.add(TextBlockInfo(
                                     text = text,
-                                    boundingBox = sortedBubbles[i].rect,
+                                    boundingBox = rect,
                                     cornerPoints = null,
-                                    isVertical = false
+                                    isVertical = isVertical
                                 ))
-                                LogCollector.d(TAG, "RT-DETR-V2(MLKit) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='$text'")
+                                LogCollector.d(TAG, "RT-DETR-V2(MLKit) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='$text', isVertical=$isVertical")
                             }
                         } catch (e: Exception) {
                             LogCollector.e(TAG, "RT-DETR-V2(MLKit) 识别失败[$i]", e)
@@ -1303,13 +1306,15 @@ object DetectionBridge {
                     for (i in sortedBubbles.indices) {
                         val text = texts[i].trim()
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                            val rect = sortedBubbles[i].rect
+                            val isVertical = rect.height() > rect.width()
                             results.add(TextBlockInfo(
                                 text = text,
-                                boundingBox = sortedBubbles[i].rect,
+                                boundingBox = rect,
                                 cornerPoints = null,
-                                isVertical = false
+                                isVertical = isVertical
                             ))
-                            LogCollector.d(TAG, "RT-DETR-V2(MangaOcr) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='$text'")
+                            LogCollector.d(TAG, "RT-DETR-V2(MangaOcr) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='$text', isVertical=$isVertical")
                         }
                     }
                 }
@@ -1320,13 +1325,15 @@ object DetectionBridge {
                         for (i in sortedBubbles.indices) {
                             val result = texts.getOrElse(i) { RecResult("", 0f) }
                             if (result.text.isNotBlank() && result.score >= 0.5f) {
+                                val rect = sortedBubbles[i].rect
+                                val isVertical = rect.height() > rect.width()
                                 results.add(TextBlockInfo(
                                     text = result.text,
-                                    boundingBox = sortedBubbles[i].rect,
+                                    boundingBox = rect,
                                     cornerPoints = null,
-                                    isVertical = false
+                                    isVertical = isVertical
                                 ))
-                                LogCollector.d(TAG, "RT-DETR-V2(PPOcrV5) [$i]: rect=${sortedBubbles[i].rect}, class=${sortedBubbles[i].classId}, text='${result.text}', score=${String.format("%.3f", result.score)}")
+                                LogCollector.d(TAG, "RT-DETR-V2(PPOcrV5) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='${result.text}', score=${String.format("%.3f", result.score)}, isVertical=$isVertical")
                             }
                         }
                     } else {
@@ -1420,7 +1427,7 @@ object DetectionBridge {
             }
 
             val result = withContext(Dispatchers.IO) {
-                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = true)
+                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = false)
             }
 
             val textBlocks = result.texts.indices.mapNotNull { i ->

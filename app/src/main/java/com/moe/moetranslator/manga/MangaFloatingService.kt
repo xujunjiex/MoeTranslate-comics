@@ -45,6 +45,9 @@ import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.KeystoreManager
 import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import translationapi.bingtranslation.BingTranslation
@@ -462,11 +465,18 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun loadConfig(): MangaModeConfig {
+        val detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value))
+        // CTD 和 RT-DETR-V2 检测器已输出气泡/区域级结果，不需要 BubbleDetector 再次聚类
+        val autoDetectBubble = if (detEngine == DetEngine.CTD || detEngine == DetEngine.RT_DETR_V2) {
+            false
+        } else {
+            prefs.getBoolean("Manga_Auto_Detect_Bubble", true)
+        }
         return MangaModeConfig(
             enabled = true,
             textDirection = TextDirection.VERTICAL_RL,
             smartBackground = prefs.getBoolean("Manga_Smart_Background", true),
-            autoDetectBubble = prefs.getBoolean("Manga_Auto_Detect_Bubble", true),
+            autoDetectBubble = autoDetectBubble,
             fontSize = prefs.getFloat("Manga_Font_Size", 16f),
             autoFontSize = prefs.getBoolean("Manga_Auto_Font_Size", true),
             sourceLang = prefs.getString("Source_Language", "ja"),
@@ -474,7 +484,7 @@ class MangaFloatingService : LifecycleService() {
             textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
             bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
             ocrEngine = OcrEngine.fromValue(prefs.getInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)),
-            detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value))
+            detEngine = detEngine
         )
     }
 
@@ -667,23 +677,40 @@ class MangaFloatingService : LifecycleService() {
         } else {
             getString(R.string.manga_mode_fullscreen)
         }
-        val detModelLabel = when (config.detEngine) {
-            DetEngine.CTD -> "CTD"
-            DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
-            DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
-            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
-        }
-        val ocrEngineLabel = when (config.ocrEngine) {
-            OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
-            OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.PPOcrV5 -> "PP-OCRv5"
-        }
 
-        val (dialog, listView) = Dialogs.mangaMenuDialog(
-            applicationContext, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel
-        )
+        val isAdvancedMode = prefs.getBoolean("Manga_Advanced_Mode", false)
 
         isMenuShowing = true
+
+        if (isAdvancedMode) {
+            // 高级模式：检测模型 + OCR 引擎分开选择
+            showMenuAdvanced(cropLabel)
+        } else {
+            // 普通模式：固定搭配，只有一个"模型"选项
+            showMenuSimple(cropLabel)
+        }
+    }
+
+    /**
+     * 普通模式菜单：固定搭配
+     * MLKit → det=MLKIT, ocr=MLKit
+     * PP-OCRv5 → det=PP_OCR_V5, ocr=PPOcrV5
+     * manga-ocr → det=RT_DETR_V2, ocr=MangaOcr
+     */
+    private fun showMenuSimple(cropLabel: String) {
+        val modelLabel = when {
+            config.detEngine == DetEngine.MLKIT && config.ocrEngine == OcrEngine.MLKit ->
+                getString(R.string.manga_model_mlkit)
+            config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5 ->
+                getString(R.string.manga_model_ppocr)
+            config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr ->
+                getString(R.string.manga_model_manga_ocr)
+            else -> getString(R.string.manga_model_mlkit)  // 兜底
+        }
+
+        val (dialog, listView) = Dialogs.mangaMenuDialogSimple(
+            applicationContext, isAutoTranslating, cropLabel, modelLabel
+        )
 
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
             when (which) {
@@ -700,19 +727,85 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 1 -> {
-                    // 字体大小（不关闭菜单，打开子对话框）
                     showFontSizeDialog()
                 }
                 2 -> {
-                    // 切换检测模型（不关闭菜单）
+                    // 切换模型（固定搭配）
+                    toggleModelSimple(dialog, listView)
+                }
+                3 -> {
+                    // 自动翻译
+                    toggleAutoTranslate()
+                    val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                    if (isAutoTranslating) {
+                        adapter.updateLabel(3, getString(R.string.manga_menu_stop_auto))
+                        adapter.updateIcon(3, R.drawable.stop_auto)
+                    } else {
+                        adapter.updateLabel(3, getString(R.string.manga_menu_auto_translate))
+                        adapter.updateIcon(3, R.drawable.start_auto)
+                    }
+                }
+                4 -> {
+                    dialog.dismiss()
+                    stopSelf()
+                }
+                5 -> {
+                    dialog.dismiss()
+                    backToMainActivity()
+                }
+            }
+        }
+
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.setOnDismissListener { isMenuShowing = false }
+    }
+
+    /**
+     * 高级模式菜单：检测模型 + OCR 引擎独立选择
+     */
+    private fun showMenuAdvanced(cropLabel: String) {
+        val detModelLabel = when (config.detEngine) {
+            DetEngine.CTD -> "CTD"
+            DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
+            DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
+            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+        }
+        val ocrEngineLabel = when (config.ocrEngine) {
+            OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
+            OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
+            OcrEngine.PPOcrV5 -> "PP-OCRv5"
+        }
+
+        val (dialog, listView) = Dialogs.mangaMenuDialog(
+            applicationContext, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel
+        )
+
+        listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
+            when (which) {
+                0 -> {
+                    if (cropRect != null) {
+                        cropRect = null
+                        showToast(getString(R.string.manga_mode_fullscreen))
+                        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                        adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
+                    } else {
+                        dialog.dismiss()
+                        handler.postDelayed({ startCropSelection() }, 200)
+                    }
+                }
+                1 -> {
+                    showFontSizeDialog()
+                }
+                2 -> {
                     toggleDetModel(dialog, listView)
                 }
                 3 -> {
-                    // 切换 OCR 引擎（不关闭菜单）
                     toggleOcrEngine(dialog, listView)
                 }
                 4 -> {
-                    // 自动翻译切换（不关闭菜单）
                     toggleAutoTranslate()
                     val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                     if (isAutoTranslating) {
@@ -724,25 +817,21 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 5 -> {
-                    // 关闭悬浮球
                     dialog.dismiss()
                     stopSelf()
                 }
                 6 -> {
-                    // 返回主界面
                     dialog.dismiss()
                     backToMainActivity()
                 }
             }
         }
+
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-
-        dialog.setOnDismissListener {
-            isMenuShowing = false
-        }
+        dialog.setOnDismissListener { isMenuShowing = false }
     }
 
     private fun backToMainActivity() {
@@ -763,10 +852,19 @@ class MangaFloatingService : LifecycleService() {
 
     private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
         // 循环切换：MLKit -> MangaOcr -> PPOcrV5 -> MLKit
-        val newEngine = when (config.ocrEngine) {
-            OcrEngine.MLKit -> OcrEngine.MangaOcr
-            OcrEngine.MangaOcr -> OcrEngine.PPOcrV5
-            OcrEngine.PPOcrV5 -> OcrEngine.MLKit
+        // RT-DETR-V2 不支持 PPOcrV5（PPOcrV5 有自己的 det，不需要外部检测器），跳过
+        val newEngine = if (config.detEngine == DetEngine.RT_DETR_V2) {
+            when (config.ocrEngine) {
+                OcrEngine.MLKit -> OcrEngine.MangaOcr
+                OcrEngine.MangaOcr -> OcrEngine.MLKit
+                OcrEngine.PPOcrV5 -> OcrEngine.MLKit  // 不应出现，兜底
+            }
+        } else {
+            when (config.ocrEngine) {
+                OcrEngine.MLKit -> OcrEngine.MangaOcr
+                OcrEngine.MangaOcr -> OcrEngine.PPOcrV5
+                OcrEngine.PPOcrV5 -> OcrEngine.MLKit
+            }
         }
         config = config.copy(ocrEngine = newEngine)
         prefs.setInt("Manga_Rec_Model", newEngine.value)
@@ -797,6 +895,88 @@ class MangaFloatingService : LifecycleService() {
                 lifecycleScope.launch { initPPOcrV5() }
             }
         }
+    }
+
+    /**
+     * 普通模式：切换固定搭配模型
+     * MLKit → PP-OCRv5 → manga-ocr → MLKit
+     */
+    private fun toggleModelSimple(dialog: AlertDialog, listView: android.widget.ListView) {
+        // 判断当前是哪个组合
+        val currentCombo = when {
+            config.detEngine == DetEngine.MLKIT && config.ocrEngine == OcrEngine.MLKit -> "mlkit"
+            config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5 -> "ppocr"
+            config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr -> "manga"
+            else -> "mlkit"
+        }
+
+        // 循环切换
+        val newCombo = when (currentCombo) {
+            "mlkit" -> "ppocr"
+            "ppocr" -> "manga"
+            "manga" -> "mlkit"
+            else -> "mlkit"
+        }
+
+        // 释放所有旧引擎
+        releaseMangaOcr()
+        releasePPOcrV5()
+        releaseCTD()
+        releaseRTDetrV2()
+
+        when (newCombo) {
+            "mlkit" -> {
+                config = config.copy(detEngine = DetEngine.MLKIT, ocrEngine = OcrEngine.MLKit)
+                prefs.setInt("Manga_Det_Model", DetEngine.MLKIT.value)
+                prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
+                showToast(getString(R.string.manga_model_mlkit))
+            }
+            "ppocr" -> {
+                config = config.copy(detEngine = DetEngine.PP_OCR_V5, ocrEngine = OcrEngine.PPOcrV5)
+                prefs.setInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value)
+                prefs.setInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)
+                showToast(getString(R.string.manga_model_ppocr))
+                lifecycleScope.launch { initPPOcrV5() }
+            }
+            "manga" -> {
+                // 检查 RT-DETR-V2 和 manga-ocr 是否已下载
+                val rtdetrReady = RTDetrModelManager.isModelAvailable(this)
+                val mangaOcrReady = MangaOcrDownloadManager.getActiveVersion(this)?.let {
+                    MangaOcrDownloadManager.isVersionDownloaded(this, it)
+                } == true
+
+                if (!rtdetrReady || !mangaOcrReady) {
+                    val missing = mutableListOf<String>()
+                    if (!rtdetrReady) missing.add("RT-DETR-V2")
+                    if (!mangaOcrReady) missing.add("manga-ocr")
+                    showToast("请先下载: ${missing.joinToString(", ")}")
+                    // 回退到 MLKit
+                    config = config.copy(detEngine = DetEngine.MLKIT, ocrEngine = OcrEngine.MLKit)
+                    prefs.setInt("Manga_Det_Model", DetEngine.MLKIT.value)
+                    prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
+                    return
+                }
+
+                config = config.copy(detEngine = DetEngine.RT_DETR_V2, ocrEngine = OcrEngine.MangaOcr)
+                prefs.setInt("Manga_Det_Model", DetEngine.RT_DETR_V2.value)
+                prefs.setInt("Manga_Rec_Model", OcrEngine.MangaOcr.value)
+                showToast(getString(R.string.manga_model_manga_ocr))
+                lifecycleScope.launch {
+                    initRTDetrV2()
+                    ensureMangaOcrInitialized()
+                }
+            }
+        }
+
+        // 更新菜单标签
+        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+        val label = when (newCombo) {
+            "mlkit" -> getString(R.string.manga_model_mlkit)
+            "ppocr" -> getString(R.string.manga_model_ppocr)
+            "manga" -> getString(R.string.manga_model_manga_ocr)
+            else -> ""
+        }
+        adapter.updateLabel(2, "${getString(R.string.manga_model_toggle)}：$label")
     }
 
     private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
@@ -834,6 +1014,12 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.RT_DETR_V2 -> {
                 releaseCTD()
                 releasePPOcrV5()
+                // RT-DETR-V2 不支持 PPOcrV5，自动切换为 MLKit
+                if (config.ocrEngine == OcrEngine.PPOcrV5) {
+                    config = config.copy(ocrEngine = OcrEngine.MLKit)
+                    prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
+                    LogCollector.d(TAG, "RT-DETR-V2 不支持 PPOcrV5，自动切换为 MLKit")
+                }
                 showToast("RT-DETR-V2 初始化中...")
                 lifecycleScope.launch { initRTDetrV2() }
             }
@@ -1112,7 +1298,7 @@ class MangaFloatingService : LifecycleService() {
                         val recLang = PPOcrV5Engine.getRecLang(config.sourceLang)
                         if (recLang != null) {
                             val ocrResult = withContext(Dispatchers.IO) {
-                                PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = true)
+                                PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = false)
                             }
                             LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}")
                             showPPOcrV5DebugView(bitmap, ocrResult)
@@ -1210,15 +1396,23 @@ class MangaFloatingService : LifecycleService() {
                 showProgressOverlay(getString(R.string.manga_translating))
             }
 
-            // Step 2: Detect bubbles (or use raw blocks)
-            LogCollector.d(TAG, "processMangaScreenshot: Step 2 - Detecting bubbles, autoDetect=${config.autoDetectBubble}")
-            val bubbles = if (config.autoDetectBubble) {
+            // Step 2: 气泡合并
+            // CTD + MLKit/MangaOcr 已 BoxMerger 前合并，跳过后合并
+            // CTD + PPOcrV5 / RT-DETR-V2 / MLKit / PP-OCRv5 需要 BubbleDetector 后合并
+            val needsPostMerge = !(config.detEngine == DetEngine.CTD && config.ocrEngine != OcrEngine.PPOcrV5)
+            val bubbles = if (needsPostMerge) {
+                LogCollector.d(TAG, "processMangaScreenshot: Step 2 - BubbleDetector 后合并")
                 BubbleDetector.detectBubbles(textBlocks, config)
             } else {
+                LogCollector.d(TAG, "processMangaScreenshot: Step 2 - 已前合并，跳过后合并")
                 textBlocks.filter { it.boundingBox != null }.map { block ->
+                    val rect = block.boundingBox!!
+                    val isVertical = block.isVertical ?: (rect.height() > rect.width())
                     BubbleRegion(
-                        rect = block.boundingBox!!,
-                        texts = listOf(block.text)
+                        rect = rect,
+                        texts = listOf(block.text),
+                        fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
+                        direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
                     )
                 }
             }
@@ -1453,59 +1647,67 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun translateBubblesSequential(
         bubbles: List<Pair<BubbleRegion, String>>
-    ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
-        LogCollector.d(TAG, "translateBubblesSequential: ${bubbles.size} bubbles, sequential")
+    ): List<TranslatedBubble> = coroutineScope {
+        LogCollector.d(TAG, "translateBubblesConcurrent: ${bubbles.size} bubbles, concurrent")
 
-        val results = mutableListOf<TranslatedBubble>()
-        val errors = mutableListOf<String>()
-        for ((bubble, combinedText) in bubbles) {
-            LogCollector.d(TAG, "translateBubblesSequential: translating '$combinedText'")
+        val deferreds = bubbles.map { (bubble, combinedText) ->
+            async(Dispatchers.IO) {
+                LogCollector.d(TAG, "translateBubblesConcurrent: translating '$combinedText'")
 
-            val latch = java.util.concurrent.CountDownLatch(1)
-            var successResult: TranslatedBubble? = null
-            var errorMsg: String? = null
+                val latch = java.util.concurrent.CountDownLatch(1)
+                var successResult: TranslatedBubble? = null
+                var errorMsg: String? = null
 
-            translatorText?.getTranslation(
-                combinedText,
-                config.sourceLang,
-                config.targetLang
-            ) { result ->
-                when (result) {
-                    is TranslationResult.Success -> {
-                        LogCollector.d(TAG, "translateBubblesSequential: SUCCESS for '$combinedText'")
-                        successResult = TranslatedBubble(
-                            rect = bubble.rect,
-                            originalText = combinedText,
-                            translatedText = result.translatedText,
-                            backgroundColor = Color.TRANSPARENT,
-                            fontSize = bubble.fontSize,
-                            direction = bubble.direction
-                        )
+                translatorText?.getTranslation(
+                    combinedText,
+                    config.sourceLang,
+                    config.targetLang
+                ) { result ->
+                    when (result) {
+                        is TranslationResult.Success -> {
+                            LogCollector.d(TAG, "translateBubblesConcurrent: SUCCESS for '$combinedText'")
+                            successResult = TranslatedBubble(
+                                rect = bubble.rect,
+                                originalText = combinedText,
+                                translatedText = result.translatedText,
+                                backgroundColor = Color.TRANSPARENT,
+                                fontSize = bubble.fontSize,
+                                direction = bubble.direction
+                            )
+                        }
+                        is TranslationResult.Error -> {
+                            errorMsg = result.error.message ?: "Unknown error"
+                            LogCollector.e(TAG, "translateBubblesConcurrent: ERROR: $errorMsg")
+                        }
                     }
-                    is TranslationResult.Error -> {
-                        errorMsg = result.error.message ?: "Unknown error"
-                        LogCollector.e(TAG, "translateBubblesSequential: ERROR: $errorMsg")
-                    }
+                    latch.countDown()
+                } ?: run {
+                    errorMsg = "translatorText is null"
+                    latch.countDown()
                 }
-                latch.countDown()
-            } ?: run {
-                errorMsg = "translatorText is null"
-                latch.countDown()
-            }
 
-            val completed = latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
-            if (!completed) {
-                errorMsg = "Translation timeout (30s)"
-            }
+                val completed = latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
+                if (!completed) {
+                    errorMsg = "Translation timeout (30s)"
+                }
 
-            if (successResult != null) {
-                results.add(successResult!!)
-            } else if (errorMsg != null) {
-                errors.add(errorMsg!!)
+                Pair(successResult, errorMsg)
             }
         }
 
-        LogCollector.d(TAG, "translateBubblesSequential: ${results.size} successful out of ${bubbles.size}")
+        val allResults = deferreds.awaitAll()
+        val results = mutableListOf<TranslatedBubble>()
+        val errors = mutableListOf<String>()
+
+        for ((successResult, errorMsg) in allResults) {
+            if (successResult != null) {
+                results.add(successResult)
+            } else if (errorMsg != null) {
+                errors.add(errorMsg)
+            }
+        }
+
+        LogCollector.d(TAG, "translateBubblesConcurrent: ${results.size} successful out of ${bubbles.size}")
         if (results.isEmpty() && bubbles.isNotEmpty()) {
             val errorDetail = errors.distinct().joinToString("; ")
             throw RuntimeException("All bubbles failed to translate: $errorDetail")
@@ -1546,9 +1748,24 @@ class MangaFloatingService : LifecycleService() {
             resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
             windowManager.addView(resultOverlayView, params)
         } else {
-            // 全屏模式使用 FIT_CENTER 避免图片压缩变形
-            resultOverlayView.scaleType = ImageView.ScaleType.FIT_CENTER
-            windowManager.addView(resultOverlayView, resultOverlayParams)
+            // 全屏模式：获取屏幕真实像素尺寸，overlay 精确覆盖全屏
+            val screenW = resources.displayMetrics.widthPixels
+            val screenH = resources.displayMetrics.heightPixels
+            LogCollector.d(TAG, "showResultOverlay: bitmap=${bitmap.width}x${bitmap.height}, screen=${screenW}x${screenH}")
+            val params = WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                width = screenW
+                height = screenH
+                gravity = Gravity.START or Gravity.TOP
+                x = 0
+                y = 0
+            }
+            resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
+            windowManager.addView(resultOverlayView, params)
         }
         isResultShowing = true
 
@@ -1704,8 +1921,37 @@ class MangaFloatingService : LifecycleService() {
             true
         }
 
-        resultOverlayView.scaleType = ImageView.ScaleType.FIT_CENTER
-        windowManager.addView(resultOverlayView, resultOverlayParams)
+        resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
+        if (cropRect != null) {
+            val crop = cropRect!!
+            val params = WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                width = crop.width().toInt()
+                height = crop.height().toInt()
+                gravity = Gravity.START or Gravity.TOP
+                x = crop.left.toInt() + cropView.absolutePointOffset.x
+                y = crop.top.toInt() + cropView.absolutePointOffset.y
+            }
+            windowManager.addView(resultOverlayView, params)
+        } else {
+            val screenW = resources.displayMetrics.widthPixels
+            val screenH = resources.displayMetrics.heightPixels
+            val params = WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                width = screenW
+                height = screenH
+                gravity = Gravity.START or Gravity.TOP
+                x = 0; y = 0
+            }
+            windowManager.addView(resultOverlayView, params)
+        }
         isResultShowing = true
 
         val mergedCount = debugResult.mergedGroups.count { it.size > 1 }
@@ -1818,8 +2064,37 @@ class MangaFloatingService : LifecycleService() {
             true
         }
 
-        resultOverlayView.scaleType = ImageView.ScaleType.FIT_CENTER
-        windowManager.addView(resultOverlayView, resultOverlayParams)
+        resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
+        if (cropRect != null) {
+            val crop = cropRect!!
+            val params = WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                width = crop.width().toInt()
+                height = crop.height().toInt()
+                gravity = Gravity.START or Gravity.TOP
+                x = crop.left.toInt() + cropView.absolutePointOffset.x
+                y = crop.top.toInt() + cropView.absolutePointOffset.y
+            }
+            windowManager.addView(resultOverlayView, params)
+        } else {
+            val screenW = resources.displayMetrics.widthPixels
+            val screenH = resources.displayMetrics.heightPixels
+            val params = WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                width = screenW
+                height = screenH
+                gravity = Gravity.START or Gravity.TOP
+                x = 0; y = 0
+            }
+            windowManager.addView(resultOverlayView, params)
+        }
         isResultShowing = true
 
         showToast("RT-DETR-V2 Debug: green=${debugResult.textBubbles.size}, blue=${debugResult.textFree.size}(丢弃), red=${debugResult.emptyBubbles.size}(压缩), 最终提交=${debugResult.finalRegions.size}")
@@ -2062,7 +2337,7 @@ class MangaFloatingService : LifecycleService() {
             val overlayView = android.widget.FrameLayout(this@MangaFloatingService)
             val imageView = android.widget.ImageView(this@MangaFloatingService).apply {
                 setImageBitmap(debugBitmap)
-                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                scaleType = android.widget.ImageView.ScaleType.FIT_XY
                 adjustViewBounds = true
             }
 
@@ -2110,17 +2385,41 @@ class MangaFloatingService : LifecycleService() {
                 try {
                     windowManager.removeView(overlayView)
                     isResultShowing = false
-                    debugBitmap.recycle()
+                    // 延迟 recycle，等 View 绘制完成后再回收
+                    overlayView.post { debugBitmap.recycle() }
                 } catch (e: Exception) { }
             }
 
-            val params = android.view.WindowManager.LayoutParams(
-                android.view.WindowManager.LayoutParams.MATCH_PARENT,
-                android.view.WindowManager.LayoutParams.MATCH_PARENT,
-                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                android.graphics.PixelFormat.TRANSLUCENT
-            )
+            val params = if (cropRect != null) {
+                val crop = cropRect!!
+                android.view.WindowManager.LayoutParams(
+                    crop.width().toInt(),
+                    crop.height().toInt(),
+                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    android.graphics.PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
+                    x = crop.left.toInt() + cropView.absolutePointOffset.x
+                    y = crop.top.toInt() + cropView.absolutePointOffset.y
+                }
+            } else {
+                val screenW = resources.displayMetrics.widthPixels
+                val screenH = resources.displayMetrics.heightPixels
+                android.view.WindowManager.LayoutParams(
+                    screenW,
+                    screenH,
+                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    android.graphics.PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
+                    x = 0; y = 0
+                }
+            }
 
             try {
                 windowManager.addView(overlayView, params)
@@ -2149,7 +2448,7 @@ class MangaFloatingService : LifecycleService() {
             val overlayView = android.widget.FrameLayout(this@MangaFloatingService)
             val imageView = android.widget.ImageView(this@MangaFloatingService).apply {
                 setImageBitmap(debugBitmap)
-                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                scaleType = android.widget.ImageView.ScaleType.FIT_XY
                 adjustViewBounds = true
             }
 
@@ -2196,17 +2495,40 @@ class MangaFloatingService : LifecycleService() {
                 try {
                     windowManager.removeView(overlayView)
                     isResultShowing = false
-                    debugBitmap.recycle()
+                    overlayView.post { debugBitmap.recycle() }
                 } catch (e: Exception) { }
             }
 
-            val params = android.view.WindowManager.LayoutParams(
-                android.view.WindowManager.LayoutParams.MATCH_PARENT,
-                android.view.WindowManager.LayoutParams.MATCH_PARENT,
-                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                android.graphics.PixelFormat.TRANSLUCENT
-            )
+            val params = if (cropRect != null) {
+                val crop = cropRect!!
+                android.view.WindowManager.LayoutParams(
+                    crop.width().toInt(),
+                    crop.height().toInt(),
+                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    android.graphics.PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
+                    x = crop.left.toInt() + cropView.absolutePointOffset.x
+                    y = crop.top.toInt() + cropView.absolutePointOffset.y
+                }
+            } else {
+                val screenW = resources.displayMetrics.widthPixels
+                val screenH = resources.displayMetrics.heightPixels
+                android.view.WindowManager.LayoutParams(
+                    screenW,
+                    screenH,
+                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    android.graphics.PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
+                    x = 0; y = 0
+                }
+            }
 
             try {
                 windowManager.addView(overlayView, params)

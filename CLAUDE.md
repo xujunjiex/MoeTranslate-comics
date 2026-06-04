@@ -75,9 +75,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ```
 ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、进度回调）
-├── CtcOcrModelManager        # CTC OCR 模型（zip 下载+解压）
-├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载）
-└── CTDModelManager           # CTD 模型（单文件下载）
+├── CTDModelManager           # CTD 模型（单文件下载，~94MB）
+├── RTDetrModelManager        # RT-DETR-V2 模型（单文件下载，~11MB）
+└── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载）
 ```
 
 ### 当前使用的模型
@@ -91,7 +91,7 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 | **PP-OCRv3 latin rec** | 英文/拉丁文识别 | ~8.6MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
 | **PP-OCRv4 rec ko** | 韩文识别 | ~23MB | [RapidAI/RapidOCR](https://modelscope.cn/models/RapidAI/RapidOCR) | assets/ppocrv5/ 内置 |
 | **CTD** (Comic Text Detector) | 文字区域检测 | ~94MB | GitHub releases | filesDir/ 下载 |
-| **RT-DETR v2** | 文字/气泡检测 | ~11MB | [ogkalu](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) | 已集成 |
+| **RT-DETR v2** | 文字/气泡检测 | ~11MB | [HuggingFace](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) | filesDir/ 下载 |
 | **manga-ocr** | 竖排日文识别 | ~460MB | [HuggingFace](https://huggingface.co/onnx-community/manga-ocr-base-ONNX) | filesDir/ 下载 |
 
 ### 模型详解
@@ -118,24 +118,16 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 - 下载地址：`https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx`
 - 参考：`.reference/comic-text-detector-master/`
 
-**RT-DETR v2（文字/气泡检测器）— 已集成**
+**RT-DETR v2（文字/气泡检测器）— 需下载，~11MB**
 - 用途：同时检测文字和对话气泡，区分气泡内文字和自由文字
 - 适用场景：漫画翻译（需要区分对话气泡和旁白），支持日漫、韩漫、美漫
 - 输入：640×640
 - 输出：300 个检测框 + 置信度 + 类别
 - 类别：`bubble`（空对话气泡）、`text_bubble`（气泡内文字）、`text_free`（自由文字/旁白）
-- 推理速度：INT8 小版预计手机 CPU < 0.5 秒/帧（模型仅 11MB）
+- 推理速度：INT8 小版手机 CPU < 0.5 秒/帧
 - 优势：模型小、速度快、直接返回检测框无需复杂后处理、能区分文字和气泡
-- 版本：FP32 (168MB)、INT8 完整版 (44MB)、**INT8 小版 (11MB)**
-- 模型文件：`.reference/comic-text-bubble-detector/`
-
-**48px_ctc（CTC OCR）— 文字识别（内置，~165MB）**
-- 用途：识别裁剪后的文字图片，输出文字内容
-- 适用场景：配合检测器使用，识别单行文字（横排/竖排均可）
-- 输入：高 48px，宽任意（模型 stride=4，seq_len=width/4）
-- 字典：19264 字符（中日韩英多语言）
-- 预处理：竖排文字需旋转 90° 逆时针后再送入模型
-- 参考：`.reference/manga-image-translator/manga_translator/ocr/model_48px_ctc.py`
+- 下载地址：`https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector-v4-s_int8.onnx`
+- 管理器：`RTDetrModelManager.kt`，存储在 `filesDir/rt_detr/`
 
 **manga-ocr — 文字识别（需下载）**
 - 用途：专门识别竖排日文漫画文字，识别精度高于 CTC
@@ -170,13 +162,23 @@ suspend fun downloadModel(
 | 来源 | 路径 | 模型 |
 |------|------|------|
 | `assets/` | APK 内置 | PP-OCRv5 全套（det+cls+rec 4语言，~207MB） |
-| `filesDir/` | `/data/.../files/<modelDir>/` | CTD、manga-ocr（需下载，可删除） |
+| `filesDir/` | `/data/.../files/<modelDir>/` | CTD、RT-DETR-V2、manga-ocr（需下载，可删除） |
 
-初始化时检查顺序：`filesDir` 优先 → `assets` 回退。见各检测器 `initialize()` 方法。
+初始化时检查顺序：PP-OCRv5 从 `assets` 加载；CTD/RT-DETR-V2/manga-ocr 仅从 `filesDir` 加载，未下载时抛异常提示。
+
+### 普通/高级模式
+
+悬浮窗菜单支持两种模式，通过 `Manga_Advanced_Mode` 偏好切换（关于页面开关）：
+- **普通模式**（默认）：固定搭配，菜单只有一个"模型"选项
+  - MLKit → det=MLKIT, ocr=MLKit（全部内置）
+  - PP-OCRv5 → det=PP_OCR_V5, ocr=PPOcrV5（全部内置）
+  - manga-ocr → det=RT_DETR_V2, ocr=MangaOcr（需下载两个模型）
+  - 缺失模型时 toast 提示并回退 MLKit
+- **高级模式**：自由搭配检测器+识别器，菜单分两个选项
 
 ### 添加新模型下载的步骤
 
-1. **创建 ModelManager**（参考 `CtcOcrModelManager`）：
+1. **创建 ModelManager**（参考 `CTDModelManager`）：
    - 定义 `MODEL_DIR`、`MODEL_FILE` 常量
    - 实现 `getModelDir()`、`getModelFile()`、`isModelDownloaded()`
    - 实现 `downloadModel()` 调用 `ModelDownloadManager.downloadModel()`
@@ -227,10 +229,10 @@ suspend fun downloadModel(
 - `PPOcrV5(4)` — PP-OCRv5 识别（**默认**）
 
 **检测引擎特点：**
-- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎；**PP-OCRv5 路径跳过 BoxMerger 合并**（rec 是单行模型，合并反而变差）
-- `detectWithRTDetrV2` — RT-DETR-V2 气泡检测 + 指定 OCR 引擎
-- `detectWithMLKit` — ML Kit 检测+识别一体化
-- `detectWithPPOcrV5` — PP-OCRv5 独立 det+cls+rec 全流水线
+- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎；**PPOcrV5 跳过前合并**（单行识别器，每个 QuadBox 独立透视裁剪），MLKit 和 MangaOcr 走 BoxMerger 前合并（可处理多行输入）；CTD + PPOcrV5 走 BubbleDetector 后合并，CTD + MLKit/MangaOcr 跳过后合并
+- `detectWithRTDetrV2` — RT-DETR-V2 气泡/文字检测 + 指定 OCR 引擎；无前合并，识别结果走 BubbleDetector 后合并
+- `detectWithMLKit` — ML Kit 检测+识别一体化；识别结果走 BubbleDetector 后合并
+- `detectWithPPOcrV5` — PP-OCRv5 独立 det+cls+rec 全流水线；识别结果走 BubbleDetector 后合并
 
 **Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径，其余正常翻译。
 
@@ -251,14 +253,27 @@ suspend fun downloadModel(
 - 使用 QuadBox 结构线计算真实 font_size，而非 AABB 代理
 - CTD 模型需下载（~94MB），存储在 `filesDir/ctd/`，DETECT_SIZE=1024
 
-**翻译流程：** 截图 → OCR（ML Kit 带位置信息）→ 气泡检测（聚类文字块）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
+**翻译流程：** 截图 → 检测 → OCR 识别 → BubbleDetector 后合并 → 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
+
+**合并机制（两阶段）：**
+
+1. **前合并（BoxMerger，OCR 之前）**：CTD + MLKit 和 CTD + MangaOcr 使用。CTD 检测出文字行级 QuadBox，BoxMerger 按距离/方向合并为区域级，再裁剪送入 OCR 引擎。PPOcrV5 是单行识别器，跳过前合并，每个 QuadBox 独立透视裁剪。
+2. **后合并（BubbleDetector，OCR 之后）**：CTD + PPOcrV5、RT-DETR-V2、MLKit、PP-OCRv5 使用。`BubbleDetector.detectBubbles()` 接收已识别的 `TextBlockInfo` 列表，按距离/方向/MST 分割合并为气泡级 `BubbleRegion`。CTD + MLKit/MangaOcr 已有前合并，跳过后合并。
+
+简记：前合并合并检测框（OCR 前），后合并合并识别结果（OCR 后）。
 
 **关键类型：**
 - `TextDirection` 枚举：`VERTICAL_RL`（右→左）、`VERTICAL_LR`（左→右）、`HORIZONTAL`
-- `MangaModeConfig`：textDirection、fontSize、autoFontSize、smartBackground、autoDetectBubble、sourceLang、targetLang
+- `MangaModeConfig`：textDirection、fontSize、autoFontSize、smartBackground、sourceLang、targetLang
 - `TranslatedBubble`：rect、originalText、translatedText、backgroundColor
 
 **功能：** 框选/全屏翻译、自动翻译（定时器 + OCR 相似度检测）、自适应字体大小（自动缩小以适应区域）、菜单对话框（动态模式标签）
+
+**全屏/调试 overlay 定位：**
+- 全屏模式和所有调试模式（CTD / RT-DETR-V2 / ML Kit / PP-OCRv5）都不能用 `MATCH_PARENT`，会被系统栏影响导致左右空白或变形
+- 正确做法：用 `resources.displayMetrics.widthPixels/heightPixels` 获取屏幕真实像素尺寸，显式设置 overlay 的 `width`/`height`，配合 `FIT_XY` + `FLAG_LAYOUT_NO_LIMITS`
+- 框选模式不受影响，因为 overlay 精确定位到框选区域
+- ML Kit / PP-OCRv5 调试模式的底部信息栏用 ScrollView 浮在图片上方，不能挤压 ImageView
 
 **服务：** `MangaFloatingService` — 独立前台服务，拥有自己的悬浮球。
 
