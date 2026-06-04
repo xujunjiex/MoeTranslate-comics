@@ -215,7 +215,7 @@ suspend fun downloadModel(
 - `TranslateBridge` 从 `CustomPreference` 读取配置，实例化对应的 `TranslationTextAPI`
 
 ### 漫画模块
-**文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrRecognizer.kt`/`MangaOcrBridge.kt`（manga-ocr ONNX 推理）、`MangaOcrDownloadManager.kt`（版本管理）、`ModelDownloadManager.kt`（统一下载器）、`BoxMerger.kt`/`BubbleMerger.kt`（合并）、`QuadBox.kt`（旋转四边形）、`OverlayRenderer.kt`（渲染）
+**文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrRecognizer.kt`/`MangaOcrBridge.kt`（manga-ocr ONNX 推理）、`MangaOcrDownloadManager.kt`（版本管理）、`ModelDownloadManager.kt`（统一下载器）、`BoxMerger.kt`（合并）、`QuadBox.kt`（旋转四边形）、`OverlayRenderer.kt`（渲染）
 
 **检测引擎（DetEngine 枚举）：**
 - `MLKIT(0)` — ML Kit 检测+识别一体化（默认值已改为 PP-OCRv5）
@@ -229,10 +229,10 @@ suspend fun downloadModel(
 - `PPOcrV5(4)` — PP-OCRv5 识别（**默认**）
 
 **检测引擎特点：**
-- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎；**PPOcrV5 跳过前合并**（单行识别器，每个 QuadBox 独立透视裁剪），MLKit 和 MangaOcr 走 BoxMerger 前合并（可处理多行输入）；CTD + PPOcrV5 走 BubbleDetector 后合并，CTD + MLKit/MangaOcr 跳过后合并
-- `detectWithRTDetrV2` — RT-DETR-V2 气泡/文字检测 + 指定 OCR 引擎；无前合并，识别结果走 BubbleDetector 后合并
-- `detectWithMLKit` — ML Kit 检测+识别一体化；识别结果走 BubbleDetector 后合并
-- `detectWithPPOcrV5` — PP-OCRv5 独立 det+cls+rec 全流水线；识别结果走 BubbleDetector 后合并
+- `detectWithCTD` — CTD 检测 + 指定 OCR 引擎；**所有引擎统一走 BoxMerger 前合并确定分组**；PPOcrV5 逐个 QuadBox 透视裁剪识别后按组拼接文字（单行单列识别器不能识别合并输入），MLKit/MangaOcr 对合并区域 AABB 裁剪识别；跳过 BubbleDetector
+- `detectWithRTDetrV2` — RT-DETR-V2 气泡/文字检测 + 指定 OCR 引擎；跳过 BubbleDetector（检测器直接输出气泡级结果）
+- `detectWithMLKit` — ML Kit 检测+识别一体化；识别结果走 BubbleDetector 后合并（行级→气泡级）
+- `detectWithPPOcrV5` — PP-OCRv5 独立 det+cls+rec 全流水线；识别结果走 BubbleDetector 后合并（行级→气泡级）
 
 **Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径，其余正常翻译。
 
@@ -253,14 +253,27 @@ suspend fun downloadModel(
 - 使用 QuadBox 结构线计算真实 font_size，而非 AABB 代理
 - CTD 模型需下载（~94MB），存储在 `filesDir/ctd/`，DETECT_SIZE=1024
 
-**翻译流程：** 截图 → 检测 → OCR 识别 → BubbleDetector 后合并 → 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
+**翻译流程：** 截图 → 检测 → OCR 识别 → 气泡合并（按需）→ 翻译（每气泡并行）→ 覆盖渲染（半透明背景 + 竖排/横排文字）
 
-**合并机制（两阶段）：**
+**合并机制：**
 
-1. **前合并（BoxMerger，OCR 之前）**：CTD + MLKit 和 CTD + MangaOcr 使用。CTD 检测出文字行级 QuadBox，BoxMerger 按距离/方向合并为区域级，再裁剪送入 OCR 引擎。PPOcrV5 是单行识别器，跳过前合并，每个 QuadBox 独立透视裁剪。
-2. **后合并（BubbleDetector，OCR 之后）**：CTD + PPOcrV5、RT-DETR-V2、MLKit、PP-OCRv5 使用。`BubbleDetector.detectBubbles()` 接收已识别的 `TextBlockInfo` 列表，按距离/方向/MST 分割合并为气泡级 `BubbleRegion`。CTD + MLKit/MangaOcr 已有前合并，跳过后合并。
+1. **BoxMerger 前合并（OCR 之前）**：仅 CTD 使用。CTD 检测出文字行级 QuadBox，BoxMerger 按结构线距离/方向分组。PPOcrV5 逐个 QuadBox 透视裁剪识别后按组拼接文字（单行单列识别器不能识别合并输入）；MLKit/MangaOcr 对合并区域 AABB 裁剪识别。
+2. **BubbleDetector 后合并（OCR 之后）**：仅 MLKit 独立和 PP-OCRv5 独立使用。`BubbleDetector.detectBubbles()` 接收已识别的 `TextBlockInfo` 列表，按 AABB 距离/方向合并为气泡级 `BubbleRegion`。
+3. **RT-DETR-V2**：检测器直接输出气泡级结果，不需要任何合并。
+4. **CTD**：BoxMerger 已完成分组，不需要 BubbleDetector。
 
-简记：前合并合并检测框（OCR 前），后合并合并识别结果（OCR 后）。
+简记：BoxMerger 用于 CTD（结构线信息精确），BubbleDetector 用于 MLKit/PP-OCRv5 独立（AABB 距离），RT-DETR-V2 不需要合并。
+
+**各路径合并明细：**
+
+| 检测器 + 识别器 | 前合并 (BoxMerger) | 后合并 (BubbleDetector) | 说明 |
+|---|---|---|---|
+| CTD + PPOcrV5 | ✅ 分组 | ❌ | 逐个 QuadBox 透视裁剪识别，按组拼接文字 |
+| CTD + MLKit | ✅ 合并 | ❌ | 对合并区域 AABB 裁剪识别 |
+| CTD + MangaOcr | ✅ 合并 | ❌ | 对合并区域 AABB 裁剪识别 |
+| RT-DETR-V2 + 任意 | ❌ | ❌ | 检测器直接输出气泡级结果 |
+| MLKit 独立 | ❌ | ✅ | 行级文字块 → BubbleDetector 合并成气泡 |
+| PP-OCRv5 独立 | ❌ | ✅ | 行级检测框 → BubbleDetector 合并成气泡 |
 
 **关键类型：**
 - `TextDirection` 枚举：`VERTICAL_RL`（右→左）、`VERTICAL_LR`（左→右）、`HORIZONTAL`

@@ -184,50 +184,22 @@ object DetectionBridge {
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
             val PADDING = 10
-            // PPOcrV5 是单行识别器，跳过前合并，每个 QuadBox 独立透视裁剪
-            // MLKit/MangaOcr 可处理多行输入，走 BoxMerger 前合并，AABB 裁剪
-            val (groups, expandedRects) = if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                val rects = quadBoxes.map { qb ->
-                    val aabb = qb.aabb
-                    Rect(
-                        (aabb.left - PADDING).coerceAtLeast(0),
-                        (aabb.top - PADDING).coerceAtLeast(0),
-                        (aabb.right + PADDING).coerceAtMost(bitmap.width),
-                        (aabb.bottom + PADDING).coerceAtMost(bitmap.height)
-                    )
-                }
-                Pair(quadBoxes.map { listOf(it) }, rects)
-            } else {
-                val merged = BoxMerger.merge(quadBoxes)
-                val rects = merged.map { group ->
-                    val unionRect = computeUnionAABB(group)
-                    Rect(
-                        (unionRect.left - PADDING).coerceAtLeast(0),
-                        (unionRect.top - PADDING).coerceAtLeast(0),
-                        (unionRect.right + PADDING).coerceAtMost(bitmap.width),
-                        (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
-                    )
-                }
-                Pair(merged, rects)
-            }
-            if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 跳过前合并(单行识别): ${quadBoxes.size} 个独立区域")
-            } else {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) BoxMerger前合并: ${quadBoxes.size} → ${groups.size} 个区域")
-            }
+            // BoxMerger 前合并：用 QuadBox 结构线信息确定分组（所有引擎共用）
+            val mergedGroups = BoxMerger.merge(quadBoxes)
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) BoxMerger前合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
 
+            // 计算每组的合并 AABB（用于 MLKit/MangaOcr 裁剪和日志）
+            val expandedRects = mergedGroups.map { group ->
+                val unionRect = computeUnionAABB(group)
+                Rect(
+                    (unionRect.left - PADDING).coerceAtLeast(0),
+                    (unionRect.top - PADDING).coerceAtLeast(0),
+                    (unionRect.right + PADDING).coerceAtMost(bitmap.width),
+                    (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
+                )
+            }
             for ((idx, rect) in expandedRects.withIndex()) {
                 LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终区域[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
-            }
-
-            // PPOcrV5 透视校正裁剪（单个 QuadBox），MLKit/MangaOcr AABB 裁剪（已合并）
-            val croppedBitmaps: List<Bitmap>
-            if (ocrEngine == CTDOCREngine.PPOcrV5) {
-                croppedBitmaps = quadBoxes.map { qb ->
-                    PPOcrV5Engine.getRotateCropImage(bitmap, qb.pts)
-                }
-            } else {
-                croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
             }
 
             // OCR 识别
@@ -235,10 +207,58 @@ object DetectionBridge {
             val results = mutableListOf<TextBlockInfo>()
 
             when (ocrEngine) {
+                CTDOCREngine.PPOcrV5 -> {
+                    // PPOcrV5 单行单列识别器：用 BoxMerger 分组，逐个 QuadBox 透视裁剪识别，按组拼接文字
+                    val recLang = PPOcrV5Engine.getRecLang(language)
+                    if (recLang != null) {
+                        // 逐个 QuadBox 透视裁剪 + 识别
+                        val allCropped = quadBoxes.map { qb -> PPOcrV5Engine.getRotateCropImage(bitmap, qb.pts) }
+                        val allResults = PPOcrV5Engine.recognizeBatch(context, allCropped, recLang)
+                        // 建立 QuadBox 索引到识别结果的映射
+                        val quadResults = mutableMapOf<Int, Pair<String, Float>>()
+                        for (i in quadBoxes.indices) {
+                            val r = allResults.getOrElse(i) { RecResult("", 0f) }
+                            if (r.text.isNotBlank() && r.score >= 0.5f) {
+                                quadResults[i] = Pair(r.text, r.score)
+                            }
+                        }
+                        // 按 BoxMerger 分组拼接
+                        for ((groupIdx, group) in mergedGroups.withIndex()) {
+                            val rect = expandedRects[groupIdx]
+                            val isVertical = group.firstOrNull()?.isVertical ?: globalIsVertical
+                            // 收集该组内所有 QuadBox 的识别结果，按阅读顺序拼接
+                            val groupTexts = group.mapNotNull { qb ->
+                                val idx = quadBoxes.indexOf(qb)
+                                quadResults[idx]?.let { Triple(idx, it.first, it.second) }
+                            }
+                            if (groupTexts.isEmpty()) continue
+                            // 按阅读顺序排序：竖排从右到左（x 降序），横排从上到下（y 升序）
+                            val sorted = if (isVertical) {
+                                groupTexts.sortedByDescending { quadBoxes[it.first].aabb.left }
+                            } else {
+                                groupTexts.sortedBy { quadBoxes[it.first].aabb.top }
+                            }
+                            val combinedText = sorted.joinToString("") { it.second }
+                            val avgScore = sorted.map { it.third }.average().toFloat()
+                            results.add(TextBlockInfo(
+                                text = combinedText,
+                                boundingBox = rect,
+                                cornerPoints = null,
+                                isVertical = isVertical
+                            ))
+                            LogCollector.d(TAG, "CTD(PPOcrV5) 组[$groupIdx]: ${group.size}个QuadBox→'${combinedText}', score=${String.format("%.3f", avgScore)}, rect=[${rect.left},${rect.top},${rect.right},${rect.bottom}]")
+                        }
+                        // 释放裁剪图片
+                        for (c in allCropped) { if (c !== bitmap) c.recycle() }
+                    } else {
+                        LogCollector.w(TAG, "CTD(PPOcrV5) 不支持的语言: $language")
+                    }
+                }
                 CTDOCREngine.MLKit -> {
+                    val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
                     for (i in expandedRects.indices) {
                         val cropped = croppedBitmaps[i]
-                        val isVertical = groups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
+                        val isVertical = mergedGroups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
                         try {
                             val text = OCRBridge.recognizeText(language, cropped)
                             if (text.isNotBlank()) {
@@ -254,12 +274,14 @@ object DetectionBridge {
                             LogCollector.e(TAG, "CTD(MLKit) ML Kit 识别失败[$i]", e)
                         }
                     }
+                    for (c in croppedBitmaps) { if (c !== bitmap) c.recycle() }
                 }
                 CTDOCREngine.MangaOcr -> {
+                    val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
                     val texts = MangaOcrBridge.recognizeBatch(croppedBitmaps)
                     for (i in expandedRects.indices) {
                         val text = texts[i].trim()
-                        val isVertical = groups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
+                        val isVertical = mergedGroups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {
                             val rect = expandedRects[i]
                             results.add(TextBlockInfo(
@@ -273,36 +295,8 @@ object DetectionBridge {
                             LogCollector.d(TAG, "CTD(MangaOcr) 过滤纯符号[$i]: '$text'")
                         }
                     }
+                    for (c in croppedBitmaps) { if (c !== bitmap) c.recycle() }
                 }
-                CTDOCREngine.PPOcrV5 -> {
-                    val recLang = PPOcrV5Engine.getRecLang(language)
-                    if (recLang != null) {
-                        val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
-                        for (i in expandedRects.indices) {
-                            val result = texts.getOrElse(i) { RecResult("", 0f) }
-                            if (result.text.isNotBlank() && result.score >= 0.5f) {
-                                val rect = expandedRects[i]
-                                val isVertical = quadBoxes.getOrNull(i)?.isVertical ?: globalIsVertical
-                                results.add(TextBlockInfo(
-                                    text = result.text,
-                                    boundingBox = rect,
-                                    cornerPoints = null,
-                                    isVertical = isVertical
-                                ))
-                                LogCollector.d(TAG, "CTD(PPOcrV5) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='${result.text}', score=${String.format("%.3f", result.score)}, isVertical=$isVertical")
-                            } else {
-                                LogCollector.d(TAG, "CTD(PPOcrV5) 未识别[$i]: text='${result.text}', score=${String.format("%.3f", result.score)}, crop=${croppedBitmaps[i].width}x${croppedBitmaps[i].height}")
-                            }
-                        }
-                    } else {
-                        LogCollector.w(TAG, "CTD(PPOcrV5) 不支持的语言: $language")
-                    }
-                }
-            }
-
-            // 释放裁剪的图片
-            for (cropped in croppedBitmaps) {
-                if (cropped !== bitmap) cropped.recycle()
             }
 
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 完成，共 ${results.size} 个文字块")

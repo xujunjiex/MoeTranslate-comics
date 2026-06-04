@@ -1397,9 +1397,9 @@ class MangaFloatingService : LifecycleService() {
             }
 
             // Step 2: 气泡合并
-            // CTD + MLKit/MangaOcr 已 BoxMerger 前合并，跳过后合并
-            // CTD + PPOcrV5 / RT-DETR-V2 / MLKit / PP-OCRv5 需要 BubbleDetector 后合并
-            val needsPostMerge = !(config.detEngine == DetEngine.CTD && config.ocrEngine != OcrEngine.PPOcrV5)
+            // CTD 已用 BoxMerger 分组，RT-DETR-V2 检测器直接输出气泡级结果，跳过后合并
+            // MLKit / PP-OCRv5 独立模式需要 BubbleDetector 把行级结果合并成气泡
+            val needsPostMerge = config.detEngine == DetEngine.MLKIT || config.detEngine == DetEngine.PP_OCR_V5
             val bubbles = if (needsPostMerge) {
                 LogCollector.d(TAG, "processMangaScreenshot: Step 2 - BubbleDetector 后合并")
                 BubbleDetector.detectBubbles(textBlocks, config)
