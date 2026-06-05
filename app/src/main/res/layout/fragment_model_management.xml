@@ -70,7 +70,7 @@
                     android:textColor="#888"/>
             </LinearLayout>
 
-            <!-- RT-DETR v2（内置） -->
+            <!-- PP-OCRv5 检测（内置） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -86,13 +86,13 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="RT-DETR v2"
+                        android:text="PP-OCRv5"
                         android:textSize="16sp"/>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/detector_rtdetr_desc"
+                        android:text="det 文字区域检测，内置"
                         android:textSize="11sp"
                         android:textColor="#888"
                         android:layout_marginTop="2dp"/>
@@ -105,6 +105,59 @@
                     android:textSize="12sp"
                     android:textColor="#888"/>
             </LinearLayout>
+
+            <!-- RT-DETR-V2（需下载） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="8dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="RT-DETR-V2"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/rtdetr_download_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/rtdetr_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="8dp"/>
+
+                <Button
+                    android:id="@+id/rtdetr_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- RT-DETR-V2 进度条 -->
+            <ProgressBar
+                android:id="@+id/rtdetr_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:visibility="gone"/>
 
             <!-- CTD（需下载） -->
             <LinearLayout
@@ -159,29 +212,6 @@
                 android:layout_marginEnd="8dp"
                 android:visibility="gone"/>
 
-        </LinearLayout>
-
-        <!-- PP-OCRv5 内置模型 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="PP-OCRv5 (内置)"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/ppocrv5_status"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_builtin"
-                android:textSize="14sp"
-                android:textColor="@android:color/darker_gray" />
         </LinearLayout>
 
         <!-- 识别器区域 -->
@@ -245,7 +275,7 @@
                     android:textColor="#888"/>
             </LinearLayout>
 
-            <!-- CTC OCR（内置） -->
+            <!-- PP-OCRv5 识别（内置） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -261,13 +291,13 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="48px CTC"
+                        android:text="PP-OCRv5"
                         android:textSize="16sp"/>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/recognizer_ctc_desc"
+                        android:text="rec 多语言识别 (中日韩英)，内置"
                         android:textSize="11sp"
                         android:textColor="#888"
                         android:layout_marginTop="2dp"/>

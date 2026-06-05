@@ -84,12 +84,6 @@ class OnlineAPI : Fragment() {
                 .setTitle(getString(R.string.whats_api_title, getString(R.string.niuapi_name)))
                 .setMessage(getString(R.string.whats_api_content, getString(R.string.niuapi_name)))
                 .setCancelable(false)
-                .setNeutralButton(R.string.view_tutorial){_,_->
-                    val urlt = "https://www.moetranslate.top/docs/translationapi/niutrans/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(urlt)
-                    startActivity(intent)
-                }
                 .setPositiveButton(R.string.go_now) { _, _ ->
                     val url = "https://niutrans.com/"
                     val intent = Intent(Intent.ACTION_VIEW)
@@ -130,12 +124,6 @@ class OnlineAPI : Fragment() {
                 .setTitle(getString(R.string.whats_api_title, getString(R.string.volcapi_name)))
                 .setMessage(getString(R.string.whats_api_content, getString(R.string.volcapi_name)))
                 .setCancelable(false)
-                .setNeutralButton(R.string.view_tutorial){_,_->
-                    val urlt = "https://www.moetranslate.top/docs/translationapi/volc/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(urlt)
-                    startActivity(intent)
-                }
                 .setPositiveButton(R.string.go_now) { _, _ ->
                     val url = "https://www.volcengine.com/"
                     val intent = Intent(Intent.ACTION_VIEW)
@@ -184,12 +172,6 @@ class OnlineAPI : Fragment() {
                 .setTitle(getString(R.string.whats_api_title, getString(R.string.azureapi_name)))
                 .setMessage(getString(R.string.whats_api_content, getString(R.string.azureapi_name)))
                 .setCancelable(false)
-                .setNeutralButton(R.string.view_tutorial){_,_->
-                    val urlt = "https://www.moetranslate.top/docs/translationapi/azure/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(urlt)
-                    startActivity(intent)
-                }
                 .setPositiveButton(R.string.go_now) { _, _ ->
                     val url = "https://portal.azure.com/"
                     val intent = Intent(Intent.ACTION_VIEW)
@@ -230,12 +212,6 @@ class OnlineAPI : Fragment() {
                 .setTitle(getString(R.string.whats_api_title, getString(R.string.deeplapi_name)))
                 .setMessage(getString(R.string.whats_api_content, getString(R.string.deeplapi_name)))
                 .setCancelable(false)
-                .setNeutralButton(R.string.view_tutorial){_,_->
-                    val urlt = "https://www.moetranslate.top/docs/translationapi/deepl/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(urlt)
-                    startActivity(intent)
-                }
                 .setPositiveButton(R.string.go_now) { _, _ ->
                     val url = "https://developers.deepl.com/docs/getting-started/intro/"
                     val intent = Intent(Intent.ACTION_VIEW)
@@ -281,12 +257,6 @@ class OnlineAPI : Fragment() {
                 .setTitle(getString(R.string.whats_api_title, getString(R.string.baiduapi_name)))
                 .setMessage(getString(R.string.whats_api_content, getString(R.string.baiduapi_name)))
                 .setCancelable(false)
-                .setNeutralButton(R.string.view_tutorial){_,_->
-                    val urlt = "https://www.moetranslate.top/docs/translationapi/baidu/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(urlt)
-                    startActivity(intent)
-                }
                 .setPositiveButton(R.string.go_now) { _, _ ->
                     val url = "https://fanyi-api.baidu.com/"
                     val intent = Intent(Intent.ACTION_VIEW)
@@ -332,12 +302,6 @@ class OnlineAPI : Fragment() {
                 .setTitle(getString(R.string.whats_api_title, getString(R.string.tencentapi_name)))
                 .setMessage(getString(R.string.whats_api_content, getString(R.string.tencentapi_name)))
                 .setCancelable(false)
-                .setNeutralButton(R.string.view_tutorial){_,_->
-                    val urlt = "https://www.moetranslate.top/docs/translationapi/tencent/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(urlt)
-                    startActivity(intent)
-                }
                 .setPositiveButton(R.string.go_now) { _, _ ->
                     val url = "https://cloud.tencent.com/"
                     val intent = Intent(Intent.ACTION_VIEW)

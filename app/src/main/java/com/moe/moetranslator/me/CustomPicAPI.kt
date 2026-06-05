@@ -92,12 +92,6 @@ class CustomPicAPI : Fragment() {
             .setMessage(R.string.introduce_custom_pic_api_content)
             .setCancelable(false)
             .setPositiveButton(R.string.user_known, null)
-            .setNegativeButton(R.string.view_tutorial){_,_->
-                val urlt = "https://www.moetranslate.top/docs/translationapi/custompic/"
-                val intent = Intent(Intent.ACTION_VIEW)
-                intent.data = Uri.parse(urlt)
-                startActivity(intent)
-            }
             .setNeutralButton(R.string.introduce_not_show_again){
                 _, _ ->
                 prefs.setBoolean("Read_Custom_Pic_Introduce", true)

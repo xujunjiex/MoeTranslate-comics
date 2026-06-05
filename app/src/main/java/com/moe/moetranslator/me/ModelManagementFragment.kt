@@ -16,6 +16,7 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.manga.CTDModelManager
 import com.moe.moetranslator.manga.MangaOcrDownloadManager
 import com.moe.moetranslator.manga.ModelDownloadManager
+import com.moe.moetranslator.manga.RTDetrModelManager
 import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +28,10 @@ class ModelManagementFragment : Fragment() {
     private val TAG = "ModelManagementFragment"
     private lateinit var rootView: View
     private val handler = Handler(Looper.getMainLooper())
+
+    // RT-DETR-V2 下载相关
+    private var rtdetrDownloadJob: Job? = null
+    private var rtdetrIsCancelled = false
 
     // CTD 下载相关
     private var ctdDownloadJob: Job? = null
@@ -48,16 +53,121 @@ class ModelManagementFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        updateRTDetrStatus()
         updateCtdStatus()
-        updatePPOcrV5Status()
         updateMangaOcrStatus()
     }
 
-    // ========== PP-OCRv5 内置状态 ==========
+    // ========== RT-DETR-V2 下载相关 ==========
 
-    private fun updatePPOcrV5Status() {
-        val statusText = rootView.findViewById<TextView>(R.id.ppocrv5_status)
-        statusText.text = "已内置 (det + cls + rec 4语言，~52MB)"
+    private fun updateRTDetrStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.rtdetr_status)
+        val actionBtn = rootView.findViewById<Button>(R.id.rtdetr_action_button)
+        val progressBar = rootView.findViewById<ProgressBar>(R.id.rtdetr_progress)
+
+        val isDownloaded = RTDetrModelManager.isModelInFilesDir(requireContext())
+        val isDownloading = rtdetrDownloadJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                actionBtn.setOnClickListener { cancelRTDetrDownload() }
+                progressBar.visibility = View.VISIBLE
+            }
+            isDownloaded -> {
+                val size = RTDetrModelManager.getModelSizeString(requireContext())
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                actionBtn.setOnClickListener { showRTDetrDeleteConfirmDialog() }
+                progressBar.visibility = View.GONE
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                actionBtn.setOnClickListener { startRTDetrDownload() }
+                progressBar.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun cancelRTDetrDownload() {
+        rtdetrIsCancelled = true
+        rtdetrDownloadJob?.cancel()
+        rtdetrDownloadJob = null
+        LogCollector.d(TAG, "RT-DETR-V2 下载已取消")
+        updateRTDetrStatus()
+    }
+
+    private fun startRTDetrDownload() {
+        rtdetrIsCancelled = false
+        rtdetrDownloadJob = lifecycleScope.launch(Dispatchers.IO) {
+            LogCollector.d(TAG, "开始下载 RT-DETR-V2 模型...")
+            try {
+                val result = RTDetrModelManager.downloadModel(
+                    requireContext(),
+                    object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            if (rtdetrIsCancelled || !isAdded) return
+                            handler.post {
+                                if (rtdetrIsCancelled || !isAdded) return@post
+                                val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                                val progressBar = rootView.findViewById<ProgressBar>(R.id.rtdetr_progress)
+                                progressBar.progress = progress
+                                val statusText = rootView.findViewById<TextView>(R.id.rtdetr_status)
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
+                                statusText.text = "${getString(R.string.model_downloading)} $progress%  ${mbRead}/${mbTotal} MB$speedStr"
+                            }
+                        }
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    rtdetrDownloadJob = null
+                    if (rtdetrIsCancelled) return@withContext
+                    if (result.isSuccess) {
+                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.model_download_failed, result.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
+                    }
+                    updateRTDetrStatus()
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "RT-DETR-V2 下载异常", e)
+                withContext(Dispatchers.Main) {
+                    rtdetrDownloadJob = null
+                    if (rtdetrIsCancelled) return@withContext
+                    Toast.makeText(requireContext(), getString(R.string.model_download_failed, e.message), Toast.LENGTH_LONG).show()
+                    updateRTDetrStatus()
+                }
+            }
+        }
+        updateRTDetrStatus()
+    }
+
+    private fun showRTDetrDeleteConfirmDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(R.string.model_delete)
+            .setMessage(getString(R.string.model_delete_confirm, "RT-DETR-V2"))
+            .setPositiveButton(R.string.confirm) { _, _ -> deleteRTDetrModel() }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    private fun deleteRTDetrModel() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = RTDetrModelManager.deleteModel(requireContext())
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
+                }
+                updateRTDetrStatus()
+            }
+        }
     }
 
     // ========== CTD 下载相关 ==========
@@ -348,6 +458,8 @@ class ModelManagementFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         handler.removeCallbacksAndMessages(null)
+        rtdetrDownloadJob?.cancel()
+        rtdetrDownloadJob = null
         ctdDownloadJob?.cancel()
         ctdDownloadJob = null
         mangaOcrDownloadJob?.cancel()

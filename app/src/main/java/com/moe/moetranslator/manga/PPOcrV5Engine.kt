@@ -111,7 +111,7 @@ object PPOcrV5Engine {
     // Det 常量 (ch_ppocr_det/utils.py DetPreProcess + DBPostProcess)
     // -----------------------------------------------------------------------
     private const val DET_LIMIT_SIDE_LEN = 960
-    private const val DET_LIMIT_TYPE = "min"
+    private const val DET_LIMIT_TYPE = "max"
     private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)
     private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
     private const val DET_THRESH = 0.3f
@@ -141,9 +141,16 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // Rec 语言枚举
     // -----------------------------------------------------------------------
+    /**
+     * Rec 模型枚举（全部 PP-OCRv5 mobile）。
+     * ZH: 中英日混合（16MB）
+     * JA: 日文专用（复用 ZH 模型，日文由 ZH 模型覆盖）
+     * EN: 英文专用（7.6MB）
+     * KO: 韩文专用（13MB）
+     */
     enum class RecLang(val code: String) {
         ZH("zh"),
-        JA("ja"),
+        JA("zh"),   // 日文走 rec_zh（PP-OCRv5 中英日混合）
         EN("en"),
         KO("ko");
 
@@ -199,11 +206,11 @@ object PPOcrV5Engine {
                     setIntraOpNumThreads(4)
                 }
 
-                // det
+                // det（PP-OCRv5 mobile，4.6MB 轻量模型，CPU 4 线程）
                 LogCollector.d(TAG, "加载 det 模型...")
                 val detBytes = context.assets.open("ppocrv5/det_v5.onnx").use { it.readBytes() }
                 detSession = ortEnv!!.createSession(detBytes, sessionOpts)
-                LogCollector.d(TAG, "det 模型加载完成")
+                LogCollector.d(TAG, "det 模型加载完成 (mobile)")
 
                 // cls（可选）
                 try {
@@ -316,11 +323,12 @@ object PPOcrV5Engine {
     }
 
     /**
-     * 将 source language 字符串映射到 RecLang
+     * 将 source language 字符串映射到 RecLang。
+     * 日文走 JA（= rec_zh，PP-OCRv5 中英日混合模型）。
      */
     fun getRecLang(language: String): RecLang? = when (language.lowercase()) {
-        "ja", "japanese", "日本語" -> RecLang.JA
         "zh", "chinese", "中文" -> RecLang.ZH
+        "ja", "japanese", "日本語" -> RecLang.JA
         "en", "english", "英语" -> RecLang.EN
         "ko", "korean", "한국어" -> RecLang.KO
         else -> null
@@ -845,33 +853,31 @@ object PPOcrV5Engine {
 
         val widthA = sqrt(((br.x - bl.x) * (br.x - bl.x) + (br.y - bl.y) * (br.y - bl.y)).toDouble()).toFloat()
         val widthB = sqrt(((tr.x - tl.x) * (tr.x - tl.x) + (tr.y - tl.y) * (tr.y - tl.y)).toDouble()).toFloat()
-        val maxWidth = max(widthA, widthB).roundToInt().coerceAtLeast(1)
-
+        val maxWidth = max(widthA, widthB).roundToInt().coerceIn(4, bitmap.width)
         val heightA = sqrt(((tr.x - br.x) * (tr.x - br.x) + (tr.y - br.y) * (tr.y - br.y)).toDouble()).toFloat()
         val heightB = sqrt(((tl.x - bl.x) * (tl.x - bl.x) + (tl.y - bl.y) * (tl.y - bl.y)).toDouble()).toFloat()
-        val maxHeight = max(heightA, heightB).roundToInt().coerceAtLeast(1)
+        val maxHeight = max(heightA, heightB).roundToInt().coerceIn(4, bitmap.height)
 
-        // 2. 目标四角点
-        val dstPts = arrayOf(
-            PointF(0f, 0f),
-            PointF((maxWidth - 1).toFloat(), 0f),
-            PointF((maxWidth - 1).toFloat(), (maxHeight - 1).toFloat()),
-            PointF(0f, (maxHeight - 1).toFloat())
+        // 2. 使用 Android Canvas + Matrix 做透视裁剪（硬件加速，替代纯 Java 像素循环）
+        //    setPolyToPoly: src 点 → dst 点，drawBitmap 时反向映射
+        val srcPts = floatArrayOf(
+            tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y
         )
+        val dstPts = floatArrayOf(
+            0f, 0f, (maxWidth - 1).toFloat(), 0f,
+            (maxWidth - 1).toFloat(), (maxHeight - 1).toFloat(), 0f, (maxHeight - 1).toFloat()
+        )
+        val matrix = android.graphics.Matrix()
+        matrix.setPolyToPoly(srcPts, 0, dstPts, 0, 4)
 
-        // 3. 透视变换
-        val srcArr = points.map { floatArrayOf(it.x, it.y) }.toTypedArray()
-        val dstArr = dstPts.map { floatArrayOf(it.x, it.y) }.toTypedArray()
-        val H = computePerspectiveTransform(srcArr, dstArr)
-            ?: return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
+        val cropImg = Bitmap.createBitmap(maxWidth, maxHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(cropImg)
+        canvas.drawBitmap(bitmap, matrix, null)
 
-        // 4. Warp
-        val cropImg = warpPerspective(bitmap, H, maxWidth, maxHeight)
-
-        // 5. 竖排文字自动旋转 90° CCW
+        // 3. 竖排文字自动旋转 90° CCW
         if (cropImg.height >= cropImg.width * 1.5f) {
-            val matrix = android.graphics.Matrix().apply { setRotate(-90f) }
-            val rotated = Bitmap.createBitmap(cropImg, 0, 0, cropImg.width, cropImg.height, matrix, true)
+            val rotMatrix = android.graphics.Matrix().apply { setRotate(-90f) }
+            val rotated = Bitmap.createBitmap(cropImg, 0, 0, cropImg.width, cropImg.height, rotMatrix, true)
             if (rotated !== cropImg) cropImg.recycle()
             return rotated
         }
@@ -1110,7 +1116,14 @@ object PPOcrV5Engine {
 
         // 后处理：恢复原始顺序
         val sortedResults = (0 until batchSize).map { i ->
-            val probs = outputData.sliceArray(i * 2 until (i + 1) * 2)
+            val start = i * 2
+            val end = (i + 1) * 2
+            val probs = if (end <= outputData.size) {
+                outputData.sliceArray(start until end)
+            } else {
+                LogCollector.w(TAG, "cls 输出不足: batchSize=$batchSize, outputSize=${outputData.size}, i=$i")
+                floatArrayOf(1f, 0f) // 默认不旋转
+            }
             clsPostProcess(probs)
         }
 
@@ -1373,7 +1386,7 @@ object PPOcrV5Engine {
     fun runOCR(
         context: Context,
         bitmap: Bitmap,
-        recLang: RecLang = RecLang.JA,
+        recLang: RecLang = RecLang.ZH,
         useDet: Boolean = true,
         useCls: Boolean = true,
         returnWordBox: Boolean = false
@@ -1478,8 +1491,8 @@ object PPOcrV5Engine {
             totalTime / 1000f
         )
 
-        LogCollector.d(TAG, "runOCR: det=${boxes.size}, rec=${allTexts.size}, " +
-                "filtered=${filtered.texts.size}, totalTime=${totalTime}ms")
+        LogCollector.d(TAG, "runOCR: det=${boxes.size}(${detTime}ms), crop=${cropTime}ms, " +
+                "cls=${clsTime}ms, rec=${allTexts.size}(${recTime}ms), total=${totalTime}ms")
 
         return OcrResult(
             boxes = filtered.boxes,
@@ -1495,6 +1508,7 @@ object PPOcrV5Engine {
      */
     private fun runDet(bitmap: Bitmap): List<FloatArray> {
         val (input, detH, detW) = preprocessDet(bitmap)
+        LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH}")
 
         val buffer = FloatBuffer.wrap(input)
         val inputTensor = OnnxTensor.createTensor(

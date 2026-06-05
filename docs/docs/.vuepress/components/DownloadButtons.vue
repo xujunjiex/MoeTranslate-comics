@@ -17,7 +17,7 @@
         </div>
       </button>
 
-      <button @click="handleDownload('github', 'https://github.com/murangogo/MoeTranslate/releases/latest')" class="download-button github-button">
+      <button @click="handleDownload('github', 'https://github.com/xujunjiex/MoeTranslate-comics/releases/latest')" class="download-button github-button">
         <div class="button-content">
           <img src="/github.png" alt="GitHub" class="button-icon">
           <div class="button-text">

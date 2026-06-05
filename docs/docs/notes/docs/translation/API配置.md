@@ -7,7 +7,7 @@ permalink: /docs/translation/apiconfig/
 
 ## 一、简介
 
-API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译模式，接下来就需要配置翻译API。针对不同的翻译模式，萌译分别支持不同的翻译API。
+API配置是星译翻译功能中的核心步骤，一般来说选择完翻译模式，接下来就需要配置翻译API。针对不同的翻译模式，星译分别支持不同的翻译API。
 
 **本地OCR识别+文本翻译：** 支持的API有（共12个）：
 - 2种本地AI翻译：ML Kit翻译、NLLB翻译；
@@ -22,7 +22,7 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 
 ::: tip 哪个API翻译质量更好？
 
-具体的API翻译质量评价可以在[项目介绍](https://www.moetranslate.top/docs/intro/#_2%E3%80%81%E9%A2%84%E7%BD%AEapi%E4%BB%8B%E7%BB%8D)中阅读，这里不再重复，重点介绍不同的API配置流程。
+具体的API翻译质量评价可以在[项目介绍](https://github.com/xujunjiex/MoeTranslate-comics/docs/intro/#_2%E3%80%81%E9%A2%84%E7%BD%AEapi%E4%BB%8B%E7%BB%8D)中阅读，这里不再重复，重点介绍不同的API配置流程。
 
 :::
 
@@ -34,7 +34,7 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 
 下面将根据不同的翻译API类别做一下详细的介绍。
 
-<img src="https://img.moetranslate.top/apiconfig_text_show.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_text_show.jpg"/>
 
 ### 1、本地AI翻译
 
@@ -45,12 +45,12 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 **ML Kit：**  
 点击【管理ML Kit模型文件】，点击【开始下载】，等待下载完成后，在“API配置”页面中点击下图【绿色方框中的开关】，将其打开，即可使用ML Kit翻译。只需在初次使用时下载一次，后续无需再次下载，直接启用即可。
 
-<img src="https://img.moetranslate.top/apiconfig_text_mlkit.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_text_mlkit.jpg"/>
 
 **NLLB：**  
 和ML Kit的启用方法基本相同，点击【管理NLLB模型文件】，点击【开始下载】，等待下载完成后，在“API配置”页面中点击下图【绿色方框中的开关】，将其打开，即可使用NLLB翻译。只需在初次使用时下载一次，后续无需再次下载，直接启用即可。
 
-<img src="https://img.moetranslate.top/apiconfig_text_nllb.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_text_nllb.jpg"/>
 
 ### 2、预置云端API
 
@@ -58,16 +58,16 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 
 **必应翻译API：**
 
-先来介绍一下必应翻译API的使用方法，非常简单，只需点击下图【绿色方框中的开关】，将其打开，即可使用必应翻译。这也是初次打开萌译时默认的翻译API，旨在让用户快速体验萌译的翻译功能。
+先来介绍一下必应翻译API的使用方法，非常简单，只需点击下图【绿色方框中的开关】，将其打开，即可使用必应翻译。这也是初次打开星译时默认的翻译API，旨在让用户快速体验星译的翻译功能。
 
 ::: tip 小建议
 
-必应翻译不需要配置API Key，其实现原理是通过模拟浏览器访问网页的行为来实现翻译，依赖于网页结构和token提取，这是非常不规范的行为，稳定性较差。也正因为如此，萌译无法保证它随时可用，还是**推荐您使用其他翻译API，如小牛翻译**。
+必应翻译不需要配置API Key，其实现原理是通过模拟浏览器访问网页的行为来实现翻译，依赖于网页结构和token提取，这是非常不规范的行为，稳定性较差。也正因为如此，星译无法保证它随时可用，还是**推荐您使用其他翻译API，如小牛翻译**。
 
 :::
 
 <div style="text-align: center;">
-  <img src="https://img.moetranslate.top/apiconfig_text_bing.jpg" width="35%" />
+  <img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_text_bing.jpg" width="35%" />
 </div>
 
 **其他预置云端API：**
@@ -80,19 +80,19 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 
 ::: tip 各种API的申请教程
 
-所有API的申请教程跳转链接在[项目介绍](https://www.moetranslate.top/docs/intro/#_2%E3%80%81%E9%A2%84%E7%BD%AEapi%E4%BB%8B%E7%BB%8D)中可以查看。
+所有API的申请教程跳转链接在[项目介绍](https://github.com/xujunjiex/MoeTranslate-comics/docs/intro/#_2%E3%80%81%E9%A2%84%E7%BD%AEapi%E4%BB%8B%E7%BB%8D)中可以查看。
 
 :::
 
-<img src="https://img.moetranslate.top/apiconfig_text_niu.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_text_niu.jpg"/>
 
 ### 3、自定义云端文本翻译API
 
-该区域的配置项仅针对于高级用户，如果您已经需要配置自定义的API了，那么基本上也不需要过于啰嗦的指导了，在萌译App中已经有一些基本指导，[点击这里](https://www.moetranslate.top/docs/translationapi/customtext/)可以查看进一步的简易搭建教程。
+该区域的配置项仅针对于高级用户，如果您已经需要配置自定义的API了，那么基本上也不需要过于啰嗦的指导了，在星译App中已经有一些基本指导，[点击这里](https://github.com/xujunjiex/MoeTranslate-comics)可以查看进一步的简易搭建教程。
 
 基本流程如下图所示。
 
-<img src="https://img.moetranslate.top/apiconfig_text_custom.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_text_custom.jpg"/>
 
 ## 三、“直接上传图片进行翻译”模式的翻译API介绍
 
@@ -103,7 +103,7 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 下面将根据不同的翻译API类别做一下详细的介绍。
 
 <div style="text-align: center;">
-  <img src="https://img.moetranslate.top/apiconfig_pic_show.jpg" width="35%" />
+  <img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_pic_show.jpg" width="35%" />
 </div>
 
 ### 1、预置云端API
@@ -118,16 +118,16 @@ API配置是萌译翻译功能中的核心步骤，一般来说选择完翻译�
 
 ::: tip 各种API的申请教程
 
-所有API的申请教程跳转链接在[项目介绍](https://www.moetranslate.top/docs/intro/#_2%E3%80%81%E9%A2%84%E7%BD%AEapi%E4%BB%8B%E7%BB%8D)中可以查看。
+所有API的申请教程跳转链接在[项目介绍](https://github.com/xujunjiex/MoeTranslate-comics/docs/intro/#_2%E3%80%81%E9%A2%84%E7%BD%AEapi%E4%BB%8B%E7%BB%8D)中可以查看。
 
 :::
 
-<img src="https://img.moetranslate.top/apiconfig_pic_baidu.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_pic_baidu.jpg"/>
 
 ### 2、自定义云端文本翻译API
 
-该区域的配置项仅针对于高级用户，如果您已经需要配置自定义的API了，那么基本上也不需要过于啰嗦的指导了，在萌译App中已经有一些基本指导，[点击这里](https://www.moetranslate.top/docs/translationapi/custompic/)可以查看进一步的简易搭建教程。
+该区域的配置项仅针对于高级用户，如果您已经需要配置自定义的API了，那么基本上也不需要过于啰嗦的指导了，在星译App中已经有一些基本指导，[点击这里](https://github.com/xujunjiex/MoeTranslate-comics)可以查看进一步的简易搭建教程。
 
 基本流程如下图所示。
 
-<img src="https://img.moetranslate.top/apiconfig_pic_custom.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/apiconfig_pic_custom.jpg"/>

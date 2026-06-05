@@ -25,8 +25,6 @@ import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
-import androidx.core.content.res.ResourcesCompat
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentDeveloperBinding
 import com.moe.moetranslator.utils.CustomPreference
@@ -82,65 +80,14 @@ class Developer : Fragment() {
         val cele = binding.konfettiViewd
         cele.start(party)
         cele.start(party2)
-        binding.officialwebsite.setOnClickListener {
-            val url = "https://www.moetranslate.top/"
-            val intent = Intent(Intent.ACTION_VIEW)
-            intent.data = Uri.parse(url)
-            startActivity(intent)
-        }
+
+        // 意见反馈 - 显示联系方式
         binding.ideas.setOnClickListener {
-            val url = "https://www.wjx.cn/vm/rXUEKnh.aspx"
-            val intent = Intent(Intent.ACTION_VIEW)
-            intent.data = Uri.parse(url)
-            startActivity(intent)
-        }
-        binding.donate.setOnClickListener {
-            val dialog = AlertDialog.Builder(requireContext())
-                .setTitle(R.string.donate_proj)
-                .setMessage(R.string.donate_proj_content)
-                .setCancelable(false)
-                .setNegativeButton(R.string.user_cancel) { _, _ -> }
-                .setPositiveButton(R.string.jump) { _, _ ->
-                    val url = "https://www.moetranslate.top/support/"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(url)
-                    startActivity(intent)
-                }
-                .create()
-            dialog.show()
-            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        }
-        binding.wechat.setOnClickListener {
-            val dialog = AlertDialog.Builder(requireContext())
-                .setTitle(R.string.wechat_official_account_title)
-                .setMessage(R.string.wechat_official_account_content)
-                .setCancelable(false)
-                .setPositiveButton(R.string.user_known) { _, _ -> }
-                .create()
-
-            val imageView = ImageView(requireContext())
-            val qrCodeDrawable = ResourcesCompat.getDrawable(resources, R.drawable.qrcode, null)
-            imageView.setImageDrawable(qrCodeDrawable)
-            dialog.setView(imageView)
-            dialog.show()
-            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        }
-
-        binding.github.setOnClickListener {
-            val dialogperapi = AlertDialog.Builder(activity)
-                .setTitle(R.string.github_repo_title)
-                .setMessage(R.string.github_repo_content)
-                .setCancelable(false)
-                .setPositiveButton(R.string.have_look) { _, _ ->
-                    val url = "https://github.com/murangogo/MoeTranslate"
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse(url)
-                    startActivity(intent)
-                }
-                .setNegativeButton(R.string.user_cancel) { _, _ ->}
-                .create()
-            dialogperapi.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-            dialogperapi.show()
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.feedback)
+                .setMessage("QQ：2057095664\nB站：小灰不怕黑")
+                .setPositiveButton(R.string.user_known, null)
+                .show()
         }
 
         binding.opensource.setOnClickListener {
@@ -150,10 +97,28 @@ class Developer : Fragment() {
             startActivity(intent)
         }
 
-        // CTD 调试开关 - 暂时只用开关状态，实际截图通过 MangaFloatingService 的截图功能
+        binding.github.setOnClickListener {
+            val url = "https://github.com/xujunjiex/MoeTranslate-comics"
+            val intent = Intent(Intent.ACTION_VIEW)
+            intent.data = Uri.parse(url)
+            startActivity(intent)
+        }
+
+        // 高级模型搭配开关
+        val advancedModeEnabled = prefs.getBoolean("Manga_Advanced_Mode", false)
+        binding.advancedModeSwitch.isChecked = advancedModeEnabled
+        binding.advancedModeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("Manga_Advanced_Mode", isChecked)
+            if (isChecked) {
+                showToast("高级模型搭配已开启，可自由搭配检测器和识别器")
+            } else {
+                showToast("高级模型搭配已关闭，使用固定搭配模式")
+            }
+        }
+
+        // CTD 调试开关
         val ctdDebugEnabled = prefs.getBoolean("CTD_Debug_View", false)
         binding.ctdDebugSwitch.isChecked = ctdDebugEnabled
-
         binding.ctdDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("CTD_Debug_View", isChecked)
             if (isChecked) {

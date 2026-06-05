@@ -101,7 +101,7 @@ object BackgroundAnalyzer {
 
 - [ ] **Step 2: Verify the change compiles**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 3: Commit**
@@ -142,7 +142,7 @@ resultOverlayView = ImageView(this).apply {
 
 - [ ] **Step 2: Verify the change compiles**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 3: Commit**
@@ -394,7 +394,7 @@ private fun loadConfig(): MangaModeConfig {
 
 - [ ] **Step 6: Verify the change compiles**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 7: Commit**
@@ -509,7 +509,7 @@ dismissProgressOverlay()
 
 - [ ] **Step 2: Verify the change compiles**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 3: Commit**
@@ -686,7 +686,7 @@ Unregister in `onStop()` (add alongside existing unregistration).
 
 - [ ] **Step 7: Verify the change compiles**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 8: Commit**
@@ -721,7 +721,7 @@ In `values-zh/arrays.xml`, find and replace `manga_menu_items`:
     <item>字体大小设置</item>
     <item>开启自动翻译</item>
     <item>关闭悬浮球</item>
-    <item>回到萌译主界面</item>
+    <item>回到星译主界面</item>
 </string-array>
 ```
 
@@ -733,7 +733,7 @@ In `values/arrays.xml` and `values-en/arrays.xml`, find and replace `manga_menu_
     <item>Set Font Size</item>
     <item>Turn On Auto Translation</item>
     <item>Close Floating Ball</item>
-    <item>Return to MoeTranslate Main Page</item>
+    <item>Return to StarFlow Main Page</item>
 </string-array>
 ```
 
@@ -745,7 +745,7 @@ Also add a second array for when auto-translate is on. In `values-zh/arrays.xml`
     <item>字体大小设置</item>
     <item>关闭自动翻译</item>
     <item>关闭悬浮球</item>
-    <item>回到萌译主界面</item>
+    <item>回到星译主界面</item>
 </string-array>
 ```
 
@@ -757,7 +757,7 @@ In `values/arrays.xml` and `values-en/arrays.xml`:
     <item>Set Font Size</item>
     <item>Turn Off Auto Translation</item>
     <item>Close Floating Ball</item>
-    <item>Return to MoeTranslate Main Page</item>
+    <item>Return to StarFlow Main Page</item>
 </string-array>
 ```
 
@@ -1092,7 +1092,7 @@ Check if `CustomPreference` has `putInt`, `putFloat`, `putLong` methods. If not,
 
 - [ ] **Step 9: Verify the change compiles**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 10: Commit**
@@ -1113,7 +1113,7 @@ git commit -m "feat: expand manga menu with crop, direction, font size, auto-tra
 
 - [ ] **Step 1: Clean build**
 
-Run: `cd D:/xjj20/Desktop/fyapp/MoeTranslate-5.3.1 && ./gradlew clean assembleDebug`
+Run: `cd D:/xjj20/Desktop/fyapp/StarFlow-5.3.1 && ./gradlew clean assembleDebug`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 2: Verify all features work**

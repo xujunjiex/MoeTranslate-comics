@@ -26,21 +26,9 @@
         android:orderInCategory="1"/>
 
     <item
-        android:id="@+id/gemini_fragment"
-        android:title="@string/gemini_page"
-        android:icon="@drawable/gemini_chat"
-        android:orderInCategory="2"/>
-
-    <item
-        android:id="@+id/madoka_fragment"
-        android:title="@string/madoka_page"
-        android:icon="@drawable/madoka_icon"
-        android:orderInCategory="3"/>
-
-    <item
         android:id="@+id/me_fragment"
         android:title="@string/me_page"
         android:icon="@drawable/setting_icon"
-        android:orderInCategory="4"/>
+        android:orderInCategory="2"/>
 
 </menu>

@@ -31,28 +31,8 @@ class NotificationChecker(private val context: Context) {
     private val client = OkHttpClient()
 
     suspend fun checkNotification(): NotificationResult = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("https://www.moetranslate.top/notice.json")
-                .build()
-
-            var jsonString = ""
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("Unexpected code $response")
-
-                jsonString = response.body?.string() ?: throw IOException("Empty response body")
-            }
-
-            val jsonObject = JSONObject(jsonString)
-            val latestNotificationCode = jsonObject.getLong("NoticeCode")
-            val latestNotificationName = jsonObject.getString("NoticeName")
-            val latestNotificationContent = jsonObject.getString("NoticeContent")
-
-            NotificationResult.NotificationAvailable(latestNotificationCode, latestNotificationName, latestNotificationContent)
-        } catch (e: Exception) {
-            NotificationResult.Error
-        }
+        // 暂时禁用公告检查
+        NotificationResult.Error
     }
 }
 

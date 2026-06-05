@@ -32,8 +32,8 @@ android {
         applicationId "com.moe.moetranslator"
         minSdk 29
         targetSdk 35
-        versionCode 32
-        versionName "5.3.1"
+        versionCode 1
+        versionName "0.0.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -121,12 +121,6 @@ dependencies {
     // 韩文识别
     implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
 
-    // Google生成式AI组件
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-
-    // 解析HTML网页（阅读功能）
-    implementation 'org.jsoup:jsoup:1.17.2'
-
     // ML Kit的基础翻译库
     implementation 'com.google.mlkit:translate:17.0.3'
 
@@ -146,19 +140,6 @@ dependencies {
     // Guava库
     implementation("com.google.guava:guava:33.3.1-android")
 
-    // Live2D的SDK
-    implementation(fileTree(dir: 'libs', include: ['Live2DCubismCore.aar']))
-    // Live2D依赖模块
-    implementation project(path: ':framework')
-
     // JTS 多边形偏移库（替代 pyclipper 的 Vatti clipping）
     implementation 'org.locationtech.jts:jts-core:1.19.0'
-
-    // room数据库相关组件
-    def room_version = "2.6.1"
-    // 处理Kotlin注解
-    apply plugin: 'kotlin-kapt'
-    kapt ("androidx.room:room-compiler:$room_version")
-    implementation("androidx.room:room-runtime:$room_version")
-    implementation("androidx.room:room-ktx:$room_version")
 }

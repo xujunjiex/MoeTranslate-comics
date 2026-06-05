@@ -12,7 +12,7 @@ permalink: /docs/translationapi/deepl/
 
 ::: important 操作须知
 
-接下来的步骤默认在**电脑端**进行，建议您在电脑端操作，若不方便使用电脑，可[查看切换UA教程](https://www.moetranslate.top/docs/notice/ua/)做到在手机端访问电脑版网页。
+接下来的步骤默认在**电脑端**进行，建议您在电脑端操作，若不方便使用电脑，可[查看切换UA教程](https://github.com/xujunjiex/MoeTranslate-comics/docs/notice/ua/)做到在手机端访问电脑版网页。
 
 :::
 
@@ -32,15 +32,15 @@ https://developers.deepl.com/docs/getting-started/intro/
 
 点击右上角的**Create free API account**按钮。
 
-<img src="https://img.moetranslate.top/deepl_step_1.png"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/deepl_step_1.png"/>
 
 注册完成并登录后，选择图中的“API”，并点击“API Free”等级下的“Sign up for free”。
 
-<img src="https://img.moetranslate.top/deepl_step_2.png"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/deepl_step_2.png"/>
 
 填写个人信息和银行卡信息（注意这里需要使用国际银行卡），完成后点击“Begin subscription”，开始订阅。
 
-<img src="https://img.moetranslate.top/deepl_step_3.png"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/deepl_step_3.png"/>
 
 ## 二、在控制台获取翻译API
 
@@ -52,11 +52,11 @@ https://www.deepl.com/your-account/keys
 
 点击“Create Key”创建密钥，创建完成后，复制API Key。
 
-<img src="https://img.moetranslate.top/deepl_step_4.png"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/deepl_step_4.png"/>
 
-## 三、将翻译API粘贴到萌译
+## 三、将翻译API粘贴到星译
 
-在萌译的【API配置】界面中，点击下图【绿色方框中的开关】，将其打开；
+在星译的【API配置】界面中，点击下图【绿色方框中的开关】，将其打开；
 
 再点击【管理DeepL 翻译API】，进入API Key配置页面。
 
@@ -64,6 +64,6 @@ https://www.deepl.com/your-account/keys
 
 然后，将刚才复制的**API Key**粘贴到第二行，并点击【保存】；
 
-回到萌译主页面即可开始使用。后续从其他API切换至DeepL 翻译时，直接打开开关即可，无需再次填写API Key。
+回到星译主页面即可开始使用。后续从其他API切换至DeepL 翻译时，直接打开开关即可，无需再次填写API Key。
 
-<img src="https://img.moetranslate.top/deepl_step_5.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/deepl_step_5.jpg"/>

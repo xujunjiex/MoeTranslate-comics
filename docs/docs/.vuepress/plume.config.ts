@@ -14,14 +14,14 @@ export default defineThemeConfig({
   appearance: true,
 
   social: [
-    { icon: 'github', link: 'https://github.com/murangogo/MoeTranslate' },
+    { icon: 'github', link: 'https://github.com/xujunjiex/MoeTranslate-comics' },
   ],
 
   locales: {
     '/': {
       profile: {
         avatar: './logo.png',
-        name: 'MoeTranslate',
+        name: 'StarFlow',
         description: 'An Android Translate App.',
         // circle: true,
         // location: '',
@@ -34,7 +34,7 @@ export default defineThemeConfig({
     '/en/': {
       profile: {
         avatar: './logo.png',
-        name: 'MoeTranslate',
+        name: 'StarFlow',
         description: 'An Android Translate App.',
         // circle: true,
         // location: '',

@@ -17,7 +17,7 @@
           </div>
         </button>
   
-        <button @click="handleDownload(1, 'https://github.com/murangogo/MoeTranslate/releases/latest')" class="download-button github-button">
+        <button @click="handleDownload(1, 'https://github.com/xujunjiex/MoeTranslate-comics/releases/latest')" class="download-button github-button">
           <div class="button-content">
             <img src="/github.png" alt="GitHub" class="button-icon">
             <div class="button-text">
@@ -55,7 +55,7 @@
     methods: {
       async getTotalDownloadCount() {
         // try {
-        //   const response = await fetch('https://cfapi.moetranslate.top/api/getTotalDownloadCount');
+        //   const response = await fetch('https://cfapi.github.com/xujunjiex/MoeTranslate-comics/api/getTotalDownloadCount');
         //   const data = await response.json();
         //   this.totalDownloads = data.total || 0;
         // } catch (error) {
@@ -68,7 +68,7 @@
 
         try {
           // 更新下载统计
-          const response = await fetch(`https://cfapi.moetranslate.top/api/updateDownload?type=${type}`, {
+          const response = await fetch(`https://cfapi.github.com/xujunjiex/MoeTranslate-comics/api/updateDownload?type=${type}`, {
             method: 'POST',
           });
   

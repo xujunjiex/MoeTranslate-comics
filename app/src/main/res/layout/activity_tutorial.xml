@@ -21,7 +21,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F7F3EB"
+    android:background="#EFF7FB"
     tools:context=".launch.FirstLaunchPage">
 
     <androidx.viewpager2.widget.ViewPager2

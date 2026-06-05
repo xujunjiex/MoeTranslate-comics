@@ -13,7 +13,7 @@ permalink: /docs/translationapi/customtext/
 
 下面的文档只是草案，还没有进行进一步的撰写。
 
-<img src="https://img.moetranslate.top/under_construction.png" width="35%" />
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/under_construction.png" width="35%" />
 
 :::
 
@@ -42,7 +42,7 @@ permalink: /docs/translationapi/customtext/
 注意：  
 1、在“查询参数”和“JSON请求体”中，<b>使用“usesourcetext”代表待翻译的文本</b>；  
 2、务必将“源语言”和“目标语言”的语言代码包含在“查询参数”或“JSON请求体”中；  
-3、同时请注意将主页面指定“源语言”，因为萌译在使用OCR识别文字时，需要知道“源语言”是什么。  
+3、同时请注意将主页面指定“源语言”，因为星译在使用OCR识别文字时，需要知道“源语言”是什么。  
 
 ##  四、请求示例
 <b>GET请求</b>  

@@ -47,10 +47,15 @@ object ComicBubbleDetector {
         private set
 
     /**
-     * 初始化模型。从 assets 复制到缓存后加载。
+     * 初始化模型。仅从 filesDir 加载（需先下载）。
      */
     suspend fun initialize(context: Context) {
         if (isInitialized) return
+
+        val modelFile = RTDetrModelManager.getFilesDirModelFile(context)
+        if (!modelFile.exists() || modelFile.length() == 0L) {
+            throw IllegalStateException("RT-DETR-V2 模型未下载，请先在模型管理中下载")
+        }
 
         try {
             LogCollector.d(TAG, "开始初始化 RT-DETR-v2 气泡检测模型...")
@@ -63,8 +68,8 @@ object ComicBubbleDetector {
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT)
             }
 
-            val modelPath = copyAssetToCache(context, "$MODEL_DIR/$MODEL_FILE")
-            session = ortEnv!!.createSession(modelPath, sessionOptions)
+            LogCollector.d(TAG, "从 filesDir 加载模型: ${modelFile.absolutePath}")
+            session = ortEnv!!.createSession(modelFile.absolutePath, sessionOptions)
 
             isInitialized = true
             LogCollector.d(TAG, "RT-DETR-v2 气泡检测模型初始化完成")

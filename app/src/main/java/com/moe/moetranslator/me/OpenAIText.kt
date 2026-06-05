@@ -69,12 +69,6 @@ class OpenAIText :Fragment() {
             .setMessage(R.string.introduce_openai_api_content)
             .setCancelable(false)
             .setPositiveButton(R.string.user_known, null)
-            .setNegativeButton(R.string.view_tutorial){_,_->
-                val urlt = "https://www.moetranslate.top/docs/translationapi/uniaitrans/"
-                val intent = Intent(Intent.ACTION_VIEW)
-                intent.data = Uri.parse(urlt)
-                startActivity(intent)
-            }
             .setNeutralButton(R.string.introduce_not_show_again){
                     _, _ ->
                 prefs.setBoolean("Read_OpenAI_API_Introduce", true)

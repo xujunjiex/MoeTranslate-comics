@@ -12,14 +12,14 @@ export default defineUserConfig({
   lang: 'zh-CN',
   locales: {
     '/': {
-      title: '萌译 - MoeTranslate',
+      title: 'StarFlow',
       lang: 'zh-CN',
-      description: '一键翻译图片文字内容，让您和非中文游戏的距离不再遥远；不仅如此，还支持Gemini聊天和Live2D。',
+      description: 'Android 翻译应用，支持游戏翻译和漫画翻译。',
     },
     '/en/': {
-      title: 'MoeTranslate',
+      title: 'StarFlow',
       lang: 'en-US',
-      description: 'One-click translation of picture text content, so that the distance between you and non-Chinese games is no longer far; Not only that, but Gemini chat and Live2D are also supported.',
+      description: 'Android translation app with game translation and manga translation support.',
     },
   },
 

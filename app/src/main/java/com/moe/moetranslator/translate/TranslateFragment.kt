@@ -1109,7 +1109,7 @@ class TranslateFragment : Fragment() {
                 prefs.setLong("Ignore_Version", update.versionCode)
             }
             .setPositiveButton(R.string.go_to_update) { _, _ ->
-                val url = "https://www.moetranslate.top/"
+                val url = "https://github.com/xujunjiex/MoeTranslate-comics/releases"
                 val intent = Intent(Intent.ACTION_VIEW)
                 intent.data = Uri.parse(url)
                 startActivity(intent)

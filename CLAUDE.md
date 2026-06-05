@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-MoeTranslate（萌译）是一款 Android 截图翻译应用，支持 Android 11+（API 29+）。使用 Accessibility Service 截屏，PP-OCRv5 / ML Kit 本地 OCR 识别文字，然后调用各种翻译 API 进行翻译。
+Android 翻译应用，支持 Android 11+（API 29+）。包含两个核心功能：游戏翻译（截图 OCR + 翻译 API）和漫画翻译（气泡检测 + OCR + 翻译 + 竖排渲染）。
 
 ## 目录规范
 
@@ -46,12 +46,10 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 **包结构** (`app/src/main/java/com/moe/moetranslator/`):
 
-- `translate/` — 核心翻译引擎：`FloatingBallService`（主服务）、`ScreenShotAccessibilityService`（截屏）、`OCRTextRecognizer`（ML Kit OCR）、`TranslationTextAPI`/`TranslationPicAPI`（翻译接口）、`AccessibilityServiceManager`（单例服务引用）
-- `manga/` — **扩展模块**：漫画气泡翻译，支持竖排文字渲染
-- `bridge/` — **扩展模块**：桥接层，调用原项目 API（`OCRBridge`、`TranslateBridge`、`ScreenshotBridge`）
+- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`ScreenShotAccessibilityService`（截屏）、`OCRTextRecognizer`（ML Kit OCR）、`TranslationTextAPI`/`TranslationPicAPI`（翻译接口）、`AccessibilityServiceManager`（单例服务引用）
+- `manga/` — 漫画翻译引擎：气泡检测 + OCR + 翻译 + 竖排文字渲染
+- `bridge/` — 桥接层：`OCRBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面
-- `geminiapi/` — Gemini AI 聊天功能
-- `madoka/` — Live2D 查看器
 - `launch/` — 首次启动引导
 - `utils/` — 工具类、`Constants` 枚举定义
 
@@ -204,7 +202,7 @@ suspend fun downloadModel(
 
 **UI：** 传统 Android Views + ViewBinding（非 Jetpack Compose）。导航使用 Navigation Component。
 
-**构建模块：** `:app` + `:framework`（Live2D SDK）。原生代码通过 CMake 构建（`app/src/main/cpp/`）。
+**构建模块：** `:app`。原生代码通过 CMake 构建（`app/src/main/cpp/`）。
 
 ## 扩展模块（manga/、bridge/）
 

@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="16dp"
-    android:background="#F7F3EB">
+    android:background="#EFF7FB">
 
     <TextView
         android:id="@+id/log_count"

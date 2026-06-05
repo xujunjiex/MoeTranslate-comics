@@ -32,7 +32,6 @@ class SettingPageActivity : BaseActivity() {
         const val TYPE_FRAGMENT_TRANSLATE_MODE = 1
         const val TYPE_FRAGMENT_API_CONFIG = 2
         const val TYPE_FRAGMENT_PERSONALIZATION = 3
-        const val TYPE_FRAGMENT_READ = 4
         const val TYPE_FRAGMENT_FAQ = 5
         const val TYPE_FRAGMENT_ERROR_CODE = 6
         const val TYPE_FRAGMENT_DEVELOPER = 7
@@ -58,9 +57,6 @@ class SettingPageActivity : BaseActivity() {
             ).commit()
             TYPE_FRAGMENT_PERSONALIZATION->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
                 PersonalizationConfig()
-            ).commit()
-            TYPE_FRAGMENT_READ->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
-                ReadPage()
             ).commit()
             TYPE_FRAGMENT_FAQ->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
                 FAQPage()

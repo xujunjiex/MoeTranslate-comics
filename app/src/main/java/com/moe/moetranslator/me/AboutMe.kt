@@ -102,11 +102,6 @@ class AboutMe : Fragment() {
                 startActivity(intent)
             }
         }
-        binding.readBtn.setOnClickListener {
-            val intent = Intent(requireContext(), SettingPageActivity::class.java)
-            intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_READ)
-            startActivity(intent)
-        }
         binding.faqBtn.setOnClickListener {
             val intent = Intent(requireContext(), SettingPageActivity::class.java)
             intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_FAQ)
@@ -223,7 +218,7 @@ class AboutMe : Fragment() {
             .setMessage(getString(R.string.version_name)+ update.versionName+"\n${update.versionDescription}\n"+getString(R.string.update_prompt))
             .setCancelable(false)
             .setPositiveButton(R.string.go_to_update) { _, _ ->
-                val url = "https://www.moetranslate.top/"
+                val url = "https://github.com/xujunjiex/MoeTranslate-comics/releases"
                 val intent = Intent(Intent.ACTION_VIEW)
                 intent.data = Uri.parse(url)
                 startActivity(intent)

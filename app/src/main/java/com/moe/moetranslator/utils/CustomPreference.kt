@@ -54,10 +54,6 @@ class CustomPreference private constructor(context: Context) {
     //Ignore_Version(Long)：记录用户忽略的版本号
     //Read_Notice(Long)：记录用户已读的通知号
 
-    //----Gemini相关----
-    //Gemini_EncryptedKey(Str)：KeyStore参数，Gemini的API
-    //Gemini_IV(Str)：KeyStore参数，Gemini的API
-
     //----API列表----
     //Niutrans_EncryptedKey(Str)：KeyStore参数，存储小牛翻译API（Key）
     //Niutrans_IV(Str)：KeyStore参数，存储小牛翻译API（Key）

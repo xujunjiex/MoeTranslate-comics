@@ -19,7 +19,7 @@ https://api.fanyi.baidu.com/
 
 访问后发现，如果想要进入API平台，会**提示去电脑端访问**。
 
-<img src="https://img.moetranslate.top/ua_step_1.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/ua_step_1.jpg"/>
 
 ## 二、切换UA
 
@@ -33,7 +33,7 @@ https://api.fanyi.baidu.com/
 
 在X浏览器中，点击下方的<Icon name="mingcute:menu-fill" />，在弹出的菜单中**向左划到下一页**，点击**切换UA**，在弹出的选项中选择“桌面”即可。
 
-<img src="https://img.moetranslate.top/ua_step_2.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/ua_step_2.jpg"/>
 
 ## 三、访问网站
 
@@ -45,4 +45,4 @@ https://api.fanyi.baidu.com/
 
 访问后发现，网站已经变成桌面版的布局和样式了，接下来可以正常进入API平台了。
 
-<img src="https://img.moetranslate.top/ua_step_3.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/ua_step_3.jpg"/>

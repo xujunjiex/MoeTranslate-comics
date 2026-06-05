@@ -75,16 +75,12 @@ object Dialogs {
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
         lv.adapter = MenuDialogAdapter(ctx,strlist,imglist)
-        val random = Math.random()
-        if(random>0.8){
+        if (isAutoTranslating) {
             welcome.text = ctx.getString(R.string.floating_ball_menu_1)
-            img.setImageResource(R.drawable.amazed_relax)
-        }else if(random>0.4){
+            img.setImageResource(R.drawable.fist_pump_star)
+        } else {
             welcome.text = ctx.getString(R.string.floating_ball_menu_2)
-            img.setImageResource(R.drawable.happy_hi)
-        }else{
-            welcome.text = ctx.getString(R.string.floating_ball_menu_3)
-            img.setImageResource(R.drawable.smile_cool)
+            img.setImageResource(R.drawable.speed_star)
         }
         val dialog = AlertDialog.Builder(ctx)
             .setView(view)
@@ -141,16 +137,72 @@ object Dialogs {
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
         lv.adapter = MenuDialogAdapter(ctx, strlist, imglist)
-        val random = Math.random()
-        if (random > 0.8) {
+        if (isAutoTranslating) {
             welcome.text = ctx.getString(R.string.floating_ball_menu_1)
-            img.setImageResource(R.drawable.amazed_relax)
-        } else if (random > 0.4) {
-            welcome.text = ctx.getString(R.string.floating_ball_menu_2)
-            img.setImageResource(R.drawable.happy_hi)
+            img.setImageResource(R.drawable.star_cast)
         } else {
+            welcome.text = ctx.getString(R.string.floating_ball_menu_2)
+            img.setImageResource(R.drawable.manga_star)
+        }
+        val dialog = AlertDialog.Builder(ctx)
+            .setView(view)
+            .setCancelable(false)
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+        return DialogResult(dialog, lv)
+    }
+
+    /**
+     * 普通模式菜单（固定搭配，无独立检测器/OCR选择）
+     */
+    fun mangaMenuDialogSimple(
+        ctx: Context,
+        isAutoTranslating: Boolean,
+        cropLabel: String,
+        modelLabel: String
+    ): DialogResult {
+        val baseItems = if (isAutoTranslating) {
+            ctx.resources.getStringArray(R.array.manga_menu_items_simple_auto_on)
+        } else {
+            ctx.resources.getStringArray(R.array.manga_menu_items_simple)
+        }
+        val strlist = Array(baseItems.size) { i ->
+            when (i) {
+                0 -> "${baseItems[0]}：$cropLabel"
+                2 -> "${baseItems[2]}：$modelLabel"
+                else -> baseItems[i]
+            }
+        }
+        val imglist = if (isAutoTranslating) {
+            arrayOf(
+                R.drawable.crop_screen,
+                R.drawable.result_size,
+                R.drawable.model_manage,
+                R.drawable.stop_auto,
+                R.drawable.close_service,
+                R.drawable.back_home
+            )
+        } else {
+            arrayOf(
+                R.drawable.crop_screen,
+                R.drawable.result_size,
+                R.drawable.model_manage,
+                R.drawable.start_auto,
+                R.drawable.close_service,
+                R.drawable.back_home
+            )
+        }
+        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_manga_menu, null, false)
+        val img = view.findViewById<ImageView>(R.id.TitleIcon)
+        val welcome = view.findViewById<TextView>(R.id.welcome)
+        val lv = view.findViewById<ListView>(R.id.menu_list)
+        lv.adapter = MenuDialogAdapter(ctx, strlist, imglist)
+        if (isAutoTranslating) {
             welcome.text = ctx.getString(R.string.floating_ball_menu_3)
-            img.setImageResource(R.drawable.smile_cool)
+            img.setImageResource(R.drawable.sleepy_star)
+        } else {
+            welcome.text = ctx.getString(R.string.floating_ball_menu_2)
+            img.setImageResource(R.drawable.wink_star)
         }
         val dialog = AlertDialog.Builder(ctx)
             .setView(view)

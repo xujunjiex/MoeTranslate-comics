@@ -10,8 +10,6 @@ export const docsNotes = defineNoteConfig({
       items: [
         '项目介绍',
         '翻译使用',
-        'Gemini使用',
-        'Live2D使用',
       ],
     },
     {
@@ -46,31 +44,23 @@ export const docsNotes = defineNoteConfig({
       ],
     },
     {
-     text: 'Gemini',
-     prefix: 'gemini',
-     collapsed: true,
-     items: [
-        'Gemini API申请',
-        ],
-      },
-      {
-        text: 'Live2D功能',
-        prefix: 'live2d',
-        collapsed: true,
-        items: [
-          'Live2D文件结构',
-          '导入模型',
-          '常见问题',
-        ],
-      },
-      {
-        text: '杂项',
-        prefix: 'notice',
-        collapsed: true,
-        items: [
-          '切换UA',
-          'test',
-        ],
-      },
+      text: '漫画翻译',
+      prefix: 'manga',
+      collapsed: true,
+      items: [
+        '概述',
+        '检测引擎',
+        'OCR引擎',
+      ],
+    },
+    {
+      text: '杂项',
+      prefix: 'notice',
+      collapsed: true,
+      items: [
+        '切换UA',
+        'test',
+      ],
+    },
   ],
 })

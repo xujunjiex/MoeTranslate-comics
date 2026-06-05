@@ -15,7 +15,7 @@ badge: 质量最佳
 
 下面的文档只是草案，还没有进行进一步的撰写。
 
-<img src="https://img.moetranslate.top/under_construction.png" width="35%" />
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/under_construction.png" width="35%" />
 
 :::
 

@@ -140,9 +140,9 @@ class NLLBDownloadFragment : Fragment() {
         }
 
         binding.downloadHandText.setOnClickListener {
-            val urlt = "https://www.moetranslate.top/docs/translationapi/nllb/"
+            val url = "https://github.com/xujunjiex/MoeTranslate-comics/releases"
             val intent = Intent(Intent.ACTION_VIEW)
-            intent.data = Uri.parse(urlt)
+            intent.data = Uri.parse(url)
             startActivity(intent)
         }
     }

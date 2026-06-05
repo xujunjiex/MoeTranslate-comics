@@ -12,7 +12,7 @@ permalink: /support/
 
 | :[ri:wechat-pay-fill /#02D568]: 微信 | :[uiw:alipay /#1572F7]: 支付宝 |
 | -------------------------------------- | ----------------------------------------- |
-| <img src="https://img.moetranslate.top/wechat.png" alt="微信" width="150" /> | <img src="https://img.moetranslate.top/alipay.jpg" alt="支付宝" width="150" /> |
+| <img src="https://img.github.com/xujunjiex/MoeTranslate-comics/wechat.png" alt="微信" width="150" /> | <img src="https://img.github.com/xujunjiex/MoeTranslate-comics/alipay.jpg" alt="支付宝" width="150" /> |
 
 
 ## 支持记录

@@ -59,6 +59,7 @@
                     android:id="@+id/apiselect"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/apiicon" />
 
                 <TextView
@@ -91,6 +92,7 @@
                     android:id="@+id/apiset"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/apiset" />
 
                 <TextView
@@ -123,6 +125,7 @@
                     android:id="@+id/themeset"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/personalization" />
 
                 <TextView
@@ -155,7 +158,8 @@
                     android:id="@+id/modelicon"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
-                    android:src="@drawable/update"/>
+                    android:layout_centerVertical="true"
+                    android:src="@drawable/model_manage"/>
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -178,38 +182,6 @@
             <RelativeLayout
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
-                android:id="@+id/read_btn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp">
-
-                <ImageView
-                    android:id="@+id/read"
-                    android:layout_width="50dp"
-                    android:layout_height="50dp"
-                    android:src="@drawable/read" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_centerVertical="true"
-                    android:layout_marginStart="20dp"
-                    android:layout_toEndOf="@id/read"
-                    android:text="@string/article_page"
-                    android:textColor="#6A6464"
-                    android:textSize="20sp" />
-
-                <ImageView
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_alignParentEnd="true"
-                    android:layout_centerVertical="true"
-                    android:src="@drawable/righticon" />
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
                 android:id="@+id/faq_btn"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -219,6 +191,7 @@
                     android:id="@+id/faq"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/faq" />
 
                 <TextView
@@ -251,6 +224,7 @@
                     android:id="@+id/errcode"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/errorcode" />
 
                 <TextView
@@ -297,6 +271,7 @@
                     android:id="@+id/update"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/update"/>
 
                 <TextView
@@ -329,6 +304,7 @@
                     android:id="@+id/clean"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/clean" />
 
                 <TextView
@@ -372,7 +348,8 @@
                     android:id="@+id/developer"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
-                    android:src="@drawable/develop"/>
+                    android:layout_centerVertical="true"
+                    android:src="@drawable/about_info"/>
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -417,6 +394,7 @@
                     android:id="@+id/logicon"
                     android:layout_width="50dp"
                     android:layout_height="50dp"
+                    android:layout_centerVertical="true"
                     android:src="@drawable/log_icon"/>
 
                 <TextView

@@ -31,20 +31,6 @@
     </fragment>
 
     <fragment
-        android:id="@+id/madoka_fragment"
-        android:name="com.moe.moetranslator.madoka.FunWithMadoka"
-        android:label="fragment_madoka"
-        tools:layout="@layout/fragment_madoka" >
-    </fragment>
-
-    <fragment
-        android:id="@+id/gemini_fragment"
-        android:name="com.moe.moetranslator.geminiapi.ChatwithGemini"
-        android:label="fragment_chatwithgemini"
-        tools:layout="@layout/fragment_chatwithgemini" >
-    </fragment>
-
-    <fragment
         android:id="@+id/me_fragment"
         android:name="com.moe.moetranslator.me.AboutMe"
         android:label="fragment_about_me"

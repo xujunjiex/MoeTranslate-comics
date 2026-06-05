@@ -26,8 +26,8 @@ badge: 本地AI翻译（OCR）
 
 :::
 
-<img src="https://img.moetranslate.top/mlkit_step_1.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/mlkit_step_1.jpg"/>
 
-下载完成后，回到萌译首页即可使用该API。
+下载完成后，回到星译首页即可使用该API。
 
-<img src="https://img.moetranslate.top/mlkit_step_2.jpg"/>
+<img src="https://img.github.com/xujunjiex/MoeTranslate-comics/mlkit_step_2.jpg"/>

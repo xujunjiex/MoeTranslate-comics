@@ -31,34 +31,8 @@ class UpdateChecker(private val context: Context) {
     private val client = OkHttpClient()
 
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("https://www.moetranslate.top/version.json")
-                .build()
-
-            var jsonString = ""
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("Unexpected code $response")
-
-                jsonString = response.body?.string() ?: throw IOException("Empty response body")
-            }
-
-            val jsonObject = JSONObject(jsonString)
-            val latestVersionCode = jsonObject.getLong("versionCode")
-            val latestVersionName = jsonObject.getString("versionName")
-            val latestVersionDescription = jsonObject.getString("versionContent")
-
-            val currentVersion = getCurrentVersion()
-
-            if (latestVersionCode > currentVersion) {
-                UpdateResult.UpdateAvailable(latestVersionCode, latestVersionName, latestVersionDescription)
-            } else {
-                UpdateResult.NoUpdate
-            }
-        } catch (e: Exception) {
-            UpdateResult.Error
-        }
+        // 暂时禁用自动更新检查
+        UpdateResult.NoUpdate
     }
 
     private fun getCurrentVersion(): Long {

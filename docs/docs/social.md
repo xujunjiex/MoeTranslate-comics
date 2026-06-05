@@ -6,10 +6,8 @@ permalink: /socialmedia/
 
 ## 哔哩哔哩平台
 
-[点击此处](https://space.bilibili.com/151100964)查看萌译在哔哩哔哩平台的社交账号。
+B站：小灰不怕黑
 
-## 微信公众号
+## 意见反馈
 
-扫描下方的二维码关注萌译的官方微信公众号。
-
-<img src="https://img.moetranslate.top/qrcode.jpg"/>
+QQ：2057095664

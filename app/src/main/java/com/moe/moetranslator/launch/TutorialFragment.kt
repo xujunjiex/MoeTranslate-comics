@@ -53,7 +53,7 @@ class TutorialFragment(val position:Int) : Fragment() {
             speed = 60f,
             maxSpeed = 70f,
             damping = 0.9f,
-            colors = listOf(0xfce18a, 0xff726d, 0xf4306d, 0xb48def),
+            colors = listOf(0x55AEEA, 0x87CEEB, 0x4FC3F7, 0xB3E5FC),
             shapes = listOf(Shape.Square, Shape.Circle),
             timeToLive = 5000L,
             fadeOutEnabled = true,
@@ -66,7 +66,7 @@ class TutorialFragment(val position:Int) : Fragment() {
             speed = 60f,
             maxSpeed = 70f,
             damping = 0.9f,
-            colors = listOf(0xfce18a, 0xff726d, 0xf4306d, 0xb48def),
+            colors = listOf(0x55AEEA, 0x87CEEB, 0x4FC3F7, 0xB3E5FC),
             shapes = listOf(Shape.Square, Shape.Circle),
             timeToLive = 5000L,
             fadeOutEnabled = true,
@@ -162,22 +162,7 @@ class TutorialFragment(val position:Int) : Fragment() {
                 }
             }
 
-            4,5,6->{
-                root = inflater.inflate(R.layout.fragment_tutorial_use,container,false)
-                val imguse = root.findViewById<ImageView>(R.id.UseView)
-                val nextuse = root.findViewById<Button>(R.id.nextuse)
-                when(position){
-                    4->imguse.setImageResource(R.drawable.tutorial_use_1)
-                    5->imguse.setImageResource(R.drawable.tutorial_use_2)
-                    6->imguse.setImageResource(R.drawable.tutorial_use_3)
-                }
-                nextuse.setOnClickListener{
-                    val activity = activity as FirstLaunchPage
-                    activity.nextPage()
-                }
-            }
-
-            7->{
+            4->{
                 root = inflater.inflate(R.layout.fragment_tutorial_last,container,false)
                 val cele = root.findViewById<KonfettiView>(R.id.konfettiView)
                 val again = root.findViewById<Button>(R.id.again)

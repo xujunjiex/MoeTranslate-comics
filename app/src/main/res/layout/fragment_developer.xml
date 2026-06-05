@@ -41,12 +41,20 @@
                 android:layout_width="200dp"
                 android:layout_height="200dp"
                 android:src="@drawable/launch"
-                app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintHorizontal_bias="0.497"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintVertical_bias="0.218" />
+                app:layout_constraintVertical_bias="0.15" />
+
+            <ImageView
+                android:id="@+id/starHugIcon"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_marginTop="10dp"
+                android:src="@drawable/star_hug"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/imageView6" />
 
             <TextView
                 android:id="@+id/textView6"
@@ -64,12 +72,12 @@
                 android:id="@+id/versioninformation"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:text="Version 5.3.1"
+                android:layout_marginTop="10dp"
+                android:text="Version 0.0.1"
                 android:textColor="#6A6464"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/imageView6" />
+                app:layout_constraintTop_toBottomOf="@+id/starHugIcon" />
 
             <LinearLayout
                 android:id="@+id/developmenu"
@@ -88,37 +96,6 @@
                 <RelativeLayout
                     android:background="?attr/selectableItemBackground"
                     android:clickable="true"
-                    android:id="@+id/officialwebsite"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <ImageView
-                        android:id="@+id/website"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:src="@drawable/website" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/website"
-                        android:text="@string/official_website"
-                        android:textColor="#6A6464"
-                        android:textSize="20sp" />
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:layout_alignParentEnd="true"
-                        android:layout_centerVertical="true"
-                        android:src="@drawable/righticon" />
-                </RelativeLayout>
-
-                <RelativeLayout
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
                     android:id="@+id/ideas"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -128,6 +105,7 @@
                         android:id="@+id/idea"
                         android:layout_width="50dp"
                         android:layout_height="50dp"
+                        android:layout_centerVertical="true"
                         android:src="@drawable/idea" />
 
                     <TextView
@@ -151,70 +129,6 @@
                 <RelativeLayout
                     android:background="?attr/selectableItemBackground"
                     android:clickable="true"
-                    android:id="@+id/donate"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/donateimg"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:src="@drawable/donate" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/donateimg"
-                        android:text="@string/donate_proj"
-                        android:textColor="#6A6464"
-                        android:textSize="20sp" />
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:layout_alignParentEnd="true"
-                        android:layout_centerVertical="true"
-                        android:src="@drawable/righticon" />
-                </RelativeLayout>
-
-                <RelativeLayout
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:id="@+id/wechat"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/wechatimg"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:src="@drawable/wechat" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/wechatimg"
-                        android:text="@string/official_account"
-                        android:textColor="#6A6464"
-                        android:textSize="20sp" />
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:layout_alignParentEnd="true"
-                        android:layout_centerVertical="true"
-                        android:src="@drawable/righticon" />
-                </RelativeLayout>
-
-                <RelativeLayout
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
                     android:id="@+id/github"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -224,6 +138,7 @@
                         android:id="@+id/git"
                         android:layout_width="50dp"
                         android:layout_height="50dp"
+                        android:layout_centerVertical="true"
                         android:src="@drawable/github" />
 
                     <TextView
@@ -256,6 +171,7 @@
                         android:id="@+id/os"
                         android:layout_width="50dp"
                         android:layout_height="50dp"
+                        android:layout_centerVertical="true"
                         android:src="@drawable/opensource" />
 
                     <TextView
@@ -279,27 +195,89 @@
                 <RelativeLayout
                     android:background="?attr/selectableItemBackground"
                     android:clickable="true"
-                    android:id="@+id/ctdDebug"
+                    android:id="@+id/advancedMode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp">
 
                     <ImageView
-                        android:id="@+id/ctdDebugIcon"
+                        android:id="@+id/advancedModeIcon"
                         android:layout_width="50dp"
                         android:layout_height="50dp"
-                        android:src="@drawable/opensource" />
+                        android:layout_centerVertical="true"
+                        android:src="@drawable/advanced_model" />
+
+                    <TextView
+                        android:id="@+id/advancedModeTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:layout_marginStart="20dp"
+                        android:layout_toEndOf="@id/advancedModeIcon"
+                        android:text="@string/advanced_model_combination"
+                        android:textColor="#6A6464"
+                        android:textSize="20sp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/advancedModeSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true" />
+                </RelativeLayout>
+
+                <!-- 调试模式一级标题 -->
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:paddingTop="10dp">
+
+                    <ImageView
+                        android:id="@+id/debugModeIcon"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
+                        android:layout_centerVertical="true"
+                        android:src="@drawable/develop" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:layout_marginStart="20dp"
+                        android:layout_toEndOf="@id/debugModeIcon"
+                        android:text="调试模式"
+                        android:textColor="#55AEEA"
+                        android:textSize="20sp"
+                        android:textStyle="bold" />
+                </RelativeLayout>
+
+                <!-- 分隔线 -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="5dp"
+                    android:layout_marginBottom="5dp"
+                    android:background="#E0E0E0" />
+
+                <!-- 二级菜单：无图标 -->
+                <RelativeLayout
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:id="@+id/ctdDebug"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
 
                     <TextView
                         android:id="@+id/ctdDebugTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/ctdDebugIcon"
                         android:text="@string/ctd_debug"
                         android:textColor="#6A6464"
-                        android:textSize="20sp" />
+                        android:textSize="18sp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/ctdDebugSwitch"
@@ -315,24 +293,17 @@
                     android:id="@+id/rtdetrDebug"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/rtdetrDebugIcon"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:src="@drawable/develop" />
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
 
                     <TextView
                         android:id="@+id/rtdetrDebugTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/rtdetrDebugIcon"
                         android:text="RT-DETR-V2 调试"
                         android:textColor="#6A6464"
-                        android:textSize="20sp" />
+                        android:textSize="18sp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/rtdetrDebugSwitch"
@@ -348,25 +319,17 @@
                     android:id="@+id/mlkitDebug"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:padding="10dp"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/mlkitDebugIcon"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:src="@drawable/develop" />
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
 
                     <TextView
                         android:id="@+id/mlkitDebugTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/mlkitDebugIcon"
                         android:text="ML Kit 调试"
                         android:textColor="#6A6464"
-                        android:textSize="20sp" />
+                        android:textSize="18sp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/mlkitDebugSwitch"
@@ -382,25 +345,17 @@
                     android:id="@+id/ppocrv5Debug"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:padding="10dp"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/ppocrv5DebugIcon"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:src="@drawable/develop" />
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
 
                     <TextView
                         android:id="@+id/ppocrv5DebugTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/ppocrv5DebugIcon"
                         android:text="PP-OCRv5 调试"
                         android:textColor="#6A6464"
-                        android:textSize="20sp" />
+                        android:textSize="18sp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/ppocrv5DebugSwitch"
@@ -420,7 +375,7 @@
         android:id="@+id/konfettiViewd"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:backgroundTint="#dc218c"
+        android:backgroundTint="#55AEEA"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.0"
