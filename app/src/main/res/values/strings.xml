@@ -511,4 +511,15 @@
 
     <!-- Model download tip -->
     <string name="model_download_vpn_tip">💡 If you can\'t download models, please enable VPN and try again\nDo not leave this page during download</string>
+
+    <!-- History -->
+    <string name="clear_history">Clear</string>
+    <string name="no_history">No history yet</string>
+    <string name="history_game_tab">Game</string>
+    <string name="history_manga_tab">Manga</string>
+    <string name="confirm_clear_history">Confirm clear all history?</string>
+    <string name="delete_history_confirm">Delete this history record?</string>
+    <string name="history_deleted">History deleted</string>
+    <string name="history_cleared">History cleared</string>
+    <string name="history_copied">Copied to clipboard</string>
 </resources>

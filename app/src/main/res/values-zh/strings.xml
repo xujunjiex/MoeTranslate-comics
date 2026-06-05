@@ -508,4 +508,15 @@
 
     <!-- 模型下载提示 -->
     <string name="model_download_vpn_tip">💡 如无法下载模型，请开启 VPN 后重试\n下载过程中请勿退出当前页面</string>
+
+    <!-- 历史记录 -->
+    <string name="clear_history">清空</string>
+    <string name="no_history">暂无历史记录</string>
+    <string name="history_game_tab">游戏翻译</string>
+    <string name="history_manga_tab">漫画翻译</string>
+    <string name="confirm_clear_history">确认清空所有历史记录？</string>
+    <string name="delete_history_confirm">确认删除此条历史记录？</string>
+    <string name="history_deleted">历史记录已删除</string>
+    <string name="history_cleared">历史记录已清空</string>
+    <string name="history_copied">已复制到剪贴板</string>
 </resources>
