@@ -136,6 +136,7 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
   - `FULL`：~460MB，原版精度最高
   - `V2025`：~135MB，速度更快，精度略低
 - 用户通过 `ModelManagementFragment` 下载/切换/删除版本
+- **初始化策略**：`ensureMangaOcrInitialized()` 检查版本匹配，已初始化且版本一致则直接返回，避免重复 release+重初始化导致 OOM
 
 ### ModelDownloadManager（统一下载器）
 
@@ -258,7 +259,7 @@ suspend fun downloadModel(
 **合并机制：**
 
 1. **BoxMerger 前合并（OCR 之前）**：仅 CTD 使用。CTD 检测出文字行级 QuadBox，BoxMerger 按结构线距离/方向分组。PPOcrV5 逐个 QuadBox 透视裁剪识别后按组拼接文字（单行单列识别器不能识别合并输入）；MLKit/MangaOcr 对合并区域 AABB 裁剪识别。
-2. **BubbleDetector 后合并（OCR 之后）**：仅 MLKit 独立和 PP-OCRv5 独立使用。`BubbleDetector.detectBubbles()` 接收已识别的 `TextBlockInfo` 列表，按 AABB 距离/方向合并为气泡级 `BubbleRegion`。
+2. **BubbleDetector 后合并（OCR 之后）**：仅 MLKit 独立和 PP-OCRv5 独立使用。`BubbleDetector.detectBubbles()` 接收已识别的 `TextBlockInfo` 列表，移植自 manga-image-translator 的 `textline_merge` 算法：图构建（`canMergeRegion` → connected components）→ MST 分割（Kruskal）→ majority vote 方向 → 阅读排序 → 气泡级 `BubbleRegion`。
 3. **RT-DETR-V2**：检测器直接输出气泡级结果，不需要任何合并。
 4. **CTD**：BoxMerger 已完成分组，不需要 BubbleDetector。
 
