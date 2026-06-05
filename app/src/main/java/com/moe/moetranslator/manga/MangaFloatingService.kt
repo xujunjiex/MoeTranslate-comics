@@ -431,8 +431,14 @@ class MangaFloatingService : LifecycleService() {
                 if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
                     try {
                         val versionStr = activeVersion.name
-                        // 如果已初始化但版本不匹配，先释放再重新加载
+                        // 如果已初始化且版本匹配，直接返回
+                        if (MangaOcrRecognizer.isInitialized && currentLoadedMangaOcrVersion == versionStr) {
+                            LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 已初始化，版本匹配 ($versionStr)")
+                            return
+                        }
+                        // 版本不匹配或未初始化，先释放再重新加载
                         if (MangaOcrRecognizer.isInitialized) {
+                            LogCollector.d(TAG, "ensureMangaOcrInitialized: 版本变更 ($currentLoadedMangaOcrVersion → $versionStr)，重新加载")
                             MangaOcrRecognizer.release()
                         }
                         LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用已下载的 manga-ocr 模型: $activeVersion")

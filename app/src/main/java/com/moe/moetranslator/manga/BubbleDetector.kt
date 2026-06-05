@@ -1,10 +1,13 @@
 package com.moe.moetranslator.manga
 
 import android.graphics.Rect
+import android.graphics.RectF
 import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.utils.LogCollector
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 data class BubbleRegion(
     val rect: Rect,
@@ -14,194 +17,474 @@ data class BubbleRegion(
 )
 
 /**
- * 气泡检测器。
- * 流程：TextBlockInfo → TextLine → 多条件合并 → MST 分割 → majority vote 方向 → 阅读排序。
+ * 气泡检测器 — 基于 manga-image-translator 的 textline_merge 算法。
+ *
+ * 流程：TextBlockInfo → TextLine → 图构建（connected components）→ MST 分割 → majority vote 方向 → 阅读排序。
+ *
+ * 参考：`.reference/manga-image-translator/manga_translator/textline_merge/__init__.py`
  */
 object BubbleDetector {
 
+    private const val TAG = "BubbleDetector"
+
     /**
-     * 检测气泡区域。
-     * @param textBlocks ML Kit 识别的文字块
-     * @param config 漫画模式配置（方向等）
-     * @return 按阅读顺序排列的气泡列表
+     * 内部表示：检测到的一行文字。
+     * 对应 manga-image-translator 的 Quadrilateral（AABB 特化版本）。
+     */
+    private data class TextLine(
+        val rect: RectF,
+        val fontSize: Float,
+        val isVertical: Boolean,
+        val angle: Float = 0f,  // AABB 角度为 0
+        val text: String = ""
+    ) {
+        val centroidX: Float get() = rect.centerX()
+        val centroidY: Float get() = rect.centerY()
+        val aspectRatio: Float get() = if (rect.height() > 0) rect.width() / rect.height() else 1f
+        val direction: Char get() = if (isVertical) 'v' else 'h'
+    }
+
+    // ========== 边缘对齐检查（对应 generic.py L673-685） ==========
+
+    /**
+     * 检查两个横排 box 是否边缘对齐（左/右边缘）。
+     * 对应 Python: abs(x1 - x2) < charSize * tol or abs(x1+w1 - (x2+w2)) < charSize * tol
+     */
+    private fun hEdgeAligned(a: TextLine, b: TextLine, charSize: Float, tol: Float): Boolean {
+        val aLeft = a.rect.left
+        val aRight = a.rect.right
+        val bLeft = b.rect.left
+        val bRight = b.rect.right
+        return abs(aLeft - bLeft) < charSize * tol ||
+               abs(aRight - bRight) < charSize * tol
+    }
+
+    /**
+     * 检查两个竖排 box 是否边缘对齐（上/下边缘）。
+     * 对应 Python: abs(y1 - y2) < charSize * tol or abs(y1+h1 - (y2+h2)) < charSize * tol
+     */
+    private fun vEdgeAligned(a: TextLine, b: TextLine, charSize: Float, tol: Float): Boolean {
+        val aTop = a.rect.top
+        val aBottom = a.rect.bottom
+        val bTop = b.rect.top
+        val bBottom = b.rect.bottom
+        return abs(aTop - bTop) < charSize * tol ||
+               abs(aBottom - bBottom) < charSize * tol
+    }
+
+    /**
+     * 对应 manga-image-translator 的 quadrilateral_can_merge_region（AABB 特化版）。
+     *
+     * 逐行对照 generic.py L653-698：
+     * - L663: dist > discard_connection_gap * char_size → False
+     * - L665: font_size_ratio > tol → False
+     * - L667-670: aspect_ratio 交叉检查
+     * - L673-685: axis-aligned 分支（边缘对齐 + 横竖排互斥检查）
+     *
+     * dispatch 调用参数：aspect_ratio_tol=1.3, font_size_ratio_tol=2,
+     *   char_gap_tolerance=1, char_gap_tolerance2=3（ratio=1.9, discard_connection_gap=2 用默认值）
+     */
+    private fun canMergeRegion(a: TextLine, b: TextLine): Boolean {
+        val charSize = min(a.fontSize, b.fontSize)
+        if (charSize <= 0f) return false
+
+        // --- 默认参数（generic.py L653 签名） ---
+        val ratio = 1.9f                  // ratio = 1.9
+        val discardConnectionGap = 2f     // discard_connection_gap = 2
+        // --- dispatch 调用覆盖 ---
+        val charGapTolerance = 1f         // char_gap_tolerance = 1
+        val charGapTolerance2 = 3f        // char_gap_tolerance2 = 3
+        val fontSizeRatioTol = 2f         // font_size_ratio_tol = 2
+        val aspectRatioTol = 1.3f         // aspect_ratio_tol = 1.3
+
+        // L660-662: 用 polygon distance（AABB 特化 = AABB 距离）
+        val dist = aabbDistance(a, b)
+
+        // L663-664: 距离太远
+        if (dist > discardConnectionGap * charSize) return false
+
+        // L665-666: 字体大小差异太大
+        if (max(a.fontSize, b.fontSize) / charSize > fontSizeRatioTol) return false
+
+        // L667-670: 宽高比交叉检查（一个很横 + 一个很竖 → 不合并）
+        if (a.aspectRatio > aspectRatioTol && b.aspectRatio < 1f / aspectRatioTol) return false
+        if (b.aspectRatio > aspectRatioTol && a.aspectRatio < 1f / aspectRatioTol) return false
+
+        // L671-672: AABB 始终 axis-aligned
+        // L673: if a_aa and b_aa:
+        // L674:   if dist < char_size * char_gap_tolerance:
+        if (dist < charSize * charGapTolerance) {
+            // L675-676: 中心 X 对齐（像素级，不乘 charSize）
+            val w1 = a.rect.width()
+            val h1 = a.rect.height()
+            val w2 = b.rect.width()
+            val h2 = b.rect.height()
+            val x1 = a.rect.left
+            val y1 = a.rect.top
+            val x2 = b.rect.left
+            val y2 = b.rect.top
+
+            // L675: abs(x1 + w1//2 - (x2 + w2//2)) < char_gap_tolerance2
+            if (abs(x1 + w1 / 2 - (x2 + w2 / 2)) < charGapTolerance2) return true
+
+            // L677-678: 一个横排 + 一个竖排 → 不合并
+            if (w1 > h1 * ratio && h2 > w2 * ratio) return false
+            if (w2 > h2 * ratio && h1 > w1 * ratio) return false
+
+            // L681-682: 两个都横排 → 检查左右边缘对齐
+            if (w1 > h1 * ratio || w2 > h2 * ratio) {
+                return hEdgeAligned(a, b, charSize, charGapTolerance2)
+            }
+            // L683-684: 两个都竖排 → 检查上下边缘对齐
+            if (h1 > w1 * ratio || h2 > w2 * ratio) {
+                return vEdgeAligned(a, b, charSize, charGapTolerance2)
+            }
+            // L685: 不横不竖 → 不合并
+            return false
+        }
+        // L686-687: dist >= charSize * charGapTolerance
+        return false
+    }
+
+    // ========== MST 计算（对应 Python networkx MST） ==========
+
+    /**
+     * Kruskal MST 边。
+     */
+    private data class Edge(val u: Int, val v: Int, val weight: Float)
+
+    /**
+     * 并查集。
+     */
+    private class UnionFind(elements: Collection<Int>) {
+        private val parent = elements.associateWith { it }.toMutableMap()
+        private val rank = elements.associateWith { 0 }.toMutableMap()
+
+        fun find(x: Int): Int {
+            var root = x
+            while (parent[root] != root) root = parent[root]!!
+            var node = x
+            while (node != root) {
+                val next = parent[node]!!
+                parent[node] = root
+                node = next
+            }
+            return root
+        }
+
+        fun union(x: Int, y: Int): Boolean {
+            val rx = find(x)
+            val ry = find(y)
+            if (rx == ry) return false
+            val rankX = rank[rx]!!
+            val rankY = rank[ry]!!
+            when {
+                rankX < rankY -> parent[rx] = ry
+                rankX > rankY -> parent[ry] = rx
+                else -> { parent[ry] = rx; rank[rx] = rankX + 1 }
+            }
+            return true
+        }
+    }
+
+    /**
+     * Kruskal MST：从完全图中提取最小生成树。
+     * 对应 Python: nx.algorithms.tree.minimum_spanning_edges(G, algorithm='kruskal', data=True)
+     *
+     * @return MST 的 N-1 条边，按 weight 升序
+     */
+    private fun kruskalMST(indices: List<Int>, lines: List<TextLine>): List<Edge> {
+        // 构建所有边
+        val allEdges = mutableListOf<Edge>()
+        for (i in indices.indices) {
+            for (j in i + 1 until indices.size) {
+                val u = indices[i]
+                val v = indices[j]
+                allEdges.add(Edge(u, v, aabbDistance(lines[u], lines[v])))
+            }
+        }
+        // 按 weight 升序排列（Kruskal 贪心）
+        allEdges.sortBy { it.weight }
+
+        // 贪心选边
+        val uf = UnionFind(indices)
+        val mstEdges = mutableListOf<Edge>()
+        for (edge in allEdges) {
+            if (uf.union(edge.u, edge.v)) {
+                mstEdges.add(edge)
+                if (mstEdges.size == indices.size - 1) break
+            }
+        }
+        return mstEdges
+    }
+
+    // ========== split_text_region（对应 textline_merge/__init__.py L10-83） ==========
+
+    /**
+     * 对应 manga-image-translator 的 split_text_region。
+     * 用 MST + 标准差判断是否需要拆分。
+     *
+     * 逐行对照 Python：
+     * - L20-23: case 1（单元素）
+     * - L25-39: case 2（双元素，距离+角度检查）
+     * - L42-49: case 3+（完全图 → MST → 排序 → 检查最大边）
+     * - L50-54: 统计量（fontsize, std, mean, std_threshold）
+     * - L56-59: max_poly_distance, max_centroid_alignment
+     * - L66-70: should_keep 条件
+     * - L72-83: 拆分（去掉最大边 → 递归）
+     */
+    private fun splitTextRegion(
+        lines: List<TextLine>,
+        connectedIndices: Set<Int>,
+        gamma: Float = 0.5f,
+        sigma: Float = 2f
+    ): List<Set<Int>> {
+        val indices = connectedIndices.toList()
+
+        // L20-23: case 1
+        if (indices.size == 1) return listOf(setOf(indices[0]))
+
+        // L25-39: case 2
+        if (indices.size == 2) {
+            val a = lines[indices[0]]
+            val b = lines[indices[1]]
+            val fs = max(a.fontSize, b.fontSize)
+            val dist = aabbDistance(a, b)
+            val angleDiff = abs(a.angle - b.angle)
+            return if (dist < (1 + gamma) * fs && angleDiff < 0.2f * Math.PI.toFloat()) {
+                listOf(setOf(indices[0], indices[1]))
+            } else {
+                listOf(setOf(indices[0]), setOf(indices[1]))
+            }
+        }
+
+        // L42-49: case 3+ — 构建 MST
+        val mstEdges = kruskalMST(indices, lines)
+        if (mstEdges.isEmpty()) return listOf(connectedIndices)
+
+        // L49: 按 weight 降序排列 MST 边
+        val sortedEdges = mstEdges.sortedByDescending { it.weight }
+        val distances = sortedEdges.map { it.weight }
+
+        // L51-54: 统计量
+        val fontSize = lines.slice(indices).map { it.fontSize }.average().toFloat()
+        val distancesStd = if (distances.size > 1) {
+            val mean = distances.average().toFloat()
+            sqrt(distances.map { (it - mean) * (it - mean) }.average()).toFloat()
+        } else 0f
+        val distancesMean = distances.average().toFloat()
+        val stdThreshold = max(0.3f * fontSize + 5f, 5f)
+
+        // L56-59: max_poly_distance, max_centroid_alignment
+        val maxEdge = sortedEdges.first()
+        val b1 = lines[maxEdge.u]
+        val b2 = lines[maxEdge.v]
+        val maxPolyDist = aabbDistance(b1, b2)
+        val maxCentroidAlignment = min(
+            abs(b1.centroidX - b2.centroidX),
+            abs(b1.centroidY - b2.centroidY)
+        )
+
+        // L66-70: should_keep 条件
+        val shouldKeep = (maxEdge.weight <= distancesMean + distancesStd * sigma
+                || maxEdge.weight <= fontSize * (1 + gamma))
+                && (distancesStd < stdThreshold
+                || (maxPolyDist == 0f && maxCentroidAlignment < 5f))
+
+        if (shouldKeep) {
+            // L70: 不拆分
+            return listOf(connectedIndices)
+        } else {
+            // L72-83: 拆分 — 去掉最大 MST 边，用剩余 MST 边构建子图
+            // 对应 Python:
+            //   G = nx.Graph()
+            //   for idx in connected_region_indices: G.add_node(idx)
+            //   for edge in edges[1:]: G.add_edge(edge[0], edge[1])
+            val remainingEdges = sortedEdges.drop(1)
+
+            // 用剩余 MST 边构建并查集 → 找连通分量
+            val uf = UnionFind(indices)
+            for (edge in remainingEdges) {
+                uf.union(edge.u, edge.v)
+            }
+
+            val components = mutableMapOf<Int, MutableSet<Int>>()
+            for (idx in indices) {
+                val root = uf.find(idx)
+                components.getOrPut(root) { mutableSetOf() }.add(idx)
+            }
+
+            // L81-82: 递归拆分
+            val result = mutableListOf<Set<Int>>()
+            for (component in components.values) {
+                result.addAll(splitTextRegion(lines, component, gamma, sigma))
+            }
+            return result
+        }
+    }
+
+    // ========== AABB 距离 ==========
+
+    private fun aabbDistance(a: TextLine, b: TextLine): Float {
+        val dx = max(0f, max(a.rect.left - b.rect.right, b.rect.left - a.rect.right))
+        val dy = max(0f, max(a.rect.top - b.rect.bottom, b.rect.top - a.rect.bottom))
+        return sqrt(dx * dx + dy * dy)
+    }
+
+    // ========== 主入口 ==========
+
+    /**
+     * 检测气泡区域（带 config 版本）。
+     *
+     * 流程（对齐 textline_merge/__init__.py 的 dispatch）：
+     * 1. TextBlockInfo → TextLine（对应 Quadrilateral）
+     * 2. canMergeRegion 构建图 → connected components（L128-136）
+     * 3. splitTextRegion MST 拆分（L139-141）
+     * 4. majority vote + 排序 + 合并文字（L144-182）
      */
     fun detectBubbles(textBlocks: List<TextBlockInfo>, config: MangaModeConfig): List<BubbleRegion> {
         if (textBlocks.isEmpty()) return emptyList()
+        LogCollector.d(TAG, "detectBubbles: 输入 ${textBlocks.size} 个文字块")
 
-        // 1. TextBlockInfo → TextLine
-        val textLines = textBlocks.mapNotNull { it.toTextLine(config) }
-        if (textLines.isEmpty()) return emptyList()
-
-        // 2. 按距离和方向合并：同一气泡/段落的相邻文字行归为一组
-        //    对齐参考项目 merge_bboxes_text_region 的连通分量逻辑
-        val mergedGroups = groupNearbyLines(textLines)
-
-        // 3. MST 分割（过大的区域拆分）
-        val splitGroups = mergedGroups.flatMap { TextRegionSplitter.split(it) }
-
-        // 4. 构建 BubbleRegion，majority vote 确定方向（参考项目 merge_bboxes_text_region 第 158-172 行）
-        val bubbles = splitGroups.map { group ->
-            val sorted = ReadingOrderSorter.sortTextLines(group, config.textDirection)
-            val boundingRect = computeBoundingRect(sorted)
-            val avgFontSize = sorted.maxOf { it.fontSize }
-
-            // majority vote 方向
-            val majorityDir = determineDirection(sorted, config.textDirection)
-
-            BubbleRegion(
-                rect = boundingRect,
-                texts = sorted.map { it.text },
-                fontSize = avgFontSize,
-                direction = majorityDir
-            )
-        }
-
-        // 5. 按 per-bubble 方向排序
-        return ReadingOrderSorter.sort(bubbles)
-    }
-
-
-    /**
-     * 按距离和方向合并相邻文字行。
-     * 对齐参考项目 merge_bboxes_text_region 的连通分量分组逻辑：
-     * 1. 构建邻接图（方向一致 + 距离接近 + 字号相似 → 连边）
-     * 2. DFS 找连通分量 = 一组
-     *
-     * 合并条件：
-     * - 方向一致（同为竖排或同为横排）
-     * - Chebyshev 距离 < fontSize * GAP_TOLERANCE
-     * - 字号比例 < SIZE_RATIO_TOL
-     */
-    private fun groupNearbyLines(textLines: List<TextLine>): List<List<TextLine>> {
-        if (textLines.size <= 1) return textLines.map { listOf(it) }
-
-        // 构建邻接表
-        val adj = MutableList(textLines.size) { mutableListOf<Int>() }
-
-        for (i in 0 until textLines.size) {
-            for (j in i + 1 until textLines.size) {
-                if (canMergeLines(textLines[i], textLines[j])) {
-                    adj[i].add(j)
-                    adj[j].add(i)
-                }
+        // Step 1: TextBlockInfo → TextLine
+        val textLines = textBlocks.map { block ->
+            val rect = if (block.boundingBox != null) {
+                RectF(block.boundingBox)
+            } else if (block.cornerPoints != null && block.cornerPoints.size >= 4) {
+                val xs = block.cornerPoints.map { it.x.toFloat() }
+                val ys = block.cornerPoints.map { it.y.toFloat() }
+                RectF(xs.min(), ys.min(), xs.max(), ys.max())
+            } else {
+                RectF(0f, 0f, 0f, 0f)
             }
+            val isVertical = block.isVertical
+                ?: (config.textDirection == TextDirection.VERTICAL_RL || config.textDirection == TextDirection.VERTICAL_LR)
+            val fontSize = if (isVertical) rect.width() / 1.2f else rect.height() / 1.4f
+            TextLine(rect = rect, fontSize = fontSize, isVertical = isVertical, text = block.text)
         }
 
-        // DFS 找连通分量
-        val visited = BooleanArray(textLines.size)
-        val groups = mutableListOf<List<TextLine>>()
-
-        for (i in textLines.indices) {
-            if (visited[i]) continue
-            val group = mutableListOf<TextLine>()
-            val stack = ArrayDeque<Int>()
-            stack.add(i)
-            while (stack.isNotEmpty()) {
-                val node = stack.removeLast()
-                if (visited[node]) continue
-                visited[node] = true
-                group.add(textLines[node])
-                for (neighbor in adj[node]) {
-                    if (!visited[neighbor]) stack.add(neighbor)
-                }
-            }
-            groups.add(group)
-        }
-
-        LogCollector.d("BubbleDetector", "groupNearbyLines: ${textLines.size} 行 → ${groups.size} 组")
-        return groups
+        return doDetect(textLines)
     }
 
     /**
-     * 判断两个 TextLine 是否可以合并到同一气泡。
-     *
-     * 竖排文字：同组文字行在同一列内纵向排列，需要 Y 轴重叠或接近 + X 轴对齐
-     * 横排文字：同组文字行在同一行内横向排列，需要 X 轴重叠或接近 + Y 轴对齐
-     *
-     * 关键：不同气泡即使方向和字号相同，也因为空间分离而不应合并。
-     */
-    private fun canMergeLines(
-        a: TextLine, b: TextLine
-    ): Boolean {
-        val SIZE_RATIO_TOL = 2.0f  // 字号比例 < 2 → 可能同组
-        // 方向必须一致
-        val aIsVertical = a.direction == TextDirection.VERTICAL_RL || a.direction == TextDirection.VERTICAL_LR
-        val bIsVertical = b.direction == TextDirection.VERTICAL_RL || b.direction == TextDirection.VERTICAL_LR
-        if (aIsVertical != bIsVertical) return false
-
-        // 字号比例检查
-        val maxFS = max(a.fontSize, b.fontSize)
-        val minFS = min(a.fontSize, b.fontSize).coerceAtLeast(0.1f)
-        if (maxFS / minFS > SIZE_RATIO_TOL) return false
-
-        val rectA = a.rect
-        val rectB = b.rect
-
-        return if (aIsVertical) {
-            // 竖排：文字列纵向排列，同组的行应该在同一列（X 接近）且纵向连续（Y 重叠或小间隙）
-            val yOverlap = max(0, min(rectA.bottom, rectB.bottom) - max(rectA.top, rectB.top))
-            val yGap = max(0, max(rectB.top - rectA.bottom, rectA.top - rectB.bottom))
-            val xGap = max(0, max(rectB.left - rectA.right, rectA.left - rectB.right))
-
-            // Y 轴重叠超过半个字号，或纵向间隙 < 0.8×字号 → 可能同列
-            val yClose = yOverlap > maxFS * 0.5f || yGap < maxFS * 0.8f
-            // X 轴间隙 < 0.8×字号 → 在同一列附近
-            val xClose = xGap < maxFS * 0.8f
-
-            yClose && xClose
-        } else {
-            // 横排：文字行横向排列，同组的行应该在同一行（Y 接近）且横向连续（X 重叠或小间隙）
-            val xOverlap = max(0, min(rectA.right, rectB.right) - max(rectA.left, rectB.left))
-            val xGap = max(0, max(rectB.left - rectA.right, rectA.left - rectB.right))
-            val yGap = max(0, max(rectB.top - rectA.bottom, rectA.top - rectB.bottom))
-
-            // X 轴重叠超过半个字号，或横向间隙 < 0.8×字号
-            val xClose = xOverlap > maxFS * 0.5f || xGap < maxFS * 0.8f
-            // Y 轴间隙 < 字号 * 1.5（行间距通常大于字间距）
-            val yClose = yGap < maxFS * 1.5f
-
-            xClose && yClose
-        }
-    }
-
-    /**
-     * 兼容旧接口：不传 config 时使用默认行为。
+     * 无 config 版本，从 TextBlockInfo.isVertical 推断方向。
      */
     fun detectBubbles(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
-        return detectBubbles(textBlocks, MangaModeConfig())
+        if (textBlocks.isEmpty()) return emptyList()
+        LogCollector.d(TAG, "detectBubbles(no config): 输入 ${textBlocks.size} 个文字块")
+
+        val textLines = textBlocks.map { block ->
+            val rect = if (block.boundingBox != null) {
+                RectF(block.boundingBox)
+            } else if (block.cornerPoints != null && block.cornerPoints.size >= 4) {
+                val xs = block.cornerPoints.map { it.x.toFloat() }
+                val ys = block.cornerPoints.map { it.y.toFloat() }
+                RectF(xs.min(), ys.min(), xs.max(), ys.max())
+            } else {
+                RectF(0f, 0f, 0f, 0f)
+            }
+            val isVertical = block.isVertical ?: (rect.height() > rect.width())
+            val fontSize = if (isVertical) rect.width() / 1.2f else rect.height() / 1.4f
+            TextLine(rect = rect, fontSize = fontSize, isVertical = isVertical, text = block.text)
+        }
+
+        return doDetect(textLines)
     }
 
     /**
-     * Majority vote 确定方向（参考项目 merge_bboxes_text_region 第 158-172 行）。
-     * 平票时取 aspectRatio 最大的 textline 的方向。
+     * 核心检测逻辑（两个 detectBubbles 重载共用）。
      */
-    private fun determineDirection(textLines: List<TextLine>, fallback: TextDirection): TextDirection {
-        if (textLines.isEmpty()) return fallback
-        if (textLines.size == 1) return textLines[0].direction
+    private fun doDetect(textLines: List<TextLine>): List<BubbleRegion> {
+        val n = textLines.size
 
-        val dirCounts = textLines.groupBy { it.direction }
-        if (dirCounts.size == 1) return dirCounts.keys.first()
-
-        val top2 = dirCounts.entries.sortedByDescending { it.value.size }
-        return if (top2[0].value.size == top2[1].value.size) {
-            // 平票：取 aspectRatio 最大的
-            textLines.maxByOrNull { max(it.aspectRatio, 1f / it.aspectRatio) }?.direction ?: fallback
-        } else {
-            top2[0].key
+        // Step 2: canMergeRegion 构建图 → connected components
+        // 对应 textline_merge/__init__.py L128-136
+        val adjacency = Array(n) { mutableSetOf<Int>() }
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                if (canMergeRegion(textLines[i], textLines[j])) {
+                    adjacency[i].add(j)
+                    adjacency[j].add(i)
+                }
+            }
         }
-    }
 
-    private fun computeBoundingRect(textLines: List<TextLine>): Rect {
-        var left = Int.MAX_VALUE
-        var top = Int.MAX_VALUE
-        var right = Int.MIN_VALUE
-        var bottom = Int.MIN_VALUE
-        for (line in textLines) {
-            left = min(left, line.rect.left)
-            top = min(top, line.rect.top)
-            right = max(right, line.rect.right)
-            bottom = max(bottom, line.rect.bottom)
+        val visited = BooleanArray(n)
+        val connectedComponents = mutableListOf<Set<Int>>()
+        for (i in 0 until n) {
+            if (visited[i]) continue
+            val component = mutableSetOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(i)
+            visited[i] = true
+            while (queue.isNotEmpty()) {
+                val node = queue.removeFirst()
+                component.add(node)
+                for (neighbor in adjacency[node]) {
+                    if (!visited[neighbor]) {
+                        visited[neighbor] = true
+                        queue.add(neighbor)
+                    }
+                }
+            }
+            connectedComponents.add(component)
         }
-        return Rect(left, top, right, bottom)
+        LogCollector.d(TAG, "doDetect: 连通分量 ${connectedComponents.size} 个")
+
+        // Step 3: splitTextRegion MST 拆分
+        // 对应 textline_merge/__init__.py L139-141
+        val regionIndices = mutableListOf<Set<Int>>()
+        for (component in connectedComponents) {
+            regionIndices.addAll(splitTextRegion(textLines, component))
+        }
+        LogCollector.d(TAG, "doDetect: 拆分后 ${regionIndices.size} 个区域")
+
+        // Step 4: 构建 BubbleRegion
+        // 对应 textline_merge/__init__.py L144-182
+        val bubbles = mutableListOf<BubbleRegion>()
+        for (nodeSet in regionIndices) {
+            val nodes = nodeSet.toList()
+            val lines = nodes.map { textLines[it] }
+
+            // L158-172: majority vote 方向
+            val directionCounts = lines.groupBy { it.direction }.mapValues { it.value.size }
+            val majorityDir = directionCounts.maxByOrNull { it.value }?.key ?: 'h'
+
+            // L175-178: 排序（横排 Y 升序，竖排 X 降序）
+            val sortedNodes = if (majorityDir == 'h') {
+                nodes.sortedBy { textLines[it].centroidY }
+            } else {
+                nodes.sortedByDescending { textLines[it].centroidX }
+            }
+
+            // 合并文字
+            val combinedTexts = sortedNodes.map { textLines[it].text }
+            if (combinedTexts.all { it.isBlank() }) continue
+
+            // 合并 bounding box
+            val rects = sortedNodes.map { textLines[it].rect }
+            val unionRect = RectF(
+                rects.minOf { it.left },
+                rects.minOf { it.top },
+                rects.maxOf { it.right },
+                rects.maxOf { it.bottom }
+            )
+
+            // L199: font_size = min
+            val minFontSize = lines.minOf { it.fontSize }
+
+            val textDirection = if (majorityDir == 'v') TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+
+            val unionRectInt = Rect(
+                unionRect.left.toInt(), unionRect.top.toInt(),
+                unionRect.right.toInt(), unionRect.bottom.toInt()
+            )
+
+            bubbles.add(BubbleRegion(rect = unionRectInt, texts = combinedTexts, fontSize = minFontSize, direction = textDirection))
+            LogCollector.d(TAG, "doDetect: 区域 '${combinedTexts.first().take(20)}' fs=${String.format("%.1f", minFontSize)}, dir=$textDirection, lines=${lines.size}")
+        }
+
+        LogCollector.d(TAG, "doDetect: 输出 ${bubbles.size} 个气泡")
+        return bubbles
     }
 }
