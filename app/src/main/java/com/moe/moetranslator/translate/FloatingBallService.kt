@@ -25,6 +25,10 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
+import com.moe.moetranslator.data.CacheEntry
+import com.moe.moetranslator.data.TranslationCacheManager
+import com.moe.moetranslator.utils.PerceptualHash
+import com.moe.moetranslator.utils.LogCollector
 import android.util.Log
 import android.view.*
 import android.widget.AdapterView
@@ -45,6 +49,7 @@ import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import translationapi.azuretranslation.AzureTranslation
 import translationapi.baidutranslation.BaiduTranslationImage
 import translationapi.baidutranslation.BaiduTranslationText
@@ -170,6 +175,12 @@ class FloatingBallService : LifecycleService() {
         }
     }
 
+    // 缓存管理
+    private lateinit var cacheManager: TranslationCacheManager
+    private var forceRefresh = false
+    private var currentPHash = 0L
+    private var lastCacheHit = false
+
     override fun onCreate() {
         super.onCreate()
         prefs = CustomPreference.getInstance(this)
@@ -179,6 +190,9 @@ class FloatingBallService : LifecycleService() {
 
     @SuppressLint("InflateParams")
     private fun initialize() {
+        // 初始化缓存管理器
+        cacheManager = TranslationCacheManager(this)
+
         // 初始化翻译API
         try {
             if (prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id){
@@ -417,52 +431,86 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun showLongPressMenu() {
-        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating)
+        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, lastCacheHit)
         listView.onItemClickListener = object : AdapterView.OnItemClickListener {
             override fun onItemClick(p0: AdapterView<*>?, p1: View?, p2: Int, p3: Long) {
-                when (p2) {
-                    0 -> {
-                        when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
-                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
-                            is BallStatus.Normal -> setCropView()
+                if (lastCacheHit) {
+                    // 缓存命中时的菜单：裁剪、位置、关闭结果、字体大小、历史、重新翻译、自动翻译、关闭球、主页
+                    when (p2) {
+                        0 -> {
+                            when (currentBallStatus) {
+                                is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
+                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                                is BallStatus.Normal -> setCropView()
+                            }
                         }
-                    }
-                    1 -> {
-                        when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                            is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
-                            is BallStatus.Normal -> setMovingTextView()
+                        1 -> {
+                            when (currentBallStatus) {
+                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
+                                is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
+                                is BallStatus.Normal -> setMovingTextView()
+                            }
                         }
-                    }
-                    2 -> {
-                        when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
-                            is BallStatus.Normal -> {
-                                if(isViewAdded(floatingTextView)){
-                                    windowManager.removeView(floatingTextView)
-                                }else{
-                                    showToast(getString(R.string.not_added_remove), true)
+                        2 -> {
+                            when (currentBallStatus) {
+                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
+                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                                is BallStatus.Normal -> {
+                                    if(isViewAdded(floatingTextView)){
+                                        windowManager.removeView(floatingTextView)
+                                    }else{
+                                        showToast(getString(R.string.not_added_remove), true)
+                                    }
                                 }
                             }
                         }
+                        3 -> showFontSizeDialog()
+                        4 -> showTranslationHistoryDialog()
+                        5 -> {
+                            // 重新翻译：设置 forceRefresh 后触发翻译
+                            forceRefresh = true
+                            if (AccessibilityServiceManager.getService() != null) {
+                                AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
+                            }
+                        }
+                        6 -> toggleAutoTranslate()
+                        7 -> stopServiceAndRemoveViews()
+                        8 -> backToMainActivity()
                     }
-                    3 -> {
-                        // 设置字体大小
-                        showFontSizeDialog()
-                    }
-                    4 -> {
-                        // 5.1.0新增：自动翻译开关
-                        toggleAutoTranslate()
-                    }
-                    5 -> {
-                        // 停止服务，移除所有窗口（悬浮球、翻译结果框、框选框等）
-                        stopServiceAndRemoveViews()
-                    }
-                    6 -> {
-                        // 回到主界面
-                        backToMainActivity()
+                } else {
+                    // 无缓存命中时的菜单（原有逻辑）
+                    when (p2) {
+                        0 -> {
+                            when (currentBallStatus) {
+                                is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
+                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                                is BallStatus.Normal -> setCropView()
+                            }
+                        }
+                        1 -> {
+                            when (currentBallStatus) {
+                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
+                                is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
+                                is BallStatus.Normal -> setMovingTextView()
+                            }
+                        }
+                        2 -> {
+                            when (currentBallStatus) {
+                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
+                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                                is BallStatus.Normal -> {
+                                    if(isViewAdded(floatingTextView)){
+                                        windowManager.removeView(floatingTextView)
+                                    }else{
+                                        showToast(getString(R.string.not_added_remove), true)
+                                    }
+                                }
+                            }
+                        }
+                        3 -> showFontSizeDialog()
+                        4 -> toggleAutoTranslate()
+                        5 -> stopServiceAndRemoveViews()
+                        6 -> backToMainActivity()
                     }
                 }
                 dialog.dismiss()
@@ -472,6 +520,49 @@ class FloatingBallService : LifecycleService() {
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun showTranslationHistoryDialog() {
+        lifecycleScope.launch {
+            try {
+                val historyList = cacheManager.getHistory(
+                    type = TranslationCacheManager.MODE_GAME,
+                    limit = 20
+                )
+                if (historyList.isEmpty()) {
+                    showToast("暂无翻译历史", true)
+                    return@launch
+                }
+                val items = historyList.map { entry ->
+                    val time = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(entry.createdAt))
+                    val source = entry.sourceText?.take(30) ?: ""
+                    val translated = entry.translatedText?.take(30) ?: ""
+                    "[$time] $source\n→ $translated"
+                }
+                withContext(Dispatchers.Main) {
+                    val histDialog = Dialogs.historyDialog(applicationContext, items) { position ->
+                        val selected = historyList[position]
+                        if (selected.translatedText != null) {
+                            floatingTextView.text = selected.translatedText
+                            if (!isViewAdded(floatingTextView)) {
+                                windowManager.addView(floatingTextView, floatingTextViewParams)
+                                windowManager.removeView(floatingBallView)
+                                windowManager.addView(floatingBallView, floatingBallParams)
+                                setFloatingTextViewTouchable(false)
+                            }
+                        }
+                    }
+                    histDialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+                    histDialog.show()
+                    histDialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                    histDialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+            } catch (e: Exception) {
+                LogCollector.e("FloatingBallService", "显示翻译历史失败", e)
+                showToast("显示历史失败", true)
+            }
+        }
     }
 
     // 5.1.0新增：切换自动翻译状态
@@ -673,6 +764,24 @@ class FloatingBallService : LifecycleService() {
     private suspend fun processScreenshot(bitmap: Bitmap) {
         Log.d("SCREENSHOT", "processScreenShot")
         try{
+            // 缓存查找
+            currentPHash = PerceptualHash.compute(bitmap)
+            if (!forceRefresh) {
+                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_GAME)
+                if (cached != null && cached.translatedText != null) {
+                    LogCollector.d("FloatingBallService", "缓存命中, historyId=${cached.historyId}")
+                    lastCacheHit = true
+                    withContext(Dispatchers.Main) {
+                        floatingTextView.text = cached.translatedText
+                    }
+                    isTranslating.set(false)
+                    return
+                }
+            } else {
+                forceRefresh = false
+            }
+            lastCacheHit = false
+
             if(prefs.getInt("Translate_Mode", 0) == 0){
                 // OCR后文本翻译
                 val txt = OCRTextRecognizer.getPicText(prefs.getString("Source_Language", "ja"), bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
@@ -736,6 +845,12 @@ class FloatingBallService : LifecycleService() {
                         }else{
                             floatingTextView.text = result.translatedText+"\n\n"+str
                         }
+                        // 保存到缓存和历史
+                        saveTranslationToCache(
+                            sourceText = str,
+                            translatedText = result.translatedText,
+                            translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
+                        )
                     }
                     is TranslationResult.Error -> {
                         floatingTextView.text = getString(R.string.translation_failed, result.error.message)
@@ -759,6 +874,29 @@ class FloatingBallService : LifecycleService() {
                     }
                 }
                 isTranslating.set(false)
+            }
+        }
+    }
+
+    private fun saveTranslationToCache(
+        sourceText: String,
+        translatedText: String,
+        translatorName: String
+    ) {
+        lifecycleScope.launch {
+            try {
+                cacheManager.saveToCache(CacheEntry(
+                    type = TranslationCacheManager.MODE_GAME,
+                    sourceText = sourceText,
+                    translatedText = translatedText,
+                    resultBitmap = null,
+                    sourceLang = prefs.getString("Source_Language", "ja"),
+                    targetLang = prefs.getString("Target_Language", "zh"),
+                    translatorName = translatorName,
+                    pHash = currentPHash
+                ))
+            } catch (e: Exception) {
+                LogCollector.e("FloatingBallService", "保存缓存失败", e)
             }
         }
     }

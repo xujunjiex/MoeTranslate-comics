@@ -46,6 +46,54 @@
         <item>2</item>
     </string-array>
 
+    <!-- Game translation menu: cache hit -->
+    <string-array name="menu_item_game_cache_hit">
+        <item>Select Translation Area</item>
+        <item>Adjust Translation Result Position</item>
+        <item>Close Translation Result</item>
+        <item>Set Font Size</item>
+        <item>Translation History</item>
+        <item>Refresh Translation</item>
+        <item>Turn On Automatic Translation</item>
+        <item>Close Floating Ball</item>
+        <item>Return to StarFlow Main Page</item>
+    </string-array>
+
+    <string-array name="menu_item_game_cache_hit_auto_on">
+        <item>Select Translation Area</item>
+        <item>Adjust Translation Result Position</item>
+        <item>Close Translation Result</item>
+        <item>Set Font Size</item>
+        <item>Translation History</item>
+        <item>Refresh Translation</item>
+        <item>Turn Off Automatic Translation</item>
+        <item>Close Floating Ball</item>
+        <item>Return to StarFlow Main Page</item>
+    </string-array>
+
+    <!-- Game translation menu: with history (no cache hit) -->
+    <string-array name="menu_item_game_with_history">
+        <item>Select Translation Area</item>
+        <item>Adjust Translation Result Position</item>
+        <item>Close Translation Result</item>
+        <item>Set Font Size</item>
+        <item>Translation History</item>
+        <item>Turn On Automatic Translation</item>
+        <item>Close Floating Ball</item>
+        <item>Return to StarFlow Main Page</item>
+    </string-array>
+
+    <string-array name="menu_item_game_with_history_auto_on">
+        <item>Select Translation Area</item>
+        <item>Adjust Translation Result Position</item>
+        <item>Close Translation Result</item>
+        <item>Set Font Size</item>
+        <item>Translation History</item>
+        <item>Turn Off Automatic Translation</item>
+        <item>Close Floating Ball</item>
+        <item>Return to StarFlow Main Page</item>
+    </string-array>
+
     <string-array name="manga_menu_items">
         <item>Translation Area</item>
         <item>Font Size</item>

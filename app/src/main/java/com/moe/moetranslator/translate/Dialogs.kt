@@ -43,14 +43,37 @@ data class DialogResult(
 
 object Dialogs {
     @SuppressLint("MissingInflatedId")
-    fun menuDialog(ctx: Context, isAutoTranslating: Boolean): DialogResult {
-        val strlist =  if (isAutoTranslating) {
-            ctx.resources.getStringArray(R.array.menu_item_auto_on)
-        } else {
-            ctx.resources.getStringArray(R.array.menu_item_auto_off)
+    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, lastCacheHit: Boolean = false): DialogResult {
+        val strlist = when {
+            lastCacheHit && isAutoTranslating -> ctx.resources.getStringArray(R.array.menu_item_game_cache_hit_auto_on)
+            lastCacheHit -> ctx.resources.getStringArray(R.array.menu_item_game_cache_hit)
+            isAutoTranslating -> ctx.resources.getStringArray(R.array.menu_item_auto_on)
+            else -> ctx.resources.getStringArray(R.array.menu_item_auto_off)
         }
-        val imglist = if (isAutoTranslating) {
-            arrayOf(
+        val imglist = when {
+            lastCacheHit && isAutoTranslating -> arrayOf(
+                R.drawable.crop_screen,
+                R.drawable.result_position,
+                R.drawable.remove_result,
+                R.drawable.result_size,
+                R.drawable.ic_history,
+                R.drawable.ic_refresh,
+                R.drawable.stop_auto,
+                R.drawable.close_service,
+                R.drawable.back_home
+            )
+            lastCacheHit -> arrayOf(
+                R.drawable.crop_screen,
+                R.drawable.result_position,
+                R.drawable.remove_result,
+                R.drawable.result_size,
+                R.drawable.ic_history,
+                R.drawable.ic_refresh,
+                R.drawable.start_auto,
+                R.drawable.close_service,
+                R.drawable.back_home
+            )
+            isAutoTranslating -> arrayOf(
                 R.drawable.crop_screen,
                 R.drawable.result_position,
                 R.drawable.remove_result,
@@ -59,8 +82,7 @@ object Dialogs {
                 R.drawable.close_service,
                 R.drawable.back_home
             )
-        } else {
-            arrayOf(
+            else -> arrayOf(
                 R.drawable.crop_screen,
                 R.drawable.result_position,
                 R.drawable.remove_result,
@@ -88,6 +110,26 @@ object Dialogs {
             .setNegativeButton(R.string.user_cancel,null)
             .create()
         return DialogResult(dialog, lv)
+    }
+
+    fun historyDialog(ctx: Context, items: List<String>, onItemClick: (Int) -> Unit): AlertDialog {
+        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
+        val img = view.findViewById<ImageView>(R.id.TitleIcon)
+        val welcome = view.findViewById<TextView>(R.id.welcome)
+        val lv = view.findViewById<ListView>(R.id.menu_list)
+        welcome.text = ctx.getString(R.string.floating_ball_menu_2)
+        img.setImageResource(R.drawable.speed_star)
+        val imgArray = Array(items.size) { R.drawable.ic_history }
+        lv.adapter = MenuDialogAdapter(ctx, items.toTypedArray(), imgArray)
+        lv.setOnItemClickListener { _, _, position, _ ->
+            onItemClick(position)
+        }
+        val dialog = AlertDialog.Builder(ctx)
+            .setView(view)
+            .setCancelable(true)
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+        return dialog
     }
 
     fun mangaMenuDialog(
