@@ -137,9 +137,10 @@
 
                 <TextView
                     android:id="@+id/rtdetr_status"
-                    android:layout_width="wrap_content"
+                    android:layout_width="170dp"
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
+                    android:gravity="end"
                     android:layout_marginEnd="8dp"/>
 
                 <Button
@@ -190,9 +191,10 @@
 
                 <TextView
                     android:id="@+id/ctd_status"
-                    android:layout_width="wrap_content"
+                    android:layout_width="170dp"
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
+                    android:gravity="end"
                     android:layout_marginEnd="8dp"/>
 
                 <Button
@@ -342,5 +344,16 @@
             </LinearLayout>
 
         </LinearLayout>
+
+        <!-- VPN 提示 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/model_download_vpn_tip"
+            android:textSize="12sp"
+            android:textColor="#888"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"/>
+
     </LinearLayout>
 </ScrollView>

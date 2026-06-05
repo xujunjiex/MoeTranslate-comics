@@ -469,7 +469,7 @@
     <string name="model_management">Model Management</string>
     <string name="model_management_tip">Manage downloaded recognition models</string>
     <string name="detector_section">Detector</string>
-    <string name="detector_ctd_desc">Line-level text detection, supports vertical text, 94MB</string>
+    <string name="detector_ctd_desc">High-precision text detection, supports vertical text, adds 1-2s delay, 94MB</string>
     <string name="detector_rtdetr_desc">Block-level + bubble detection, fast, 11MB</string>
     <string name="detector_mlkit_desc">Google ML Kit detection + recognition, ~10MB</string>
     <string name="recognizer_section">Recognizer</string>
@@ -506,5 +506,8 @@
     <string name="manga_model_manga_ocr">manga-ocr</string>
 
     <!-- RT-DETR-V2 download -->
-    <string name="rtdetr_download_desc">Bubble+text detection, fast, download required (~11MB)</string>
+    <string name="rtdetr_download_desc">Bubble+text detection, fast, use with manga-ocr, download required (~11MB)</string>
+
+    <!-- Model download tip -->
+    <string name="model_download_vpn_tip">💡 If you can\'t download models, please enable VPN and try again\nDo not leave this page during download</string>
 </resources>

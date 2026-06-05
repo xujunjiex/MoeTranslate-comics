@@ -466,7 +466,7 @@
     <string name="model_management">模型管理</string>
     <string name="model_management_tip">管理已下载的识别模型</string>
     <string name="detector_section">检测器</string>
-    <string name="detector_ctd_desc">行级文字检测，支持竖排，94MB</string>
+    <string name="detector_ctd_desc">高精度文字检测，支持竖排，会引入固定1-2s延迟，94MB</string>
     <string name="detector_rtdetr_desc">块级+气泡检测，速度快，11MB</string>
     <string name="detector_mlkit_desc">Google ML Kit 检测+识别，约10MB</string>
     <string name="recognizer_section">识别器</string>
@@ -503,5 +503,8 @@
     <string name="manga_model_manga_ocr">manga-ocr</string>
 
     <!-- RT-DETR-V2 下载 -->
-    <string name="rtdetr_download_desc">块级+气泡检测，速度快，需下载 (~11MB)</string>
+    <string name="rtdetr_download_desc">气泡+文字检测，速度快，需搭配 manga-ocr 使用，需下载 (~11MB)</string>
+
+    <!-- 模型下载提示 -->
+    <string name="model_download_vpn_tip">💡 如无法下载模型，请开启 VPN 后重试\n下载过程中请勿退出当前页面</string>
 </resources>
