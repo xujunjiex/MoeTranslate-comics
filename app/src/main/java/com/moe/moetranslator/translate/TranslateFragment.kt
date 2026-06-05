@@ -93,7 +93,7 @@ class TranslateFragment : Fragment() {
 
         prefs = CustomPreference.getInstance(requireContext())
         updateChecker = UpdateChecker(requireContext())
-        notificationChecker = NotificationChecker(requireContext())
+        notificationChecker = NotificationChecker()
     }
 
     override fun onStart() {
