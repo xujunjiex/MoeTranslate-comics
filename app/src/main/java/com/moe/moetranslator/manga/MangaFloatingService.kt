@@ -61,6 +61,9 @@ import translationapi.tencentcloud.TencentTranslationText
 import translationapi.customtranslation.CustomTranslationText
 import translationapi.mlkittranslation.MLKitTranslation
 import translationapi.nllbtranslation.NLLBTranslation
+import com.moe.moetranslator.data.CacheEntry
+import com.moe.moetranslator.data.TranslationCacheManager
+import com.moe.moetranslator.utils.PerceptualHash
 import kotlin.math.abs
 
 class MangaFloatingService : LifecycleService() {
@@ -150,6 +153,12 @@ class MangaFloatingService : LifecycleService() {
     private lateinit var config: MangaModeConfig
     private var translatorText: TranslationTextAPI? = null
 
+    // 缓存管理
+    private lateinit var cacheManager: TranslationCacheManager
+    private var forceRefresh = false
+    private var currentPHash = 0L
+    private var cacheOverlayContainer: android.widget.FrameLayout? = null
+
     private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
     private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
@@ -164,6 +173,7 @@ class MangaFloatingService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         prefs = CustomPreference.getInstance(this)
+        cacheManager = TranslationCacheManager(this)
         config = loadConfig()
         initTranslator()
 
@@ -1267,6 +1277,22 @@ class MangaFloatingService : LifecycleService() {
         try {
             LogCollector.d(TAG, "processMangaScreenshot: START")
 
+            // 计算 pHash 并查找缓存
+            currentPHash = PerceptualHash.compute(bitmap)
+            if (!forceRefresh) {
+                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA)
+                if (cached != null && cached.resultBitmap != null) {
+                    LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
+                    withContext(Dispatchers.Main) {
+                        showResultOverlay(cached.resultBitmap, fromCache = true)
+                    }
+                    return
+                }
+            } else {
+                LogCollector.d(TAG, "processMangaScreenshot: 强制刷新，跳过缓存")
+                forceRefresh = false
+            }
+
             // 调试模式：按当前选择的检测模型决定 debug 路径
             when (config.detEngine) {
                 DetEngine.CTD -> {
@@ -1455,6 +1481,23 @@ class MangaFloatingService : LifecycleService() {
                 showResultOverlay(resultBitmap)
             }
             LogCollector.d(TAG, "processMangaScreenshot: Step 5 - DONE")
+
+            // 保存到缓存和历史
+            try {
+                val translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
+                cacheManager.saveToCache(CacheEntry(
+                    type = TranslationCacheManager.MODE_MANGA,
+                    sourceText = null,
+                    translatedText = null,
+                    resultBitmap = resultBitmap.copy(resultBitmap.config ?: Bitmap.Config.ARGB_8888, false),
+                    sourceLang = config.sourceLang,
+                    targetLang = config.targetLang,
+                    translatorName = translatorName,
+                    pHash = currentPHash
+                ))
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "保存缓存失败", e)
+            }
 
         } finally {
             bitmap.recycle()
@@ -1730,9 +1773,14 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Result overlay ----------
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun showResultOverlay(bitmap: Bitmap) {
+    private fun showResultOverlay(bitmap: Bitmap, fromCache: Boolean = false) {
         if (isResultShowing) {
             dismissResultOverlay()
+        }
+
+        if (fromCache) {
+            showCacheOverlay(bitmap)
+            return
         }
 
         resultOverlayView.setImageBitmap(bitmap)
@@ -1789,6 +1837,10 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun dismissResultOverlay() {
+        if (cacheOverlayContainer != null) {
+            dismissCacheOverlay()
+            return
+        }
         if (isResultShowing) {
             try {
                 resultOverlayView.setImageBitmap(null)
@@ -1800,6 +1852,137 @@ class MangaFloatingService : LifecycleService() {
             isResultShowing = false
 
             // 重置自动翻译定时器，给用户时间翻页/滑动
+            if (isAutoTranslating) {
+                val delay = prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L)
+                autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
+                autoTranslateHandler.postDelayed(autoTranslateRunnable, delay)
+            }
+        }
+    }
+
+    /**
+     * 显示缓存结果 overlay — 带"缓存"标签和刷新按钮
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showCacheOverlay(bitmap: Bitmap) {
+        dismissProgressOverlay()
+
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+
+        val container = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(180, 0, 0, 0))
+        }
+
+        // 结果图片
+        val imageView = ImageView(this).apply {
+            setImageBitmap(bitmap)
+            scaleType = ImageView.ScaleType.FIT_XY
+        }
+        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // "⚡ 缓存" 标签（左上角）
+        val cacheTag = android.widget.TextView(this).apply {
+            text = "⚡ 缓存"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setBackgroundColor(Color.argb(180, 255, 152, 0))
+            setPadding(24, 12, 24, 12)
+        }
+        container.addView(cacheTag, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            setMargins(24, 24, 0, 0)
+        })
+
+        // 刷新按钮（右上角）
+        val refreshBtn = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_menu_rotate)
+            setBackgroundColor(Color.argb(180, 0, 0, 0))
+            setPadding(20, 20, 20, 20)
+            setOnClickListener {
+                dismissCacheOverlay()
+                forceRefresh = true
+                triggerTranslation()
+            }
+        }
+        container.addView(refreshBtn, android.widget.FrameLayout.LayoutParams(
+            120, 120
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            setMargins(0, 24, 24, 0)
+        })
+
+        // 点击其他区域关闭
+        container.setOnTouchListener { _, event ->
+            // 检查是否点击在刷新按钮区域
+            val refreshRight = screenW - 24
+            val refreshLeft = refreshRight - 120
+            val refreshTop = 24
+            val refreshBottom = refreshTop + 120
+            val touchX = event.x.toInt()
+            val touchY = event.y.toInt()
+            if (touchX in refreshLeft..refreshRight && touchY in refreshTop..refreshBottom) {
+                false  // 让刷新按钮处理
+            } else {
+                if (event.action == MotionEvent.ACTION_UP) {
+                    dismissCacheOverlay()
+                }
+                true
+            }
+        }
+
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.RGBA_8888
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = screenW
+            height = screenH
+            gravity = Gravity.START or Gravity.TOP
+            x = 0
+            y = 0
+        }
+
+        windowManager.addView(container, params)
+        cacheOverlayContainer = container
+        isResultShowing = true
+
+        // Keep floating ball on top
+        if (isViewAdded(floatingBallView)) {
+            windowManager.removeView(floatingBallView)
+            windowManager.addView(floatingBallView, floatingBallParams)
+        }
+    }
+
+    /**
+     * 关闭缓存 overlay
+     */
+    private fun dismissCacheOverlay() {
+        cacheOverlayContainer?.let { container ->
+            try {
+                // 回收 bitmap
+                val imageView = container.getChildAt(0) as? ImageView
+                val bitmap = imageView?.drawable?.let { drawable ->
+                    if (drawable is android.graphics.drawable.BitmapDrawable) drawable.bitmap else null
+                }
+                windowManager.removeView(container)
+                imageView?.setImageDrawable(null)
+                // 延迟回收，等 View 绘制完成
+                container.post { bitmap?.recycle() }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "dismissCacheOverlay: 错误", e)
+            }
+            cacheOverlayContainer = null
+            isResultShowing = false
+
+            // 重置自动翻译定时器
             if (isAutoTranslating) {
                 val delay = prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L)
                 autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
@@ -2167,6 +2350,7 @@ class MangaFloatingService : LifecycleService() {
         } catch (e: Exception) {
             LogCollector.e(TAG, "Error removing floating ball", e)
         }
+        dismissCacheOverlay()
         dismissResultOverlay()
         dismissProgressOverlay()
         dismissToastOverlay()
