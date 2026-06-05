@@ -1,10 +1,19 @@
 # StarFlow (星译)
 
-Android 翻译应用，支持 Android 11+（API 29+）。包含两个核心功能：**游戏翻译**和**漫画翻译**。
+<p align="center">
+  <img src="tools/参考替换图标/appicon.png" width="128" height="128" alt="StarFlow Logo">
+</p>
+
+<p align="center">
+  <b>Android 翻译应用 — 游戏翻译 & 漫画翻译</b><br>
+  支持 Android 11+（API 29+）
+</p>
+
+---
 
 ## 功能
 
-### 一、游戏翻译
+### 🎮 游戏翻译
 
 截图 OCR 识别 + 翻译 API，支持两种模式：
 
@@ -13,7 +22,7 @@ Android 翻译应用，支持 Android 11+（API 29+）。包含两个核心功�
 
 支持的翻译 API：ML Kit、NLLB、必应翻译、小牛翻译、OpenAI 兼容接口、火山引擎、Azure、DeepL、百度翻译、腾讯云、自定义 API。
 
-### 二、漫画翻译
+### 📖 漫画翻译
 
 漫画/游戏气泡文字检测 + OCR + 翻译 + 竖排渲染：
 
@@ -39,12 +48,21 @@ Android 翻译应用，支持 Android 11+（API 29+）。包含两个核心功�
 - `launch/` — 启动引导
 - `utils/` — 工具类
 - `translationapi/` — 翻译 API 实现
-- `.reference/` — 参考项目（只读）
 
-## 开源项目
+## 致谢
 
-- [RTranslator](https://github.com/niedev/RTranslator) — NLLB 翻译模型
-- [manga-image-translator](https://github.com/zyddnys/manga-image-translator) — CTD 检测器参考
-- [RapidOCR](https://github.com/RapidAI/RapidOCR) — PP-OCRv5 模型
+本项目 forked 自 [MoeTranslate](https://github.com/murangogo/MoeTranslate)，原项目提供了翻译 API 调用、应用框架和整体架构。
+
+### 参考项目
+
+- [RapidOCR](https://github.com/RapidAI/RapidOCR) — 基于 PaddleOCR 的跨平台 OCR 工具包
+- [Comic Text and Bubble Detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) — 漫画文字/气泡检测模型
+- [RT-DETR](https://github.com/lyuwenyu/RT-DETR) — 实时目标检测 Transformer
+- [manga-ocr](https://github.com/kha-white/manga-ocr) — 日漫竖排文字 OCR 模型
+- [manga-image-translator](https://github.com/zyddnys/manga-image-translator) — 漫画图片翻译项目
 - [ONNX Runtime](https://onnxruntime.ai/) — 模型推理引擎
 - [JTS](https://locationtech.github.io/jts/) — 多边形几何运算
+
+## 许可证
+
+LGPL

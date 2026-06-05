@@ -19,19 +19,6 @@ build/
 /framework/build/
 local.properties
 
-# Node.js
-/node_modules
-/docs/node_modules/
-
-# VuePress
-/docs/docs/.vuepress/.temp
-/docs/docs/.vuepress/.cache
-/docs/docs/.vuepress/dist
-/docs/README.md
-/docs/README.zh-CN.md
-/docs/.env
-/docs/.env.local
-
 # OS-specific files
 .DS_Store
 .DS_Store?
@@ -43,25 +30,9 @@ Thumbs.db
 
 # Log Files
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-# Reference repos (embedded git repos)
-.reference/
-
-# Local test files
-call_vision.py
-test_image.b64
-test_image.jpg
-
-# Local plans and docs
-docs/superpowers/plans/*.md
 
 # Reference repos
 .reference/
-
-# Claude Code
-.claude/
 
 # Tools and scripts
 tools/
@@ -74,10 +45,25 @@ app/src/main/assets/**/*.onnx.data
 app/src/main/assets/**/*.ckpt
 app/src/main/assets/**/*.safetensors
 
-# Internal docs
+# docs: 只保留 docs/docs/ 内容，其余排除
+docs/*.md
+docs/package.json
+docs/package-lock.json
 docs/superpowers/
-docs/manga-*.md
-docs/ocr-*.md
+docs/docs/.vuepress/
+docs/node_modules/
+
+# Claude Code
+.claude/
+
+# Local plans
+docs/superpowers/plans/*.md
 
 # Local logs
 logs/
+
+# Local test files
+call_vision.py
+test_image.b64
+test_image.jpg
+.github/
