@@ -6,8 +6,6 @@ import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -58,12 +56,15 @@ class ModelManagementFragment : Fragment() {
         updateMangaOcrStatus()
     }
 
+    private fun setButtonDeleteStyle(btn: TextView, isDelete: Boolean) {
+        btn.setBackgroundResource(if (isDelete) R.drawable.btn_delete else R.drawable.btn_download)
+    }
+
     // ========== RT-DETR-V2 下载相关 ==========
 
     private fun updateRTDetrStatus() {
         val statusText = rootView.findViewById<TextView>(R.id.rtdetr_status)
-        val actionBtn = rootView.findViewById<Button>(R.id.rtdetr_action_button)
-        val progressBar = rootView.findViewById<ProgressBar>(R.id.rtdetr_progress)
+        val actionBtn = rootView.findViewById<TextView>(R.id.rtdetr_action_button)
 
         val isDownloaded = RTDetrModelManager.isModelInFilesDir(requireContext())
         val isDownloading = rtdetrDownloadJob != null
@@ -72,21 +73,21 @@ class ModelManagementFragment : Fragment() {
             isDownloading -> {
                 statusText.text = getString(R.string.model_downloading)
                 actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { cancelRTDetrDownload() }
-                progressBar.visibility = View.VISIBLE
             }
             isDownloaded -> {
                 val size = RTDetrModelManager.getModelSizeString(requireContext())
                 statusText.text = "${getString(R.string.model_downloaded)} ($size)"
                 actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showRTDetrDeleteConfirmDialog() }
-                progressBar.visibility = View.GONE
             }
             else -> {
                 statusText.text = getString(R.string.model_not_downloaded)
                 actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startRTDetrDownload() }
-                progressBar.visibility = View.GONE
             }
         }
     }
@@ -112,8 +113,6 @@ class ModelManagementFragment : Fragment() {
                             handler.post {
                                 if (rtdetrIsCancelled || !isAdded) return@post
                                 val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
-                                val progressBar = rootView.findViewById<ProgressBar>(R.id.rtdetr_progress)
-                                progressBar.progress = progress
                                 val statusText = rootView.findViewById<TextView>(R.id.rtdetr_status)
                                 val mbRead = bytesRead / (1024 * 1024)
                                 val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
@@ -174,8 +173,7 @@ class ModelManagementFragment : Fragment() {
 
     private fun updateCtdStatus() {
         val statusText = rootView.findViewById<TextView>(R.id.ctd_status)
-        val actionBtn = rootView.findViewById<Button>(R.id.ctd_action_button)
-        val progressBar = rootView.findViewById<ProgressBar>(R.id.ctd_progress)
+        val actionBtn = rootView.findViewById<TextView>(R.id.ctd_action_button)
 
         val isDownloaded = CTDModelManager.isModelAvailable(requireContext())
         val isDownloading = ctdDownloadJob != null
@@ -184,21 +182,21 @@ class ModelManagementFragment : Fragment() {
             isDownloading -> {
                 statusText.text = getString(R.string.model_downloading)
                 actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { cancelCtdDownload() }
-                progressBar.visibility = View.VISIBLE
             }
             isDownloaded -> {
                 val size = CTDModelManager.getModelSizeString(requireContext())
                 statusText.text = "${getString(R.string.model_downloaded)} ($size)"
                 actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showCtdDeleteConfirmDialog() }
-                progressBar.visibility = View.GONE
             }
             else -> {
                 statusText.text = getString(R.string.model_not_downloaded)
                 actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startCtdDownload() }
-                progressBar.visibility = View.GONE
             }
         }
     }
@@ -224,8 +222,6 @@ class ModelManagementFragment : Fragment() {
                             handler.post {
                                 if (ctdIsCancelled || !isAdded) return@post
                                 val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
-                                val progressBar = rootView.findViewById<ProgressBar>(R.id.ctd_progress)
-                                progressBar.progress = progress
                                 val statusText = rootView.findViewById<TextView>(R.id.ctd_status)
                                 val mbRead = bytesRead / (1024 * 1024)
                                 val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
@@ -296,7 +292,7 @@ class ModelManagementFragment : Fragment() {
         val nameText = rowView.findViewById<TextView>(R.id.version_name)
         val sizeText = rowView.findViewById<TextView>(R.id.version_size)
         val statusText = rowView.findViewById<TextView>(R.id.version_status)
-        val actionBtn = rowView.findViewById<Button>(R.id.version_action_button)
+        val actionBtn = rowView.findViewById<TextView>(R.id.version_action_button)
 
         // version.description = "完整版 (343MB+117MB)"
         val descParts = version.description.split(" (")
@@ -311,21 +307,25 @@ class ModelManagementFragment : Fragment() {
             isDownloading -> {
                 statusText.text = getString(R.string.model_downloading)
                 actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { cancelMangaOcrDownload() }
             }
             isActive -> {
                 statusText.text = "当前使用"
                 actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showMangaOcrDeleteConfirmDialog(version) }
             }
             isDownloaded -> {
                 statusText.text = "已下载"
                 actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showMangaOcrDeleteConfirmDialog(version) }
             }
             else -> {
                 statusText.text = ""
                 actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startMangaOcrDownload(version) }
             }
         }

@@ -110,109 +110,101 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp"
-                android:gravity="center_vertical">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="RT-DETR-V2"
-                        android:textSize="16sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/rtdetr_download_desc"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                android:orientation="vertical"
+                android:padding="8dp">
 
                 <TextView
-                    android:id="@+id/rtdetr_status"
-                    android:layout_width="170dp"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:gravity="end"
-                    android:layout_marginEnd="8dp"/>
-
-                <Button
-                    android:id="@+id/rtdetr_action_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/model_download"/>
-            </LinearLayout>
+                    android:text="RT-DETR-V2"
+                    android:textSize="16sp"/>
 
-            <!-- RT-DETR-V2 进度条 -->
-            <ProgressBar
-                android:id="@+id/rtdetr_progress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:visibility="gone"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/rtdetr_download_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/rtdetr_status"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12sp"/>
+
+                    <TextView
+                        android:id="@+id/rtdetr_action_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:background="@drawable/btn_download"
+                        android:textColor="@android:color/white"
+                        android:textSize="12sp"
+                        android:text="@string/model_download"/>
+                </LinearLayout>
+            </LinearLayout>
 
             <!-- CTD（需下载） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp"
-                android:gravity="center_vertical">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="CTD"
-                        android:textSize="16sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/detector_ctd_desc"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                android:orientation="vertical"
+                android:padding="8dp">
 
                 <TextView
-                    android:id="@+id/ctd_status"
-                    android:layout_width="170dp"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:gravity="end"
-                    android:layout_marginEnd="8dp"/>
-
-                <Button
-                    android:id="@+id/ctd_action_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/model_download"/>
-            </LinearLayout>
+                    android:text="CTD"
+                    android:textSize="16sp"/>
 
-            <!-- CTD 进度条 -->
-            <ProgressBar
-                android:id="@+id/ctd_progress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:visibility="gone"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/detector_ctd_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/ctd_status"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12sp"/>
+
+                    <TextView
+                        android:id="@+id/ctd_action_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:background="@drawable/btn_download"
+                        android:textColor="@android:color/white"
+                        android:textSize="12sp"
+                        android:text="@string/model_download"/>
+                </LinearLayout>
+            </LinearLayout>
 
         </LinearLayout>
 
