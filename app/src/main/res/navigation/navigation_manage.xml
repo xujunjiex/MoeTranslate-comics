@@ -31,6 +31,12 @@
     </fragment>
 
     <fragment
+        android:id="@+id/history_fragment"
+        android:name="com.moe.moetranslator.ui.history.HistoryFragment"
+        android:label="fragment_history"
+        tools:layout="@layout/fragment_history" />
+
+    <fragment
         android:id="@+id/me_fragment"
         android:name="com.moe.moetranslator.me.AboutMe"
         android:label="fragment_about_me"
