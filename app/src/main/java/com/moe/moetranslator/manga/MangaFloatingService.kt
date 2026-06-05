@@ -916,12 +916,36 @@ class MangaFloatingService : LifecycleService() {
             else -> "mlkit"
         }
 
-        // 循环切换
-        val newCombo = when (currentCombo) {
-            "mlkit" -> "ppocr"
-            "ppocr" -> "manga"
-            "manga" -> "mlkit"
-            else -> "mlkit"
+        // 循环切换，最多尝试3次找到可用模型
+        val combos = listOf("mlkit", "ppocr", "manga")
+        val startIndex = combos.indexOf(currentCombo).coerceAtLeast(0)
+        var newCombo: String
+        var attempts = 0
+
+        while (true) {
+            val nextIndex = (startIndex + 1 + attempts) % combos.size
+            newCombo = combos[nextIndex]
+            attempts++
+
+            // MLKit 和 PP-OCRv5 内置，始终可用
+            if (newCombo == "mlkit" || newCombo == "ppocr") break
+
+            // manga-ocr 需要检查模型是否已下载
+            if (newCombo == "manga") {
+                val rtdetrReady = RTDetrModelManager.isModelAvailable(this)
+                val mangaOcrReady = MangaOcrDownloadManager.getActiveVersion(this)?.let {
+                    MangaOcrDownloadManager.isVersionDownloaded(this, it)
+                } == true
+
+                if (rtdetrReady && mangaOcrReady) break
+
+                // manga-ocr 不可用，跳过继续循环
+                if (attempts >= combos.size) {
+                    // 所有模型都不可用（理论上不会发生，MLKit 始终可用）
+                    newCombo = "mlkit"
+                    break
+                }
+            }
         }
 
         // 释放所有旧引擎
@@ -945,24 +969,6 @@ class MangaFloatingService : LifecycleService() {
                 lifecycleScope.launch { initPPOcrV5() }
             }
             "manga" -> {
-                // 检查 RT-DETR-V2 和 manga-ocr 是否已下载
-                val rtdetrReady = RTDetrModelManager.isModelAvailable(this)
-                val mangaOcrReady = MangaOcrDownloadManager.getActiveVersion(this)?.let {
-                    MangaOcrDownloadManager.isVersionDownloaded(this, it)
-                } == true
-
-                if (!rtdetrReady || !mangaOcrReady) {
-                    val missing = mutableListOf<String>()
-                    if (!rtdetrReady) missing.add("RT-DETR-V2")
-                    if (!mangaOcrReady) missing.add("manga-ocr")
-                    showToast("请先下载: ${missing.joinToString(", ")}")
-                    // 回退到 MLKit
-                    config = config.copy(detEngine = DetEngine.MLKIT, ocrEngine = OcrEngine.MLKit)
-                    prefs.setInt("Manga_Det_Model", DetEngine.MLKIT.value)
-                    prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
-                    return
-                }
-
                 config = config.copy(detEngine = DetEngine.RT_DETR_V2, ocrEngine = OcrEngine.MangaOcr)
                 prefs.setInt("Manga_Det_Model", DetEngine.RT_DETR_V2.value)
                 prefs.setInt("Manga_Rec_Model", OcrEngine.MangaOcr.value)

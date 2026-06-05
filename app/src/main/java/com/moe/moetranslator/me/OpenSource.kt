@@ -62,7 +62,18 @@ class OpenSource : Fragment() {
             CustomCard(getText(R.string.proj_kc_title), getText(R.string.proj_kc_content))
         )
 
-        adapter = CardAdapter(announce)
+        val references = listOf(
+            CustomCard(getText(R.string.proj_moetranslate_title), getText(R.string.proj_moetranslate_content)),
+            CustomCard(getText(R.string.proj_rapidocr_title), getText(R.string.proj_rapidocr_content)),
+            CustomCard(getText(R.string.proj_ctdbubble_title), getText(R.string.proj_ctdbubble_content)),
+            CustomCard(getText(R.string.proj_rtdetr_title), getText(R.string.proj_rtdetr_content)),
+            CustomCard(getText(R.string.proj_mangaocr_title), getText(R.string.proj_mangaocr_content)),
+            CustomCard(getText(R.string.proj_mangaimagetran_title), getText(R.string.proj_mangaimagetran_content))
+        )
+
+        val allItems = announce + listOf(null) + references
+
+        adapter = CardAdapter(allItems)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
     }

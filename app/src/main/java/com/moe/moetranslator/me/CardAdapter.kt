@@ -25,10 +25,11 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.moe.moetranslator.R
 
-class CardAdapter(private val cards: List<CustomCard>) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+class CardAdapter(private val cards: List<CustomCard?>) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val COLLAPSED_VIEW_TYPE = 0
     private val EXPANDED_VIEW_TYPE = 1
+    private val DIVIDER_VIEW_TYPE = 2
 
     inner class CollapsedViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvTitle: TextView = view.findViewById(R.id.tvTitle)
@@ -40,18 +41,27 @@ class CardAdapter(private val cards: List<CustomCard>) : RecyclerView.Adapter<Re
         val expandedtitle: LinearLayout = view.findViewById(R.id.expanded_title)
     }
 
+    inner class DividerViewHolder(view: View) : RecyclerView.ViewHolder(view)
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        return if (viewType == COLLAPSED_VIEW_TYPE) {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_card_collapsed, parent, false)
-            CollapsedViewHolder(view)
-        } else {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_card_expanded, parent, false)
-            ExpandedViewHolder(view)
+        return when (viewType) {
+            COLLAPSED_VIEW_TYPE -> {
+                val view = LayoutInflater.from(parent.context).inflate(R.layout.item_card_collapsed, parent, false)
+                CollapsedViewHolder(view)
+            }
+            EXPANDED_VIEW_TYPE -> {
+                val view = LayoutInflater.from(parent.context).inflate(R.layout.item_card_expanded, parent, false)
+                ExpandedViewHolder(view)
+            }
+            else -> {
+                val view = LayoutInflater.from(parent.context).inflate(R.layout.item_divider, parent, false)
+                DividerViewHolder(view)
+            }
         }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        val card = cards[position]
+        val card = cards[position] ?: return
         if (holder is CollapsedViewHolder) {
             holder.tvTitle.text = card.title
             holder.itemView.setOnClickListener {
@@ -69,7 +79,8 @@ class CardAdapter(private val cards: List<CustomCard>) : RecyclerView.Adapter<Re
     }
 
     override fun getItemViewType(position: Int): Int {
-        return if (cards[position].isExpanded) EXPANDED_VIEW_TYPE else COLLAPSED_VIEW_TYPE
+        val card = cards[position] ?: return DIVIDER_VIEW_TYPE
+        return if (card.isExpanded) EXPANDED_VIEW_TYPE else COLLAPSED_VIEW_TYPE
     }
 
     override fun getItemCount() = cards.size
