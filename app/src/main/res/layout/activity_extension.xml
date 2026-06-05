@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="漫游翻译"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="32dp"
+        android:text="漫画 &amp; 游戏翻译扩展"
+        android:textColor="#666666"
+        android:textSize="16sp" />
+
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="4dp"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="漫画模式"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="气泡检测 · 竖排文字 · 覆盖替换"
+                android:textSize="14sp"
+                android:textColor="#888888"
+                android:layout_marginBottom="12dp" />
+            <Button
+                android:id="@+id/btn_manga_start"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="启动漫画翻译"
+                android:backgroundTint="#6200EE" />
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="4dp"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="游戏模式"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="对话框检测 · 字幕模式 · 自动翻译"
+                android:textSize="14sp"
+                android:textColor="#888888"
+                android:layout_marginBottom="12dp" />
+            <Button
+                android:id="@+id/btn_game_start"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="启动游戏翻译"
+                android:backgroundTint="#03DAC5" />
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <TextView
+        android:id="@+id/tv_permission_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="权限状态：未检查"
+        android:textSize="14sp"
+        android:layout_marginTop="16dp" />
+
+    <Button
+        android:id="@+id/btn_check_permissions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="检查权限"
+        android:layout_marginTop="8dp" />
+</LinearLayout>
