@@ -26,13 +26,65 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class UpdateChecker(private val context: Context) {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    companion object {
+        private const val TAG = "UpdateChecker"
+        private const val RELEASES_API = "https://api.github.com/repos/xujunjiex/MoeTranslate-comics/releases/latest"
+    }
 
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
-        // 暂时禁用自动更新检查
-        UpdateResult.NoUpdate
+        try {
+            val currentVersionCode = getCurrentVersion()
+            Log.d(TAG, "Current versionCode: $currentVersionCode")
+
+            val request = Request.Builder()
+                .url(RELEASES_API)
+                .header("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "GitHub API error: ${response.code}")
+                    return@withContext UpdateResult.Error
+                }
+
+                val body = response.body?.string() ?: return@withContext UpdateResult.Error
+                val json = JSONObject(body)
+
+                val tagName = json.getString("tag_name") // e.g. "v0.0.2"
+                val versionName = tagName.removePrefix("v") // e.g. "0.0.2"
+                val releaseNotes = json.optString("body", "")
+                val htmlUrl = json.optString("html_url", "")
+
+                // 从 tag 解析 versionCode（取最后一段数字，如 v0.0.2 → 2）
+                val remoteVersionCode = parseVersionCode(versionName)
+                Log.d(TAG, "Remote version: $versionName (code=$remoteVersionCode)")
+
+                if (remoteVersionCode > currentVersionCode) {
+                    UpdateResult.UpdateAvailable(
+                        versionCode = remoteVersionCode,
+                        versionName = versionName,
+                        versionDescription = releaseNotes,
+                        downloadUrl = htmlUrl
+                    )
+                } else {
+                    UpdateResult.NoUpdate
+                }
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error: ${e.message}")
+            UpdateResult.Error
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking update: ${e.message}")
+            UpdateResult.Error
+        }
     }
 
     private fun getCurrentVersion(): Long {
@@ -40,8 +92,24 @@ class UpdateChecker(private val context: Context) {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             packageInfo.longVersionCode
         } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-            Log.e("UpdateChecker", "Error getting current version: ${e.message}")
+            Log.e(TAG, "Error getting current version: ${e.message}")
+            0
+        }
+    }
+
+    /**
+     * 解析版本号为 versionCode
+     * "0.0.2" → 2, "1.3.15" → 10315
+     */
+    private fun parseVersionCode(versionName: String): Long {
+        return try {
+            val parts = versionName.split(".")
+            if (parts.size == 3) {
+                parts[0].toLong() * 10000 + parts[1].toLong() * 100 + parts[2].toLong()
+            } else {
+                parts.last().toLong()
+            }
+        } catch (e: Exception) {
             0
         }
     }
@@ -49,6 +117,11 @@ class UpdateChecker(private val context: Context) {
 
 sealed class UpdateResult {
     object NoUpdate : UpdateResult()
-    data class UpdateAvailable(val versionCode: Long, val versionName: String, val versionDescription: String) : UpdateResult()
+    data class UpdateAvailable(
+        val versionCode: Long,
+        val versionName: String,
+        val versionDescription: String,
+        val downloadUrl: String = ""
+    ) : UpdateResult()
     object Error : UpdateResult()
 }
