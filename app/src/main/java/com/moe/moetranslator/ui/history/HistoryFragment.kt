@@ -1,12 +1,16 @@
 package com.moe.moetranslator.ui.history
 
+import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -88,7 +92,7 @@ class HistoryFragment : Fragment() {
         binding.rvGameHistory.adapter = gameAdapter
 
         mangaAdapter = HistoryMangaAdapter(
-            onItemClick = { /* manga items have no text to copy */ },
+            onItemClick = { entry -> showFullImage(entry) },
             onItemLongClick = { entry -> showDeleteDialog(entry) }
         )
         // 漫画使用 2 列网格
@@ -187,6 +191,26 @@ class HistoryFragment : Fragment() {
             }
             .setNegativeButton(R.string.user_cancel, null)
             .show()
+    }
+
+    private fun showFullImage(entry: HistoryEntry) {
+        val path = entry.imagePath ?: entry.thumbnailPath
+        if (path.isNullOrEmpty() || !java.io.File(path).exists()) {
+            Toast.makeText(requireContext(), R.string.no_history, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val bitmap = BitmapFactory.decodeFile(path) ?: return
+
+        val dialog = Dialog(requireContext(), android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen)
+        val imageView = ImageView(requireContext()).apply {
+            setImageBitmap(bitmap)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF000000.toInt())
+            setOnClickListener { dialog.dismiss() }
+        }
+        dialog.setContentView(imageView)
+        dialog.show()
     }
 
     override fun onDestroyView() {
