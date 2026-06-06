@@ -568,8 +568,9 @@ class APIConfig : PreferenceFragmentCompat() {
 
         providerList.forEachIndexed { index, provider ->
             // Switch - 选择此厂商
+            val switchKey = "ui_openai_provider_select_$index"
             val switchPref = SwitchPreferenceCompat(requireContext()).apply {
-                key = "ui_openai_provider_select_$index"
+                key = switchKey
                 title = provider.name
                 summary = provider.modelName
                 isIconSpaceReserved = false
@@ -584,16 +585,26 @@ class APIConfig : PreferenceFragmentCompat() {
                         prefs.setInt("OpenAI_Selected_Provider", index)
                         prefs.setString("Source_Language", "ja")
                         prefs.setString("Target_Language", "zh")
-                        // 关闭其他厂商switch
+                        // 关闭所有其他OpenAI厂商switch
                         for (i in 0 until category.preferenceCount) {
                             val p = category.getPreference(i)
-                            if (p is SwitchPreferenceCompat && p.key != null && p.key!!.startsWith("ui_openai_provider_select_") && p.key != key) {
+                            if (p is SwitchPreferenceCompat && p.key != null && p.key!!.startsWith("ui_openai_provider_select_") && p.key != switchKey) {
                                 p.isChecked = false
                             }
                         }
                         // 关闭非OpenAI的switch
                         allTranslationKeys.forEach { k ->
                             findPreference<SwitchPreferenceCompat>(k)?.isChecked = false
+                        }
+                        // 关闭自定义API的switch
+                        val customCategory = findPreference<PreferenceCategory>("ui_custom_cloud_api_translation_text")
+                        customCategory?.let { cat ->
+                            for (i in 0 until cat.preferenceCount) {
+                                val p = cat.getPreference(i)
+                                if (p is SwitchPreferenceCompat && p.key != null && p.key!!.startsWith("ui_custom_api_")) {
+                                    p.isChecked = false
+                                }
+                            }
                         }
                         true
                     } else {
