@@ -272,13 +272,16 @@ class MangaFloatingService : LifecycleService() {
                 }
                 Constants.TextApi.BING.id -> translatorText = BingTranslation()
                 Constants.TextApi.NIUTRANS.id -> translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
-                Constants.TextApi.OPENAI.id -> translatorText = OpenAITranslation(
-                    apiKey = prefs.getString("OpenAI_Api_Key", ""),
-                    baseUrl = prefs.getString("OpenAI_Base_Url", ""),
-                    model = prefs.getString("OpenAI_Model_Name", ""),
-                    systemPrompt = prefs.getString("OpenAI_System_Prompt", defaultSystemPrompt),
-                    userPrompt = prefs.getString("OpenAI_User_Prompt", defaultUserPrompt)
-                )
+                Constants.TextApi.OPENAI.id -> {
+                    val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                    val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
+                    if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
+                        val provider = providerList[selectedIndex]
+                        translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = provider.systemPrompt, userPrompt = provider.userPrompt)
+                    } else {
+                        showToast("No OpenAI Provider Config Found.")
+                    }
+                }
                 Constants.TextApi.VOLC.id -> translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)
                 Constants.TextApi.AZURE.id -> translatorText = AzureTranslation(KeystoreManager.retrieveKey(this, "Azure")!!)
                 Constants.TextApi.DEEPL.id -> translatorText = DeepLTranslation(KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST")!!, KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY")!!)
