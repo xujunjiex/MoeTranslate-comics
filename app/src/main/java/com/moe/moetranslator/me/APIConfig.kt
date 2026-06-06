@@ -18,6 +18,7 @@
 package com.moe.moetranslator.me
 
 import android.app.ActivityManager
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -546,6 +547,16 @@ class APIConfig : PreferenceFragmentCompat() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 从编辑页面返回时刷新厂商列表
+        if (::prefs.isInitialized) {
+            setupOpenAIProviderList(prefs)
+            setupDynamicCustomApiList(prefs, true)
+            setupDynamicCustomApiList(prefs, false)
+        }
+    }
+
     private fun setupOpenAIProviderList(prefs: CustomPreference) {
         val category = findPreference<PreferenceCategory>("ui_openai_providers") ?: return
         category.removeAll()
@@ -555,62 +566,72 @@ class APIConfig : PreferenceFragmentCompat() {
         val isOpenAISelected = prefs.getInt("Text_API", 0) == Constants.TextApi.OPENAI.id
 
         providerList.forEachIndexed { index, provider ->
-            // 管理按钮（显示厂商名称，点击进入编辑）
-            val managePref = Preference(requireContext()).apply {
-                key = "ui_openai_provider_manage_$index"
-                title = provider.name
-                summary = getString(R.string.custom_api_manage)
+            val isSelected = isOpenAISelected && selectedProvider == index
+            val pref = Preference(requireContext()).apply {
+                key = "ui_openai_provider_$index"
+                title = if (isSelected) "✓ ${provider.name}" else provider.name
+                summary = provider.modelName
                 isIconSpaceReserved = false
                 setOnPreferenceClickListener {
-                    val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                        putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
-                        putExtra(ManageActivity.EXTRA_CUSTOM_CODE, index)
-                        putExtra(ManageActivity.EXTRA_IS_NEW, false)
-                    }
-                    startActivity(intent)
+                    // 弹出选择对话框
+                    val options = arrayOf(
+                        getString(R.string.select_provider),
+                        getString(R.string.edit_provider),
+                        getString(R.string.custom_api_delete)
+                    )
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(provider.name)
+                        .setItems(options) { _, which ->
+                            when (which) {
+                                0 -> { // 选择
+                                    if (isAnyTranslationServiceRunning()) {
+                                        Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
+                                        return@setItems
+                                    }
+                                    prefs.setInt("Text_API", Constants.TextApi.OPENAI.id)
+                                    prefs.setInt("OpenAI_Selected_Provider", index)
+                                    prefs.setString("Source_Language", "ja")
+                                    prefs.setString("Target_Language", "zh")
+                                    setupOpenAIProviderList(prefs)
+                                    allTranslationKeys.forEach { k ->
+                                        findPreference<SwitchPreferenceCompat>(k)?.isChecked = false
+                                    }
+                                }
+                                1 -> { // 编辑
+                                    val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                                        putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
+                                        putExtra(ManageActivity.EXTRA_CUSTOM_CODE, index)
+                                        putExtra(ManageActivity.EXTRA_IS_NEW, false)
+                                    }
+                                    startActivity(intent)
+                                }
+                                2 -> { // 删除
+                                    AlertDialog.Builder(requireContext())
+                                        .setTitle(R.string.custom_api_delete)
+                                        .setMessage(R.string.custom_api_delete_confirm)
+                                        .setPositiveButton(R.string.user_known) { _, _ ->
+                                            ConfigurationStorage.deleteOpenAIProvider(prefs, index)
+                                            val currentIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
+                                            if (currentIndex == index) {
+                                                prefs.setInt("OpenAI_Selected_Provider", 0)
+                                            } else if (currentIndex > index) {
+                                                prefs.setInt("OpenAI_Selected_Provider", currentIndex - 1)
+                                            }
+                                            setupOpenAIProviderList(prefs)
+                                        }
+                                        .setNegativeButton(R.string.user_cancel, null)
+                                        .show()
+                                }
+                            }
+                        }
+                        .show()
                     true
                 }
             }
-            category.addPreference(managePref)
-
-            // 选择Switch
-            val selectPref = SwitchPreferenceCompat(requireContext()).apply {
-                key = "ui_openai_provider_select_$index"
-                title = provider.name
-                isIconSpaceReserved = false
-                isChecked = isOpenAISelected && selectedProvider == index
-                setOnPreferenceChangeListener { _, newValue ->
-                    if (newValue as Boolean) {
-                        if (isAnyTranslationServiceRunning()) {
-                            Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
-                            return@setOnPreferenceChangeListener false
-                        }
-                        prefs.setInt("Text_API", Constants.TextApi.OPENAI.id)
-                        prefs.setInt("OpenAI_Selected_Provider", index)
-                        prefs.setString("Source_Language", "ja")
-                        prefs.setString("Target_Language", "zh")
-                        // 关闭其他厂商select
-                        for (i in 0 until category.preferenceCount) {
-                            val p = category.getPreference(i)
-                            if (p is SwitchPreferenceCompat && p.key != null && p.key!!.startsWith("ui_openai_provider_select_") && p.key != key) {
-                                p.isChecked = false
-                            }
-                        }
-                        // 关闭非OpenAI的switch
-                        allTranslationKeys.filter { it != "ui_openai_translation_text" }.forEach { k ->
-                            findPreference<SwitchPreferenceCompat>(k)?.isChecked = false
-                        }
-                        true
-                    } else {
-                        Toast.makeText(requireContext(), getString(R.string.no_less_one), Toast.LENGTH_LONG).show()
-                        false
-                    }
-                }
-            }
-            category.addPreference(selectPref)
+            category.addPreference(pref)
         }
 
-        // 添加"添加新厂商"按钮
+        // 添加新厂商按钮
         if (providerList.size < ConfigurationStorage.MAX_CUSTOM_API_COUNT) {
             val addPref = Preference(requireContext()).apply {
                 key = "ui_openai_provider_add"

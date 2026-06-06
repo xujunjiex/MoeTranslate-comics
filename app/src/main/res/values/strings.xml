@@ -95,6 +95,8 @@
     <string name="custom_api_name_blank">Please enter API name</string>
     <string name="custom_api_max_reached">Maximum %d custom APIs supported</string>
     <string name="custom_api_list_empty">No custom APIs yet, please add one first</string>
+    <string name="select_provider">Select this provider</string>
+    <string name="edit_provider">Edit configuration</string>
     <string name="no_less_one">Please select an option</string>
     <string name="small_ram_title">RAM is less than 6GB</string>
     <string name="small_ram_content">It looks like you have selected NLLB as the translation API, but it seems that your device has less than 6GB of RAM, which may cause problems when inferring the model. Please rest assured that the program will not prevent you from using the model, but there is no guarantee that there will be no accidents when the RAM is less than 6GB.</string>
