@@ -522,28 +522,33 @@ object ConfigurationStorage {
     }
 
     fun migrateOldOpenAIConfig(prefs: CustomPreference) {
-        if (prefs.getString("OpenAI_Providers", "").isNotEmpty()) return
+        // 如果已经有新格式的配置，不迁移
+        val existing = prefs.getString("OpenAI_Providers", "")
+        if (existing.isNotEmpty() && existing != "[]") return
+
         val oldApiKey = prefs.getString("OpenAI_Api_Key", "")
         val oldBaseUrl = prefs.getString("OpenAI_Base_Url", "")
         val oldModel = prefs.getString("OpenAI_Model_Name", "")
         val oldSystem = prefs.getString("OpenAI_System_Prompt", "")
         val oldUser = prefs.getString("OpenAI_User_Prompt", "")
-        if (oldApiKey.isNotEmpty() || oldBaseUrl.isNotEmpty() || oldModel.isNotEmpty()) {
+
+        // 只有当关键字段都非空时才迁移
+        if (oldApiKey.isNotEmpty() && oldBaseUrl.isNotEmpty() && oldModel.isNotEmpty()) {
             val migrated = OpenAIProviderConfig(
                 name = "默认厂商",
                 apiKey = oldApiKey,
                 baseUrl = oldBaseUrl,
                 modelName = oldModel,
-                systemPrompt = oldSystem,
-                userPrompt = oldUser
+                systemPrompt = oldSystem.ifEmpty { "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。" },
+                userPrompt = oldUser.ifEmpty { "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext" }
             )
             saveOpenAIProviders(prefs, listOf(migrated))
+            // 迁移成功后清除旧key
+            prefs.setString("OpenAI_Api_Key", "")
+            prefs.setString("OpenAI_Base_Url", "")
+            prefs.setString("OpenAI_Model_Name", "")
+            prefs.setString("OpenAI_System_Prompt", "")
+            prefs.setString("OpenAI_User_Prompt", "")
         }
-        // 清除旧key
-        prefs.setString("OpenAI_Api_Key", "")
-        prefs.setString("OpenAI_Base_Url", "")
-        prefs.setString("OpenAI_Model_Name", "")
-        prefs.setString("OpenAI_System_Prompt", "")
-        prefs.setString("OpenAI_User_Prompt", "")
     }
 }
