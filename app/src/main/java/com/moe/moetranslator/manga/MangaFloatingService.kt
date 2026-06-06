@@ -1161,7 +1161,7 @@ class MangaFloatingService : LifecycleService() {
     private fun runAutoDetect() {
         if (!isAutoTranslating) return
         if (isResultShowing || isMenuShowing) {
-            scheduleNextDetection(prefs.getLong("Auto_Translate_Interval", 3000L))
+            scheduleNextDetection(1000L)
             return
         }
         if (isProcessing) {
@@ -1202,7 +1202,7 @@ class MangaFloatingService : LifecycleService() {
                     // 画面没变或回到了已翻译的页面，跳过
                     LogCollector.d(TAG, "AutoDetect[IDLE]: simToTranslated=$simToTranslated → skip")
                     previousScreenshotHash = currentHash
-                    scheduleNextDetection(prefs.getLong("Auto_Translate_Interval", 3000L))
+                    scheduleNextDetection(1000L)
                     return false
                 } else {
                     // 画面变了，进入 MOTION 等待稳定
@@ -1251,7 +1251,7 @@ class MangaFloatingService : LifecycleService() {
             DetectState.STABLE -> {
                 // 不应该停留在此状态，回到 IDLE
                 detectState = DetectState.IDLE
-                scheduleNextDetection(prefs.getLong("Auto_Translate_Interval", 3000L))
+                scheduleNextDetection(1000L)
                 return false
             }
         }
@@ -1268,7 +1268,7 @@ class MangaFloatingService : LifecycleService() {
             // 与已翻译页面相同，跳过
             LogCollector.d(TAG, "onMotionStabilized: same as translated page → skip")
             detectState = DetectState.IDLE
-            scheduleNextDetection(prefs.getLong("Auto_Translate_Interval", 3000L))
+            scheduleNextDetection(1000L)
             return false
         }
 
@@ -2249,13 +2249,12 @@ class MangaFloatingService : LifecycleService() {
             }
             isResultShowing = false
 
-            // 重置自动翻译：清除区域缓存，延迟后重新检测
+            // 重置自动翻译：清除区域缓存，立刻恢复检测
             if (isAutoTranslating) {
                 clearRegionCache()
                 detectState = DetectState.IDLE
                 stableCount = 0
-                val delay = prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L)
-                scheduleNextDetection(delay)
+                scheduleNextDetection(0L)
             }
         }
     }
@@ -2383,13 +2382,12 @@ class MangaFloatingService : LifecycleService() {
             cacheOverlayContainer = null
             isResultShowing = false
 
-            // 重置自动翻译：清除区域缓存，延迟后重新检测
+            // 重置自动翻译：清除区域缓存，立刻恢复检测
             if (isAutoTranslating) {
                 clearRegionCache()
                 detectState = DetectState.IDLE
                 stableCount = 0
-                val delay = prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L)
-                scheduleNextDetection(delay)
+                scheduleNextDetection(0L)
             }
         }
     }

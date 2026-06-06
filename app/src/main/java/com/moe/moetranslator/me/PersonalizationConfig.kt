@@ -55,11 +55,9 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var resultFont: Preference
     private lateinit var resultFontSize: Preference
     private lateinit var ocrMergeMode: ListPreference
-    private lateinit var autoInterval: Preference
     private lateinit var showSource: ListPreference
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
-    private lateinit var dismissDelay: Preference
     private lateinit var strLength: Preference
     private lateinit var strSimilarity: Preference
 
@@ -74,7 +72,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         resultFont = findPreference<Preference>("result_font")!!
         resultFontSize = findPreference<Preference>("result_font_size")!!
         ocrMergeMode = findPreference<ListPreference>("ocr_merge_mode")!!
-        autoInterval = findPreference<Preference>("auto_translate_interval")!!
         showSource = findPreference<ListPreference>("show_source_text")!!
         languagePreference = findPreference<ListPreference>("app_language")!!
 
@@ -167,7 +164,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         // 漫画翻译结果颜色
         mangaTextColor = findPreference("manga_text_color")!!
         mangaBgColor = findPreference("manga_bg_color")!!
-        dismissDelay = findPreference("auto_translate_dismiss_delay")!!
 
         mangaTextColor.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Manga_Text_Color", newValue as Int)
@@ -176,11 +172,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
         mangaBgColor.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Manga_BG_Color", newValue as Int)
-            true
-        }
-
-        dismissDelay.setOnPreferenceClickListener {
-            showDismissDelayDialog()
             true
         }
 
@@ -198,12 +189,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 自动翻译时间间隔
-        autoInterval.setOnPreferenceClickListener {
-            showIntervalDialog()
-            true
-        }
-
         // 提示文本
         findPreference<SwitchPreference>("adjust_tip")?.setOnPreferenceChangeListener { preference, newValue ->
             prefs.setBoolean("Custom_Adjust_Not_Text", newValue as Boolean)
@@ -213,10 +198,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         ballIcon.refreshPreview()
         updateIconSummary()
         updatePressSummary()
-        updateIntervalSummary()
         updateFontSummary()
         updateFontSizeSummary()
-        updateDismissDelaySummary()
         updateStrLengthSummary()
         updateStrSimilaritySummary()
         setupLanguagePreference()
@@ -292,10 +275,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         ballPress.summary = getString(R.string.floating_ball_press_summary, prefs.getLong("Custom_Long_Press_Delay", 500L).toString())
     }
 
-    private fun updateIntervalSummary() {
-        autoInterval.summary = getString(R.string.auto_translate_interval_summary, prefs.getLong("Auto_Translate_Interval", 3000L).toString())
-    }
-
     private fun updateFontSummary() {
         val base = if (prefs.getString("Custom_Result_Font", "") == "") {
             getString(R.string.font_summary, getString(R.string.font_default))
@@ -309,44 +288,12 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         resultFontSize.summary = getString(R.string.font_size_summary, prefs.getFloat("Custom_Result_Font_Size", 16f).toString())
     }
 
-    private fun updateDismissDelaySummary() {
-        dismissDelay.summary = getString(R.string.auto_translate_dismiss_delay_summary, prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L).toString())
-    }
-
     private fun updateStrLengthSummary() {
         strLength.summary = getString(R.string.auto_translate_str_length_summary, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
     }
 
     private fun updateStrSimilaritySummary() {
         strSimilarity.summary = getString(R.string.auto_translate_str_similarity_summary, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
-    }
-
-    private fun showDismissDelayDialog() {
-        val customView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_message_edittext, null)
-        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = getString(R.string.int_only)
-        }
-        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            hint = getString(R.string.current_dismiss_delay, prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L).toString())
-        }
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.set_dismiss_delay)
-            .setView(customView)
-            .setPositiveButton(R.string.save) { _, _ ->
-                try {
-                    val value = input.text.toString().toLong()
-                    prefs.setLong("Auto_Translate_Dismiss_Delay", value)
-                    updateDismissDelaySummary()
-                } catch (e: Exception) {
-                    showToast(getString(R.string.font_size_invalid), true)
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun showStrLengthDialog() {
@@ -455,34 +402,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
                     val value = input.text.toString().toLong()
                     prefs.setLong("Custom_Long_Press_Delay", value)
                     updatePressSummary()
-                } catch (e: Exception) {
-                    showToast(getString(R.string.font_size_invalid), true)
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
-
-    private fun showIntervalDialog() {
-        val customView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_message_edittext, null)
-        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = getString(R.string.int_only)
-        }
-        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            hint = getString(R.string.currtent_interval, prefs.getLong("Auto_Translate_Interval", 3000L).toString())
-        }
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.set_auto_translate_interval)
-            .setView(customView)
-            .setPositiveButton(R.string.save) { _, _ ->
-                try {
-                    val value = input.text.toString().toLong()
-                    prefs.setLong("Auto_Translate_Interval", value)
-                    updateIntervalSummary()
                 } catch (e: Exception) {
                     showToast(getString(R.string.font_size_invalid), true)
                 }

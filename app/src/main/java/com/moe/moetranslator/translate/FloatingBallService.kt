@@ -172,7 +172,7 @@ class FloatingBallService : LifecycleService() {
             if (isAutoTranslating && currentBallStatus == BallStatus.Normal) {
                 performAutoTranslate()
                 // 再次执行
-                autoTranslateHandler.postDelayed(this, prefs.getLong("Auto_Translate_Interval", 3000L))
+                autoTranslateHandler.postDelayed(this, 1000L)
             }
         }
     }
