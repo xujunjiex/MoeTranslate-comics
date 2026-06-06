@@ -104,7 +104,6 @@ class APIConfig : PreferenceFragmentCompat() {
             }
 
             // 动态OpenAI兼容API厂商列表
-            ConfigurationStorage.migrateOldOpenAIConfig(prefs)
             setupOpenAIProviderList(prefs)
 
             findPreference<Preference>("ui_manage_volc_api_text")?.setOnPreferenceClickListener {

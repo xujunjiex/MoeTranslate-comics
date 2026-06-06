@@ -211,21 +211,9 @@ class FloatingBallService : LifecycleService() {
                         val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                         if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                             val provider = providerList[selectedIndex]
-                            if (provider.apiKey.isNotEmpty() && provider.baseUrl.isNotEmpty() && provider.modelName.isNotEmpty()) {
-                                translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = provider.systemPrompt, userPrompt = provider.userPrompt)
-                            } else {
-                                showToast("OpenAI Provider config incomplete, please reconfigure.")
-                            }
+                            translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = provider.systemPrompt, userPrompt = provider.userPrompt)
                         } else {
-                            // 回退到旧配置key
-                            val oldKey = prefs.getString("OpenAI_Api_Key", "")
-                            val oldUrl = prefs.getString("OpenAI_Base_Url", "")
-                            val oldModel = prefs.getString("OpenAI_Model_Name", "")
-                            if (oldKey.isNotEmpty() && oldUrl.isNotEmpty() && oldModel.isNotEmpty()) {
-                                translatorText = OpenAITranslation(apiKey = oldKey, baseUrl = oldUrl, model = oldModel, systemPrompt = prefs.getString("OpenAI_System_Prompt", defaultSystemPrompt), userPrompt = prefs.getString("OpenAI_User_Prompt", defaultUserPrompt))
-                            } else {
-                                showToast("No OpenAI Provider Config Found.")
-                            }
+                            showToast("No OpenAI Provider Config Found.")
                         }
                     }
                     Constants.TextApi.VOLC.id -> translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)

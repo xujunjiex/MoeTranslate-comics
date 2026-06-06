@@ -252,6 +252,15 @@
             android:layout_marginTop="8dp"
             android:text="@string/save_configuration" />
 
+        <!-- 测试按钮 -->
+        <Button
+            android:id="@+id/btnTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/test_provider"
+            style="?attr/materialButtonOutlinedStyle" />
+
         <!-- 删除按钮 -->
         <Button
             android:id="@+id/btnDelete"

@@ -31,6 +31,8 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentOpenaiApiBinding
 import com.moe.moetranslator.utils.CustomPreference
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class OpenAIText :Fragment() {
     private lateinit var binding: FragmentOpenaiApiBinding
@@ -88,6 +90,7 @@ class OpenAIText :Fragment() {
         binding.introduce.setOnClickListener{ showIntroduce() }
         binding.btnSave.setOnClickListener { saveConfiguration() }
         binding.btnDelete.setOnClickListener { deleteConfiguration() }
+        binding.btnTest.setOnClickListener { testConnection() }
         if (isNew) {
             binding.btnDelete.visibility = View.GONE
         }
@@ -160,6 +163,102 @@ class OpenAIText :Fragment() {
         } catch (e: Exception) {
             showToast("Error loading configuration: ${e.message}")
         }
+    }
+
+    private fun testConnection() {
+        val apiKey = binding.editApiKey.text.toString().trim()
+        val baseUrl = binding.editBaseUrl.text.toString().trim()
+        val modelName = binding.editModelName.text.toString().trim()
+
+        if (apiKey.isBlank() || baseUrl.isBlank() || modelName.isBlank()) {
+            showToast(getString(R.string.fill_blank))
+            return
+        }
+
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.test_provider)
+            .setMessage(R.string.testing_connection)
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        Thread {
+            try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val jsonBody = org.json.JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("role", "user")
+                            put("content", "Hi")
+                        })
+                    })
+                    put("max_tokens", 10)
+                }
+
+                val normalizedUrl = if (baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) {
+                    baseUrl
+                } else {
+                    "https://$baseUrl"
+                }
+
+                val url = if (normalizedUrl.endsWith("/")) {
+                    "${normalizedUrl}chat/completions"
+                } else {
+                    "$normalizedUrl/chat/completions"
+                }
+
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .addHeader("Content-Type", "application/json")
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string() ?: "Empty response"
+                    activity?.runOnUiThread {
+                        progressDialog.dismiss()
+                        if (response.isSuccessful) {
+                            // 解析返回的翻译内容
+                            val result = try {
+                                val jsonObj = org.json.JSONObject(body)
+                                jsonObj.getJSONArray("choices")
+                                    .getJSONObject(0)
+                                    .getJSONObject("message")
+                                    .getString("content")
+                            } catch (e: Exception) {
+                                body
+                            }
+                            AlertDialog.Builder(requireContext())
+                                .setTitle(R.string.test_success)
+                                .setMessage(result)
+                                .setPositiveButton(R.string.user_known, null)
+                                .show()
+                        } else {
+                            AlertDialog.Builder(requireContext())
+                                .setTitle(R.string.test_failed)
+                                .setMessage("HTTP ${response.code}\n$body")
+                                .setPositiveButton(R.string.user_known, null)
+                                .show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                activity?.runOnUiThread {
+                    progressDialog.dismiss()
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.test_failed)
+                        .setMessage(e.message ?: "Unknown error")
+                        .setPositiveButton(R.string.user_known, null)
+                        .show()
+                }
+            }
+        }.start()
     }
 
     private fun deleteConfiguration() {

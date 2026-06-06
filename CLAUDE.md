@@ -27,6 +27,15 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 # 清理构建
 ./gradlew clean assembleDebug
+
+# 实时查看应用日志
+adb logcat --pid=$(adb shell pidof com.moe.moetranslator)
+
+# 指定设备安装（多设备时）
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
+
+# 查看连接设备
+adb devices
 ```
 
 环境要求：JDK 17、Android SDK（compileSdk 35）、NDK 25.2.9519653、CMake 3.22.1。
@@ -41,6 +50,8 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 - `me/` — 设置和 API 配置界面
 - `launch/` — 首次启动引导
 - `utils/` — 工具类、`Constants` 枚举定义、`UpdateChecker`（检查更新）
+- `data/` — Room 数据库、`TranslationCacheManager`、`HistoryEntity`/`PageCacheEntity`
+- `ui/history/` — 历史记录 UI：`HistoryFragment`、`HistoryGameAdapter`、`HistoryMangaAdapter`
 
 **翻译 API 实现** (`app/src/main/java/translationapi/`):
 每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`mlkittranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`
@@ -129,13 +140,36 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 - 全屏和调试模式不能用 `MATCH_PARENT`，用 `resources.displayMetrics.widthPixels/heightPixels` 获取真实尺寸
 - 配合 `FIT_XY` + `FLAG_LAYOUT_NO_LIMITS`
 
+## 自动翻译
+
+**状态机（`MangaFloatingService`）：**
+```
+IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次sim≥0.95──→ STABLE（翻译）→ IDLE
+```
+- IDLE：比较 `currentHash vs lastTranslatedHash`，相同则跳过
+- MOTION：比较连续两次截图 hash，用户停翻后 ~1s 内稳定
+- 手动翻译标志 `isManualTranslating`：自动翻译中点击悬浮球 → 跳过 pHash 门控，强制翻译
+
+**关键变量：**
+- `lastTranslatedHash` — 上次翻译页的哈希（IDLE 判断是否需翻译）
+- `previousScreenshotHash` — 上一次截图哈希（MOTION 判断页面是否稳定）
+- `translatedRegions` — 区域级翻译缓存（IoU ≥ 0.4 判重，TTL 5 分钟）
+
+## 缓存与历史
+
+`TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
+- 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.92）
+- 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
+- Room 数据库 `translation_history.db`，version 2，`fallbackToDestructiveMigration`
+- 历史 UI：`ui/history/HistoryFragment`，游戏列表 + 漫画网格
+
 ## 日志规范
 
 **所有日志必须通过 `LogCollector` 写入**，不能直接用 `Log.d/i/e`。
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer
+tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager
 ```
 
 ## 关键约束
