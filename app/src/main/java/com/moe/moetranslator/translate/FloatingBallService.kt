@@ -179,9 +179,6 @@ class FloatingBallService : LifecycleService() {
 
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
-    private var forceRefresh = false
-    private var currentPHash = 0L
-    private var lastCacheHit = false
 
     override fun onCreate() {
         super.onCreate()
@@ -445,13 +442,12 @@ class FloatingBallService : LifecycleService() {
 
     private fun showLongPressMenu() {
         val ocrLabel = getOcrEngineLabel()
-        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, lastCacheHit, ocrLabel)
+        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, ocrLabel)
 
         // 动态计算菜单索引
         var idx = 4  // 前 4 项固定：框选、位置、移除、字体
         val ocrIdx = idx++                  // OCR 模型
         val historyIdx = idx++              // 历史
-        val refreshIdx = if (lastCacheHit) idx++ else -1  // 重新翻译
         val autoIdx = idx++                 // 自动翻译
         val closeIdx = idx++                // 关闭
         val backIdx = idx++                 // 返回
@@ -501,13 +497,6 @@ class FloatingBallService : LifecycleService() {
                     }
                     historyIdx -> {
                         showTranslationHistoryDialog()
-                        dialog.dismiss()
-                    }
-                    refreshIdx -> {
-                        forceRefresh = true
-                        if (AccessibilityServiceManager.getService() != null) {
-                            AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
-                        }
                         dialog.dismiss()
                     }
                     autoIdx -> {
@@ -796,24 +785,6 @@ class FloatingBallService : LifecycleService() {
     private suspend fun processScreenshot(bitmap: Bitmap) {
         Log.d("SCREENSHOT", "processScreenShot")
         try{
-            // 缓存查找
-            currentPHash = PerceptualHash.compute(bitmap)
-            if (!forceRefresh) {
-                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_GAME)
-                if (cached != null && cached.translatedText != null) {
-                    LogCollector.d("FloatingBallService", "缓存命中, historyId=${cached.historyId}")
-                    lastCacheHit = true
-                    withContext(Dispatchers.Main) {
-                        floatingTextView.text = "⚡ " + cached.translatedText
-                    }
-                    isTranslating.set(false)
-                    return
-                }
-            } else {
-                forceRefresh = false
-            }
-            lastCacheHit = false
-
             if(prefs.getInt("Translate_Mode", 0) == 0){
                 // OCR后文本翻译
                 val txt = performOcr(bitmap)
@@ -986,7 +957,7 @@ class FloatingBallService : LifecycleService() {
                     sourceLang = prefs.getString("Source_Language", "ja"),
                     targetLang = prefs.getString("Target_Language", "zh"),
                     translatorName = translatorName,
-                    pHash = currentPHash
+                    pHash = 0L
                 ))
             } catch (e: Exception) {
                 LogCollector.e("FloatingBallService", "保存缓存失败", e)

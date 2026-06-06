@@ -393,11 +393,11 @@
     <string name="auto_translate_str_similarity">相似度阈值</string>
     <string name="currtent_interval">当前时间间隔：%s ms</string>
     <string name="set_auto_translate_interval">设置自动翻译的时间间隔</string>
-    <string name="auto_translate_interval_summary">当前时间间隔：%s ms\n开启自动翻译时，每次进行自动翻译判定的时间间隔</string>
+    <string name="auto_translate_interval_summary">当前时间间隔：%s ms\n（漫画翻译专用）自动翻译模式下，页面无变化时的轮询检测间隔</string>
     <string name="current_str_length">当前字长阈值：%s</string>
     <string name="set_str_length">设置字长阈值</string>
-    <string name="auto_translate_str_length_summary">当前字长阈值：%s\n（仅对OCR模式生效）每次进行自动翻译判定时，OCR结果小于该字长的字符串将不会进行相似度判断，而是直接进行翻译流程</string>
-    <string name="auto_translate_str_similarity_summary">当前相似度阈值：%s\n（仅对OCR模式生效）每次进行自动翻译判定时，会对比本次OCR结果与上次OCR结果的相似度，小于该相似度的字符串将会进行翻译流程，大于则视为与上一次OCR结果相同，不会进行翻译流程</string>
+    <string name="auto_translate_str_length_summary">当前字长阈值：%s\n（游戏翻译专用）OCR结果字数小于该值时，跳过相似度判断直接翻译</string>
+    <string name="auto_translate_str_similarity_summary">当前相似度阈值：%s\n（游戏翻译专用）对比本次与上次OCR结果的相似度，超过该值视为相同内容，跳过翻译</string>
     <string name="str_similarity_tips">两个字符串之间的相似度使用 Levenshtein 距离计算，请输入0至1之间的小数</string>
     <string name="current_str_similarity">当前相似度阈值：%s</string>
     <string name="set_str_similarity">设置相似度阈值</string>

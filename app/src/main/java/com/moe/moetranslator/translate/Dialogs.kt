@@ -46,7 +46,7 @@ data class DialogResult(
 
 object Dialogs {
     @SuppressLint("MissingInflatedId")
-    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, lastCacheHit: Boolean = false, ocrEngineLabel: String = ""): DialogResult {
+    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, ocrEngineLabel: String = ""): DialogResult {
         // 动态构建菜单项
         val strItems = mutableListOf<String>()
         val imgItems = mutableListOf<Int>()
@@ -71,11 +71,6 @@ object Dialogs {
         // 5: 翻译历史
         strItems.add(ctx.getString(R.string.game_translation_history))
         imgItems.add(R.drawable.ic_history)
-        // 6: 重新翻译（缓存命中时）
-        if (lastCacheHit) {
-            strItems.add(ctx.getString(R.string.game_refresh_translation))
-            imgItems.add(R.drawable.ic_refresh)
-        }
         // 自动翻译
         if (isAutoTranslating) {
             strItems.add(ctx.getString(R.string.game_stop_auto))

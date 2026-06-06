@@ -393,11 +393,11 @@
     <string name="auto_translate_str_similarity">Similarity threshold</string>
     <string name="currtent_interval">Current time interval：%s ms</string>
     <string name="set_auto_translate_interval">Set the time interval for automatic translation</string>
-    <string name="auto_translate_interval_summary">Current time interval: %s ms\nWhen automatic translation is turned on, the time interval between each automatic translation judgment</string>
+    <string name="auto_translate_interval_summary">Current time interval: %s ms\n(Manga translation only) Polling interval when page is unchanged in auto-translate mode</string>
     <string name="current_str_length">Current word length threshold：%s</string>
     <string name="set_str_length">Set the word length threshold</string>
-    <string name="auto_translate_str_length_summary">Current word length threshold: %s\n(only available in OCR mode) Each time an automatic translation decision is performed, the similarity judgment will not be performed on strings with OCR results less than the length of the word, and the translation process will proceed directly</string>
-    <string name="auto_translate_str_similarity_summary">Current similarity threshold: %s\n(only available in OCR mode) Each time the automatic translation decision is made, the similarity between the current OCR result and the previous OCR result is compared, and the string with less than the similarity will be translated, and if it is greater than the previous OCR result, it will be considered the same as the previous OCR result and will not be translated</string>
+    <string name="auto_translate_str_length_summary">Current word length threshold: %s\n(Game translation only) Skip similarity check and translate directly when OCR text length is below this value</string>
+    <string name="auto_translate_str_similarity_summary">Current similarity threshold: %s\n(Game translation only) Compare current vs previous OCR result; skip translation if similarity exceeds this value</string>
     <string name="str_similarity_tips">The similarity between the two strings is calculated using the Levenshtein distance, enter a decimal between 0 and 1</string>
     <string name="current_str_similarity">Current similarity threshold：%s</string>
     <string name="set_str_similarity">Set similarity threshold</string>

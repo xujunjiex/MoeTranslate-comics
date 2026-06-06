@@ -38,7 +38,6 @@ import com.moe.moetranslator.translate.CustomLocale
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
-import com.moe.moetranslator.manga.OcrEngine
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LanguageManager
 import java.io.File
@@ -61,9 +60,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
     private lateinit var dismissDelay: Preference
-    private lateinit var mangaDetModel: ListPreference
-    private lateinit var mangaRecModel: ListPreference
-    private lateinit var mangaRecModelVersion: ListPreference
+    private lateinit var strLength: Preference
+    private lateinit var strSimilarity: Preference
 
     private lateinit var languagePreference: ListPreference
 
@@ -186,38 +184,19 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 漫画翻译模型设置
-        mangaDetModel = findPreference("manga_det_model")!!
-        mangaRecModel = findPreference("manga_rec_model")!!
-
-        mangaDetModel.setOnPreferenceChangeListener { _, newValue ->
-            prefs.setInt("Manga_Det_Model", newValue.toString().toInt())
+        // 字长阈值
+        strLength = findPreference("auto_translate_str_length")!!
+        strLength.setOnPreferenceClickListener {
+            showStrLengthDialog()
             true
         }
 
-        mangaRecModel.setOnPreferenceChangeListener { _, newValue ->
-            prefs.setInt("Manga_Rec_Model", newValue.toString().toInt())
-            val isMangaOcr = newValue.toString().toInt() == OcrEngine.MangaOcr.value
-            mangaRecModelVersion.isEnabled = isMangaOcr
+        // 相似度阈值
+        strSimilarity = findPreference("auto_translate_str_similarity")!!
+        strSimilarity.setOnPreferenceClickListener {
+            showStrSimilarityDialog()
             true
         }
-        mangaRecModel.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
-            getString(R.string.manga_rec_model_summary, mangaRecModel.entry)
-        }
-
-        mangaRecModelVersion = findPreference("manga_rec_model_version")!!
-
-        mangaRecModelVersion.setOnPreferenceChangeListener { _, newValue ->
-            prefs.setString("Manga_Rec_Model_Version", newValue as String)
-            true
-        }
-        mangaRecModelVersion.summaryProvider = Preference.SummaryProvider<ListPreference> { pref ->
-            pref.entry ?: "完整版"
-        }
-
-        // Initially disable if manga-ocr not selected
-        val recModelValue = prefs.getInt("Manga_Rec_Model", 0)
-        mangaRecModelVersion.isEnabled = recModelValue == OcrEngine.MangaOcr.value
 
         // 自动翻译时间间隔
         autoInterval.setOnPreferenceClickListener {
@@ -238,6 +217,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         updateFontSummary()
         updateFontSizeSummary()
         updateDismissDelaySummary()
+        updateStrLengthSummary()
+        updateStrSimilaritySummary()
         setupLanguagePreference()
     }
 
@@ -332,6 +313,14 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         dismissDelay.summary = getString(R.string.auto_translate_dismiss_delay_summary, prefs.getLong("Auto_Translate_Dismiss_Delay", 1000L).toString())
     }
 
+    private fun updateStrLengthSummary() {
+        strLength.summary = getString(R.string.auto_translate_str_length_summary, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
+    }
+
+    private fun updateStrSimilaritySummary() {
+        strSimilarity.summary = getString(R.string.auto_translate_str_similarity_summary, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
+    }
+
     private fun showDismissDelayDialog() {
         val customView = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_message_edittext, null)
@@ -350,6 +339,66 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
                     val value = input.text.toString().toLong()
                     prefs.setLong("Auto_Translate_Dismiss_Delay", value)
                     updateDismissDelaySummary()
+                } catch (e: Exception) {
+                    showToast(getString(R.string.font_size_invalid), true)
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+    }
+
+    private fun showStrLengthDialog() {
+        val customView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_message_edittext, null)
+        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
+            text = getString(R.string.int_only)
+        }
+        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
+            hint = getString(R.string.current_str_length, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.set_str_length)
+            .setView(customView)
+            .setPositiveButton(R.string.save) { _, _ ->
+                try {
+                    val value = input.text.toString().toInt()
+                    prefs.setInt("Auto_Translate_Str_Length", value)
+                    updateStrLengthSummary()
+                } catch (e: Exception) {
+                    showToast(getString(R.string.font_size_invalid), true)
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+    }
+
+    private fun showStrSimilarityDialog() {
+        val customView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_message_edittext, null)
+        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
+            text = getString(R.string.str_similarity_tips)
+        }
+        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
+            hint = getString(R.string.current_str_similarity, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.set_str_similarity)
+            .setView(customView)
+            .setPositiveButton(R.string.save) { _, _ ->
+                try {
+                    val value = input.text.toString().toFloat()
+                    if (value in 0f..1f) {
+                        prefs.setFloat("Auto_Translate_Str_Similarity", value)
+                        updateStrSimilaritySummary()
+                    } else {
+                        showToast(getString(R.string.str_similarity_tips), true)
+                    }
                 } catch (e: Exception) {
                     showToast(getString(R.string.font_size_invalid), true)
                 }
