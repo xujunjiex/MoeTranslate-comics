@@ -79,7 +79,6 @@
             app:title="@string/uniaiapi_name"
             app:icon="@drawable/uniai"
             app:summary="@string/uniaiapi_description"/>
-        <!-- OpenAI厂商列表由 APIConfig.kt 动态生成 -->
 
         <SwitchPreferenceCompat
             app:key="ui_volc_translation_text"
@@ -131,6 +130,13 @@
             app:key="ui_manage_tencent_api_text"
             app:title="@string/manage_tencent_api" />
 
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:key="ui_openai_providers"
+        app:title="@string/uniaiapi_name"
+        app:iconSpaceReserved="false">
+        <!-- 由 APIConfig.kt 动态填充 OpenAI 厂商列表 -->
     </PreferenceCategory>
 
     <PreferenceCategory

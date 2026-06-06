@@ -537,37 +537,20 @@ class APIConfig : PreferenceFragmentCompat() {
     }
 
     private fun setupOpenAIProviderList(prefs: CustomPreference) {
-        // 找到OpenAI Switch所在的位置，在其后添加厂商列表
-        val openaiSwitch = findPreference<SwitchPreferenceCompat>("ui_openai_translation_text") ?: return
-        val parent = openaiSwitch.parent as? PreferenceCategory ?: return
-
-        // 移除旧的固定管理按钮（如果存在）
-        findPreference<Preference>("ui_manage_openai_api_text")?.let { parent.removePreference(it) }
-
-        // 移除之前动态添加的OpenAI厂商条目
-        val toRemove = mutableListOf<Preference>()
-        for (i in 0 until parent.preferenceCount) {
-            val pref = parent.getPreference(i)
-            if (pref.key != null && (pref.key!!.startsWith("ui_openai_provider_") || pref.key == "ui_openai_provider_add")) {
-                toRemove.add(pref)
-            }
-        }
-        toRemove.forEach { parent.removePreference(it) }
+        val category = findPreference<PreferenceCategory>("ui_openai_providers") ?: return
+        category.removeAll()
 
         val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
         val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
         val isOpenAISelected = prefs.getInt("Text_API", 0) == Constants.TextApi.OPENAI.id
 
-        // 使用OpenAI Switch的order作为基准
-        val baseOrder = openaiSwitch.order
-
         providerList.forEachIndexed { index, provider ->
+            // 管理按钮（显示厂商名称，点击进入编辑）
             val managePref = Preference(requireContext()).apply {
                 key = "ui_openai_provider_manage_$index"
-                title = "  ${provider.name}"
+                title = provider.name
                 summary = getString(R.string.custom_api_manage)
                 isIconSpaceReserved = false
-                order = baseOrder + 1 + index * 2
                 setOnPreferenceClickListener {
                     val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                         putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
@@ -578,13 +561,13 @@ class APIConfig : PreferenceFragmentCompat() {
                     true
                 }
             }
-            parent.addPreference(managePref)
+            category.addPreference(managePref)
 
+            // 选择Switch
             val selectPref = SwitchPreferenceCompat(requireContext()).apply {
                 key = "ui_openai_provider_select_$index"
-                title = "  ${provider.name}"
+                title = provider.name
                 isIconSpaceReserved = false
-                order = baseOrder + 2 + index * 2
                 isChecked = isOpenAISelected && selectedProvider == index
                 setOnPreferenceChangeListener { _, newValue ->
                     if (newValue as Boolean) {
@@ -597,8 +580,8 @@ class APIConfig : PreferenceFragmentCompat() {
                         prefs.setString("Source_Language", "ja")
                         prefs.setString("Target_Language", "zh")
                         // 关闭其他厂商select
-                        for (i in 0 until parent.preferenceCount) {
-                            val p = parent.getPreference(i)
+                        for (i in 0 until category.preferenceCount) {
+                            val p = category.getPreference(i)
                             if (p is SwitchPreferenceCompat && p.key != null && p.key!!.startsWith("ui_openai_provider_select_") && p.key != key) {
                                 p.isChecked = false
                             }
@@ -614,7 +597,7 @@ class APIConfig : PreferenceFragmentCompat() {
                     }
                 }
             }
-            parent.addPreference(selectPref)
+            category.addPreference(selectPref)
         }
 
         // 添加"添加新厂商"按钮
@@ -623,7 +606,6 @@ class APIConfig : PreferenceFragmentCompat() {
                 key = "ui_openai_provider_add"
                 title = getString(R.string.custom_api_add_new)
                 isIconSpaceReserved = false
-                order = baseOrder + 1 + providerList.size * 2
                 setOnPreferenceClickListener {
                     val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                         putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
@@ -634,7 +616,7 @@ class APIConfig : PreferenceFragmentCompat() {
                     true
                 }
             }
-            parent.addPreference(addPref)
+            category.addPreference(addPref)
         }
     }
 }
