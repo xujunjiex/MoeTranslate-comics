@@ -98,6 +98,7 @@
     <string name="select_provider">选择此厂商</string>
     <string name="edit_provider">编辑配置</string>
     <string name="test_provider">测试连接</string>
+    <string name="manage_openai_provider">管理%s翻译API</string>
     <string name="testing_connection">正在测试连接…</string>
     <string name="test_success">测试成功</string>
     <string name="test_success_detail">连接成功！状态码：%d</string>

@@ -97,6 +97,7 @@
     <string name="select_provider">Select this provider</string>
     <string name="edit_provider">Edit configuration</string>
     <string name="test_provider">Test connection</string>
+    <string name="manage_openai_provider">Manage %s translation API</string>
     <string name="testing_connection">Testing connection…</string>
     <string name="test_success">Test successful</string>
     <string name="test_success_detail">Connection successful! Status code: %d</string>
