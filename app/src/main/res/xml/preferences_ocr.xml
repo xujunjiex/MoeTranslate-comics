@@ -129,7 +129,7 @@
     <PreferenceCategory
         app:key="ui_openai_providers"
         app:title="@string/uniaiapi_name"
-        app:iconSpaceReserved="false">
+        app:icon="@drawable/uniai">
         <!-- 由 APIConfig.kt 动态填充 OpenAI 厂商列表 -->
     </PreferenceCategory>
 
