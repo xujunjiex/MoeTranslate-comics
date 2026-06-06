@@ -35,12 +35,18 @@ import kotlinx.coroutines.launch
 class OpenAIText :Fragment() {
     private lateinit var binding: FragmentOpenaiApiBinding
     private lateinit var prefs: CustomPreference
+    private var providerIndex: Int = 0
+    private var isNew = false
     private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
     private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = CustomPreference.getInstance(requireContext())
+        arguments?.let {
+            providerIndex = it.getInt("custom_code", 0)
+            isNew = it.getBoolean("is_new", false)
+        }
     }
 
     override fun onCreateView(
@@ -81,10 +87,19 @@ class OpenAIText :Fragment() {
     private fun setupButtons() {
         binding.introduce.setOnClickListener{ showIntroduce() }
         binding.btnSave.setOnClickListener { saveConfiguration() }
+        binding.btnDelete.setOnClickListener { deleteConfiguration() }
+        if (isNew) {
+            binding.btnDelete.visibility = View.GONE
+        }
     }
 
     private fun saveConfiguration() {
         try{
+            val providerName = binding.editProviderName.text.toString().trim()
+            if (providerName.isBlank()) {
+                throw Exception(getString(R.string.custom_api_name_blank))
+            }
+
             if(binding.editApiKey.text.toString().trim().isBlank()){
                 throw Exception(getString(R.string.fill_blank))
             }
@@ -95,20 +110,29 @@ class OpenAIText :Fragment() {
                 throw Exception(getString(R.string.fill_blank))
             }
 
+            val systemPrompt = if (binding.editSystemPrompt.text.toString().isBlank()) {
+                defaultSystemPrompt
+            } else {
+                binding.editSystemPrompt.text.toString()
+            }
+
+            val userPrompt = if (binding.editUserPrompt.text.toString().isBlank()) {
+                defaultUserPrompt
+            } else {
+                binding.editUserPrompt.text.toString()
+            }
+
+            val provider = OpenAIProviderConfig(
+                name = providerName,
+                apiKey = binding.editApiKey.text.toString().trim(),
+                baseUrl = normalizedUrl,
+                modelName = binding.editModelName.text.toString().trim(),
+                systemPrompt = systemPrompt,
+                userPrompt = userPrompt
+            )
+
             lifecycleScope.launch {
-                prefs.setString("OpenAI_Api_Key", binding.editApiKey.text.toString())
-                prefs.setString("OpenAI_Base_Url", normalizedUrl)
-                prefs.setString("OpenAI_Model_Name", binding.editModelName.text.toString())
-                if ((binding.editSystemPrompt.text.toString()).isBlank()){
-                    prefs.setString("OpenAI_System_Prompt", defaultSystemPrompt)
-                } else {
-                    prefs.setString("OpenAI_System_Prompt", binding.editSystemPrompt.text.toString())
-                }
-                if ((binding.editUserPrompt.text.toString()).isBlank()){
-                    prefs.setString("OpenAI_User_Prompt", defaultUserPrompt)
-                } else {
-                    prefs.setString("OpenAI_User_Prompt", binding.editUserPrompt.text.toString())
-                }
+                ConfigurationStorage.saveOpenAIProviderToList(prefs, provider, providerIndex)
                 showToast(getString(R.string.save_successfully))
                 requireActivity().finish()
             }
@@ -119,14 +143,43 @@ class OpenAIText :Fragment() {
 
     private fun loadConfig() {
         try {
-            binding.editApiKey.setText(prefs.getString("OpenAI_Api_Key", ""))
-            binding.editBaseUrl.setText(prefs.getString("OpenAI_Base_Url", ""))
-            binding.editModelName.setText(prefs.getString("OpenAI_Model_Name", ""))
-            binding.editSystemPrompt.setText(prefs.getString("OpenAI_System_Prompt", defaultSystemPrompt))
-            binding.editUserPrompt.setText(prefs.getString("OpenAI_User_Prompt", defaultUserPrompt))
+            val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+            if (!isNew && providerIndex < providerList.size) {
+                val provider = providerList[providerIndex]
+                binding.editProviderName.setText(provider.name)
+                binding.editApiKey.setText(provider.apiKey)
+                binding.editBaseUrl.setText(provider.baseUrl)
+                binding.editModelName.setText(provider.modelName)
+                binding.editSystemPrompt.setText(provider.systemPrompt)
+                binding.editUserPrompt.setText(provider.userPrompt)
+            } else {
+                // 新建时设置默认prompt
+                binding.editSystemPrompt.setText(defaultSystemPrompt)
+                binding.editUserPrompt.setText(defaultUserPrompt)
+            }
         } catch (e: Exception) {
             showToast("Error loading configuration: ${e.message}")
         }
+    }
+
+    private fun deleteConfiguration() {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.custom_api_delete)
+            .setMessage(R.string.custom_api_delete_confirm)
+            .setPositiveButton(R.string.user_known) { _, _ ->
+                ConfigurationStorage.deleteOpenAIProvider(prefs, providerIndex)
+                val currentIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
+                if (currentIndex == providerIndex) {
+                    prefs.setInt("OpenAI_Selected_Provider", 0)
+                } else if (currentIndex > providerIndex) {
+                    prefs.setInt("OpenAI_Selected_Provider", currentIndex - 1)
+                }
+                showToast(getString(R.string.save_successfully))
+                requireActivity().finish()
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+            .show()
     }
 
     private fun showToast(message: String) {

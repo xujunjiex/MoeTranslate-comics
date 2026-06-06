@@ -1437,7 +1437,11 @@ class MangaFloatingService : LifecycleService() {
                         processMangaScreenshot(bitmap, pHash)
                     } else {
                         // 手动模式：直接翻译
-                        processMangaScreenshot(bitmap)
+                        try {
+                            processMangaScreenshot(bitmap)
+                        } finally {
+                            isManualTranslating = false  // 无论成功失败，恢复自动检测
+                        }
                     }
                     LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
                 } catch (e: Exception) {
@@ -2228,7 +2232,6 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun dismissResultOverlay() {
-        isManualTranslating = false  // 清除手动翻译标志，恢复自动检测
         if (cacheOverlayContainer != null) {
             dismissCacheOverlay()
             return
@@ -2360,7 +2363,6 @@ class MangaFloatingService : LifecycleService() {
      * 关闭缓存 overlay
      */
     private fun dismissCacheOverlay() {
-        isManualTranslating = false  // 清除手动翻译标志，恢复自动检测
         cacheOverlayContainer?.let { container ->
             try {
                 // 回收 bitmap

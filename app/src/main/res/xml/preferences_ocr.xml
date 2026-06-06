@@ -79,10 +79,7 @@
             app:title="@string/uniaiapi_name"
             app:icon="@drawable/uniai"
             app:summary="@string/uniaiapi_description"/>
-
-        <Preference
-            app:key="ui_manage_openai_api_text"
-            app:title="@string/manage_uniai_api" />
+        <!-- OpenAI厂商列表由 APIConfig.kt 动态生成 -->
 
         <SwitchPreferenceCompat
             app:key="ui_volc_translation_text"

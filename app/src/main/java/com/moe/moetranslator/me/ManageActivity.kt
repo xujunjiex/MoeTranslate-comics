@@ -83,6 +83,11 @@ class ManageActivity : BaseActivity() {
             }
             TYPE_FRAGMENT_MANAGE_OPENAI_API->{
                 val fragment = OpenAIText()
+                val args = Bundle().apply {
+                    putInt(EXTRA_CUSTOM_CODE, intent.getIntExtra(EXTRA_CUSTOM_CODE, 0))
+                    putBoolean(EXTRA_IS_NEW, intent.getBooleanExtra(EXTRA_IS_NEW, false))
+                }
+                fragment.arguments = args
                 supportFragmentManager.beginTransaction()
                     .replace(binding.manageFragmentContainer.id, fragment)
                     .commit()

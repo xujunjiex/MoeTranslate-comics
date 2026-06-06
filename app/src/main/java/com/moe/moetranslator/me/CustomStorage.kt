@@ -59,6 +59,16 @@ data class NamedPicAPIConfig(
     val config: CustomPicAPIConfig
 )
 
+// OpenAI兼容API厂商配置
+data class OpenAIProviderConfig(
+    val name: String,
+    val apiKey: String,
+    val baseUrl: String,
+    val modelName: String,
+    val systemPrompt: String,
+    val userPrompt: String
+)
+
 // SharedPreferences存储
 object ConfigurationStorage {
     private const val KEY_METHOD = "method"
@@ -441,5 +451,99 @@ object ConfigurationStorage {
         prefs.setString("Custom_Pic_API_0", "")
         prefs.setString("Custom_Pic_API_1", "")
         prefs.setString("Custom_Pic_API_2", "")
+    }
+
+    // ==================== OpenAI兼容API厂商管理 ====================
+
+    private const val KEY_API_KEY = "apiKey"
+    private const val KEY_MODEL_NAME = "modelName"
+    private const val KEY_SYSTEM_PROMPT = "systemPrompt"
+    private const val KEY_USER_PROMPT = "userPrompt"
+
+    fun saveOpenAIProviders(prefs: CustomPreference, list: List<OpenAIProviderConfig>) {
+        try {
+            val jsonArray = JSONArray()
+            list.forEach { provider ->
+                jsonArray.put(JSONObject().apply {
+                    put(KEY_NAME, provider.name)
+                    put(KEY_API_KEY, provider.apiKey)
+                    put(KEY_BASE_URL, provider.baseUrl)
+                    put(KEY_MODEL_NAME, provider.modelName)
+                    put(KEY_SYSTEM_PROMPT, provider.systemPrompt)
+                    put(KEY_USER_PROMPT, provider.userPrompt)
+                })
+            }
+            prefs.setString("OpenAI_Providers", jsonArray.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadOpenAIProviders(prefs: CustomPreference): List<OpenAIProviderConfig> {
+        return try {
+            val jsonString = prefs.getString("OpenAI_Providers", "")
+            if (jsonString.isEmpty()) return emptyList()
+            val jsonArray = JSONArray(jsonString)
+            val list = mutableListOf<OpenAIProviderConfig>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(OpenAIProviderConfig(
+                    name = obj.getString(KEY_NAME),
+                    apiKey = obj.getString(KEY_API_KEY),
+                    baseUrl = obj.getString(KEY_BASE_URL),
+                    modelName = obj.getString(KEY_MODEL_NAME),
+                    systemPrompt = obj.getString(KEY_SYSTEM_PROMPT),
+                    userPrompt = obj.getString(KEY_USER_PROMPT)
+                ))
+            }
+            list
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    fun saveOpenAIProviderToList(prefs: CustomPreference, provider: OpenAIProviderConfig, index: Int) {
+        val list = loadOpenAIProviders(prefs).toMutableList()
+        if (index < list.size) {
+            list[index] = provider
+        } else {
+            list.add(provider)
+        }
+        saveOpenAIProviders(prefs, list)
+    }
+
+    fun deleteOpenAIProvider(prefs: CustomPreference, index: Int) {
+        val list = loadOpenAIProviders(prefs).toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            saveOpenAIProviders(prefs, list)
+        }
+    }
+
+    fun migrateOldOpenAIConfig(prefs: CustomPreference) {
+        if (prefs.getString("OpenAI_Providers", "").isNotEmpty()) return
+        val oldApiKey = prefs.getString("OpenAI_Api_Key", "")
+        val oldBaseUrl = prefs.getString("OpenAI_Base_Url", "")
+        val oldModel = prefs.getString("OpenAI_Model_Name", "")
+        val oldSystem = prefs.getString("OpenAI_System_Prompt", "")
+        val oldUser = prefs.getString("OpenAI_User_Prompt", "")
+        if (oldApiKey.isNotEmpty() || oldBaseUrl.isNotEmpty() || oldModel.isNotEmpty()) {
+            val migrated = OpenAIProviderConfig(
+                name = "默认厂商",
+                apiKey = oldApiKey,
+                baseUrl = oldBaseUrl,
+                modelName = oldModel,
+                systemPrompt = oldSystem,
+                userPrompt = oldUser
+            )
+            saveOpenAIProviders(prefs, listOf(migrated))
+        }
+        // 清除旧key
+        prefs.setString("OpenAI_Api_Key", "")
+        prefs.setString("OpenAI_Base_Url", "")
+        prefs.setString("OpenAI_Model_Name", "")
+        prefs.setString("OpenAI_System_Prompt", "")
+        prefs.setString("OpenAI_User_Prompt", "")
     }
 }

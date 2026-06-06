@@ -101,13 +101,9 @@ class APIConfig : PreferenceFragmentCompat() {
                 true
             }
 
-            findPreference<Preference>("ui_manage_openai_api_text")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
-                }
-                startActivity(intent)
-                true
-            }
+            // 动态OpenAI兼容API厂商列表
+            ConfigurationStorage.migrateOldOpenAIConfig(prefs)
+            setupOpenAIProviderList(prefs)
 
             findPreference<Preference>("ui_manage_volc_api_text")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
@@ -537,6 +533,108 @@ class APIConfig : PreferenceFragmentCompat() {
             if (pref is SwitchPreferenceCompat && pref.key != null && pref.key != activeKey && pref.key!!.startsWith("ui_custom_api_")) {
                 pref.isChecked = false
             }
+        }
+    }
+
+    private fun setupOpenAIProviderList(prefs: CustomPreference) {
+        // 找到OpenAI Switch所在的位置，在其后添加厂商列表
+        val openaiSwitch = findPreference<SwitchPreferenceCompat>("ui_openai_translation_text") ?: return
+        val parent = openaiSwitch.parent as? PreferenceCategory ?: return
+
+        // 移除旧的固定管理按钮（如果存在）
+        findPreference<Preference>("ui_manage_openai_api_text")?.let { parent.removePreference(it) }
+
+        // 移除之前动态添加的OpenAI厂商条目
+        val toRemove = mutableListOf<Preference>()
+        for (i in 0 until parent.preferenceCount) {
+            val pref = parent.getPreference(i)
+            if (pref.key != null && (pref.key!!.startsWith("ui_openai_provider_") || pref.key == "ui_openai_provider_add")) {
+                toRemove.add(pref)
+            }
+        }
+        toRemove.forEach { parent.removePreference(it) }
+
+        val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+        val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
+        val isOpenAISelected = prefs.getInt("Text_API", 0) == Constants.TextApi.OPENAI.id
+
+        // 使用OpenAI Switch的order作为基准
+        val baseOrder = openaiSwitch.order
+
+        providerList.forEachIndexed { index, provider ->
+            val managePref = Preference(requireContext()).apply {
+                key = "ui_openai_provider_manage_$index"
+                title = "  ${provider.name}"
+                summary = getString(R.string.custom_api_manage)
+                isIconSpaceReserved = false
+                order = baseOrder + 1 + index * 2
+                setOnPreferenceClickListener {
+                    val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                        putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
+                        putExtra(ManageActivity.EXTRA_CUSTOM_CODE, index)
+                        putExtra(ManageActivity.EXTRA_IS_NEW, false)
+                    }
+                    startActivity(intent)
+                    true
+                }
+            }
+            parent.addPreference(managePref)
+
+            val selectPref = SwitchPreferenceCompat(requireContext()).apply {
+                key = "ui_openai_provider_select_$index"
+                title = "  ${provider.name}"
+                isIconSpaceReserved = false
+                order = baseOrder + 2 + index * 2
+                isChecked = isOpenAISelected && selectedProvider == index
+                setOnPreferenceChangeListener { _, newValue ->
+                    if (newValue as Boolean) {
+                        if (isAnyTranslationServiceRunning()) {
+                            Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
+                            return@setOnPreferenceChangeListener false
+                        }
+                        prefs.setInt("Text_API", Constants.TextApi.OPENAI.id)
+                        prefs.setInt("OpenAI_Selected_Provider", index)
+                        prefs.setString("Source_Language", "ja")
+                        prefs.setString("Target_Language", "zh")
+                        // 关闭其他厂商select
+                        for (i in 0 until parent.preferenceCount) {
+                            val p = parent.getPreference(i)
+                            if (p is SwitchPreferenceCompat && p.key != null && p.key!!.startsWith("ui_openai_provider_select_") && p.key != key) {
+                                p.isChecked = false
+                            }
+                        }
+                        // 关闭非OpenAI的switch
+                        allTranslationKeys.filter { it != "ui_openai_translation_text" }.forEach { k ->
+                            findPreference<SwitchPreferenceCompat>(k)?.isChecked = false
+                        }
+                        true
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.no_less_one), Toast.LENGTH_LONG).show()
+                        false
+                    }
+                }
+            }
+            parent.addPreference(selectPref)
+        }
+
+        // 添加"添加新厂商"按钮
+        if (providerList.size < ConfigurationStorage.MAX_CUSTOM_API_COUNT) {
+            val addPref = Preference(requireContext()).apply {
+                key = "ui_openai_provider_add"
+                title = getString(R.string.custom_api_add_new)
+                isIconSpaceReserved = false
+                order = baseOrder + 1 + providerList.size * 2
+                setOnPreferenceClickListener {
+                    val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                        putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
+                        putExtra(ManageActivity.EXTRA_CUSTOM_CODE, providerList.size)
+                        putExtra(ManageActivity.EXTRA_IS_NEW, true)
+                    }
+                    startActivity(intent)
+                    true
+                }
+            }
+            parent.addPreference(addPref)
         }
     }
 }

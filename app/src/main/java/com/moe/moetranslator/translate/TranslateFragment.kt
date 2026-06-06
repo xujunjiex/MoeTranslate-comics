@@ -294,10 +294,10 @@ class TranslateFragment : Fragment() {
                 }
 
                 Constants.TextApi.OPENAI.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.uniaiapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
+                    val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                    val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
+                    val name = if (selectedProvider < providerList.size) providerList[selectedProvider].name else getString(R.string.uniaiapi_name)
+                    binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.ocr)}）"
                 }
 
                 Constants.TextApi.VOLC.id -> {
@@ -510,24 +510,19 @@ class TranslateFragment : Fragment() {
                 }
 
                 Constants.TextApi.OPENAI.id -> {
-                    if ((prefs.getString("OpenAI_Api_Key", "") == "") || (prefs.getString("OpenAI_Base_Url", "") == "") || (prefs.getString("OpenAI_Model_Name", "") == "")) {
+                    val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                    val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
+                    if (providerList.isEmpty() || selectedProvider >= providerList.size) {
                         val dialog = AlertDialog.Builder(requireContext())
                             .setTitle(R.string.api_not_config_title)
-                            .setMessage(
-                                getString(
-                                    R.string.api_not_config_content,
-                                    getString(R.string.uniaiapi_name)
-                                )
-                            )
+                            .setMessage(R.string.custom_api_not_config_content)
                             .setCancelable(false)
                             .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                val intent =
-                                    Intent(requireContext(), ManageActivity::class.java).apply {
-                                        putExtra(
-                                            ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                            ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API
-                                        )
-                                    }
+                                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
+                                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, 0)
+                                    putExtra(ManageActivity.EXTRA_IS_NEW, true)
+                                }
                                 startActivity(intent)
                             }
                             .setNegativeButton(R.string.user_cancel, null)
