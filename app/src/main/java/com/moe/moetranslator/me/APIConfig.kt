@@ -33,6 +33,8 @@ import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 
 class APIConfig : PreferenceFragmentCompat() {
@@ -577,6 +579,7 @@ class APIConfig : PreferenceFragmentCompat() {
                     val options = arrayOf(
                         getString(R.string.select_provider),
                         getString(R.string.edit_provider),
+                        getString(R.string.test_provider),
                         getString(R.string.custom_api_delete)
                     )
                     AlertDialog.Builder(requireContext())
@@ -605,7 +608,10 @@ class APIConfig : PreferenceFragmentCompat() {
                                     }
                                     startActivity(intent)
                                 }
-                                2 -> { // 删除
+                                2 -> { // 测试
+                                    testOpenAIProvider(provider)
+                                }
+                                3 -> { // 删除
                                     AlertDialog.Builder(requireContext())
                                         .setTitle(R.string.custom_api_delete)
                                         .setMessage(R.string.custom_api_delete_confirm)
@@ -649,5 +655,76 @@ class APIConfig : PreferenceFragmentCompat() {
             }
             category.addPreference(addPref)
         }
+    }
+
+    private fun testOpenAIProvider(provider: OpenAIProviderConfig) {
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.test_provider)
+            .setMessage(R.string.testing_connection)
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        Thread {
+            try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val jsonBody = org.json.JSONObject().apply {
+                    put("model", provider.modelName)
+                    put("messages", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("role", "user")
+                            put("content", "Hi")
+                        })
+                    })
+                    put("max_tokens", 5)
+                }
+
+                val url = if (provider.baseUrl.endsWith("/")) {
+                    "${provider.baseUrl}chat/completions"
+                } else {
+                    "${provider.baseUrl}/chat/completions"
+                }
+
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer ${provider.apiKey}")
+                    .addHeader("Content-Type", "application/json")
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string() ?: ""
+                    activity?.runOnUiThread {
+                        progressDialog.dismiss()
+                        if (response.isSuccessful) {
+                            AlertDialog.Builder(requireContext())
+                                .setTitle(R.string.test_success)
+                                .setMessage(getString(R.string.test_success_detail, response.code))
+                                .setPositiveButton(R.string.user_known, null)
+                                .show()
+                        } else {
+                            AlertDialog.Builder(requireContext())
+                                .setTitle(R.string.test_failed)
+                                .setMessage(getString(R.string.test_failed_detail, response.code, body.take(200)))
+                                .setPositiveButton(R.string.user_known, null)
+                                .show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                activity?.runOnUiThread {
+                    progressDialog.dismiss()
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.test_failed)
+                        .setMessage(e.message ?: "Unknown error")
+                        .setPositiveButton(R.string.user_known, null)
+                        .show()
+                }
+            }
+        }.start()
     }
 }

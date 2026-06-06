@@ -97,6 +97,12 @@
     <string name="custom_api_list_empty">暂无自定义API，请先添加</string>
     <string name="select_provider">选择此厂商</string>
     <string name="edit_provider">编辑配置</string>
+    <string name="test_provider">测试连接</string>
+    <string name="testing_connection">正在测试连接…</string>
+    <string name="test_success">测试成功</string>
+    <string name="test_success_detail">连接成功！状态码：%d</string>
+    <string name="test_failed">测试失败</string>
+    <string name="test_failed_detail">状态码：%d\n%s</string>
     <string name="no_less_one">需选择一个选项</string>
     <string name="small_ram_title">运行内存小于6GB</string>
     <string name="small_ram_content">看起来您选择了NLLB作为翻译API，但似乎您的设备的运行内存小于6GB，这可能会导致在模型推理时出现问题。请您放心，程序不会因此阻止您使用该模型，但不保证在运行内存小于6GB的情况下不会出现意外。</string>

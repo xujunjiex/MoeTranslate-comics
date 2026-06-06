@@ -97,6 +97,12 @@
     <string name="custom_api_list_empty">No custom APIs yet, please add one first</string>
     <string name="select_provider">Select this provider</string>
     <string name="edit_provider">Edit configuration</string>
+    <string name="test_provider">Test connection</string>
+    <string name="testing_connection">Testing connection…</string>
+    <string name="test_success">Test successful</string>
+    <string name="test_success_detail">Connection successful! Status code: %d</string>
+    <string name="test_failed">Test failed</string>
+    <string name="test_failed_detail">Status code: %d\n%s</string>
     <string name="no_less_one">Please select an option</string>
     <string name="small_ram_title">RAM is less than 6GB</string>
     <string name="small_ram_content">It looks like you have selected NLLB as the translation API, but it seems that your device has less than 6GB of RAM, which may cause problems when inferring the model. Please rest assured that the program will not prevent you from using the model, but there is no guarantee that there will be no accidents when the RAM is less than 6GB.</string>
