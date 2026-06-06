@@ -47,6 +47,18 @@ data class KeyValuePair(
     val value: String
 )
 
+// 带名称的文本翻译配置
+data class NamedTextAPIConfig(
+    val name: String,
+    val config: CustomTextAPIConfig
+)
+
+// 带名称的图片翻译配置
+data class NamedPicAPIConfig(
+    val name: String,
+    val config: CustomPicAPIConfig
+)
+
 // SharedPreferences存储
 object ConfigurationStorage {
     private const val KEY_METHOD = "method"
@@ -59,6 +71,8 @@ object ConfigurationStorage {
     private const val KEY_JSON_RESPONSE_PATH = "jsonResponsePath"
     private const val KEY_PAIR_KEY = "key"
     private const val KEY_PAIR_VALUE = "value"
+    private const val KEY_NAME = "name"
+    const val MAX_CUSTOM_API_COUNT = 10
 
     // 解析键值对列表的辅助函数
     private fun parseKeyValuePairs(jsonArray: JSONArray): List<KeyValuePair> {
@@ -197,7 +211,7 @@ object ConfigurationStorage {
 
             CustomPicAPIConfig(
                 method = jsonObject.getString(KEY_METHOD),
-                contentType = jsonObject.optString(KEY_CONTENT_TYPE, null), // 使用optString防止出现错误
+                contentType = if (jsonObject.has(KEY_CONTENT_TYPE)) jsonObject.getString(KEY_CONTENT_TYPE) else null, // 使用optString防止出现错误
                 baseUrl = jsonObject.getString(KEY_BASE_URL),
                 queryParams = parseKeyValuePairs(jsonObject.getJSONArray(KEY_QUERY_PARAMS)),
                 headers = parseKeyValuePairs(jsonObject.getJSONArray(KEY_HEADERS)),
@@ -209,5 +223,223 @@ object ConfigurationStorage {
             e.printStackTrace()
             null
         }
+    }
+
+    // ==================== 列表存储方法 ====================
+
+    fun saveTextConfigList(prefs: CustomPreference, list: List<NamedTextAPIConfig>) {
+        try {
+            val jsonArray = JSONArray()
+            list.forEach { named ->
+                jsonArray.put(JSONObject().apply {
+                    put(KEY_NAME, named.name)
+                    put(KEY_METHOD, named.config.method)
+                    put(KEY_BASE_URL, named.config.baseUrl)
+                    put(KEY_JSON_RESPONSE_PATH, named.config.jsonResponsePath)
+                    put(KEY_QUERY_PARAMS, JSONArray().apply {
+                        named.config.queryParams.forEach { pair ->
+                            put(JSONObject().apply {
+                                put(KEY_PAIR_KEY, pair.key)
+                                put(KEY_PAIR_VALUE, pair.value)
+                            })
+                        }
+                    })
+                    put(KEY_HEADERS, JSONArray().apply {
+                        named.config.headers.forEach { pair ->
+                            put(JSONObject().apply {
+                                put(KEY_PAIR_KEY, pair.key)
+                                put(KEY_PAIR_VALUE, pair.value)
+                            })
+                        }
+                    })
+                    put(KEY_JSON_BODY, JSONArray().apply {
+                        named.config.jsonBody.forEach { pair ->
+                            put(JSONObject().apply {
+                                put(KEY_PAIR_KEY, pair.key)
+                                put(KEY_PAIR_VALUE, pair.value)
+                            })
+                        }
+                    })
+                })
+            }
+            prefs.setString("Custom_Text_APIs", jsonArray.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadTextConfigList(prefs: CustomPreference): List<NamedTextAPIConfig> {
+        return try {
+            val jsonString = prefs.getString("Custom_Text_APIs", "")
+            if (jsonString.isEmpty()) return emptyList()
+            val jsonArray = JSONArray(jsonString)
+            val list = mutableListOf<NamedTextAPIConfig>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(NamedTextAPIConfig(
+                    name = obj.getString(KEY_NAME),
+                    config = CustomTextAPIConfig(
+                        method = obj.getString(KEY_METHOD),
+                        baseUrl = obj.getString(KEY_BASE_URL),
+                        queryParams = parseKeyValuePairs(obj.getJSONArray(KEY_QUERY_PARAMS)),
+                        headers = parseKeyValuePairs(obj.getJSONArray(KEY_HEADERS)),
+                        jsonBody = parseKeyValuePairs(obj.getJSONArray(KEY_JSON_BODY)),
+                        jsonResponsePath = obj.getString(KEY_JSON_RESPONSE_PATH)
+                    )
+                ))
+            }
+            list
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    fun saveTextConfigToList(prefs: CustomPreference, named: NamedTextAPIConfig, index: Int) {
+        val list = loadTextConfigList(prefs).toMutableList()
+        if (index < list.size) {
+            list[index] = named
+        } else {
+            list.add(named)
+        }
+        saveTextConfigList(prefs, list)
+    }
+
+    fun deleteTextConfig(prefs: CustomPreference, index: Int) {
+        val list = loadTextConfigList(prefs).toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            saveTextConfigList(prefs, list)
+        }
+    }
+
+    fun savePicConfigList(prefs: CustomPreference, list: List<NamedPicAPIConfig>) {
+        try {
+            val jsonArray = JSONArray()
+            list.forEach { named ->
+                jsonArray.put(JSONObject().apply {
+                    put(KEY_NAME, named.name)
+                    put(KEY_METHOD, named.config.method)
+                    put(KEY_CONTENT_TYPE, named.config.contentType)
+                    put(KEY_BASE_URL, named.config.baseUrl)
+                    put(KEY_JSON_RESPONSE_PATH, named.config.jsonResponsePath)
+                    put(KEY_QUERY_PARAMS, JSONArray().apply {
+                        named.config.queryParams.forEach { pair ->
+                            put(JSONObject().apply {
+                                put(KEY_PAIR_KEY, pair.key)
+                                put(KEY_PAIR_VALUE, pair.value)
+                            })
+                        }
+                    })
+                    put(KEY_HEADERS, JSONArray().apply {
+                        named.config.headers.forEach { pair ->
+                            put(JSONObject().apply {
+                                put(KEY_PAIR_KEY, pair.key)
+                                put(KEY_PAIR_VALUE, pair.value)
+                            })
+                        }
+                    })
+                    put(KEY_BODY, JSONArray().apply {
+                        named.config.body.forEach { pair ->
+                            put(JSONObject().apply {
+                                put(KEY_PAIR_KEY, pair.key)
+                                put(KEY_PAIR_VALUE, pair.value)
+                            })
+                        }
+                    })
+                })
+            }
+            prefs.setString("Custom_Pic_APIs", jsonArray.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadPicConfigList(prefs: CustomPreference): List<NamedPicAPIConfig> {
+        return try {
+            val jsonString = prefs.getString("Custom_Pic_APIs", "")
+            if (jsonString.isEmpty()) return emptyList()
+            val jsonArray = JSONArray(jsonString)
+            val list = mutableListOf<NamedPicAPIConfig>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(NamedPicAPIConfig(
+                    name = obj.getString(KEY_NAME),
+                    config = CustomPicAPIConfig(
+                        method = obj.getString(KEY_METHOD),
+                        contentType = if (obj.has(KEY_CONTENT_TYPE)) obj.getString(KEY_CONTENT_TYPE) else null,
+                        baseUrl = obj.getString(KEY_BASE_URL),
+                        queryParams = parseKeyValuePairs(obj.getJSONArray(KEY_QUERY_PARAMS)),
+                        headers = parseKeyValuePairs(obj.getJSONArray(KEY_HEADERS)),
+                        body = parseKeyValuePairs(obj.getJSONArray(KEY_BODY)),
+                        jsonResponsePath = obj.getString(KEY_JSON_RESPONSE_PATH)
+                    )
+                ))
+            }
+            list
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    fun savePicConfigToList(prefs: CustomPreference, named: NamedPicAPIConfig, index: Int) {
+        val list = loadPicConfigList(prefs).toMutableList()
+        if (index < list.size) {
+            list[index] = named
+        } else {
+            list.add(named)
+        }
+        savePicConfigList(prefs, list)
+    }
+
+    fun deletePicConfig(prefs: CustomPreference, index: Int) {
+        val list = loadPicConfigList(prefs).toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            savePicConfigList(prefs, list)
+        }
+    }
+
+    // ==================== 数据迁移 ====================
+
+    fun migrateOldTextConfigs(prefs: CustomPreference) {
+        if (prefs.getString("Custom_Text_APIs", "").isNotEmpty()) return
+        val migrated = mutableListOf<NamedTextAPIConfig>()
+        for (i in 0..2) {
+            val oldConfig = loadTextConfig(prefs, i)
+            if (oldConfig != null) {
+                migrated.add(NamedTextAPIConfig(
+                    name = "自定义API${i + 1}",
+                    config = oldConfig
+                ))
+            }
+        }
+        if (migrated.isNotEmpty()) {
+            saveTextConfigList(prefs, migrated)
+        }
+        prefs.setString("Custom_Text_API_0", "")
+        prefs.setString("Custom_Text_API_1", "")
+        prefs.setString("Custom_Text_API_2", "")
+    }
+
+    fun migrateOldPicConfigs(prefs: CustomPreference) {
+        if (prefs.getString("Custom_Pic_APIs", "").isNotEmpty()) return
+        val migrated = mutableListOf<NamedPicAPIConfig>()
+        for (i in 0..2) {
+            val oldConfig = loadPicConfig(prefs, i)
+            if (oldConfig != null) {
+                migrated.add(NamedPicAPIConfig(
+                    name = "自定义API${i + 1}",
+                    config = oldConfig
+                ))
+            }
+        }
+        if (migrated.isNotEmpty()) {
+            savePicConfigList(prefs, migrated)
+        }
+        prefs.setString("Custom_Pic_API_0", "")
+        prefs.setString("Custom_Pic_API_1", "")
+        prefs.setString("Custom_Pic_API_2", "")
     }
 }

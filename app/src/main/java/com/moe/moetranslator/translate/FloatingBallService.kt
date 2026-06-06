@@ -43,8 +43,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.moetranslator.MainActivity
 import com.moe.moetranslator.R
-import com.moe.moetranslator.me.ConfigurationStorage.loadPicConfig
-import com.moe.moetranslator.me.ConfigurationStorage.loadTextConfig
+import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.KeystoreManager
@@ -214,11 +213,12 @@ class FloatingBallService : LifecycleService() {
                     Constants.TextApi.BAIDU.id -> translatorText = BaiduTranslationText(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
                     Constants.TextApi.TENCENT.id -> translatorText = TencentTranslationText(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
                     Constants.TextApi.CUSTOM_TEXT.id -> {
-                        val config = loadTextConfig(prefs, prefs.getInt("Custom_Text_API",0))
-                        if (config == null) {
+                        val apiList = ConfigurationStorage.loadTextConfigList(prefs)
+                        val selectedIndex = prefs.getInt("Custom_Text_API", 0)
+                        if (apiList.isEmpty() || selectedIndex >= apiList.size) {
                             showToast("No Custom Text API Config Found.")
-                        }else{
-                            translatorText = CustomTranslationText(config)
+                        } else {
+                            translatorText = CustomTranslationText(apiList[selectedIndex].config)
                         }
                     }
                     else -> { showToast("Unknown Translator.") }
@@ -228,11 +228,12 @@ class FloatingBallService : LifecycleService() {
                     Constants.PicApi.BAIDU.id -> translatorPic = BaiduTranslationImage(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
                     Constants.PicApi.TENCENT.id -> translatorPic = TencentTranslationImage(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
                     Constants.PicApi.CUSTOM_PIC.id -> {
-                        val config = loadPicConfig(prefs, prefs.getInt("Custom_Pic_API",0))
-                        if (config == null) {
+                        val apiList = ConfigurationStorage.loadPicConfigList(prefs)
+                        val selectedIndex = prefs.getInt("Custom_Pic_API", 0)
+                        if (apiList.isEmpty() || selectedIndex >= apiList.size) {
                             showToast("No Custom Pic API Config Found.")
-                        }else{
-                            translatorPic = CustomTranslationImage(config)
+                        } else {
+                            translatorPic = CustomTranslationImage(apiList[selectedIndex].config)
                         }
                     }
                     else -> { showToast("Unknown Translator.") }

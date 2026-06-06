@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import com.moe.moetranslator.R
@@ -46,14 +47,12 @@ class APIConfig : PreferenceFragmentCompat() {
                 "ui_bing_translation_text", "ui_niu_translation_text",
                 "ui_openai_translation_text",
                 "ui_volc_translation_text", "ui_azure_translation_text", "ui_deepl_translation_text",
-                "ui_baidu_translation_text", "ui_tencent_translation_text",
-                "ui_custom_api_1_text", "ui_custom_api_2_text", "ui_custom_api_3_text"
+                "ui_baidu_translation_text", "ui_tencent_translation_text"
             )
         }else{
             setPreferencesFromResource(R.xml.preferences_pic, rootKey)
             allTranslationKeys = listOf(
-                "ui_baidu_translation_pic", "ui_tencent_translation_pic",
-                "ui_custom_api_1_pic", "ui_custom_api_2_pic", "ui_custom_api_3_pic"
+                "ui_baidu_translation_pic", "ui_tencent_translation_pic"
             )
         }
 
@@ -150,32 +149,9 @@ class APIConfig : PreferenceFragmentCompat() {
                 true
             }
 
-            findPreference<Preference>("ui_manage_custom_api_1_text")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
-                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, ManageActivity.CODE_CUSTOM_0)
-                }
-                startActivity(intent)
-                true
-            }
-
-            findPreference<Preference>("ui_manage_custom_api_2_text")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
-                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, ManageActivity.CODE_CUSTOM_1)
-                }
-                startActivity(intent)
-                true
-            }
-
-            findPreference<Preference>("ui_manage_custom_api_3_text")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
-                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, ManageActivity.CODE_CUSTOM_2)
-                }
-                startActivity(intent)
-                true
-            }
+            // 动态自定义文本 API
+            ConfigurationStorage.migrateOldTextConfigs(prefs)
+            setupDynamicCustomApiList(prefs, true)
         }else{
             findPreference<Preference>("ui_manage_baidu_api_pic")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
@@ -193,32 +169,9 @@ class APIConfig : PreferenceFragmentCompat() {
                 true
             }
 
-            findPreference<Preference>("ui_manage_custom_api_1_pic")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
-                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, ManageActivity.CODE_CUSTOM_0)
-                }
-                startActivity(intent)
-                true
-            }
-
-            findPreference<Preference>("ui_manage_custom_api_2_pic")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
-                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, ManageActivity.CODE_CUSTOM_1)
-                }
-                startActivity(intent)
-                true
-            }
-
-            findPreference<Preference>("ui_manage_custom_api_3_pic")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
-                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, ManageActivity.CODE_CUSTOM_2)
-                }
-                startActivity(intent)
-                true
-            }
+            // 动态自定义图片 API
+            ConfigurationStorage.migrateOldPicConfigs(prefs)
+            setupDynamicCustomApiList(prefs, false)
         }
 
         // 从 SharedPreferences 加载设置
@@ -301,48 +254,6 @@ class APIConfig : PreferenceFragmentCompat() {
                 prefs.setString("Target_Language", "zh")
                 Log.d("APIConfig", "pic tencent")
             }
-            "ui_custom_api_1_text" -> {
-                prefs.setInt("Text_API", Constants.TextApi.CUSTOM_TEXT.id)
-                prefs.setInt("Custom_Text_API", 0)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "OCR custom 1")
-            }
-            "ui_custom_api_1_pic" -> {
-                prefs.setInt("Pic_API", Constants.PicApi.CUSTOM_PIC.id)
-                prefs.setInt("Custom_Pic_API", 0)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "pic custom 1")
-            }
-            "ui_custom_api_2_text" -> {
-                prefs.setInt("Text_API", Constants.TextApi.CUSTOM_TEXT.id)
-                prefs.setInt("Custom_Text_API", 1)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "OCR custom 2")
-            }
-            "ui_custom_api_2_pic" -> {
-                prefs.setInt("Pic_API", Constants.PicApi.CUSTOM_PIC.id)
-                prefs.setInt("Custom_Pic_API", 1)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "pic custom 2")
-            }
-            "ui_custom_api_3_text" -> {
-                prefs.setInt("Text_API", Constants.TextApi.CUSTOM_TEXT.id)
-                prefs.setInt("Custom_Text_API", 2)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "OCR custom 3")
-            }
-            "ui_custom_api_3_pic" -> {
-                prefs.setInt("Pic_API", Constants.PicApi.CUSTOM_PIC.id)
-                prefs.setInt("Custom_Pic_API", 2)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "pic custom 3")
-            }
         }
     }
 
@@ -352,6 +263,8 @@ class APIConfig : PreferenceFragmentCompat() {
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
         val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
+        val customTextApi = prefs.getInt("Custom_Text_API", 0)
+        val customPicApi = prefs.getInt("Custom_Pic_API", 0)
 
         // 加载设置到UI上
         when {
@@ -408,22 +321,10 @@ class APIConfig : PreferenceFragmentCompat() {
                     setKey(key)
                 }
                 else -> {
-                    when (prefs.getInt("Custom_Text_API", 0)){
-                        0 -> {
-                            val key = "ui_custom_api_1_text"
-                            findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                            setKey(key)
-                        }
-                        1 ->{
-                            val key = "ui_custom_api_2_text"
-                            findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                            setKey(key)
-                        }
-                        2->{
-                            val key = "ui_custom_api_3_text"
-                            findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                            setKey(key)
-                        }
+                    val apiList = ConfigurationStorage.loadTextConfigList(prefs)
+                    if (customTextApi < apiList.size) {
+                        val key = "ui_custom_api_text_$customTextApi"
+                        findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
                     }
                 }
             }
@@ -439,22 +340,10 @@ class APIConfig : PreferenceFragmentCompat() {
                     setKey(key)
                 }
                 else -> {
-                    when (prefs.getInt("Custom_Pic_API", 0)){
-                        0 -> {
-                            val key = "ui_custom_api_1_pic"
-                            findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                            setKey(key)
-                        }
-                        1 ->{
-                            val key = "ui_custom_api_2_pic"
-                            findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                            setKey(key)
-                        }
-                        2->{
-                            val key = "ui_custom_api_3_pic"
-                            findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                            setKey(key)
-                        }
+                    val apiList = ConfigurationStorage.loadPicConfigList(prefs)
+                    if (customPicApi < apiList.size) {
+                        val key = "ui_custom_api_pic_$customPicApi"
+                        findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
                     }
                 }
             }
@@ -465,6 +354,18 @@ class APIConfig : PreferenceFragmentCompat() {
         Log.d("APIConfig", "key=$key")
         allTranslationKeys.filter { it != key }.forEach { otherKey ->
             findPreference<SwitchPreferenceCompat>(otherKey)?.isChecked = false
+        }
+        // 关闭动态 custom API switches
+        val isText = prefs.getInt("Translate_Mode", 0) == 0
+        val categoryKey = if (isText) "ui_custom_cloud_api_translation_text" else "ui_custom_cloud_api_translation_pic"
+        val category = findPreference<PreferenceCategory>(categoryKey)
+        category?.let {
+            for (i in 0 until it.preferenceCount) {
+                val pref = it.getPreference(i)
+                if (pref is SwitchPreferenceCompat && pref.key != null && pref.key!!.startsWith("ui_custom_api_")) {
+                    pref.isChecked = false
+                }
+            }
         }
     }
 
@@ -479,5 +380,163 @@ class APIConfig : PreferenceFragmentCompat() {
         @Suppress("DEPRECATION")
         return manager.getRunningServices(Integer.MAX_VALUE)
             .any { it.service.className == serviceClass.name }
+    }
+
+    private fun setupDynamicCustomApiList(prefs: CustomPreference, isText: Boolean) {
+        val categoryKey = if (isText) "ui_custom_cloud_api_translation_text" else "ui_custom_cloud_api_translation_pic"
+        val category = findPreference<PreferenceCategory>(categoryKey) ?: return
+
+        category.removeAll()
+
+        if (isText) {
+            val apiList = ConfigurationStorage.loadTextConfigList(prefs)
+            val selectedIndex = prefs.getInt("Custom_Text_API", 0)
+
+            apiList.forEachIndexed { index, named ->
+                val switchKey = "ui_custom_api_text_$index"
+                val manageKey = "ui_manage_custom_api_text_$index"
+
+                val switchPref = SwitchPreferenceCompat(requireContext()).apply {
+                    key = switchKey
+                    title = named.name
+                    isIconSpaceReserved = false
+                    isChecked = selectedIndex == index && prefs.getInt("Text_API", 0) == Constants.TextApi.CUSTOM_TEXT.id
+                    setOnPreferenceChangeListener { _, newValue ->
+                        if (newValue as Boolean) {
+                            if (isAnyTranslationServiceRunning()) {
+                                Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
+                                return@setOnPreferenceChangeListener false
+                            }
+                            prefs.setInt("Text_API", Constants.TextApi.CUSTOM_TEXT.id)
+                            prefs.setInt("Custom_Text_API", index)
+                            prefs.setString("Source_Language", "ja")
+                            prefs.setString("Target_Language", "zh")
+                            refreshCustomApiSwitches(category, switchKey)
+                            allTranslationKeys.forEach { key ->
+                                findPreference<SwitchPreferenceCompat>(key)?.isChecked = false
+                            }
+                            true
+                        } else {
+                            Toast.makeText(requireContext(), getString(R.string.no_less_one), Toast.LENGTH_LONG).show()
+                            false
+                        }
+                    }
+                }
+                category.addPreference(switchPref)
+
+                val managePref = Preference(requireContext()).apply {
+                    key = manageKey
+                    title = getString(R.string.custom_api_manage)
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                            putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
+                            putExtra(ManageActivity.EXTRA_CUSTOM_CODE, index)
+                            putExtra(ManageActivity.EXTRA_IS_NEW, false)
+                        }
+                        startActivity(intent)
+                        true
+                    }
+                }
+                category.addPreference(managePref)
+            }
+
+            if (apiList.size < ConfigurationStorage.MAX_CUSTOM_API_COUNT) {
+                val addPref = Preference(requireContext()).apply {
+                    key = "ui_custom_api_text_add"
+                    title = getString(R.string.custom_api_add_new)
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                            putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
+                            putExtra(ManageActivity.EXTRA_CUSTOM_CODE, apiList.size)
+                            putExtra(ManageActivity.EXTRA_IS_NEW, true)
+                        }
+                        startActivity(intent)
+                        true
+                    }
+                }
+                category.addPreference(addPref)
+            }
+        } else {
+            val apiList = ConfigurationStorage.loadPicConfigList(prefs)
+            val selectedIndex = prefs.getInt("Custom_Pic_API", 0)
+
+            apiList.forEachIndexed { index, named ->
+                val switchKey = "ui_custom_api_pic_$index"
+                val manageKey = "ui_manage_custom_api_pic_$index"
+
+                val switchPref = SwitchPreferenceCompat(requireContext()).apply {
+                    key = switchKey
+                    title = named.name
+                    isIconSpaceReserved = false
+                    isChecked = selectedIndex == index && prefs.getInt("Pic_API", 0) == Constants.PicApi.CUSTOM_PIC.id
+                    setOnPreferenceChangeListener { _, newValue ->
+                        if (newValue as Boolean) {
+                            if (isAnyTranslationServiceRunning()) {
+                                Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
+                                return@setOnPreferenceChangeListener false
+                            }
+                            prefs.setInt("Pic_API", Constants.PicApi.CUSTOM_PIC.id)
+                            prefs.setInt("Custom_Pic_API", index)
+                            prefs.setString("Source_Language", "ja")
+                            prefs.setString("Target_Language", "zh")
+                            refreshCustomApiSwitches(category, switchKey)
+                            allTranslationKeys.forEach { key ->
+                                findPreference<SwitchPreferenceCompat>(key)?.isChecked = false
+                            }
+                            true
+                        } else {
+                            Toast.makeText(requireContext(), getString(R.string.no_less_one), Toast.LENGTH_LONG).show()
+                            false
+                        }
+                    }
+                }
+                category.addPreference(switchPref)
+
+                val managePref = Preference(requireContext()).apply {
+                    key = manageKey
+                    title = getString(R.string.custom_api_manage)
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                            putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
+                            putExtra(ManageActivity.EXTRA_CUSTOM_CODE, index)
+                            putExtra(ManageActivity.EXTRA_IS_NEW, false)
+                        }
+                        startActivity(intent)
+                        true
+                    }
+                }
+                category.addPreference(managePref)
+            }
+
+            if (apiList.size < ConfigurationStorage.MAX_CUSTOM_API_COUNT) {
+                val addPref = Preference(requireContext()).apply {
+                    key = "ui_custom_api_pic_add"
+                    title = getString(R.string.custom_api_add_new)
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                            putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
+                            putExtra(ManageActivity.EXTRA_CUSTOM_CODE, apiList.size)
+                            putExtra(ManageActivity.EXTRA_IS_NEW, true)
+                        }
+                        startActivity(intent)
+                        true
+                    }
+                }
+                category.addPreference(addPref)
+            }
+        }
+    }
+
+    private fun refreshCustomApiSwitches(category: PreferenceCategory, activeKey: String) {
+        for (i in 0 until category.preferenceCount) {
+            val pref = category.getPreference(i)
+            if (pref is SwitchPreferenceCompat && pref.key != null && pref.key != activeKey && pref.key!!.startsWith("ui_custom_api_")) {
+                pref.isChecked = false
+            }
+        }
     }
 }

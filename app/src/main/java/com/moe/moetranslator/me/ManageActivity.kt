@@ -30,6 +30,7 @@ class ManageActivity : BaseActivity() {
     companion object {
         const val EXTRA_FRAGMENT_TYPE = "fragment_type"
         const val EXTRA_CUSTOM_CODE = "custom_code"
+        const val EXTRA_IS_NEW = "is_new"
         const val TYPE_FRAGMENT_MANAGE_MLKIT = 1
         const val TYPE_FRAGMENT_MANAGE_NLLB = 2
         const val TYPE_FRAGMENT_MANAGE_NIU_API = 3
@@ -140,6 +141,7 @@ class ManageActivity : BaseActivity() {
                 val fragment = CustomTextAPI()
                 val args = Bundle().apply {
                     putInt(EXTRA_CUSTOM_CODE, intent.getIntExtra(EXTRA_CUSTOM_CODE,0))
+                    putBoolean(EXTRA_IS_NEW, intent.getBooleanExtra(EXTRA_IS_NEW, false))
                 }
                 fragment.arguments = args
                 supportFragmentManager.beginTransaction()
@@ -150,6 +152,7 @@ class ManageActivity : BaseActivity() {
                 val fragment = CustomPicAPI()
                 val args = Bundle().apply {
                     putInt(EXTRA_CUSTOM_CODE, intent.getIntExtra(EXTRA_CUSTOM_CODE,0))
+                    putBoolean(EXTRA_IS_NEW, intent.getBooleanExtra(EXTRA_IS_NEW, false))
                 }
                 fragment.arguments = args
                 supportFragmentManager.beginTransaction()

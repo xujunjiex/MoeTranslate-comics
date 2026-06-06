@@ -140,34 +140,7 @@
         app:key="ui_custom_cloud_api_translation_text"
         app:title="@string/custom_api_text_title"
         app:iconSpaceReserved="false">
-
-        <SwitchPreferenceCompat
-            app:key="ui_custom_api_1_text"
-            app:icon="@drawable/custom_1"
-            app:title="@string/custom_api_text_1" />
-
-        <Preference
-            app:key="ui_manage_custom_api_1_text"
-            app:title="@string/manage_custom_api_text_1" />
-
-        <SwitchPreferenceCompat
-            app:key="ui_custom_api_2_text"
-            app:icon="@drawable/custom_2"
-            app:title="@string/custom_api_text_2" />
-
-        <Preference
-            app:key="ui_manage_custom_api_2_text"
-            app:title="@string/manage_custom_api_text_2" />
-
-        <SwitchPreferenceCompat
-            app:key="ui_custom_api_3_text"
-            app:icon="@drawable/custom_3"
-            app:title="@string/custom_api_text_3" />
-
-        <Preference
-            app:key="ui_manage_custom_api_3_text"
-            app:title="@string/manage_custom_api_text_3" />
-
+        <!-- 由 APIConfig.kt 动态填充 -->
     </PreferenceCategory>
 
 </androidx.preference.PreferenceScreen>

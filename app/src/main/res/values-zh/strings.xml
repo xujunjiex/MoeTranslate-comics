@@ -87,6 +87,14 @@
     <string name="manage_custom_api_pic_1">管理自定义云端图片翻译API1</string>
     <string name="manage_custom_api_pic_2">管理自定义云端图片翻译API2</string>
     <string name="manage_custom_api_pic_3">管理自定义云端图片翻译API3</string>
+    <string name="custom_api_name_hint">给这个API起个名字</string>
+    <string name="custom_api_add_new">添加新API</string>
+    <string name="custom_api_manage">管理</string>
+    <string name="custom_api_delete">删除此API</string>
+    <string name="custom_api_delete_confirm">确定要删除这个API吗？</string>
+    <string name="custom_api_name_blank">请输入API名称</string>
+    <string name="custom_api_max_reached">最多支持%d个自定义API</string>
+    <string name="custom_api_list_empty">暂无自定义API，请先添加</string>
     <string name="no_less_one">需选择一个选项</string>
     <string name="small_ram_title">运行内存小于6GB</string>
     <string name="small_ram_content">看起来您选择了NLLB作为翻译API，但似乎您的设备的运行内存小于6GB，这可能会导致在模型推理时出现问题。请您放心，程序不会因此阻止您使用该模型，但不保证在运行内存小于6GB的情况下不会出现意外。</string>

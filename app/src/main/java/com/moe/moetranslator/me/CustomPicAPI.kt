@@ -34,8 +34,6 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.textfield.TextInputEditText
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentCustomPicApiBinding
-import com.moe.moetranslator.me.ConfigurationStorage.loadPicConfig
-import com.moe.moetranslator.me.ConfigurationStorage.savePicConfig
 import com.moe.moetranslator.utils.CustomPreference
 import kotlinx.coroutines.launch
 
@@ -46,12 +44,14 @@ class CustomPicAPI : Fragment() {
     private var apiCode: Int? = null
     private var config: CustomPicAPIConfig? = null
     private lateinit var prefs: CustomPreference
+    private var isNew = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = CustomPreference.getInstance(requireContext())
         arguments?.let {
             apiCode = it.getInt("custom_code")
+            isNew = it.getBoolean("is_new", false)
         }
     }
 
@@ -72,9 +72,13 @@ class CustomPicAPI : Fragment() {
         setupButtons()
         updateViewVisibility()
 
-        config = loadPicConfig(prefs, apiCode!!)
-        if (config != null) {
-            loadConfig()
+        if (!isNew) {
+            val apiList = ConfigurationStorage.loadPicConfigList(prefs)
+            if (apiCode != null && apiCode!! < apiList.size) {
+                config = apiList[apiCode!!].config
+                binding.editApiName.setText(apiList[apiCode!!].name)
+                loadConfig()
+            }
         }
 
         binding.introduce.setOnClickListener{
@@ -162,6 +166,10 @@ class CustomPicAPI : Fragment() {
         binding.btnAddHeader.setOnClickListener { addKeyValuePair(binding.containerHeaders) }
         binding.btnAddBodyField.setOnClickListener { addKeyValuePair(binding.containerBody) }
         binding.btnSave.setOnClickListener { saveConfiguration() }
+        binding.btnDelete.setOnClickListener { deleteConfiguration() }
+        if (isNew) {
+            binding.btnDelete.visibility = View.GONE
+        }
     }
 
     private fun addKeyValuePair(container: LinearLayout): View {
@@ -177,6 +185,11 @@ class CustomPicAPI : Fragment() {
 
     private fun saveConfiguration() {
         try {
+            val apiName = binding.editApiName.text.toString().trim()
+            if (apiName.isBlank()) {
+                throw Exception(getString(R.string.custom_api_name_blank))
+            }
+
             val normalizedUrl = UrlUtils.normalizeUrl(requireContext(), binding.editBaseUrl.text.toString())
 
             if(binding.editJsonPath.text.toString().trim().isBlank()){
@@ -197,8 +210,10 @@ class CustomPicAPI : Fragment() {
                 jsonResponsePath = binding.editJsonPath.text.toString().trim()
             )
 
+            val named = NamedPicAPIConfig(name = apiName, config = config)
+
             lifecycleScope.launch {
-                savePicConfig(prefs, config, apiCode!!)
+                ConfigurationStorage.savePicConfigToList(prefs, named, apiCode!!)
                 showToast(getString(R.string.save_successfully))
                 requireActivity().finish()
             }
@@ -277,6 +292,26 @@ class CustomPicAPI : Fragment() {
         }
 
         return pairs
+    }
+
+    private fun deleteConfiguration() {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.custom_api_delete)
+            .setMessage(R.string.custom_api_delete_confirm)
+            .setPositiveButton(R.string.user_known) { _, _ ->
+                ConfigurationStorage.deletePicConfig(prefs, apiCode!!)
+                val currentIndex = prefs.getInt("Custom_Pic_API", 0)
+                if (currentIndex == apiCode) {
+                    prefs.setInt("Custom_Pic_API", 0)
+                } else if (currentIndex > apiCode!!) {
+                    prefs.setInt("Custom_Pic_API", currentIndex - 1)
+                }
+                showToast(getString(R.string.save_successfully))
+                requireActivity().finish()
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+            .show()
     }
 
     private fun showToast(message: String) {

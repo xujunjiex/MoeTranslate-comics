@@ -55,6 +55,33 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- API名称输入 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/editApiName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/custom_api_name_hint" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 请求方法选择 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -270,6 +297,15 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/save_configuration" />
+
+        <!-- 删除按钮 -->
+        <Button
+            android:id="@+id/btnDelete"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_api_delete"
+            style="?attr/materialButtonOutlinedStyle" />
 
     </LinearLayout>
 </ScrollView>

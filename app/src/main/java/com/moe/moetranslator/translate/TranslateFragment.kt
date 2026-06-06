@@ -46,6 +46,7 @@ import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.UpdateChecker
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentTranslateBinding
+import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.me.ManageActivity
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
@@ -335,28 +336,9 @@ class TranslateFragment : Fragment() {
                 }
 
                 else -> {
-                    when (customTextApi) {
-                        0 -> {
-                            binding.selectedAPI.text = getString(
-                                R.string.api_name,
-                                getString(R.string.custom)
-                            ) + "1（${getString(R.string.ocr)}）"
-                        }
-
-                        1 -> {
-                            binding.selectedAPI.text = getString(
-                                R.string.api_name,
-                                getString(R.string.custom)
-                            ) + "2（${getString(R.string.ocr)}）"
-                        }
-
-                        else -> {
-                            binding.selectedAPI.text = getString(
-                                R.string.api_name,
-                                getString(R.string.custom)
-                            ) + "3（${getString(R.string.ocr)}）"
-                        }
-                    }
+                    val apiList = ConfigurationStorage.loadTextConfigList(prefs)
+                    val name = if (customTextApi < apiList.size) apiList[customTextApi].name else getString(R.string.custom)
+                    binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.ocr)}）"
                 }
             }
 
@@ -376,28 +358,9 @@ class TranslateFragment : Fragment() {
                 }
 
                 else -> {
-                    when (customPicApi) {
-                        0 -> {
-                            binding.selectedAPI.text = getString(
-                                R.string.api_name,
-                                getString(R.string.custom)
-                            ) + "1（${getString(R.string.pic)}）"
-                        }
-
-                        1 -> {
-                            binding.selectedAPI.text = getString(
-                                R.string.api_name,
-                                getString(R.string.custom)
-                            ) + "2（${getString(R.string.pic)}）"
-                        }
-
-                        else -> {
-                            binding.selectedAPI.text = getString(
-                                R.string.api_name,
-                                getString(R.string.custom)
-                            ) + "3（${getString(R.string.pic)}）"
-                        }
-                    }
+                    val apiList = ConfigurationStorage.loadPicConfigList(prefs)
+                    val name = if (customPicApi < apiList.size) apiList[customPicApi].name else getString(R.string.custom)
+                    binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.pic)}）"
                 }
             }
         }
@@ -733,102 +696,28 @@ class TranslateFragment : Fragment() {
                 }
 
                 else -> {
-                    when (customTextApi) {
-                        0 -> {
-                            if ((prefs.getString("Custom_Text_API_0", "") == "")) {
-                                val dialog = AlertDialog.Builder(requireContext())
-                                    .setTitle(R.string.api_not_config_title)
-                                    .setMessage(R.string.custom_api_not_config_content)
-                                    .setCancelable(false)
-                                    .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                        val intent = Intent(
-                                            requireContext(),
-                                            ManageActivity::class.java
-                                        ).apply {
-                                            putExtra(
-                                                ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                                ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API
-                                            )
-                                            putExtra(
-                                                ManageActivity.EXTRA_CUSTOM_CODE,
-                                                ManageActivity.CODE_CUSTOM_0
-                                            )
-                                        }
-                                        startActivity(intent)
-                                    }
-                                    .setNegativeButton(R.string.user_cancel, null)
-                                    .create()
-                                dialog.show()
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                false
-                            } else {
-                                true
+                    val apiList = ConfigurationStorage.loadTextConfigList(prefs)
+                    val selectedIndex = prefs.getInt("Custom_Text_API", 0)
+                    if (apiList.isEmpty() || selectedIndex >= apiList.size) {
+                        val dialog = AlertDialog.Builder(requireContext())
+                            .setTitle(R.string.api_not_config_title)
+                            .setMessage(R.string.custom_api_not_config_content)
+                            .setCancelable(false)
+                            .setPositiveButton(R.string.go_to_config) { _, _ ->
+                                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
+                                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, 0)
+                                    putExtra(ManageActivity.EXTRA_IS_NEW, true)
+                                }
+                                startActivity(intent)
                             }
-                        }
-
-                        1 -> {
-                            if ((prefs.getString("Custom_Text_API_1", "") == "")) {
-                                val dialog = AlertDialog.Builder(requireContext())
-                                    .setTitle(R.string.api_not_config_title)
-                                    .setMessage(R.string.custom_api_not_config_content)
-                                    .setCancelable(false)
-                                    .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                        val intent = Intent(
-                                            requireContext(),
-                                            ManageActivity::class.java
-                                        ).apply {
-                                            putExtra(
-                                                ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                                ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API
-                                            )
-                                            putExtra(
-                                                ManageActivity.EXTRA_CUSTOM_CODE,
-                                                ManageActivity.CODE_CUSTOM_1
-                                            )
-                                        }
-                                        startActivity(intent)
-                                    }
-                                    .setNegativeButton(R.string.user_cancel, null)
-                                    .create()
-                                dialog.show()
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                false
-                            } else {
-                                true
-                            }
-                        }
-
-                        else -> {
-                            if ((prefs.getString("Custom_Text_API_2", "") == "")) {
-                                val dialog = AlertDialog.Builder(requireContext())
-                                    .setTitle(R.string.api_not_config_title)
-                                    .setMessage(R.string.custom_api_not_config_content)
-                                    .setCancelable(false)
-                                    .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                        val intent = Intent(
-                                            requireContext(),
-                                            ManageActivity::class.java
-                                        ).apply {
-                                            putExtra(
-                                                ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                                ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API
-                                            )
-                                            putExtra(
-                                                ManageActivity.EXTRA_CUSTOM_CODE,
-                                                ManageActivity.CODE_CUSTOM_2
-                                            )
-                                        }
-                                        startActivity(intent)
-                                    }
-                                    .setNegativeButton(R.string.user_cancel, null)
-                                    .create()
-                                dialog.show()
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                false
-                            } else {
-                                true
-                            }
-                        }
+                            .setNegativeButton(R.string.user_cancel, null)
+                            .create()
+                        dialog.show()
+                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                        false
+                    } else {
+                        true
                     }
                 }
             }
@@ -897,102 +786,28 @@ class TranslateFragment : Fragment() {
                 }
 
                 else -> {
-                    when (customPicApi) {
-                        0 -> {
-                            if ((prefs.getString("Custom_Pic_API_0", "") == "")) {
-                                val dialog = AlertDialog.Builder(requireContext())
-                                    .setTitle(R.string.api_not_config_title)
-                                    .setMessage(R.string.custom_api_not_config_content)
-                                    .setCancelable(false)
-                                    .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                        val intent = Intent(
-                                            requireContext(),
-                                            ManageActivity::class.java
-                                        ).apply {
-                                            putExtra(
-                                                ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                                ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API
-                                            )
-                                            putExtra(
-                                                ManageActivity.EXTRA_CUSTOM_CODE,
-                                                ManageActivity.CODE_CUSTOM_0
-                                            )
-                                        }
-                                        startActivity(intent)
-                                    }
-                                    .setNegativeButton(R.string.user_cancel, null)
-                                    .create()
-                                dialog.show()
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                false
-                            } else {
-                                true
+                    val apiList = ConfigurationStorage.loadPicConfigList(prefs)
+                    val selectedIndex = prefs.getInt("Custom_Pic_API", 0)
+                    if (apiList.isEmpty() || selectedIndex >= apiList.size) {
+                        val dialog = AlertDialog.Builder(requireContext())
+                            .setTitle(R.string.api_not_config_title)
+                            .setMessage(R.string.custom_api_not_config_content)
+                            .setCancelable(false)
+                            .setPositiveButton(R.string.go_to_config) { _, _ ->
+                                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
+                                    putExtra(ManageActivity.EXTRA_CUSTOM_CODE, 0)
+                                    putExtra(ManageActivity.EXTRA_IS_NEW, true)
+                                }
+                                startActivity(intent)
                             }
-                        }
-
-                        1 -> {
-                            if ((prefs.getString("Custom_Pic_API_1", "") == "")) {
-                                val dialog = AlertDialog.Builder(requireContext())
-                                    .setTitle(R.string.api_not_config_title)
-                                    .setMessage(R.string.custom_api_not_config_content)
-                                    .setCancelable(false)
-                                    .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                        val intent = Intent(
-                                            requireContext(),
-                                            ManageActivity::class.java
-                                        ).apply {
-                                            putExtra(
-                                                ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                                ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API
-                                            )
-                                            putExtra(
-                                                ManageActivity.EXTRA_CUSTOM_CODE,
-                                                ManageActivity.CODE_CUSTOM_1
-                                            )
-                                        }
-                                        startActivity(intent)
-                                    }
-                                    .setNegativeButton(R.string.user_cancel, null)
-                                    .create()
-                                dialog.show()
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                false
-                            } else {
-                                true
-                            }
-                        }
-
-                        else -> {
-                            if ((prefs.getString("Custom_Pic_API_2", "") == "")) {
-                                val dialog = AlertDialog.Builder(requireContext())
-                                    .setTitle(R.string.api_not_config_title)
-                                    .setMessage(R.string.custom_api_not_config_content)
-                                    .setCancelable(false)
-                                    .setPositiveButton(R.string.go_to_config) { _, _ ->
-                                        val intent = Intent(
-                                            requireContext(),
-                                            ManageActivity::class.java
-                                        ).apply {
-                                            putExtra(
-                                                ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                                ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API
-                                            )
-                                            putExtra(
-                                                ManageActivity.EXTRA_CUSTOM_CODE,
-                                                ManageActivity.CODE_CUSTOM_2
-                                            )
-                                        }
-                                        startActivity(intent)
-                                    }
-                                    .setNegativeButton(R.string.user_cancel, null)
-                                    .create()
-                                dialog.show()
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                false
-                            } else {
-                                true
-                            }
-                        }
+                            .setNegativeButton(R.string.user_cancel, null)
+                            .create()
+                        dialog.show()
+                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                        false
+                    } else {
+                        true
                     }
                 }
             }

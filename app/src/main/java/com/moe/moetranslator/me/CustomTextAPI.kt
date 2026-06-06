@@ -34,8 +34,6 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.textfield.TextInputEditText
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentCustomTextApiBinding
-import com.moe.moetranslator.me.ConfigurationStorage.loadTextConfig
-import com.moe.moetranslator.me.ConfigurationStorage.saveTextConfig
 import com.moe.moetranslator.utils.CustomPreference
 import kotlinx.coroutines.launch
 
@@ -45,12 +43,14 @@ class CustomTextAPI :Fragment() {
     private var apiCode: Int? = null
     private var config: CustomTextAPIConfig? = null
     private lateinit var prefs: CustomPreference
+    private var isNew = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = CustomPreference.getInstance(requireContext())
         arguments?.let {
             apiCode = it.getInt("custom_code")
+            isNew = it.getBoolean("is_new", false)
         }
     }
 
@@ -70,9 +70,13 @@ class CustomTextAPI :Fragment() {
         setupButtons()
         updateViewVisibility()
 
-        config = loadTextConfig(prefs, apiCode!!)
-        if ( config!= null ){
-            loadConfig()
+        if (!isNew) {
+            val apiList = ConfigurationStorage.loadTextConfigList(prefs)
+            if (apiCode != null && apiCode!! < apiList.size) {
+                config = apiList[apiCode!!].config
+                binding.editApiName.setText(apiList[apiCode!!].name)
+                loadConfig()
+            }
         }
 
         binding.introduce.setOnClickListener{
@@ -129,6 +133,10 @@ class CustomTextAPI :Fragment() {
         binding.btnAddHeader.setOnClickListener { addKeyValuePair(binding.containerHeaders) }
         binding.btnAddJsonField.setOnClickListener { addKeyValuePair(binding.containerJsonBody) }
         binding.btnSave.setOnClickListener { saveConfiguration() }
+        binding.btnDelete.setOnClickListener { deleteConfiguration() }
+        if (isNew) {
+            binding.btnDelete.visibility = View.GONE
+        }
     }
 
     private fun addKeyValuePair(container: LinearLayout): View {
@@ -145,6 +153,11 @@ class CustomTextAPI :Fragment() {
 
     private fun saveConfiguration() {
         try{
+            val apiName = binding.editApiName.text.toString().trim()
+            if (apiName.isBlank()) {
+                throw Exception(getString(R.string.custom_api_name_blank))
+            }
+
             val normalizedUrl = UrlUtils.normalizeUrl(requireContext(), binding.editBaseUrl.text.toString())
 
             if(binding.editJsonPath.text.toString().trim().isBlank()){
@@ -160,8 +173,10 @@ class CustomTextAPI :Fragment() {
                 jsonResponsePath = binding.editJsonPath.text.toString().trim()
             )
 
+            val named = NamedTextAPIConfig(name = apiName, config = config)
+
             lifecycleScope.launch {
-                saveTextConfig(prefs, config, apiCode!!)
+                ConfigurationStorage.saveTextConfigToList(prefs, named, apiCode!!)
                 showToast(getString(R.string.save_successfully))
                 requireActivity().finish()
             }
@@ -236,6 +251,26 @@ class CustomTextAPI :Fragment() {
         }
 
         return pairs
+    }
+
+    private fun deleteConfiguration() {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.custom_api_delete)
+            .setMessage(R.string.custom_api_delete_confirm)
+            .setPositiveButton(R.string.user_known) { _, _ ->
+                ConfigurationStorage.deleteTextConfig(prefs, apiCode!!)
+                val currentIndex = prefs.getInt("Custom_Text_API", 0)
+                if (currentIndex == apiCode) {
+                    prefs.setInt("Custom_Text_API", 0)
+                } else if (currentIndex > apiCode!!) {
+                    prefs.setInt("Custom_Text_API", currentIndex - 1)
+                }
+                showToast(getString(R.string.save_successfully))
+                requireActivity().finish()
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+            .show()
     }
 
     private fun showToast(message: String) {
