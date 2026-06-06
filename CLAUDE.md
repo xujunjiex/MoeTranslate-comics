@@ -163,6 +163,10 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 - Room 数据库 `translation_history.db`，version 2，`fallbackToDestructiveMigration`
 - 历史 UI：`ui/history/HistoryFragment`，游戏列表 + 漫画网格
 
+**缓存标识：**
+- 游戏翻译：`FloatingBallService` 缓存命中时，翻译文本前显示"⚡"标识（紧凑前缀，不换行）
+- 漫画翻译：`MangaFloatingService` 缓存命中时，`showCacheOverlay()` 显示左上角橙色"⚡ 缓存"标签 + 刷新按钮
+
 ## 日志规范
 
 **所有日志必须通过 `LogCollector` 写入**，不能直接用 `Log.d/i/e`。

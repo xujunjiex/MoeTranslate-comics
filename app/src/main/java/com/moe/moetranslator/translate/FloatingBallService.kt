@@ -804,7 +804,7 @@ class FloatingBallService : LifecycleService() {
                     LogCollector.d("FloatingBallService", "缓存命中, historyId=${cached.historyId}")
                     lastCacheHit = true
                     withContext(Dispatchers.Main) {
-                        floatingTextView.text = cached.translatedText
+                        floatingTextView.text = "⚡ " + cached.translatedText
                     }
                     isTranslating.set(false)
                     return

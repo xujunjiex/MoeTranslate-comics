@@ -52,6 +52,7 @@
     <string name="error_code">错误代码</string>
     <string name="check_update">检查更新</string>
     <string name="clear_cache">清除缓存</string>
+    <string name="cache_indicator">⚡ 缓存</string>
     <string name="about_page">关于</string>
     <string name="choose_mode">选择您希望使用的翻译模式</string>
     <string name="ocr_mode">本地OCR识别+文本翻译<font color="#55AEEA">（推荐）</font></string>

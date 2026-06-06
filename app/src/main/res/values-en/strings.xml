@@ -51,6 +51,7 @@
     <string name="error_code">Error Code</string>
     <string name="check_update">Check for Updates</string>
     <string name="clear_cache">Clear Cache</string>
+    <string name="cache_indicator">⚡ Cache</string>
     <string name="about_page">About</string>
     <string name="choose_mode">Select the translation mode you wish to use</string>
     <string name="ocr_mode">Local OCR Recognition + Text Translation<font color="#55AEEA">(Recommended)</font></string>
