@@ -27,6 +27,9 @@ import android.os.Handler
 import android.os.Looper
 import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.TranslationCacheManager
+import com.moe.moetranslator.manga.MangaOcrBridge
+import com.moe.moetranslator.manga.MangaOcrDownloadManager
+import com.moe.moetranslator.manga.PPOcrV5Engine
 import com.moe.moetranslator.utils.PerceptualHash
 import com.moe.moetranslator.utils.LogCollector
 import android.util.Log
@@ -431,95 +434,113 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun showLongPressMenu() {
-        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, lastCacheHit)
+        val ocrLabel = getOcrEngineLabel()
+        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, lastCacheHit, ocrLabel)
+
+        // 动态计算菜单索引
+        var idx = 4  // 前 4 项固定：框选、位置、移除、字体
+        val ocrIdx = idx++                  // OCR 模型
+        val historyIdx = idx++              // 历史
+        val refreshIdx = if (lastCacheHit) idx++ else -1  // 重新翻译
+        val autoIdx = idx++                 // 自动翻译
+        val closeIdx = idx++                // 关闭
+        val backIdx = idx++                 // 返回
+
         listView.onItemClickListener = object : AdapterView.OnItemClickListener {
             override fun onItemClick(p0: AdapterView<*>?, p1: View?, p2: Int, p3: Long) {
-                if (lastCacheHit) {
-                    // 缓存命中时的菜单：裁剪、位置、关闭结果、字体大小、历史、重新翻译、自动翻译、关闭球、主页
-                    when (p2) {
-                        0 -> {
-                            when (currentBallStatus) {
-                                is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
-                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
-                                is BallStatus.Normal -> setCropView()
-                            }
+                when (p2) {
+                    0 -> {
+                        when (currentBallStatus) {
+                            is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
+                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                            is BallStatus.Normal -> setCropView()
                         }
-                        1 -> {
-                            when (currentBallStatus) {
-                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                                is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
-                                is BallStatus.Normal -> setMovingTextView()
-                            }
-                        }
-                        2 -> {
-                            when (currentBallStatus) {
-                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
-                                is BallStatus.Normal -> {
-                                    if(isViewAdded(floatingTextView)){
-                                        windowManager.removeView(floatingTextView)
-                                    }else{
-                                        showToast(getString(R.string.not_added_remove), true)
-                                    }
-                                }
-                            }
-                        }
-                        3 -> showFontSizeDialog()
-                        4 -> showTranslationHistoryDialog()
-                        5 -> {
-                            // 重新翻译：设置 forceRefresh 后触发翻译
-                            forceRefresh = true
-                            if (AccessibilityServiceManager.getService() != null) {
-                                AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
-                            }
-                        }
-                        6 -> toggleAutoTranslate()
-                        7 -> stopServiceAndRemoveViews()
-                        8 -> backToMainActivity()
+                        dialog.dismiss()
                     }
-                } else {
-                    // 无缓存命中时的菜单（原有逻辑）
-                    when (p2) {
-                        0 -> {
-                            when (currentBallStatus) {
-                                is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
-                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
-                                is BallStatus.Normal -> setCropView()
-                            }
+                    1 -> {
+                        when (currentBallStatus) {
+                            is BallStatus.Crop -> showToast(getString(R.string.crop_first))
+                            is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
+                            is BallStatus.Normal -> setMovingTextView()
                         }
-                        1 -> {
-                            when (currentBallStatus) {
-                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                                is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
-                                is BallStatus.Normal -> setMovingTextView()
-                            }
-                        }
-                        2 -> {
-                            when (currentBallStatus) {
-                                is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                                is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
-                                is BallStatus.Normal -> {
-                                    if(isViewAdded(floatingTextView)){
-                                        windowManager.removeView(floatingTextView)
-                                    }else{
-                                        showToast(getString(R.string.not_added_remove), true)
-                                    }
+                        dialog.dismiss()
+                    }
+                    2 -> {
+                        when (currentBallStatus) {
+                            is BallStatus.Crop -> showToast(getString(R.string.crop_first))
+                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                            is BallStatus.Normal -> {
+                                if(isViewAdded(floatingTextView)){
+                                    windowManager.removeView(floatingTextView)
+                                }else{
+                                    showToast(getString(R.string.not_added_remove), true)
                                 }
                             }
                         }
-                        3 -> showFontSizeDialog()
-                        4 -> toggleAutoTranslate()
-                        5 -> stopServiceAndRemoveViews()
-                        6 -> backToMainActivity()
+                        dialog.dismiss()
+                    }
+                    3 -> {
+                        showFontSizeDialog()
+                        dialog.dismiss()
+                    }
+                    ocrIdx -> {
+                        // 循环切换，不关闭菜单
+                        cycleOcrEngine()
+                        val adapter = listView.adapter as MenuDialogAdapter
+                        adapter.updateLabel(ocrIdx, getString(R.string.game_ocr_engine_label) + "：" + getOcrEngineLabel())
+                    }
+                    historyIdx -> {
+                        showTranslationHistoryDialog()
+                        dialog.dismiss()
+                    }
+                    refreshIdx -> {
+                        forceRefresh = true
+                        if (AccessibilityServiceManager.getService() != null) {
+                            AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
+                        }
+                        dialog.dismiss()
+                    }
+                    autoIdx -> {
+                        toggleAutoTranslate()
+                        dialog.dismiss()
+                    }
+                    closeIdx -> {
+                        stopServiceAndRemoveViews()
+                        dialog.dismiss()
+                    }
+                    backIdx -> {
+                        backToMainActivity()
+                        dialog.dismiss()
                     }
                 }
-                dialog.dismiss()
             }
         }
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun getOcrEngineLabel(): String {
+        return when (prefs.getInt("Game_OCR_Engine", 0)) {
+            1 -> getString(R.string.game_ocr_engine_ppocr)
+            2 -> getString(R.string.game_ocr_engine_manga_ocr)
+            else -> getString(R.string.game_ocr_engine_mlkit)
+        }
+    }
+
+    /** 循环切换 OCR 引擎：MLKit → PP-OCRv5 → manga-ocr → MLKit */
+    private fun cycleOcrEngine() {
+        val current = prefs.getInt("Game_OCR_Engine", 0)
+        val next = (current + 1) % 3
+        prefs.setInt("Game_OCR_Engine", next)
+        val label = when (next) {
+            1 -> getString(R.string.game_ocr_engine_ppocr)
+            2 -> getString(R.string.game_ocr_engine_manga_ocr)
+            else -> getString(R.string.game_ocr_engine_mlkit)
+        }
+        LogCollector.d("FloatingBallService", "OCR 引擎切换为: $label")
+        showToast(getString(R.string.game_ocr_engine_label) + "：$label")
     }
 
     private fun showTranslationHistoryDialog() {
@@ -533,12 +554,13 @@ class FloatingBallService : LifecycleService() {
                     showToast("暂无翻译历史", true)
                     return@launch
                 }
+                val dateFormat = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
                 val items = historyList.map { entry ->
-                    val time = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
-                        .format(java.util.Date(entry.createdAt))
-                    val source = entry.sourceText?.take(30) ?: ""
-                    val translated = entry.translatedText?.take(30) ?: ""
-                    "[$time] $source\n→ $translated"
+                    Dialogs.HistoryItem(
+                        time = dateFormat.format(java.util.Date(entry.createdAt)),
+                        source = entry.sourceText?.take(50) ?: "",
+                        translated = entry.translatedText?.take(50) ?: ""
+                    )
                 }
                 withContext(Dispatchers.Main) {
                     val histDialog = Dialogs.historyDialog(applicationContext, items) { position ->
@@ -784,7 +806,7 @@ class FloatingBallService : LifecycleService() {
 
             if(prefs.getInt("Translate_Mode", 0) == 0){
                 // OCR后文本翻译
-                val txt = OCRTextRecognizer.getPicText(prefs.getString("Source_Language", "ja"), bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
+                val txt = performOcr(bitmap)
                 // 判断是否为自动翻译模式
                 if (isAutoTranslating) {
                     if (shouldTranslateText(txt)) {
@@ -807,6 +829,67 @@ class FloatingBallService : LifecycleService() {
             showToast(getString(R.string.translation_failed, e.message))
         }finally {
             bitmap.recycle()
+        }
+    }
+
+    /**
+     * 根据用户选择的 OCR 引擎执行文字识别。
+     * 0=MLKit, 1=PP-OCRv5, 2=manga-ocr
+     */
+    private suspend fun performOcr(bitmap: Bitmap): String {
+        val engine = prefs.getInt("Game_OCR_Engine", 0)
+        val language = prefs.getString("Source_Language", "ja")
+        return when (engine) {
+            1 -> {
+                // PP-OCRv5
+                initPPOcrV5IfNeeded()
+                val recLang = PPOcrV5Engine.getRecLang(language)
+                if (recLang != null) {
+                    val result = withContext(Dispatchers.IO) {
+                        PPOcrV5Engine.runOCR(this@FloatingBallService, bitmap, recLang, useDet = true, useCls = false)
+                    }
+                    result.texts.joinToString("")
+                } else {
+                    LogCollector.w("FloatingBallService", "PP-OCRv5 不支持语言: $language, 回退 ML Kit")
+                    OCRTextRecognizer.getPicText(language, bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
+                }
+            }
+            2 -> {
+                // manga-ocr: ML Kit 检测位置 + manga-ocr 识别
+                initMangaOcrIfNeeded()
+                if (MangaOcrBridge.isAvailable()) {
+                    val textBlocks = MangaOcrBridge.recognizeWithLocation(bitmap, language)
+                    textBlocks.joinToString("\n") { it.text }
+                } else {
+                    LogCollector.w("FloatingBallService", "manga-ocr 未初始化, 回退 ML Kit")
+                    OCRTextRecognizer.getPicText(language, bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
+                }
+            }
+            else -> {
+                // ML Kit (默认)
+                OCRTextRecognizer.getPicText(language, bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
+            }
+        }
+    }
+
+    private fun initPPOcrV5IfNeeded() {
+        if (PPOcrV5Engine.isInitialized) return
+        synchronized(PPOcrV5Engine) {
+            if (!PPOcrV5Engine.isInitialized) {
+                PPOcrV5Engine.initialize(this)
+            }
+        }
+    }
+
+    private suspend fun initMangaOcrIfNeeded() {
+        if (MangaOcrBridge.isAvailable()) return
+        try {
+            val activeVersion = MangaOcrDownloadManager.getActiveVersion(this)
+            if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this, activeVersion)) {
+                MangaOcrBridge.initializeDownloaded(this, activeVersion)
+            }
+        } catch (e: Exception) {
+            LogCollector.e("FloatingBallService", "manga-ocr 初始化失败", e)
         }
     }
 

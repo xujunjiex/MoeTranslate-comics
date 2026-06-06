@@ -16,6 +16,7 @@ import androidx.room.PrimaryKey
         )
     ],
     indices = [
+        Index(value = ["historyId"]),
         Index(value = ["pHash", "mode"]),
         Index(value = ["lastAccessedAt"])
     ]

@@ -22,7 +22,6 @@ import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
-import android.text.InputType
 import android.view.LayoutInflater
 import android.widget.EditText
 import android.widget.TextView
@@ -36,7 +35,6 @@ import com.jaredrummler.android.colorpicker.ColorPreferenceCompat
 import com.moe.moetranslator.R
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CustomLocale
-import com.moe.moetranslator.translate.DecimalDigitsInputFilter
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
@@ -59,8 +57,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var resultFontSize: Preference
     private lateinit var ocrMergeMode: ListPreference
     private lateinit var autoInterval: Preference
-    private lateinit var autoStrLength: Preference
-    private lateinit var autoStrSimilarity: Preference
     private lateinit var showSource: ListPreference
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
@@ -81,8 +77,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         resultFontSize = findPreference<Preference>("result_font_size")!!
         ocrMergeMode = findPreference<ListPreference>("ocr_merge_mode")!!
         autoInterval = findPreference<Preference>("auto_translate_interval")!!
-        autoStrLength = findPreference<Preference>("auto_translate_str_length")!!
-        autoStrSimilarity = findPreference<Preference>("auto_translate_str_similarity")!!
         showSource = findPreference<ListPreference>("show_source_text")!!
         languagePreference = findPreference<ListPreference>("app_language")!!
 
@@ -231,18 +225,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 自动翻译字长阈值
-        autoStrLength.setOnPreferenceClickListener {
-            showStrLengthDialog()
-            true
-        }
-
-        // 自动翻译相似度阈值
-        autoStrSimilarity.setOnPreferenceClickListener {
-            showStrSimilarityDialog()
-            true
-        }
-
         // 提示文本
         findPreference<SwitchPreference>("adjust_tip")?.setOnPreferenceChangeListener { preference, newValue ->
             prefs.setBoolean("Custom_Adjust_Not_Text", newValue as Boolean)
@@ -253,8 +235,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         updateIconSummary()
         updatePressSummary()
         updateIntervalSummary()
-        updateStrLengthSummary()
-        updateStrSimilaritySummary()
         updateFontSummary()
         updateFontSizeSummary()
         updateDismissDelaySummary()
@@ -333,14 +313,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
     private fun updateIntervalSummary() {
         autoInterval.summary = getString(R.string.auto_translate_interval_summary, prefs.getLong("Auto_Translate_Interval", 3000L).toString())
-    }
-
-    private fun updateStrLengthSummary() {
-        autoStrLength.summary = getString(R.string.auto_translate_str_length_summary, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
-    }
-
-    private fun updateStrSimilaritySummary() {
-        autoStrSimilarity.summary = getString(R.string.auto_translate_str_similarity_summary, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
     }
 
     private fun updateFontSummary() {
@@ -470,68 +442,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             .create()
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
-
-    private fun showStrLengthDialog() {
-        val customView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_message_edittext, null)
-        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = getString(R.string.int_only)
-        }
-        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            hint = getString(R.string.current_str_length, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
-        }
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.set_str_length)
-            .setView(customView)
-            .setPositiveButton(R.string.save) { _, _ ->
-                try {
-                    val value = input.text.toString().toInt()
-                    prefs.setInt("Auto_Translate_Str_Length", value)
-                    updateStrLengthSummary()
-                } catch (e: Exception) {
-                    showToast(getString(R.string.font_size_invalid), true)
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
-
-    private fun showStrSimilarityDialog(){
-        val layout = LayoutInflater.from(context).inflate(R.layout.dialog_message_edittext, null)
-        layout.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = context.getString(R.string.str_similarity_tips)
-        }
-        val editText = layout.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            filters = arrayOf(DecimalDigitsInputFilter())
-            hint = context.getString(R.string.current_str_similarity, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
-        }
-
-        val res = AlertDialog.Builder(context)
-            .setTitle(R.string.set_str_similarity)
-            .setView(layout)
-            .setPositiveButton(R.string.save) { _, _ ->
-                val sizeText = editText.text.toString()
-                try {
-                    val size = sizeText.toFloat()
-                    if ((size >= 0) && (size <= 1)) {
-                        prefs.setFloat("Auto_Translate_Str_Similarity", size)
-                        updateStrSimilaritySummary()
-                    } else {
-                        showToast(getString(R.string.font_size_invalid))
-                    }
-                } catch (e: java.lang.Exception) {
-                    showToast(getString(R.string.font_size_invalid))
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .create()
-        res.show()
-        res.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun showFontOptionsDialog() {

@@ -20,7 +20,7 @@ class TranslationCacheManager(private val context: Context) {
         const val MODE_GAME = 0
         const val MODE_MANGA = 1
         private const val MAX_CACHE_PER_MODE = 10
-        private const val SIMILARITY_THRESHOLD = 0.85f
+        private const val SIMILARITY_THRESHOLD_MANGA = 0.92f
         private const val THUMBNAIL_SIZE = 200
     }
 
@@ -31,7 +31,7 @@ class TranslationCacheManager(private val context: Context) {
     // ========== 缓存操作 ==========
 
     /**
-     * 查找缓存。先精确匹配 pHash，再相似度匹配。
+     * 查找缓存。先精确匹配 pHash，再相似度匹配（阈值按模式区分）。
      * @return 命中时返回 CacheResult，未命中返回 null
      */
     suspend fun findCache(pHash: Long, mode: Int): CacheResult? = withContext(Dispatchers.IO) {
@@ -46,24 +46,26 @@ class TranslationCacheManager(private val context: Context) {
             }
         }
 
-        // 2. 相似度匹配
-        val allCache = dao.getAllCacheByMode(mode)
-        var bestMatch: PageCacheEntity? = null
-        var bestSimilarity = 0f
-        for (entry in allCache) {
-            val sim = PerceptualHash.similarity(pHash, entry.pHash)
-            if (sim >= SIMILARITY_THRESHOLD && sim > bestSimilarity) {
-                bestSimilarity = sim
-                bestMatch = entry
+        // 2. 相似度匹配（仅漫画模式，游戏模式背景几乎不变会导致误判）
+        if (mode == MODE_MANGA) {
+            val allCache = dao.getAllCacheByMode(mode)
+            var bestMatch: PageCacheEntity? = null
+            var bestSimilarity = 0f
+            for (entry in allCache) {
+                val sim = PerceptualHash.similarity(pHash, entry.pHash)
+                if (sim >= SIMILARITY_THRESHOLD_MANGA && sim > bestSimilarity) {
+                    bestSimilarity = sim
+                    bestMatch = entry
+                }
             }
-        }
 
-        if (bestMatch != null) {
-            dao.updateLastAccessed(bestMatch.id, System.currentTimeMillis())
-            val history = dao.getHistoryById(bestMatch.historyId)
-            if (history != null) {
-                LogCollector.d(TAG, "findCache: 相似度命中 (${bestSimilarity}), historyId=${history.id}")
-                return@withContext buildCacheResult(history)
+            if (bestMatch != null) {
+                dao.updateLastAccessed(bestMatch.id, System.currentTimeMillis())
+                val history = dao.getHistoryById(bestMatch.historyId)
+                if (history != null) {
+                    LogCollector.d(TAG, "findCache: 相似度命中 (${bestSimilarity}), historyId=${history.id}")
+                    return@withContext buildCacheResult(history)
+                }
             }
         }
 

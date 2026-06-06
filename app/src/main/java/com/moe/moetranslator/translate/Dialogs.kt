@@ -24,6 +24,9 @@ import android.text.InputFilter
 import android.text.InputType
 import android.text.Spanned
 import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.ListView
@@ -43,60 +46,56 @@ data class DialogResult(
 
 object Dialogs {
     @SuppressLint("MissingInflatedId")
-    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, lastCacheHit: Boolean = false): DialogResult {
-        val strlist = when {
-            lastCacheHit && isAutoTranslating -> ctx.resources.getStringArray(R.array.menu_item_game_cache_hit_auto_on)
-            lastCacheHit -> ctx.resources.getStringArray(R.array.menu_item_game_cache_hit)
-            isAutoTranslating -> ctx.resources.getStringArray(R.array.menu_item_auto_on)
-            else -> ctx.resources.getStringArray(R.array.menu_item_auto_off)
+    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, lastCacheHit: Boolean = false, ocrEngineLabel: String = ""): DialogResult {
+        // 动态构建菜单项
+        val strItems = mutableListOf<String>()
+        val imgItems = mutableListOf<Int>()
+
+        // 0: 框选位置
+        strItems.add(ctx.getString(R.string.game_crop_position))
+        imgItems.add(R.drawable.crop_screen)
+        // 1: 调整位置
+        strItems.add(ctx.getString(R.string.game_adjust_position))
+        imgItems.add(R.drawable.result_position)
+        // 2: 移除结果
+        strItems.add(ctx.getString(R.string.game_remove_result))
+        imgItems.add(R.drawable.remove_result)
+        // 3: 字体大小
+        strItems.add(ctx.getString(R.string.game_font_size))
+        imgItems.add(R.drawable.result_size)
+        // 4: OCR 模型（动态标签）
+        if (ocrEngineLabel.isNotEmpty()) {
+            strItems.add(ctx.getString(R.string.game_ocr_engine_label) + "：" + ocrEngineLabel)
+            imgItems.add(R.drawable.ocr_engine)
         }
-        val imglist = when {
-            lastCacheHit && isAutoTranslating -> arrayOf(
-                R.drawable.crop_screen,
-                R.drawable.result_position,
-                R.drawable.remove_result,
-                R.drawable.result_size,
-                R.drawable.ic_history,
-                R.drawable.ic_refresh,
-                R.drawable.stop_auto,
-                R.drawable.close_service,
-                R.drawable.back_home
-            )
-            lastCacheHit -> arrayOf(
-                R.drawable.crop_screen,
-                R.drawable.result_position,
-                R.drawable.remove_result,
-                R.drawable.result_size,
-                R.drawable.ic_history,
-                R.drawable.ic_refresh,
-                R.drawable.start_auto,
-                R.drawable.close_service,
-                R.drawable.back_home
-            )
-            isAutoTranslating -> arrayOf(
-                R.drawable.crop_screen,
-                R.drawable.result_position,
-                R.drawable.remove_result,
-                R.drawable.result_size,
-                R.drawable.stop_auto,
-                R.drawable.close_service,
-                R.drawable.back_home
-            )
-            else -> arrayOf(
-                R.drawable.crop_screen,
-                R.drawable.result_position,
-                R.drawable.remove_result,
-                R.drawable.result_size,
-                R.drawable.start_auto,
-                R.drawable.close_service,
-                R.drawable.back_home
-            )
+        // 5: 翻译历史
+        strItems.add(ctx.getString(R.string.game_translation_history))
+        imgItems.add(R.drawable.ic_history)
+        // 6: 重新翻译（缓存命中时）
+        if (lastCacheHit) {
+            strItems.add(ctx.getString(R.string.game_refresh_translation))
+            imgItems.add(R.drawable.ic_refresh)
         }
-        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null,false)
+        // 自动翻译
+        if (isAutoTranslating) {
+            strItems.add(ctx.getString(R.string.game_stop_auto))
+            imgItems.add(R.drawable.stop_auto)
+        } else {
+            strItems.add(ctx.getString(R.string.game_start_auto))
+            imgItems.add(R.drawable.start_auto)
+        }
+        // 关闭悬浮球
+        strItems.add(ctx.getString(R.string.game_close_ball))
+        imgItems.add(R.drawable.close_service)
+        // 返回主界面
+        strItems.add(ctx.getString(R.string.game_back_main))
+        imgItems.add(R.drawable.back_home)
+
+        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
-        lv.adapter = MenuDialogAdapter(ctx,strlist,imglist)
+        lv.adapter = MenuDialogAdapter(ctx, strItems.toTypedArray(), imgItems.toTypedArray())
         if (isAutoTranslating) {
             welcome.text = ctx.getString(R.string.floating_ball_menu_1)
             img.setImageResource(R.drawable.fist_pump_star)
@@ -107,20 +106,21 @@ object Dialogs {
         val dialog = AlertDialog.Builder(ctx)
             .setView(view)
             .setCancelable(false)
-            .setNegativeButton(R.string.user_cancel,null)
+            .setNegativeButton(R.string.user_cancel, null)
             .create()
         return DialogResult(dialog, lv)
     }
 
-    fun historyDialog(ctx: Context, items: List<String>, onItemClick: (Int) -> Unit): AlertDialog {
+    data class HistoryItem(val time: String, val source: String, val translated: String)
+
+    fun historyDialog(ctx: Context, items: List<HistoryItem>, onItemClick: (Int) -> Unit): AlertDialog {
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
-        welcome.text = ctx.getString(R.string.floating_ball_menu_2)
-        img.setImageResource(R.drawable.speed_star)
-        val imgArray = Array(items.size) { R.drawable.ic_history }
-        lv.adapter = MenuDialogAdapter(ctx, items.toTypedArray(), imgArray)
+        welcome.text = ctx.getString(R.string.game_translation_history)
+        img.setImageResource(R.drawable.ic_history)
+        lv.adapter = HistoryListAdapter(ctx, items)
         lv.setOnItemClickListener { _, _, position, _ ->
             onItemClick(position)
         }
@@ -130,6 +130,27 @@ object Dialogs {
             .setNegativeButton(R.string.user_cancel, null)
             .create()
         return dialog
+    }
+
+    private class HistoryListAdapter(
+        private val ctx: Context,
+        private val items: List<HistoryItem>
+    ) : BaseAdapter() {
+        private val inflater = LayoutInflater.from(ctx)
+
+        override fun getCount() = items.size
+        override fun getItem(position: Int) = items[position]
+        override fun getItemId(position: Int) = position.toLong()
+
+        @SuppressLint("ViewHolder")
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val v = inflater.inflate(R.layout.dialog_history_item, parent, false)
+            val item = items[position]
+            v.findViewById<TextView>(R.id.history_time).text = item.time
+            v.findViewById<TextView>(R.id.history_source).text = item.source
+            v.findViewById<TextView>(R.id.history_translated).text = "→ " + item.translated
+            return v
+        }
     }
 
     fun mangaMenuDialog(

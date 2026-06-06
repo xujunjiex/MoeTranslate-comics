@@ -41,8 +41,16 @@ object ScreenshotManager {
     private val _screenshotFlow = MutableSharedFlow<Bitmap>()
     val screenshotFlow = _screenshotFlow.asSharedFlow()
 
+    // 内容变化事件流（AccessibilityService 通知 MangaFloatingService 加速检测）
+    private val _contentChangedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val contentChangedFlow = _contentChangedFlow.asSharedFlow()
+
     suspend fun emitScreenshot(screenshot: Bitmap) {
         _screenshotFlow.emit(screenshot)
+    }
+
+    fun notifyContentChanged() {
+        _contentChangedFlow.tryEmit(Unit)
     }
 }
 
@@ -147,7 +155,10 @@ class ScreenShotAccessibilityService: AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // 处理无障碍事件
+        // 通知自动翻译加速检测（TYPE_WINDOW_CONTENT_CHANGED 表示屏幕内容变化）
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            ScreenshotManager.notifyContentChanged()
+        }
     }
 
     override fun onInterrupt() {

@@ -522,4 +522,19 @@
     <string name="history_deleted">History deleted</string>
     <string name="history_cleared">History cleared</string>
     <string name="history_copied">Copied to clipboard</string>
+    <string name="game_ocr_engine_label">OCR Model</string>
+    <string name="game_ocr_engine_mlkit">ML Kit</string>
+    <string name="game_ocr_engine_ppocr">PP-OCRv5</string>
+    <string name="game_ocr_engine_manga_ocr">manga-ocr</string>
+    <string name="game_ocr_engine_select">Select OCR Engine</string>
+    <string name="game_crop_position">Select Translation Area</string>
+    <string name="game_adjust_position">Adjust Translation Result Position</string>
+    <string name="game_remove_result">Close Translation Result</string>
+    <string name="game_font_size">Set Font Size</string>
+    <string name="game_translation_history">Translation History</string>
+    <string name="game_refresh_translation">Refresh Translation</string>
+    <string name="game_start_auto">Turn On Automatic Translation</string>
+    <string name="game_stop_auto">Turn Off Automatic Translation</string>
+    <string name="game_close_ball">Close Floating Ball</string>
+    <string name="game_back_main">Return to StarFlow Main Page</string>
 </resources>
