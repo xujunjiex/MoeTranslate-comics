@@ -45,7 +45,6 @@ class APIConfig : PreferenceFragmentCompat() {
             allTranslationKeys = listOf(
                 "mlkit_translation", "nllb_translation",
                 "ui_bing_translation_text", "ui_niu_translation_text",
-                "ui_openai_translation_text",
                 "ui_volc_translation_text", "ui_azure_translation_text", "ui_deepl_translation_text",
                 "ui_baidu_translation_text", "ui_tencent_translation_text"
             )
@@ -287,9 +286,10 @@ class APIConfig : PreferenceFragmentCompat() {
                     setKey(key)
                 }
                 Constants.TextApi.OPENAI.id -> {
-                    val key = "ui_openai_translation_text"
+                    // OpenAI通过厂商列表的select switch来选中
+                    val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
+                    val key = "ui_openai_provider_select_$selectedProvider"
                     findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                    setKey(key)
                 }
                 Constants.TextApi.VOLC.id -> {
                     val key = "ui_volc_translation_text"
@@ -359,6 +359,16 @@ class APIConfig : PreferenceFragmentCompat() {
             for (i in 0 until it.preferenceCount) {
                 val pref = it.getPreference(i)
                 if (pref is SwitchPreferenceCompat && pref.key != null && pref.key!!.startsWith("ui_custom_api_")) {
+                    pref.isChecked = false
+                }
+            }
+        }
+        // 关闭 OpenAI 厂商 switches
+        val openaiCategory = findPreference<PreferenceCategory>("ui_openai_providers")
+        openaiCategory?.let {
+            for (i in 0 until it.preferenceCount) {
+                val pref = it.getPreference(i)
+                if (pref is SwitchPreferenceCompat && pref.key != null && pref.key!!.startsWith("ui_openai_provider_select_")) {
                     pref.isChecked = false
                 }
             }
