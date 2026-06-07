@@ -150,10 +150,11 @@ class AutoTranslateEngine(
             return Decision.CacheHit(dbCache, "database")
         }
 
-        // 文字不同且无缓存 → 直接翻译
-        LogCollector.d(TAG, "【翻译中】文字不同且无缓存 (sim=${"%.2f".format(sim)}): ${normalizedText.take(20)}...")
+        // 文字不同且无缓存 → 等待稳定
+        LogCollector.d(TAG, "【等待】文字不同且无缓存 (sim=${"%.2f".format(sim)}): ${normalizedText.take(20)}...")
         lastOCRText = normalizedText
-        return Decision.Translate(normalizedText, sim)
+        lastTranslationResult = ""
+        return Decision.TextSkip
     }
 
     /**
