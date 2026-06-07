@@ -3,17 +3,20 @@ package com.moe.moetranslator.translate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.util.LruCache
 import com.moe.moetranslator.data.TranslationCacheManager
+import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.PixelCompare
 import com.moe.moetranslator.utils.TextSimilarity
 
 /**
- * 游戏自动翻译引擎。
- * 负责截图处理决策：OCR → 文字比较 → 缓存查找 → 返回翻译决策。
- * 不直接调用翻译 API，返回 Decision 对象由 FloatingBallService 执行。
+ * 游戏自动翻译引擎（像素驱动版）。
  *
- * 核心逻辑：比较连续两次 OCR 结果，相同则翻译，不同则继续等待。
+ * 核心逻辑：
+ * 1. 像素快检（150ms）判断页面是否稳定
+ * 2. 像素连续稳定 2 帧后触发 OCR
+ * 3. OCR 结果查 LRU 缓存，命中直接显示，未命中调翻译 API
  */
 class AutoTranslateEngine(
     private val context: Context,
@@ -24,55 +27,59 @@ class AutoTranslateEngine(
 ) {
     companion object {
         private const val TAG = "AutoTranslateEngine"
-        private const val SIMILARITY_THRESHOLD = 0.9f
+        private const val STABLE_FRAMES = 2
+        private const val LRU_CAPACITY = 20
+        private const val DEFAULT_PIXEL_THRESHOLD = 5
+    }
+
+    // 像素稳定状态机
+    enum class PixelState {
+        CHANGED,    // 像素和上帧不同
+        STABLE_1,   // 稳定第1帧
+        STABLE_2    // 稳定第2帧，触发 OCR
     }
 
     // 状态
     private var isRunning = false
-    private var lastOCRText = ""
-    private var lastTranslationResult = ""
+    private var pixelState = PixelState.CHANGED
+    private var stableCount = 0
 
     // OCR 引擎
     private val ocrEngine = GameOcrEngine(context)
 
-    // 强制翻译标志（手动点击时跳过缓存）
+    // 强制翻译标志（手动点击时跳过像素检查）
     var isManualForceTranslate = false
 
-    // 像素比较（保存像素数组而非 Bitmap，避免 copy() 共享缓冲区）
+    // 像素比较
     private var lastPixels: IntArray? = null
     private var lastWidth = 0
     private var lastHeight = 0
     var lastDiffRatio: Float = 0f
 
-    /**
-     * 翻译决策
-     */
+    // 内存 LRU 缓存：normalize(sourceText) → translatedText
+    private val translationCache = LruCache<String, String>(LRU_CAPACITY)
+
+    // 翻译决策
     sealed class Decision {
-        /** 像素未变，跳过（不执行 OCR） */
-        data class PixelSkip(val diffRatio: Float) : Decision()
-        /** OCR 后文字不同或空，跳过 */
-        object TextSkip : Decision()
-        /** 命中缓存，直接显示；source: "memory" / "database" */
-        data class CacheHit(val cachedText: String, val source: String) : Decision()
-        /** 需要翻译；similarity: 与上次 OCR 文字的相似度（-1 表示手动强制翻译） */
-        data class Translate(val ocrText: String, val similarity: Float) : Decision()
+        /** 像素正在变化，跳过 */
+        data class PixelChanging(val diffRatio: Float) : Decision()
+        /** 像素稳定但未到阈值，继续等待 */
+        data class PixelStabilizing(val stableCount: Int, val diffRatio: Float) : Decision()
+        /** 命中 LRU 缓存，直接显示 */
+        data class CacheHit(val cachedText: String) : Decision()
+        /** 需要翻译 */
+        data class Translate(val ocrText: String) : Decision()
     }
 
-    /**
-     * 启动自动翻译
-     */
     fun start() {
         if (isRunning) return
         isRunning = true
-        lastOCRText = ""
-        lastTranslationResult = ""
+        pixelState = PixelState.CHANGED
+        stableCount = 0
         isManualForceTranslate = false
-        LogCollector.d(TAG, "自动翻译启动")
+        LogCollector.d(TAG, "自动翻译启动（像素驱动）")
     }
 
-    /**
-     * 停止自动翻译
-     */
     fun stop() {
         isRunning = false
         isManualForceTranslate = false
@@ -82,164 +89,115 @@ class AutoTranslateEngine(
     }
 
     /**
-     * 处理截图，返回翻译决策。
-     *
-     * 核心逻辑：
-     * 1. OCR 识别
-     * 2. 和上次 OCR 结果比较
-     * 3. 相同 → 翻译（或显示缓存）
-     * 4. 不同 → 更新 lastOCRText，返回 Skip（等待下次检测）
+     * 像素快检：仅比较像素，返回当前像素状态。
+     * 不执行 OCR，由 FloatingBallService 根据返回值决定是否触发 OCR。
      */
-    suspend fun processScreenshot(bitmap: Bitmap): Decision {
-        if (!isRunning) return Decision.TextSkip
+    fun checkPixel(bitmap: Bitmap): Decision {
+        if (!isRunning) return Decision.PixelChanging(0f)
 
-        // 像素预筛：画面未变则跳过 OCR
         val w = bitmap.width
         val h = bitmap.height
         val currPixels = IntArray(w * h)
         bitmap.getPixels(currPixels, 0, w, 0, 0, w, h)
 
-        // 判断是否处于"等待稳定"状态：已检测到新文字，需要再次 OCR 确认文字稳定
-        val waitingForStability = lastOCRText.isNotEmpty() && lastTranslationResult.isEmpty()
+        // 读取用户设置的像素阈值
+        val prefs = CustomPreference.getInstance(context)
+        val thresholdPct = prefs.getInt("Game_Pixel_Similar_Threshold", DEFAULT_PIXEL_THRESHOLD)
+        val threshold = thresholdPct / 100f
 
         val prevPixels = lastPixels
-        if (prevPixels != null && !isManualForceTranslate && !waitingForStability && lastWidth == w && lastHeight == h) {
-            val result = PixelCompare.comparePixels(prevPixels, currPixels, w, h)
+        if (prevPixels != null && lastWidth == w && lastHeight == h) {
+            val result = PixelCompare.comparePixels(prevPixels, currPixels, w, h, threshold)
             lastDiffRatio = result.diffRatio
             lastPixels = currPixels
+
             if (result.isSimilar) {
-                LogCollector.d(TAG, "【像素未变·跳过OCR】diffRatio=${"%.6f".format(result.diffRatio)}")
-                return Decision.PixelSkip(result.diffRatio)
+                stableCount++
+                pixelState = if (stableCount >= STABLE_FRAMES) PixelState.STABLE_2 else PixelState.STABLE_1
+                LogCollector.d(TAG, "【像素稳定】count=$stableCount diff=${"%.6f".format(result.diffRatio)}")
+                return Decision.PixelStabilizing(stableCount, result.diffRatio)
+            } else {
+                stableCount = 0
+                pixelState = PixelState.CHANGED
+                LogCollector.d(TAG, "【像素变化】diff=${"%.6f".format(result.diffRatio)}")
+                return Decision.PixelChanging(result.diffRatio)
             }
-            LogCollector.d(TAG, "【像素变化·进入OCR】diffRatio=${"%.6f".format(result.diffRatio)}")
         } else {
-            // 首次截图 / 手动翻译 / 等待稳定：保存像素数组供下次比较
             lastPixels = currPixels
             lastWidth = w
             lastHeight = h
-            when {
-                isManualForceTranslate -> LogCollector.d(TAG, "【手动翻译·强制OCR】")
-                waitingForStability -> LogCollector.d(TAG, "【等待稳定·强制OCR】上次文字: ${lastOCRText.take(20)}...")
-                else -> LogCollector.d(TAG, "【首次截图·进入OCR】")
-            }
+            stableCount = 0
+            pixelState = PixelState.CHANGED
+            LogCollector.d(TAG, "【首次截图·保存像素】")
+            return Decision.PixelChanging(0f)
         }
+    }
 
-        LogCollector.d(TAG, "【检测中】正在 OCR 识别...")
+    /**
+     * OCR + 缓存查询。像素稳定后由 FloatingBallService 调用。
+     */
+    suspend fun ocrAndTranslate(bitmap: Bitmap): Decision {
+        if (!isRunning) return Decision.PixelChanging(0f)
+
+        LogCollector.d(TAG, "【触发OCR】正在识别...")
         val ocrText = ocrEngine.recognize(bitmap)
         val normalizedText = TextSimilarity.normalize(ocrText)
 
         if (normalizedText.isBlank()) {
             LogCollector.d(TAG, "【跳过】OCR 结果为空")
-            return Decision.TextSkip
+            return Decision.PixelChanging(0f)
         }
 
-        // 手动强制翻译
         if (isManualForceTranslate) {
             isManualForceTranslate = false
-            lastOCRText = normalizedText
-            LogCollector.d(TAG, "【翻译中】手动强制翻译: ${normalizedText.take(20)}...")
-            return Decision.Translate(normalizedText, -1f)
+            LogCollector.d(TAG, "【手动强制翻译】${normalizedText.take(20)}...")
+            return Decision.Translate(normalizedText)
         }
 
-        // 文字相似度比较
-        val sim = TextSimilarity.similarity(normalizedText, lastOCRText)
-
-        if (TextSimilarity.isSimilar(normalizedText, lastOCRText, SIMILARITY_THRESHOLD)) {
-            // 相同文字 → 优先返回缓存
-            if (lastTranslationResult.isNotEmpty()) {
-                LogCollector.d(TAG, "【缓存】文字相同，显示内存缓存 (sim=${"%.2f".format(sim)})")
-                return Decision.CacheHit(lastTranslationResult, "memory")
-            }
-            LogCollector.d(TAG, "【翻译中】文字相同但无缓存 (sim=${"%.2f".format(sim)}): ${normalizedText.take(20)}...")
-            return Decision.Translate(normalizedText, sim)
+        // 查 LRU 缓存
+        val cached = translationCache.get(normalizedText)
+        if (cached != null) {
+            LogCollector.d(TAG, "【LRU缓存命中】${normalizedText.take(20)}...")
+            return Decision.CacheHit(cached)
         }
 
-        // 文字不同 → 检查数据库缓存
-        LogCollector.d(TAG, "【文字不同·检查缓存】sim=${"%.2f".format(sim)}: ${normalizedText.take(20)}...")
-        val dbCache = checkDatabaseCache(normalizedText)
-        if (dbCache != null) {
-            lastOCRText = normalizedText
-            lastTranslationResult = dbCache
-            LogCollector.d(TAG, "【缓存】命中数据库缓存: ${normalizedText.take(20)}...")
-            return Decision.CacheHit(dbCache, "database")
-        }
-
-        // 文字不同且无缓存 → 等待稳定
-        LogCollector.d(TAG, "【文字不同·等待稳定】sim=${"%.2f".format(sim)}: ${normalizedText.take(20)}...")
-        lastOCRText = normalizedText
-        lastTranslationResult = ""
-        return Decision.TextSkip
+        LogCollector.d(TAG, "【需翻译】${normalizedText.take(20)}...")
+        return Decision.Translate(normalizedText)
     }
 
-    /**
-     * 翻译成功后更新状态
-     */
     fun onTranslationSuccess(sourceText: String, translatedText: String) {
-        lastOCRText = sourceText
-        lastTranslationResult = translatedText
-        LogCollector.d(TAG, "翻译成功，更新缓存: ${sourceText.take(20)}...")
+        val normalized = TextSimilarity.normalize(sourceText)
+        translationCache.put(normalized, translatedText)
+        LogCollector.d(TAG, "翻译成功，写入LRU缓存: ${sourceText.take(20)}...")
     }
 
-    /**
-     * 强制翻译（手动点击时调用）
-     */
     fun forceTranslate(ocrText: String): Decision.Translate {
         isManualForceTranslate = false
-        lastOCRText = TextSimilarity.normalize(ocrText)
-        return Decision.Translate(lastOCRText, -1f)
+        return Decision.Translate(TextSimilarity.normalize(ocrText))
     }
 
-    /**
-     * 检查悬浮窗是否与裁剪区域重叠
-     */
     fun isFloatingViewOverlappingCrop(floatViewRect: Rect, cropRect: Rect): Boolean {
         return Rect.intersects(floatViewRect, cropRect)
     }
 
-    // ========== 内部方法 ==========
-
-    /**
-     * 检查数据库缓存
-     */
-    private suspend fun checkDatabaseCache(ocrText: String): String? {
-        return try {
-            val result = cacheManager.findGameCache(
-                ocrText,
-                getSourceLanguage(),
-                getTargetLanguage()
-            )
-            result?.translatedText
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "数据库缓存查找失败", e)
-            null
-        }
-    }
-
-    /**
-     * 状态变化通知（语言/引擎/裁剪区域/API 配置变化时调用）
-     */
     fun onLanguageChanged() {
-        lastOCRText = ""
-        lastTranslationResult = ""
-        LogCollector.d(TAG, "语言变化，清空缓存")
+        translationCache.evictAll()
+        LogCollector.d(TAG, "语言变化，清空 LRU 缓存")
     }
 
     fun onOcrEngineChanged() {
-        lastOCRText = ""
-        lastTranslationResult = ""
-        LogCollector.d(TAG, "OCR 引擎变化，清空缓存")
+        translationCache.evictAll()
+        LogCollector.d(TAG, "OCR 引擎变化，清空 LRU 缓存")
     }
 
     fun onCropRegionChanged() {
-        lastOCRText = ""
-        lastTranslationResult = ""
+        translationCache.evictAll()
         lastPixels = null
-        LogCollector.d(TAG, "裁剪区域变化，清空缓存")
+        LogCollector.d(TAG, "裁剪区域变化，清空 LRU 缓存")
     }
 
     fun onApiConfigChanged() {
-        lastOCRText = ""
-        lastTranslationResult = ""
-        LogCollector.d(TAG, "API 配置变化，清空缓存")
+        translationCache.evictAll()
+        LogCollector.d(TAG, "API 配置变化，清空 LRU 缓存")
     }
 }
