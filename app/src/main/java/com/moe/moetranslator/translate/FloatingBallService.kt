@@ -27,12 +27,7 @@ import android.os.Handler
 import android.os.Looper
 import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.TranslationCacheManager
-import com.moe.moetranslator.manga.MangaOcrBridge
-import com.moe.moetranslator.manga.MangaOcrDownloadManager
-import com.moe.moetranslator.manga.PPOcrV5Engine
-import com.moe.moetranslator.utils.PerceptualHash
 import com.moe.moetranslator.utils.LogCollector
-import android.util.Log
 import android.view.*
 import android.widget.AdapterView
 import android.widget.ImageView
@@ -163,22 +158,56 @@ class FloatingBallService : LifecycleService() {
     private var translatorText: TranslationTextAPI? = null
     private var translatorPic: TranslationPicAPI? = null
 
-    // 5.1.0版本新增：自动翻译相关属性
-    private var isAutoTranslating = false   // 是否开启自动翻译
-    private var lastOcrResult = ""  // 上次自动翻译的OCR结果（相似度分析）
+    // 自动翻译相关属性
+    private var isAutoTranslating = false
     private val autoTranslateHandler = Handler(Looper.getMainLooper())
-    private val autoTranslateRunnable = object : Runnable {
-        override fun run() {
-            if (isAutoTranslating && currentBallStatus == BallStatus.Normal) {
-                performAutoTranslate()
-                // 再次执行
-                autoTranslateHandler.postDelayed(this, 1000L)
-            }
-        }
+
+
+    companion object {
+        private const val DETECT_INTERVAL_MS = 500L
     }
 
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
+
+    // 自动翻译引擎
+    private var autoTranslateEngine: AutoTranslateEngine? = null
+
+    // 游戏翻译调试浮窗
+    private var gameDebugOverlay: GameDebugOverlay? = null
+    private var translateStartTime = 0L
+
+    private fun isGameDebugEnabled(): Boolean =
+        prefs.getBoolean("Game_Translate_Debug_View", false)
+
+    private fun getOcrEngineName(): String = when (prefs.getInt("Game_OCR_Engine", 0)) {
+        1 -> "PP-OCRv5"
+        2 -> "manga-ocr"
+        else -> "MLKit"
+    }
+
+    private fun showDebugOverlay() {
+        if (!isGameDebugEnabled()) return
+        if (gameDebugOverlay == null) {
+            gameDebugOverlay = GameDebugOverlay(this)
+        }
+        gameDebugOverlay?.show()
+    }
+
+    private fun hideDebugOverlay() {
+        gameDebugOverlay?.hide()
+    }
+
+    private fun updateDebugStatus(status: String, similarity: Float = -1f, cacheSource: String = "", elapsedMs: Long = -1L) {
+        if (!isGameDebugEnabled()) return
+        gameDebugOverlay?.update(
+            status = status,
+            ocrEngine = getOcrEngineName(),
+            similarity = similarity,
+            cacheSource = cacheSource,
+            elapsedMs = elapsedMs
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -323,6 +352,11 @@ class FloatingBallService : LifecycleService() {
 
         // 添加到窗口
         windowManager.addView(floatingBallView, floatingBallParams)
+
+        // 游戏翻译调试浮窗
+        if (isGameDebugEnabled()) {
+            showDebugOverlay()
+        }
 
         // 设置点击接收器
         setupTouchListener()
@@ -562,18 +596,28 @@ class FloatingBallService : LifecycleService() {
                     )
                 }
                 withContext(Dispatchers.Main) {
-                    val histDialog = Dialogs.historyDialog(applicationContext, items) { position ->
-                        val selected = historyList[position]
-                        if (selected.translatedText != null) {
-                            floatingTextView.text = selected.translatedText
-                            if (!isViewAdded(floatingTextView)) {
-                                windowManager.addView(floatingTextView, floatingTextViewParams)
-                                windowManager.removeView(floatingBallView)
-                                windowManager.addView(floatingBallView, floatingBallParams)
-                                setFloatingTextViewTouchable(false)
+                    val histDialog = Dialogs.historyDialog(applicationContext, items,
+                        onItemClick = { position ->
+                            // 点击：显示翻译结果
+                            val selected = historyList[position]
+                            if (selected.translatedText != null) {
+                                floatingTextView.text = selected.translatedText
+                                if (!isViewAdded(floatingTextView)) {
+                                    windowManager.addView(floatingTextView, floatingTextViewParams)
+                                    windowManager.removeView(floatingBallView)
+                                    windowManager.addView(floatingBallView, floatingBallParams)
+                                    setFloatingTextViewTouchable(false)
+                                }
+                            }
+                        },
+                        onItemLongClick = { position ->
+                            // 长按：重新翻译
+                            val selected = historyList[position]
+                            if (!selected.sourceText.isNullOrEmpty()) {
+                                translateByText(selected.sourceText)
                             }
                         }
-                    }
+                    )
                     histDialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
                     histDialog.show()
                     histDialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
@@ -616,11 +660,11 @@ class FloatingBallService : LifecycleService() {
             is BallStatus.Normal -> {}
         }
 
-        if (orientation == this.resources.configuration.orientation){
-            if(isTranslating.get()){
+        if (orientation == this.resources.configuration.orientation) {
+            if (isTranslating.get()) {
                 showToast(getString(R.string.is_translating), true)
             }
-        }else{
+        } else {
             showToast(getString(R.string.orientation_changed))
         }
 
@@ -632,33 +676,52 @@ class FloatingBallService : LifecycleService() {
             setFloatingTextViewTouchable(false)
         }
 
-        // 开始定时任务
-        autoTranslateHandler.post(autoTranslateRunnable)
+        // 初始化并启动自动翻译引擎
+        autoTranslateEngine = AutoTranslateEngine(
+            context = this,
+            cacheManager = cacheManager,
+            scope = lifecycleScope,
+            getSourceLanguage = { prefs.getString("Source_Language", "ja") },
+            getTargetLanguage = { prefs.getString("Target_Language", "zh") }
+        )
+        autoTranslateEngine?.start()
+
+        showDebugOverlay()
+        updateDebugStatus("【空闲】自动翻译已启动")
+
         isAutoTranslating = true
-        lastOcrResult = ""
+        scheduleNextDetection(0L)
         showToast(getString(R.string.auto_translate_start))
     }
 
-    // 5.1.0新增：停止自动翻译
     private fun stopAutoTranslate() {
         isAutoTranslating = false
-        autoTranslateHandler.removeCallbacks(autoTranslateRunnable)
+        autoTranslateEngine?.stop()
+        autoTranslateEngine = null
+        autoTranslateHandler.removeCallbacksAndMessages(null)
+        hideDebugOverlay()
         showToast(getString(R.string.auto_translate_stop))
     }
 
-    // 5.1.0新增：执行自动翻译
-    private fun performAutoTranslate() {
-        if (orientation != this.resources.configuration.orientation) {
-            showToast(getString(R.string.auto_translate_changed))
-            stopAutoTranslate()
-            return
-        }
+    private fun scheduleNextDetection(delayMs: Long) {
+        autoTranslateHandler.removeCallbacksAndMessages(null)
+        autoTranslateHandler.postDelayed({ runAutoDetect() }, delayMs)
+    }
 
+    private fun runAutoDetect() {
+        if (!isAutoTranslating) return
         if (isTranslating.get()) {
-            // 如果正在翻译中，跳过这次自动翻译
+            scheduleNextDetection(DETECT_INTERVAL_MS)
             return
         }
-
+        // 设置超时：如果截图失败或没有响应，也要继续检测
+        autoTranslateHandler.postDelayed({
+            if (isAutoTranslating && isTranslating.get()) {
+                LogCollector.d("FloatingBallService", "截图超时，重置状态")
+                isTranslating.set(false)
+                scheduleNextDetection(DETECT_INTERVAL_MS)
+            }
+        }, 3000L) // 3秒超时
         AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
     }
 
@@ -726,6 +789,14 @@ class FloatingBallService : LifecycleService() {
                         if(isTranslating.get()){
                             showToast(getString(R.string.is_translating), true)
                         }else{
+                            // 手动翻译：如果自动翻译中，强制翻译当前页面
+                            if (isAutoTranslating) {
+                                autoTranslateEngine?.isManualForceTranslate = true
+                            }
+                            if (isGameDebugEnabled() && !isAutoTranslating) {
+                                showDebugOverlay()
+                                updateDebugStatus("【检测中】手动翻译")
+                            }
                             AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
                         }
                     }else{
@@ -755,10 +826,10 @@ class FloatingBallService : LifecycleService() {
         lifecycleScope.launch {
             ScreenshotManager.screenshotFlow.collect { bitmap ->
                 try {
-                    Log.d("SCREENSHOT", "getScreenShot")
                     isTranslating.set(true)
                     processScreenshot(bitmap)
                 } catch (e: Exception) {
+                    isTranslating.set(false)
                     showToast("OCR Failed：$e")
                 }
             }
@@ -783,133 +854,91 @@ class FloatingBallService : LifecycleService() {
     }
 
     private suspend fun processScreenshot(bitmap: Bitmap) {
-        Log.d("SCREENSHOT", "processScreenShot")
-        try{
-            if(prefs.getInt("Translate_Mode", 0) == 0){
-                // OCR后文本翻译
-                val txt = performOcr(bitmap)
-                // 判断是否为自动翻译模式
-                if (isAutoTranslating) {
-                    if (shouldTranslateText(txt)) {
-                        lastOcrResult = txt
-                        translateByText(txt)
-                    } else {
-                        isTranslating.set(false)
+        try {
+            if (prefs.getInt("Translate_Mode", 0) == 0) {
+                val engine = autoTranslateEngine
+                if (engine != null && isAutoTranslating) {
+                    // 自动翻译模式：使用引擎决策
+                    updateDebugStatus("【检测中】")
+                    translateStartTime = System.currentTimeMillis()
+                    when (val decision = engine.processScreenshot(bitmap)) {
+                        is AutoTranslateEngine.Decision.Skip -> {
+                            updateDebugStatus("【等待/跳过】")
+                            isTranslating.set(false)
+                            scheduleNextDetection(DETECT_INTERVAL_MS)
+                        }
+                        is AutoTranslateEngine.Decision.CacheHit -> {
+                            val elapsed = System.currentTimeMillis() - translateStartTime
+                            updateDebugStatus(
+                                "【缓存】${decision.source}",
+                                elapsedMs = elapsed
+                            )
+                            // 调试模式：显示⚡ + 原文+译文；非调试：只显示译文
+                            if (isGameDebugEnabled()) {
+                                floatingTextView.text = getString(R.string.cache_indicator) + decision.cachedText
+                            } else {
+                                floatingTextView.text = decision.cachedText
+                            }
+                            isTranslating.set(false)
+                            scheduleNextDetection(DETECT_INTERVAL_MS)
+                        }
+                        is AutoTranslateEngine.Decision.Translate -> {
+                            updateDebugStatus(
+                                "【翻译中】",
+                                similarity = decision.similarity
+                            )
+                            translateByText(decision.ocrText)
+                        }
                     }
                 } else {
+                    // 手动翻译模式
+                    updateDebugStatus("【检测中】手动翻译")
+                    translateStartTime = System.currentTimeMillis()
+                    val txt = GameOcrEngine(this).recognize(bitmap)
+                    updateDebugStatus("【翻译中】手动")
                     translateByText(txt)
                 }
-            }else{
-                // 上传图片翻译，注意要创建bitmap副本并交给图片翻译API处理
+            } else {
+                updateDebugStatus("【翻译中】图片翻译")
                 val bitmapCopy = bitmap.copy(bitmap.config!!, true)
-                translateByPic(bitmapCopy)  // 副本的生命周期由翻译API管理
+                translateByPic(bitmapCopy)
             }
-        }catch (e: Exception){
+        } catch (e: Exception) {
             isTranslating.set(false)
+            updateDebugStatus("【错误】${e.message?.take(30) ?: "未知"}")
             e.printStackTrace()
             showToast(getString(R.string.translation_failed, e.message))
-        }finally {
+            if (isAutoTranslating) {
+                scheduleNextDetection(DETECT_INTERVAL_MS)
+            }
+        } finally {
             bitmap.recycle()
         }
     }
 
-    /**
-     * 根据用户选择的 OCR 引擎执行文字识别。
-     * 0=MLKit, 1=PP-OCRv5, 2=manga-ocr
-     */
-    private suspend fun performOcr(bitmap: Bitmap): String {
-        val engine = prefs.getInt("Game_OCR_Engine", 0)
-        val language = prefs.getString("Source_Language", "ja")
-        return when (engine) {
-            1 -> {
-                // PP-OCRv5
-                initPPOcrV5IfNeeded()
-                val recLang = PPOcrV5Engine.getRecLang(language)
-                if (recLang != null) {
-                    val result = withContext(Dispatchers.IO) {
-                        PPOcrV5Engine.runOCR(this@FloatingBallService, bitmap, recLang, useDet = true, useCls = false)
-                    }
-                    result.texts.joinToString("")
-                } else {
-                    LogCollector.w("FloatingBallService", "PP-OCRv5 不支持语言: $language, 回退 ML Kit")
-                    OCRTextRecognizer.getPicText(language, bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
-                }
-            }
-            2 -> {
-                // manga-ocr: ML Kit 检测位置 + manga-ocr 识别
-                initMangaOcrIfNeeded()
-                if (MangaOcrBridge.isAvailable()) {
-                    val textBlocks = MangaOcrBridge.recognizeWithLocation(bitmap, language)
-                    textBlocks.joinToString("\n") { it.text }
-                } else {
-                    LogCollector.w("FloatingBallService", "manga-ocr 未初始化, 回退 ML Kit")
-                    OCRTextRecognizer.getPicText(language, bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
-                }
-            }
-            else -> {
-                // ML Kit (默认)
-                OCRTextRecognizer.getPicText(language, bitmap, prefs.getInt("Custom_OCR_Merge_Mode", 2))
-            }
-        }
-    }
 
-    private fun initPPOcrV5IfNeeded() {
-        if (PPOcrV5Engine.isInitialized) return
-        synchronized(PPOcrV5Engine) {
-            if (!PPOcrV5Engine.isInitialized) {
-                PPOcrV5Engine.initialize(this)
-            }
-        }
-    }
-
-    private suspend fun initMangaOcrIfNeeded() {
-        if (MangaOcrBridge.isAvailable()) return
-        try {
-            val activeVersion = MangaOcrDownloadManager.getActiveVersion(this)
-            if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this, activeVersion)) {
-                MangaOcrBridge.initializeDownloaded(this, activeVersion)
-            }
-        } catch (e: Exception) {
-            LogCollector.e("FloatingBallService", "manga-ocr 初始化失败", e)
-        }
-    }
-
-    // 5.1.0新增：判断是否需要翻译文本
-    private fun shouldTranslateText(currentText: String): Boolean {
-        // 文本内容为空
-        if (currentText.isBlank()){
-            return false
-        }
-
-        // 直接翻译
-        if (currentText.length < prefs.getInt("Auto_Translate_Str_Length", 10)) {
-            return true
-        }
-
-        // 进行相似度比对
-        if (lastOcrResult.isEmpty()) {
-            return true
-        }
-
-        val similarity = UtilTools.calculateSimilarity(lastOcrResult, currentText)
-        return similarity < prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f) // 相似度判定
-    }
 
     // 文本翻译
-    private fun translateByText(str: String){
-        translatorText?.getTranslation(str, prefs.getString("Source_Language", "ja"), prefs.getString("Target_Language", "zh")){
-            result->
+    private fun translateByText(str: String) {
+        translatorText?.getTranslation(str, prefs.getString("Source_Language", "ja"), prefs.getString("Target_Language", "zh")) { result ->
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
-                        if(prefs.getInt("Custom_Show_Source_Mode", 0) == 0){
-                            floatingTextView.text = result.translatedText
-                        }else if(prefs.getInt("Custom_Show_Source_Mode", 0) == 1){
-                            floatingTextView.text = str+"\n\n"+result.translatedText
-                        }else{
-                            floatingTextView.text = result.translatedText+"\n\n"+str
+                        val elapsed = System.currentTimeMillis() - translateStartTime
+                        updateDebugStatus("【完成】", elapsedMs = elapsed)
+
+                        // 调试模式强制显示原文+译文，否则按个性设置
+                        val showSourceMode = if (isGameDebugEnabled()) 1 else prefs.getInt("Custom_Show_Source_Mode", 0)
+                        when (showSourceMode) {
+                            0 -> floatingTextView.text = result.translatedText
+                            1 -> floatingTextView.text = str + "\n\n" + result.translatedText
+                            else -> floatingTextView.text = result.translatedText + "\n\n" + str
                         }
-                        // 保存到缓存和历史
+
+                        // 更新缓存
+                        autoTranslateEngine?.onTranslationSuccess(str, result.translatedText)
+
+                        // 保存到历史
                         saveTranslationToCache(
                             sourceText = str,
                             translatedText = result.translatedText,
@@ -917,10 +946,14 @@ class FloatingBallService : LifecycleService() {
                         )
                     }
                     is TranslationResult.Error -> {
+                        updateDebugStatus("【错误】翻译失败")
                         floatingTextView.text = getString(R.string.translation_failed, result.error.message)
                     }
                 }
                 isTranslating.set(false)
+                if (isAutoTranslating) {
+                    scheduleNextDetection(DETECT_INTERVAL_MS)
+                }
             }
         }
     }
@@ -931,13 +964,19 @@ class FloatingBallService : LifecycleService() {
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
+                        val elapsed = System.currentTimeMillis() - translateStartTime
+                        updateDebugStatus("【完成】图片翻译", elapsedMs = elapsed)
                         floatingTextView.text = result.translatedText
                     }
                     is TranslationResult.Error -> {
+                        updateDebugStatus("【错误】图片翻译失败")
                         floatingTextView.text = getString(R.string.translation_failed, result.error.message)
                     }
                 }
                 isTranslating.set(false)
+                if (isAutoTranslating) {
+                    scheduleNextDetection(DETECT_INTERVAL_MS)
+                }
             }
         }
     }
@@ -988,6 +1027,10 @@ class FloatingBallService : LifecycleService() {
 
     private fun stopServiceAndRemoveViews() {
         try {
+            // 停止自动翻译引擎
+            autoTranslateEngine?.stop()
+            autoTranslateEngine = null
+
             // 停止自动翻译
             if (isAutoTranslating) {
                 stopAutoTranslate()
@@ -1005,6 +1048,7 @@ class FloatingBallService : LifecycleService() {
             }
 
             // 清理资源
+            hideDebugOverlay()
             OCRTextRecognizer.cleanup()
             translatorText?.release()
             translatorPic?.release()
@@ -1039,6 +1083,10 @@ class FloatingBallService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
+
+        // 停止自动翻译引擎
+        autoTranslateEngine?.stop()
+        autoTranslateEngine = null
 
         // 停止自动翻译
         if (isAutoTranslating) {
