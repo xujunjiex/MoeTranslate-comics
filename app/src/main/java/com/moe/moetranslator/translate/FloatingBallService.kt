@@ -720,7 +720,7 @@ class FloatingBallService : LifecycleService() {
     private fun runAutoDetect() {
         if (!isAutoTranslating) return
         if (isTranslating.get()) {
-            scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+            // 上一次截图还在处理中，跳过（截图回调的 finally 会调度下一次）
             return
         }
         // 设置超时：如果截图失败或没有响应，也要继续检测
@@ -839,7 +839,13 @@ class FloatingBallService : LifecycleService() {
                     processScreenshot(bitmap)
                 } catch (e: Exception) {
                     isTranslating.set(false)
+                    updateDebugStatus("【错误】截图处理失败: ${e.message?.take(30)}")
                     showToast("OCR Failed：$e")
+                } finally {
+                    // 截图处理完成后再调度下一次，避免截图频率超限
+                    if (isAutoTranslating) {
+                        scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                    }
                 }
             }
         }
@@ -873,7 +879,6 @@ class FloatingBallService : LifecycleService() {
                         is AutoTranslateEngine.Decision.PixelChanging -> {
                             updateDebugStatus("【像素变化】", diffRatio = pixelDecision.diffRatio)
                             isTranslating.set(false)
-                            scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                         }
                         is AutoTranslateEngine.Decision.PixelStabilizing -> {
                             if (pixelDecision.stableCount >= 2) {
@@ -885,7 +890,6 @@ class FloatingBallService : LifecycleService() {
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         floatingTextView.text = ocrDecision.cachedText
                                         isTranslating.set(false)
-                                        scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                                     }
                                     is AutoTranslateEngine.Decision.Translate -> {
                                         updateDebugStatus("【翻译中】", diffRatio = pixelDecision.diffRatio)
@@ -893,18 +897,15 @@ class FloatingBallService : LifecycleService() {
                                     }
                                     else -> {
                                         isTranslating.set(false)
-                                        scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                                     }
                                 }
                             } else {
                                 updateDebugStatus("【像素稳定】${pixelDecision.stableCount}/2", diffRatio = pixelDecision.diffRatio)
                                 isTranslating.set(false)
-                                scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                             }
                         }
                         else -> {
                             isTranslating.set(false)
-                            scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                         }
                     }
                 } else {
@@ -948,9 +949,6 @@ class FloatingBallService : LifecycleService() {
             updateDebugStatus("【错误】${e.message?.take(30) ?: "未知"}")
             e.printStackTrace()
             showToast(getString(R.string.translation_failed, e.message))
-            if (isAutoTranslating) {
-                scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
-            }
         } finally {
             bitmap.recycle()
         }
@@ -991,9 +989,6 @@ class FloatingBallService : LifecycleService() {
                     }
                 }
                 isTranslating.set(false)
-                if (isAutoTranslating) {
-                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
-                }
             }
         }
     }
@@ -1014,9 +1009,6 @@ class FloatingBallService : LifecycleService() {
                     }
                 }
                 isTranslating.set(false)
-                if (isAutoTranslating) {
-                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
-                }
             }
         }
     }
