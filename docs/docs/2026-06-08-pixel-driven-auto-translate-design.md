@@ -16,7 +16,7 @@
 
 ```
 当前：截图(500ms) → 像素预筛 → OCR → 文字比较 → 翻译/等待
-优化：像素快检(150ms) → 像素稳定2帧? → OCR → 和上次翻译比较 → 翻译/缓存
+优化：像素快检(150ms) → 像素稳定2帧? → OCR → 查LRU缓存 → 命中显示/未命中翻译
 ```
 
 ### 状态机
@@ -24,7 +24,7 @@
 ```
 CHANGED ──像素稳定──→ STABLE_1 ──像素仍稳定──→ STABLE_2 → 触发OCR
   ▲                                                           │
-  │ 像素变化                                          OCR文字 ≠ 上次翻译?
+  │ 像素变化                                          查LRU缓存?
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -45,10 +45,25 @@ CHANGED ──像素稳定──→ STABLE_1 ──像素仍稳定──→ STAB
 ### OCR 触发后的流程
 
 1. 执行 OCR 识别
-2. 结果 normalize 后和 `lastTranslatedText` 比较
-3. 相似度 ≥ 0.9 → 文字相同 → 显示缓存
-4. 相似度 < 0.9 → 文字不同 → 调用翻译 API
-5. 翻译成功 → 更新 `lastTranslatedText`，保存缓存
+2. 结果 normalize 后查内存 LRU 缓存
+3. 命中 → 直接显示缓存结果，不调 API
+4. 未命中 → 调用翻译 API → 翻译结果写入 LRU 缓存 → 显示
+5. 同时保存到数据库历史（现有逻辑不变）
+
+### 内存 LRU 缓存
+
+替换现有的 `lastOCRText` + `lastTranslationResult`（只存一条）为 LRU 缓存：
+
+- **类型**：`android.util.LruCache<String, String>`
+- **Key**：normalize 后的 OCR 文本（trim + 合并空白 + 小写）
+- **Value**：翻译结果
+- **容量**：20 条
+- **淘汰策略**：最近最少使用自动淘汰
+
+好处：
+- 切回已翻译过的页面，直接命中缓存，零延迟
+- 多条对话可缓存，不会因切页丢失
+- 比数据库查询快（纯内存）
 
 ### 手动翻译
 
@@ -68,7 +83,7 @@ CHANGED ──像素稳定──→ STABLE_1 ──像素仍稳定──→ STAB
 
 | 文件 | 改动 |
 |------|------|
-| `AutoTranslateEngine.kt` | 重写状态机：CHANGED/STABLE_1/STABLE_2，像素驱动 OCR 触发，OCR 结果和 lastTranslatedText 比较 |
+| `AutoTranslateEngine.kt` | 重写状态机：CHANGED/STABLE_1/STABLE_2，像素驱动 OCR 触发，LRU 缓存查询 |
 | `FloatingBallService.kt` | 轮询调度改为 150ms 像素快检 + OCR 触发分离 |
 | `PixelCompare.kt` | 不变 |
 | `GameDebugOverlay.kt` | 不变 |
@@ -80,6 +95,6 @@ CHANGED ──像素稳定──→ STABLE_1 ──像素仍稳定──→ STAB
 ### 不再需要的逻辑
 
 - `waitingForStability` 状态（像素稳定就是稳定）
-- OCR 文字间的 Levenshtein 比较（改为和 lastTranslatedText 比较）
+- OCR 文字间的 Levenshtein 比较（改为 LRU 缓存查询）
 - 500ms 固定轮询（改为 150ms 像素快检）
-- `lastOCRText` 变量（改为 `lastTranslatedText`）
+- `lastOCRText` + `lastTranslationResult` 变量（改为 LruCache）
