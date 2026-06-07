@@ -56,6 +56,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var resultFontSize: Preference
     private lateinit var ocrMergeMode: ListPreference
     private lateinit var showSource: ListPreference
+    private lateinit var pixelThreshold: ListPreference
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
     private lateinit var strLength: Preference
@@ -73,6 +74,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         resultFontSize = findPreference<Preference>("result_font_size")!!
         ocrMergeMode = findPreference<ListPreference>("ocr_merge_mode")!!
         showSource = findPreference<ListPreference>("show_source_text")!!
+        pixelThreshold = findPreference<ListPreference>("pixel_threshold")!!
         languagePreference = findPreference<ListPreference>("app_language")!!
 
         // 悬浮球图片
@@ -159,6 +161,15 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         }
         showSource.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
             getString(R.string.show_source_text_summary, showSource.entry)
+        }
+
+        // 像素变化阈值
+        pixelThreshold.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setInt("Game_Pixel_Similar_Threshold", newValue.toString().toInt())
+            true
+        }
+        pixelThreshold.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
+            getString(R.string.pixel_threshold_summary, pixelThreshold.entry)
         }
 
         // 漫画翻译结果颜色
