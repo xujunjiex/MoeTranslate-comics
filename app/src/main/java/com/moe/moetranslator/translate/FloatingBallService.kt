@@ -863,8 +863,14 @@ class FloatingBallService : LifecycleService() {
                     updateDebugStatus("【检测中】")
                     translateStartTime = System.currentTimeMillis()
                     when (val decision = engine.processScreenshot(bitmap)) {
-                        is AutoTranslateEngine.Decision.Skip -> {
-                            updateDebugStatus("【等待/跳过】")
+                        is AutoTranslateEngine.Decision.PixelSkip -> {
+                            val pct = "%.1f%%".format(decision.diffRatio * 100)
+                            updateDebugStatus("【跳过·画面未变】$pct")
+                            isTranslating.set(false)
+                            scheduleNextDetection(DETECT_INTERVAL_MS)
+                        }
+                        is AutoTranslateEngine.Decision.TextSkip -> {
+                            updateDebugStatus("【跳过·文字不同】")
                             isTranslating.set(false)
                             scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
