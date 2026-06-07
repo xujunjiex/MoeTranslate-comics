@@ -2,7 +2,6 @@ package com.moe.moetranslator.translate
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Bitmap.Config.ARGB_8888
 import android.graphics.Rect
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.utils.LogCollector
@@ -39,8 +38,10 @@ class AutoTranslateEngine(
     // 强制翻译标志（手动点击时跳过缓存）
     var isManualForceTranslate = false
 
-    // 像素比较
-    private var lastBitmap: Bitmap? = null
+    // 像素比较（保存像素数组而非 Bitmap，避免 copy() 共享缓冲区）
+    private var lastPixels: IntArray? = null
+    private var lastWidth = 0
+    private var lastHeight = 0
     var lastDiffRatio: Float = 0f
 
     /**
@@ -75,8 +76,7 @@ class AutoTranslateEngine(
     fun stop() {
         isRunning = false
         isManualForceTranslate = false
-        lastBitmap?.recycle()
-        lastBitmap = null
+        lastPixels = null
         lastDiffRatio = 0f
         LogCollector.d(TAG, "自动翻译停止")
     }
@@ -94,20 +94,25 @@ class AutoTranslateEngine(
         if (!isRunning) return Decision.TextSkip
 
         // 像素预筛：画面未变则跳过 OCR
-        val prevBitmap = lastBitmap
-        if (prevBitmap != null && !isManualForceTranslate) {
-            val result = PixelCompare.compare(prevBitmap, bitmap)
+        val w = bitmap.width
+        val h = bitmap.height
+        val currPixels = IntArray(w * h)
+        bitmap.getPixels(currPixels, 0, w, 0, 0, w, h)
+
+        val prevPixels = lastPixels
+        if (prevPixels != null && !isManualForceTranslate && lastWidth == w && lastHeight == h) {
+            val result = PixelCompare.comparePixels(prevPixels, currPixels, w, h)
             lastDiffRatio = result.diffRatio
-            prevBitmap.recycle()
-            lastBitmap = bitmap.copy(ARGB_8888, true)
+            lastPixels = currPixels
             if (result.isSimilar) {
-                LogCollector.d(TAG, "【跳过·画面未变】diffRatio=${"%.4f".format(result.diffRatio)}")
+                LogCollector.d(TAG, "【像素未变·跳过OCR】diffRatio=${"%.6f".format(result.diffRatio)}")
                 return Decision.PixelSkip(result.diffRatio)
             }
         } else {
-            // 首次截图或手动翻译，保存 bitmap 供下次比较
-            lastBitmap?.recycle()
-            lastBitmap = bitmap.copy(ARGB_8888, true)
+            // 首次截图或手动翻译，保存像素数组供下次比较
+            lastPixels = currPixels
+            lastWidth = w
+            lastHeight = h
         }
 
         LogCollector.d(TAG, "【检测中】正在 OCR 识别...")
@@ -141,7 +146,7 @@ class AutoTranslateEngine(
         }
 
         // 文字不同 → 检查数据库缓存
-        LogCollector.d(TAG, "【检测中】文字不同 (sim=${"%.2f".format(sim)})，检查数据库缓存...")
+        LogCollector.d(TAG, "【文字不同·检查缓存】sim=${"%.2f".format(sim)}: ${normalizedText.take(20)}...")
         val dbCache = checkDatabaseCache(normalizedText)
         if (dbCache != null) {
             lastOCRText = normalizedText
@@ -151,7 +156,7 @@ class AutoTranslateEngine(
         }
 
         // 文字不同且无缓存 → 等待稳定
-        LogCollector.d(TAG, "【等待】文字不同且无缓存 (sim=${"%.2f".format(sim)}): ${normalizedText.take(20)}...")
+        LogCollector.d(TAG, "【文字不同·等待稳定】sim=${"%.2f".format(sim)}: ${normalizedText.take(20)}...")
         lastOCRText = normalizedText
         lastTranslationResult = ""
         return Decision.TextSkip
@@ -219,8 +224,7 @@ class AutoTranslateEngine(
     fun onCropRegionChanged() {
         lastOCRText = ""
         lastTranslationResult = ""
-        lastBitmap?.recycle()
-        lastBitmap = null
+        lastPixels = null
         LogCollector.d(TAG, "裁剪区域变化，清空缓存")
     }
 

@@ -1,7 +1,5 @@
 package com.moe.moetranslator.utils
 
-import android.graphics.Bitmap
-
 /**
  * 逐像素图像比较工具（移植自 pixelmatch）
  *
@@ -22,31 +20,24 @@ object PixelCompare {
     private const val SIMILAR_THRESHOLD = 0.005f
 
     /**
-     * 比较两个 Bitmap 的像素差异
-     * @param prev 上一帧
-     * @param curr 当前帧
+     * 比较两帧像素数组的差异（推荐，避免 Bitmap.copy() 共享缓冲区问题）
+     * @param prevPixels 上一帧像素数据
+     * @param currPixels 当前帧像素数据
+     * @param width 图像宽度
+     * @param height 图像高度
      * @param threshold YIQ 颜色差异阈值 (0~1)，默认 0.1
      * @return CompareResult
      */
-    fun compare(prev: Bitmap, curr: Bitmap, threshold: Float = 0.1f): CompareResult {
-        val w = prev.width
-        val h = prev.height
-
-        // 尺寸必须一致
-        require(w == curr.width && h == curr.height) {
-            "Bitmap sizes must match: prev=${w}x${h}, curr=${curr.width}x${curr.height}"
+    fun comparePixels(prevPixels: IntArray, currPixels: IntArray, width: Int, height: Int, threshold: Float = 0.1f): CompareResult {
+        val totalPixels = width * height
+        require(prevPixels.size >= totalPixels && currPixels.size >= totalPixels) {
+            "Pixel array size mismatch: need $totalPixels, got prev=${prevPixels.size} curr=${currPixels.size}"
         }
-
-        val totalPixels = w * h
-        val aPixels = IntArray(totalPixels)
-        val bPixels = IntArray(totalPixels)
-        prev.getPixels(aPixels, 0, w, 0, 0, w, h)
-        curr.getPixels(bPixels, 0, w, 0, 0, w, h)
 
         // 快速路径：32位比较，完全相同直接返回
         var identical = true
         for (i in 0 until totalPixels) {
-            if (aPixels[i] != bPixels[i]) {
+            if (prevPixels[i] != currPixels[i]) {
                 identical = false
                 break
             }
@@ -61,18 +52,18 @@ object PixelCompare {
 
         // 逐像素比较
         for (i in 0 until totalPixels) {
-            val a = aPixels[i]
-            val b = bPixels[i]
+            val a = prevPixels[i]
+            val b = currPixels[i]
             if (a == b) continue
 
             // YIQ 感知色彩差异
             val delta = colorDelta(a, b)
             if (kotlin.math.abs(delta) > maxDelta) {
-                val x = i % w
-                val y = i / w
+                val x = i % width
+                val y = i / width
                 // 检查是否为抗锯齿像素
-                val isAA = antialiased(aPixels, x, y, w, h, aPixels, bPixels) ||
-                           antialiased(bPixels, x, y, w, h, bPixels, aPixels)
+                val isAA = antialiased(prevPixels, x, y, width, height, prevPixels, currPixels) ||
+                           antialiased(currPixels, x, y, width, height, currPixels, prevPixels)
                 if (!isAA) {
                     diff++
                 }
