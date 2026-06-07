@@ -121,6 +121,12 @@
             android:entries="@array/show_source_text_entries"
             android:entryValues="@array/show_source_text_values"/>
 
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/auto_translate"
+        app:iconSpaceReserved="false">
+
         <ListPreference
             android:key="pixel_threshold"
             app:iconSpaceReserved="false"
@@ -128,12 +134,6 @@
             android:title="@string/pixel_threshold_title"
             android:entries="@array/pixel_threshold_entries"
             android:entryValues="@array/pixel_threshold_values"/>
-
-    </PreferenceCategory>
-
-    <PreferenceCategory
-        android:title="@string/auto_translate"
-        app:iconSpaceReserved="false">
 
         <Preference
             android:key="auto_translate_str_length"
