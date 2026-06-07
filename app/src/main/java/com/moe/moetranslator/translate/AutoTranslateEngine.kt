@@ -34,6 +34,7 @@ class AutoTranslateEngine(
 
     // 像素稳定状态机
     enum class PixelState {
+        IDLE,       // 已翻译完成，像素不变则跳过 OCR
         CHANGED,    // 像素和上帧不同
         STABLE_1,   // 稳定第1帧
         STABLE_2    // 稳定第2帧，触发 OCR
@@ -65,6 +66,8 @@ class AutoTranslateEngine(
         data class PixelChanging(val diffRatio: Float) : Decision()
         /** 像素稳定但未到阈值，继续等待 */
         data class PixelStabilizing(val stableCount: Int, val diffRatio: Float) : Decision()
+        /** 已翻译，像素不变，跳过 OCR */
+        data class Idle(val diffRatio: Float) : Decision()
         /** 命中 LRU 缓存，直接显示 */
         data class CacheHit(val cachedText: String) : Decision()
         /** 需要翻译 */
@@ -112,11 +115,17 @@ class AutoTranslateEngine(
             lastPixels = currPixels
 
             if (result.isSimilar) {
+                // 像素没变
+                if (pixelState == PixelState.IDLE) {
+                    // 已翻译过，像素仍不变，跳过 OCR
+                    return Decision.Idle(result.diffRatio)
+                }
                 stableCount++
                 pixelState = if (stableCount >= STABLE_FRAMES) PixelState.STABLE_2 else PixelState.STABLE_1
                 LogCollector.d(TAG, "【像素稳定】count=$stableCount diff=${"%.6f".format(result.diffRatio)}")
                 return Decision.PixelStabilizing(stableCount, result.diffRatio)
             } else {
+                // 像素变了
                 stableCount = 0
                 pixelState = PixelState.CHANGED
                 LogCollector.d(TAG, "【像素变化】diff=${"%.6f".format(result.diffRatio)}")
@@ -174,6 +183,15 @@ class AutoTranslateEngine(
     fun forceTranslate(ocrText: String): Decision.Translate {
         isManualForceTranslate = false
         return Decision.Translate(TextSimilarity.normalize(ocrText))
+    }
+
+    /**
+     * 进入 IDLE 状态：翻译完成后调用，像素不变则跳过 OCR。
+     */
+    fun markIdle() {
+        pixelState = PixelState.IDLE
+        stableCount = 0
+        LogCollector.d(TAG, "【进入IDLE】等待像素变化")
     }
 
     fun isFloatingViewOverlappingCrop(floatViewRect: Rect, cropRect: Rect): Boolean {

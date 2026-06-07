@@ -876,6 +876,10 @@ class FloatingBallService : LifecycleService() {
                     // 第一步：像素快检
                     translateStartTime = System.currentTimeMillis()
                     when (val pixelDecision = engine.checkPixel(bitmap)) {
+                        is AutoTranslateEngine.Decision.Idle -> {
+                            // 已翻译，像素不变，跳过 OCR
+                            isTranslating.set(false)
+                        }
                         is AutoTranslateEngine.Decision.PixelChanging -> {
                             updateDebugStatus("【像素变化】", diffRatio = pixelDecision.diffRatio)
                             isTranslating.set(false)
@@ -889,6 +893,7 @@ class FloatingBallService : LifecycleService() {
                                         val elapsed = System.currentTimeMillis() - translateStartTime
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         floatingTextView.text = ocrDecision.cachedText
+                                        engine.markIdle()
                                         isTranslating.set(false)
                                     }
                                     is AutoTranslateEngine.Decision.Translate -> {
@@ -973,8 +978,9 @@ class FloatingBallService : LifecycleService() {
                             else -> floatingTextView.text = result.translatedText + "\n\n" + str
                         }
 
-                        // 更新缓存
+                        // 更新缓存并进入 IDLE
                         autoTranslateEngine?.onTranslationSuccess(str, result.translatedText)
+                        autoTranslateEngine?.markIdle()
 
                         // 保存到历史
                         saveTranslationToCache(
