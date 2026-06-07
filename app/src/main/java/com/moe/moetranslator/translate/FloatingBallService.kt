@@ -864,13 +864,13 @@ class FloatingBallService : LifecycleService() {
                     translateStartTime = System.currentTimeMillis()
                     when (val decision = engine.processScreenshot(bitmap)) {
                         is AutoTranslateEngine.Decision.PixelSkip -> {
-                            val pct = "%.1f%%".format(decision.diffRatio * 100)
-                            updateDebugStatus("【跳过·画面未变】$pct")
+                            val pct = "%.2f%%".format(decision.diffRatio * 100)
+                            updateDebugStatus("【像素未变·跳过OCR】$pct")
                             isTranslating.set(false)
                             scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
                         is AutoTranslateEngine.Decision.TextSkip -> {
-                            updateDebugStatus("【跳过·文字不同】")
+                            updateDebugStatus("【文字不同·等待稳定】")
                             isTranslating.set(false)
                             scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
@@ -1122,6 +1122,13 @@ class FloatingBallService : LifecycleService() {
         if (isAutoTranslating) {
             stopAutoTranslate()
         }
+
+        // 隐藏调试浮窗
+        hideDebugOverlay()
+        gameDebugOverlay = null
+
+        // 清理 handler
+        autoTranslateHandler.removeCallbacksAndMessages(null)
 
         // 移除所有窗口
         if (isViewAdded(floatingBallView)) {
