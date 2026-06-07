@@ -165,7 +165,7 @@ class FloatingBallService : LifecycleService() {
 
 
     companion object {
-        private const val PIXEL_CHECK_INTERVAL_MS = 300L  // 像素快检间隔
+        private const val PIXEL_CHECK_INTERVAL_MS = 150L  // 像素快检间隔
         private const val OCR_TIMEOUT_MS = 3000L           // OCR 超时
     }
 
