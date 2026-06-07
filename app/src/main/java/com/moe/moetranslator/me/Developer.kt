@@ -152,6 +152,15 @@ class Developer : Fragment() {
                 showToast("PP-OCRv5 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
+
+        // 游戏翻译调试开关
+        binding.gameTranslateDebugSwitch.isChecked = prefs.getBoolean("Game_Translate_Debug_View", false)
+        binding.gameTranslateDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("Game_Translate_Debug_View", isChecked)
+            if (isChecked) {
+                showToast("游戏翻译调试模式已开启，请在游戏翻译界面测试")
+            }
+        }
     }
 
     private fun showToast(message: String) {
