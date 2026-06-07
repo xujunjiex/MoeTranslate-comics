@@ -1211,6 +1211,7 @@ class MangaFloatingService : LifecycleService() {
                     previousScreenshotHash = currentHash
                     motionStartTime = System.currentTimeMillis()
                     LogCollector.d(TAG, "AutoDetect[IDLE→MOTION]: simToTranslated=$simToTranslated, motion detected")
+                    showProgressOverlay("检测中...")
                     scheduleNextDetection(DETECT_INTERVAL_MS)
                     return false
                 }
@@ -2337,17 +2338,32 @@ class MangaFloatingService : LifecycleService() {
             }
         }
 
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            width = screenW
-            height = screenH
-            gravity = Gravity.START or Gravity.TOP
-            x = 0
-            y = 0
+        val params = if (cropRect != null) {
+            val crop = cropRect!!
+            WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                width = crop.width().toInt()
+                height = crop.height().toInt()
+                gravity = Gravity.START or Gravity.TOP
+                x = crop.left.toInt() + cropView.absolutePointOffset.x
+                y = crop.top.toInt() + cropView.absolutePointOffset.y
+            }
+        } else {
+            WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.RGBA_8888
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                width = screenW
+                height = screenH
+                gravity = Gravity.START or Gravity.TOP
+                x = 0
+                y = 0
+            }
         }
 
         windowManager.addView(container, params)

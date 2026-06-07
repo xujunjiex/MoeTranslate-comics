@@ -108,7 +108,7 @@ object Dialogs {
 
     data class HistoryItem(val time: String, val source: String, val translated: String)
 
-    fun historyDialog(ctx: Context, items: List<HistoryItem>, onItemClick: (Int) -> Unit): AlertDialog {
+    fun historyDialog(ctx: Context, items: List<HistoryItem>, onItemClick: (Int) -> Unit, onItemLongClick: ((Int) -> Unit)? = null): AlertDialog {
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
@@ -118,6 +118,12 @@ object Dialogs {
         lv.adapter = HistoryListAdapter(ctx, items)
         lv.setOnItemClickListener { _, _, position, _ ->
             onItemClick(position)
+        }
+        if (onItemLongClick != null) {
+            lv.setOnItemLongClickListener { _, _, position, _ ->
+                onItemLongClick(position)
+                true
+            }
         }
         val dialog = AlertDialog.Builder(ctx)
             .setView(view)

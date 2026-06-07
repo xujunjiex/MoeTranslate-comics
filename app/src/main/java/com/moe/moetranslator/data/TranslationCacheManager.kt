@@ -19,7 +19,7 @@ class TranslationCacheManager(private val context: Context) {
         private const val TAG = "TranslationCacheManager"
         const val MODE_GAME = 0
         const val MODE_MANGA = 1
-        private const val MAX_CACHE_PER_MODE = 10
+        private const val MAX_CACHE_PER_MODE = 100
         private const val SIMILARITY_THRESHOLD_MANGA = 0.92f
         private const val THUMBNAIL_SIZE = 200
     }
@@ -70,6 +70,24 @@ class TranslationCacheManager(private val context: Context) {
         }
 
         LogCollector.d(TAG, "findCache: 未命中, pHash=$pHash, mode=$mode")
+        null
+    }
+
+    /**
+     * 按原文+语言对查找游戏翻译缓存（用于自动翻译的数据库缓存层）
+     * 通过精确匹配 sourceText + sourceLang + targetLang 查找
+     */
+    suspend fun findGameCache(sourceText: String, sourceLang: String, targetLang: String): CacheResult? = withContext(Dispatchers.IO) {
+        if (sourceText.isBlank()) return@withContext null
+
+        val history = dao.findHistoryBySourceText(sourceText.trim(), sourceLang, targetLang)
+        if (history != null) {
+            dao.updateLastAccessed(history.id, System.currentTimeMillis())
+            LogCollector.d(TAG, "findGameCache: 命中, historyId=${history.id}")
+            return@withContext buildCacheResult(history)
+        }
+
+        LogCollector.d(TAG, "findGameCache: 未命中, sourceText=${sourceText.take(20)}...")
         null
     }
 

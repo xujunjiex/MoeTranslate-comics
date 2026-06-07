@@ -52,7 +52,7 @@
     <string name="error_code">Error Code</string>
     <string name="check_update">Check for Updates</string>
     <string name="clear_cache">Clear Cache</string>
-    <string name="cache_indicator">⚡ Cache</string>
+    <string name="cache_indicator">⚡ </string>
     <string name="about_page">About</string>
     <string name="choose_mode">Select the translation mode you wish to use</string>
     <string name="ocr_mode">Local OCR Recognition + Text Translation<font color="#55AEEA">(Recommended)</font></string>
@@ -445,6 +445,7 @@
     <string name="manga_menu_stop_auto">Stop Auto</string>
     <string name="manga_translating">Translating…</string>
     <string name="manga_auto_detecting">Auto-detecting…</string>
+    <string name="translating_progress">Translating…</string>
     <string name="manga_translate_failed">Translation failed: %s</string>
     <string name="manga_font_size_auto">Auto</string>
     <string name="stop_service_first">Please stop the translation service before changing settings</string>

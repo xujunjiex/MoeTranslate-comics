@@ -36,6 +36,12 @@ interface TranslationHistoryDao {
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode LIMIT 1")
     suspend fun findCacheByExactHash(pHash: Long, mode: Int): PageCacheEntity?
 
+    /**
+     * 按原文+语言对查找游戏翻译历史（精确匹配 sourceText）
+     */
+    @Query("SELECT * FROM translation_history WHERE sourceText = :sourceText COLLATE NOCASE AND type = 0 AND sourceLang = :sourceLang AND targetLang = :targetLang LIMIT 1")
+    suspend fun findHistoryBySourceText(sourceText: String, sourceLang: String, targetLang: String): HistoryEntity?
+
     @Query("SELECT * FROM page_cache WHERE mode = :mode")
     suspend fun getAllCacheByMode(mode: Int): List<PageCacheEntity>
 

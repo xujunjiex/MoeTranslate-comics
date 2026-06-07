@@ -28,6 +28,7 @@ import android.os.Looper
 import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.TextSimilarity
 import android.view.*
 import android.widget.AdapterView
 import android.widget.ImageView
@@ -895,8 +896,31 @@ class FloatingBallService : LifecycleService() {
                     updateDebugStatus("【检测中】手动翻译")
                     translateStartTime = System.currentTimeMillis()
                     val txt = GameOcrEngine(this).recognize(bitmap)
-                    updateDebugStatus("【翻译中】手动")
-                    translateByText(txt)
+                    if (txt.isBlank()) {
+                        updateDebugStatus("【跳过】OCR 结果为空")
+                        isTranslating.set(false)
+                        return
+                    }
+                    // 检查数据库缓存（使用 normalize 后的文本，不区分大小写）
+                    val normalizedTxt = TextSimilarity.normalize(txt)
+                    val dbCache = cacheManager.findGameCache(
+                        normalizedTxt,
+                        prefs.getString("Source_Language", "ja"),
+                        prefs.getString("Target_Language", "zh")
+                    )
+                    if (dbCache?.translatedText != null) {
+                        val elapsed = System.currentTimeMillis() - translateStartTime
+                        updateDebugStatus("【缓存】database", elapsedMs = elapsed)
+                        if (isGameDebugEnabled()) {
+                            floatingTextView.text = getString(R.string.cache_indicator) + dbCache.translatedText
+                        } else {
+                            floatingTextView.text = dbCache.translatedText
+                        }
+                        isTranslating.set(false)
+                    } else {
+                        updateDebugStatus("【翻译中】手动")
+                        translateByText(txt)
+                    }
                 }
             } else {
                 updateDebugStatus("【翻译中】图片翻译")

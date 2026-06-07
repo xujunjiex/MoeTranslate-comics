@@ -52,7 +52,7 @@
     <string name="error_code">错误代码</string>
     <string name="check_update">检查更新</string>
     <string name="clear_cache">清除缓存</string>
-    <string name="cache_indicator">⚡ 缓存</string>
+    <string name="cache_indicator">⚡ </string>
     <string name="about_page">关于</string>
     <string name="choose_mode">选择您希望使用的翻译模式</string>
     <string name="ocr_mode">本地OCR识别+文本翻译<font color="#55AEEA">（推荐）</font></string>
@@ -445,6 +445,7 @@
     <string name="manga_menu_stop_auto">停止自动翻译</string>
     <string name="manga_translating">正在翻译…</string>
     <string name="manga_auto_detecting">自动检测中…</string>
+    <string name="translating_progress">正在翻译…</string>
     <string name="manga_translate_failed">翻译失败：%s</string>
     <string name="manga_font_size_auto">自动</string>
     <string name="stop_service_first">请先关闭翻译服务再修改设置</string>
