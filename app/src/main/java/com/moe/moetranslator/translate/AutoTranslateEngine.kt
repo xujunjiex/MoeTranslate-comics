@@ -99,8 +99,11 @@ class AutoTranslateEngine(
         val currPixels = IntArray(w * h)
         bitmap.getPixels(currPixels, 0, w, 0, 0, w, h)
 
+        // 判断是否处于"等待稳定"状态：已检测到新文字，需要再次 OCR 确认文字稳定
+        val waitingForStability = lastOCRText.isNotEmpty() && lastTranslationResult.isEmpty()
+
         val prevPixels = lastPixels
-        if (prevPixels != null && !isManualForceTranslate && lastWidth == w && lastHeight == h) {
+        if (prevPixels != null && !isManualForceTranslate && !waitingForStability && lastWidth == w && lastHeight == h) {
             val result = PixelCompare.comparePixels(prevPixels, currPixels, w, h)
             lastDiffRatio = result.diffRatio
             lastPixels = currPixels
@@ -108,11 +111,17 @@ class AutoTranslateEngine(
                 LogCollector.d(TAG, "【像素未变·跳过OCR】diffRatio=${"%.6f".format(result.diffRatio)}")
                 return Decision.PixelSkip(result.diffRatio)
             }
+            LogCollector.d(TAG, "【像素变化·进入OCR】diffRatio=${"%.6f".format(result.diffRatio)}")
         } else {
-            // 首次截图或手动翻译，保存像素数组供下次比较
+            // 首次截图 / 手动翻译 / 等待稳定：保存像素数组供下次比较
             lastPixels = currPixels
             lastWidth = w
             lastHeight = h
+            when {
+                isManualForceTranslate -> LogCollector.d(TAG, "【手动翻译·强制OCR】")
+                waitingForStability -> LogCollector.d(TAG, "【等待稳定·强制OCR】上次文字: ${lastOCRText.take(20)}...")
+                else -> LogCollector.d(TAG, "【首次截图·进入OCR】")
+            }
         }
 
         LogCollector.d(TAG, "【检测中】正在 OCR 识别...")

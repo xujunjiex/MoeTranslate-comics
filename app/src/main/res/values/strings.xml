@@ -556,4 +556,6 @@
     <string name="game_stop_auto">Turn Off Automatic Translation</string>
     <string name="game_close_ball">Close Floating Ball</string>
     <string name="game_back_main">Return to StarFlow Main Page</string>
+    <string name="game_show_log">Show Log</string>
+    <string name="game_hide_log">Hide Log</string>
 </resources>

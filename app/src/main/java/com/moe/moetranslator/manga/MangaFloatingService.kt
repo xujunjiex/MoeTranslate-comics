@@ -225,6 +225,12 @@ class MangaFloatingService : LifecycleService() {
         LogCollector.d(TAG, "MangaFloatingService created")
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // 清除后台时停止服务
+        stopSelf()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         removeAllViews()

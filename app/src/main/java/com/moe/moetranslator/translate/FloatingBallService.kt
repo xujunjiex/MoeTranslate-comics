@@ -199,14 +199,21 @@ class FloatingBallService : LifecycleService() {
         gameDebugOverlay?.hide()
     }
 
-    private fun updateDebugStatus(status: String, similarity: Float = -1f, cacheSource: String = "", elapsedMs: Long = -1L) {
+    private fun updateDebugStatus(
+        status: String,
+        similarity: Float = -1f,
+        cacheSource: String = "",
+        elapsedMs: Long = -1L,
+        diffRatio: Float = -1f
+    ) {
         if (!isGameDebugEnabled()) return
         gameDebugOverlay?.update(
             status = status,
             ocrEngine = getOcrEngineName(),
             similarity = similarity,
             cacheSource = cacheSource,
-            elapsedMs = elapsedMs
+            elapsedMs = elapsedMs,
+            diffRatio = diffRatio
         )
     }
 
@@ -865,12 +872,12 @@ class FloatingBallService : LifecycleService() {
                     when (val decision = engine.processScreenshot(bitmap)) {
                         is AutoTranslateEngine.Decision.PixelSkip -> {
                             val pct = "%.2f%%".format(decision.diffRatio * 100)
-                            updateDebugStatus("【像素未变·跳过OCR】$pct")
+                            updateDebugStatus("【像素未变·跳过OCR】$pct", diffRatio = decision.diffRatio)
                             isTranslating.set(false)
                             scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
                         is AutoTranslateEngine.Decision.TextSkip -> {
-                            updateDebugStatus("【文字不同·等待稳定】")
+                            updateDebugStatus("【文字不同·等待稳定】", diffRatio = engine.lastDiffRatio)
                             isTranslating.set(false)
                             scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
@@ -878,7 +885,8 @@ class FloatingBallService : LifecycleService() {
                             val elapsed = System.currentTimeMillis() - translateStartTime
                             updateDebugStatus(
                                 "【缓存】${decision.source}",
-                                elapsedMs = elapsed
+                                elapsedMs = elapsed,
+                                diffRatio = engine.lastDiffRatio
                             )
                             // 调试模式：显示⚡ + 原文+译文；非调试：只显示译文
                             if (isGameDebugEnabled()) {
@@ -892,7 +900,8 @@ class FloatingBallService : LifecycleService() {
                         is AutoTranslateEngine.Decision.Translate -> {
                             updateDebugStatus(
                                 "【翻译中】",
-                                similarity = decision.similarity
+                                similarity = decision.similarity,
+                                diffRatio = engine.lastDiffRatio
                             )
                             translateByText(decision.ocrText)
                         }
@@ -1109,6 +1118,12 @@ class FloatingBallService : LifecycleService() {
                 windowManager.updateViewLayout(floatingTextView, this)
             }
         }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // 清除后台时停止服务
+        stopServiceAndRemoveViews()
     }
 
     override fun onDestroy() {
