@@ -165,8 +165,12 @@ class FloatingBallService : LifecycleService() {
 
 
     companion object {
-        private const val PIXEL_CHECK_INTERVAL_MS = 200L  // 像素快检间隔
-        private const val OCR_TIMEOUT_MS = 3000L           // OCR 超时
+        private const val DEFAULT_PIXEL_CHECK_INTERVAL_MS = 250L
+        private const val OCR_TIMEOUT_MS = 3000L
+    }
+
+    private fun getPixelCheckInterval(): Long {
+        return prefs.getInt("Game_Pixel_Check_Interval", 250).toLong().coerceAtLeast(250L)
     }
 
     // 缓存管理
@@ -728,7 +732,7 @@ class FloatingBallService : LifecycleService() {
             if (isAutoTranslating && isTranslating.get()) {
                 LogCollector.d("FloatingBallService", "截图超时，重置状态")
                 isTranslating.set(false)
-                scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                scheduleNextDetection(getPixelCheckInterval())
             }
         }, OCR_TIMEOUT_MS)
         AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
@@ -844,7 +848,7 @@ class FloatingBallService : LifecycleService() {
                 } finally {
                     // 截图处理完成后再调度下一次，避免截图频率超限
                     if (isAutoTranslating) {
-                        scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                        scheduleNextDetection(getPixelCheckInterval())
                     }
                 }
             }
@@ -996,7 +1000,7 @@ class FloatingBallService : LifecycleService() {
                 }
                 isTranslating.set(false)
                 if (isAutoTranslating) {
-                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                    scheduleNextDetection(getPixelCheckInterval())
                 }
             }
         }
@@ -1019,7 +1023,7 @@ class FloatingBallService : LifecycleService() {
                 }
                 isTranslating.set(false)
                 if (isAutoTranslating) {
-                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                    scheduleNextDetection(getPixelCheckInterval())
                 }
             }
         }

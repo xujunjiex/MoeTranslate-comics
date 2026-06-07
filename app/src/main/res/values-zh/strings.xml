@@ -553,6 +553,8 @@
     <string name="game_hide_log">隐藏日志</string>
     <string name="pixel_threshold_title">像素变化阈值</string>
     <string name="pixel_threshold_summary">当前: %s。diffRatio 低于此值认为画面没变化</string>
+    <string name="pixel_check_interval_title">检测间隔</string>
+    <string name="pixel_check_interval_summary">当前: %s。像素快检的间隔时间</string>
     <string name="delete_history_confirm">确认删除此条历史记录？</string>
     <string name="history_deleted">历史记录已删除</string>
     <string name="history_cleared">历史记录已清空</string>

@@ -135,6 +135,14 @@
             android:entries="@array/pixel_threshold_entries"
             android:entryValues="@array/pixel_threshold_values"/>
 
+        <ListPreference
+            android:key="pixel_check_interval"
+            app:iconSpaceReserved="false"
+            android:defaultValue="250"
+            android:title="@string/pixel_check_interval_title"
+            android:entries="@array/pixel_check_interval_entries"
+            android:entryValues="@array/pixel_check_interval_values"/>
+
         <Preference
             android:key="auto_translate_str_length"
             android:title="@string/auto_translate_str_length"

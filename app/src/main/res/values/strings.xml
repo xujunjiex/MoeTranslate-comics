@@ -560,4 +560,6 @@
     <string name="game_hide_log">Hide Log</string>
     <string name="pixel_threshold_title">Pixel Change Threshold</string>
     <string name="pixel_threshold_summary">Current: %s. Below this diffRatio = no change</string>
+    <string name="pixel_check_interval_title">Check Interval</string>
+    <string name="pixel_check_interval_summary">Current: %s. Pixel check interval</string>
 </resources>
