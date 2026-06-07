@@ -56,6 +56,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var resultFontSize: Preference
     private lateinit var ocrMergeMode: ListPreference
     private lateinit var showSource: ListPreference
+    private lateinit var pixelStabilityCheck: SwitchPreference
     private lateinit var pixelThreshold: ListPreference
     private lateinit var pixelCheckInterval: ListPreference
     private lateinit var mangaTextColor: ColorPreferenceCompat
@@ -75,6 +76,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         resultFontSize = findPreference<Preference>("result_font_size")!!
         ocrMergeMode = findPreference<ListPreference>("ocr_merge_mode")!!
         showSource = findPreference<ListPreference>("show_source_text")!!
+        pixelStabilityCheck = findPreference<SwitchPreference>("pixel_stability_check")!!
         pixelThreshold = findPreference<ListPreference>("pixel_threshold")!!
         pixelCheckInterval = findPreference<ListPreference>("pixel_check_interval")!!
         languagePreference = findPreference<ListPreference>("app_language")!!
@@ -163,6 +165,12 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         }
         showSource.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
             getString(R.string.show_source_text_summary, showSource.entry)
+        }
+
+        // 翻页稳定性检测
+        pixelStabilityCheck.setOnPreferenceChangeListener { _, newValue ->
+            prefs.setBoolean("pixel_stability_check", newValue as Boolean)
+            true
         }
 
         // 像素变化阈值

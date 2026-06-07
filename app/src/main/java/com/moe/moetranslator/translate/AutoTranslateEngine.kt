@@ -129,6 +129,12 @@ class AutoTranslateEngine(
                 stableCount = 0
                 pixelState = PixelState.CHANGED
                 LogCollector.d(TAG, "【像素变化】diff=${"%.6f".format(result.diffRatio)}")
+                // 关闭稳定性检测时，像素变化立即触发 OCR
+                val stabilityCheck = prefs.getBoolean("pixel_stability_check", false)
+                if (!stabilityCheck) {
+                    LogCollector.d(TAG, "【跳过稳定检测·立即OCR】")
+                    return Decision.PixelStabilizing(STABLE_FRAMES, result.diffRatio)
+                }
                 return Decision.PixelChanging(result.diffRatio)
             }
         } else {

@@ -558,6 +558,8 @@
     <string name="game_back_main">Return to StarFlow Main Page</string>
     <string name="game_show_log">Show Log</string>
     <string name="game_hide_log">Hide Log</string>
+    <string name="pixel_stability_title">Page Stability Check</string>
+    <string name="pixel_stability_summary">When on, waits for the screen to stop changing before translating. Useful for fast page-turning to avoid translating transition animations. When off, translates immediately on screen change for faster response but may catch mid-transition frames.</string>
     <string name="pixel_threshold_title">Pixel Change Threshold</string>
     <string name="pixel_threshold_summary">Current: %s. Below this diffRatio = no change</string>
     <string name="pixel_check_interval_title">Check Interval</string>

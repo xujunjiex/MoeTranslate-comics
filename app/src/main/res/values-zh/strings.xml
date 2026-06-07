@@ -551,6 +551,8 @@
     <string name="game_back_main">回到星译主界面</string>
     <string name="game_show_log">显示日志</string>
     <string name="game_hide_log">隐藏日志</string>
+    <string name="pixel_stability_title">翻页稳定性检测</string>
+    <string name="pixel_stability_summary">开启后，画面停止变化一段时间才触发翻译。适合快速翻页场景，避免在翻页动画中触发无用翻译。关闭则检测到画面变化立即翻译，响应更快但可能翻译到过渡画面。</string>
     <string name="pixel_threshold_title">像素变化阈值</string>
     <string name="pixel_threshold_summary">当前: %s。diffRatio 低于此值认为画面没变化</string>
     <string name="pixel_check_interval_title">检测间隔</string>
