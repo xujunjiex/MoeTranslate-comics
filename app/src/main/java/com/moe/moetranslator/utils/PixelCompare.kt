@@ -19,7 +19,7 @@ object PixelCompare {
     private const val MAX_YIQ_DELTA = 35215f
 
     // diffRatio 小于此值认为画面没变
-    private const val SIMILAR_THRESHOLD = 0.02f
+    private const val SIMILAR_THRESHOLD = 0.005f
 
     /**
      * 比较两个 Bitmap 的像素差异
