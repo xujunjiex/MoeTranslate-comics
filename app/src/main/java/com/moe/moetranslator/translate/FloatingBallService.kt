@@ -165,7 +165,8 @@ class FloatingBallService : LifecycleService() {
 
 
     companion object {
-        private const val DETECT_INTERVAL_MS = 500L
+        private const val PIXEL_CHECK_INTERVAL_MS = 150L  // 像素快检间隔
+        private const val OCR_TIMEOUT_MS = 3000L           // OCR 超时
     }
 
     // 缓存管理
@@ -719,7 +720,7 @@ class FloatingBallService : LifecycleService() {
     private fun runAutoDetect() {
         if (!isAutoTranslating) return
         if (isTranslating.get()) {
-            scheduleNextDetection(DETECT_INTERVAL_MS)
+            scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
             return
         }
         // 设置超时：如果截图失败或没有响应，也要继续检测
@@ -727,9 +728,9 @@ class FloatingBallService : LifecycleService() {
             if (isAutoTranslating && isTranslating.get()) {
                 LogCollector.d("FloatingBallService", "截图超时，重置状态")
                 isTranslating.set(false)
-                scheduleNextDetection(DETECT_INTERVAL_MS)
+                scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
             }
-        }, 3000L) // 3秒超时
+        }, OCR_TIMEOUT_MS)
         AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
     }
 
@@ -866,44 +867,44 @@ class FloatingBallService : LifecycleService() {
             if (prefs.getInt("Translate_Mode", 0) == 0) {
                 val engine = autoTranslateEngine
                 if (engine != null && isAutoTranslating) {
-                    // 自动翻译模式：使用引擎决策
-                    updateDebugStatus("【检测中】")
+                    // 第一步：像素快检
                     translateStartTime = System.currentTimeMillis()
-                    when (val decision = engine.processScreenshot(bitmap)) {
-                        is AutoTranslateEngine.Decision.PixelSkip -> {
-                            val pct = "%.2f%%".format(decision.diffRatio * 100)
-                            updateDebugStatus("【像素未变·跳过OCR】$pct", diffRatio = decision.diffRatio)
+                    when (val pixelDecision = engine.checkPixel(bitmap)) {
+                        is AutoTranslateEngine.Decision.PixelChanging -> {
+                            updateDebugStatus("【像素变化】", diffRatio = pixelDecision.diffRatio)
                             isTranslating.set(false)
-                            scheduleNextDetection(DETECT_INTERVAL_MS)
+                            scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                         }
-                        is AutoTranslateEngine.Decision.TextSkip -> {
-                            updateDebugStatus("【文字不同·等待稳定】", diffRatio = engine.lastDiffRatio)
-                            isTranslating.set(false)
-                            scheduleNextDetection(DETECT_INTERVAL_MS)
-                        }
-                        is AutoTranslateEngine.Decision.CacheHit -> {
-                            val elapsed = System.currentTimeMillis() - translateStartTime
-                            updateDebugStatus(
-                                "【缓存】${decision.source}",
-                                elapsedMs = elapsed,
-                                diffRatio = engine.lastDiffRatio
-                            )
-                            // 调试模式：显示⚡ + 原文+译文；非调试：只显示译文
-                            if (isGameDebugEnabled()) {
-                                floatingTextView.text = getString(R.string.cache_indicator) + decision.cachedText
+                        is AutoTranslateEngine.Decision.PixelStabilizing -> {
+                            if (pixelDecision.stableCount >= 2) {
+                                // 达到稳定阈值，触发 OCR
+                                updateDebugStatus("【触发OCR】", diffRatio = pixelDecision.diffRatio)
+                                when (val ocrDecision = engine.ocrAndTranslate(bitmap)) {
+                                    is AutoTranslateEngine.Decision.CacheHit -> {
+                                        val elapsed = System.currentTimeMillis() - translateStartTime
+                                        updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
+                                        floatingTextView.text = ocrDecision.cachedText
+                                        isTranslating.set(false)
+                                        scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                                    }
+                                    is AutoTranslateEngine.Decision.Translate -> {
+                                        updateDebugStatus("【翻译中】", diffRatio = pixelDecision.diffRatio)
+                                        translateByText(ocrDecision.ocrText)
+                                    }
+                                    else -> {
+                                        isTranslating.set(false)
+                                        scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                                    }
+                                }
                             } else {
-                                floatingTextView.text = decision.cachedText
+                                updateDebugStatus("【像素稳定】${pixelDecision.stableCount}/2", diffRatio = pixelDecision.diffRatio)
+                                isTranslating.set(false)
+                                scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                             }
-                            isTranslating.set(false)
-                            scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
-                        is AutoTranslateEngine.Decision.Translate -> {
-                            updateDebugStatus(
-                                "【翻译中】",
-                                similarity = decision.similarity,
-                                diffRatio = engine.lastDiffRatio
-                            )
-                            translateByText(decision.ocrText)
+                        else -> {
+                            isTranslating.set(false)
+                            scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                         }
                     }
                 } else {
@@ -948,7 +949,7 @@ class FloatingBallService : LifecycleService() {
             e.printStackTrace()
             showToast(getString(R.string.translation_failed, e.message))
             if (isAutoTranslating) {
-                scheduleNextDetection(DETECT_INTERVAL_MS)
+                scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
             }
         } finally {
             bitmap.recycle()
@@ -991,7 +992,7 @@ class FloatingBallService : LifecycleService() {
                 }
                 isTranslating.set(false)
                 if (isAutoTranslating) {
-                    scheduleNextDetection(DETECT_INTERVAL_MS)
+                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                 }
             }
         }
@@ -1014,7 +1015,7 @@ class FloatingBallService : LifecycleService() {
                 }
                 isTranslating.set(false)
                 if (isAutoTranslating) {
-                    scheduleNextDetection(DETECT_INTERVAL_MS)
+                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
                 }
             }
         }
