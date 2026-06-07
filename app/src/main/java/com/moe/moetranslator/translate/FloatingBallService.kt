@@ -989,6 +989,9 @@ class FloatingBallService : LifecycleService() {
                     }
                 }
                 isTranslating.set(false)
+                if (isAutoTranslating) {
+                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                }
             }
         }
     }
@@ -1009,6 +1012,9 @@ class FloatingBallService : LifecycleService() {
                     }
                 }
                 isTranslating.set(false)
+                if (isAutoTranslating) {
+                    scheduleNextDetection(PIXEL_CHECK_INTERVAL_MS)
+                }
             }
         }
     }
