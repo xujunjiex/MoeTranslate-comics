@@ -38,6 +38,7 @@ tools/
 scripts/
 markdown/
 docs/
+superpowers/
 
 # Claude Code
 CLAUDE.md
