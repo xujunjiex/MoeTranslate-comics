@@ -132,7 +132,7 @@ object CTDPostProcessor {
             }
 
             // 5. box_score_fast: 计算轮廓内平均概率
-            val score = boxScoreFast(probMap, width, height, contour)
+            val score = GeometryUtils.boxScoreFast(probMap, width, height, contour)
 
             // 6. 动态 unclip_ratio：窄框用更大的 ratio，补偿 area/perimeter 公式对窄框扩展不足
             val aspect = maxOf(contourW, contourH) / maxOf(minOf(contourW, contourH), 1f)
@@ -261,7 +261,7 @@ object CTDPostProcessor {
             }
 
             // 5. box_score_fast: 计算轮廓内平均概率
-            val score = boxScoreFast(probMap, width, height, contour)
+            val score = GeometryUtils.boxScoreFast(probMap, width, height, contour)
 
             // 6. 动态 unclip_ratio：窄框用更大的 ratio，补偿 area/perimeter 公式对窄框扩展不足
             val aspect = maxOf(contourW, contourH) / maxOf(minOf(contourW, contourH), 1f)
@@ -373,7 +373,7 @@ object CTDPostProcessor {
 
                 if (componentPixels.size >= 3) {
                     // 计算凸包作为轮廓（等价于 cv2.CHAIN_APPROX_SIMPLE 的效果）
-                    val hull = convexHull(componentPixels)
+                    val hull = GeometryUtils.convexHull(componentPixels)
                     if (hull.size >= 3) {
                         contours.add(hull)
                     }
@@ -424,7 +424,7 @@ object CTDPostProcessor {
         }
 
         // 凸包
-        val hull = convexHull(points)
+        val hull = GeometryUtils.convexHull(points)
         if (hull.size < 3) {
             var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
             var minY = Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
@@ -516,116 +516,6 @@ object CTDPostProcessor {
         }
 
         return Pair(bestRect, bestSside)
-    }
-
-    // -----------------------------------------------------------------------
-    // convexHull: Graham scan
-    // -----------------------------------------------------------------------
-
-    /**
-     * Graham scan 凸包算法。
-     */
-    private fun convexHull(points: Path64): Path64 {
-        if (points.size < 3) return points.toMutableList()
-
-        val sorted = points.sortedWith(compareBy({ it.x }, { it.y }))
-        val n = sorted.size
-
-        val lower = mutableListOf<Coordinate>()
-        for (p in sorted) {
-            while (lower.size >= 2 && cross(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
-                lower.removeAt(lower.size - 1)
-            }
-            lower.add(p)
-        }
-
-        val upper = mutableListOf<Coordinate>()
-        for (i in n - 1 downTo 0) {
-            val p = sorted[i]
-            while (upper.size >= 2 && cross(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
-                upper.removeAt(upper.size - 1)
-            }
-            upper.add(p)
-        }
-
-        // 去掉首尾重复点
-        lower.removeAt(lower.size - 1)
-        upper.removeAt(upper.size - 1)
-
-        return (lower + upper).toMutableList()
-    }
-
-    private fun cross(o: Coordinate, a: Coordinate, b: Coordinate): Double {
-        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-    }
-
-    // -----------------------------------------------------------------------
-    // box_score_fast: 计算轮廓内平均概率
-    // -----------------------------------------------------------------------
-
-    /**
-     * 计算轮廓内的平均概率。
-     * 等价于 Python 的 box_score_fast: fill contour with mask, compute mean prob.
-     */
-    private fun boxScoreFast(
-        probMap: FloatArray,
-        width: Int,
-        height: Int,
-        contour: Path64
-    ): Float {
-        // 获取轮廓的轴对齐外接矩形
-        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE
-        var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE
-        for (p in contour) {
-            val px = p.x.toInt(); val py = p.y.toInt()
-            if (px < minX) minX = px
-            if (py < minY) minY = py
-            if (px > maxX) maxX = px
-            if (py > maxY) maxY = py
-        }
-
-        // 裁剪到图像范围
-        minX = max(0, minX); minY = max(0, minY)
-        maxX = min(width - 1, maxX); maxY = min(height - 1, maxY)
-
-        if (minX > maxX || minY > maxY) return 0f
-
-        // 对 bbox 内每个像素，判断是否在轮廓内（射线法）
-        var sum = 0f
-        var count = 0
-        for (y in minY..maxY) {
-            for (x in minX..maxX) {
-                if (pointInPolygon(x.toLong(), y.toLong(), contour)) {
-                    sum += probMap[y * width + x]
-                    count++
-                }
-            }
-        }
-
-        return if (count > 0) sum / count else 0f
-    }
-
-    /**
-     * 射线法判断点是否在多边形内。
-     */
-    private fun pointInPolygon(px: Long, py: Long, polygon: Path64): Boolean {
-        var inside = false
-        val n = polygon.size
-        var j = n - 1
-        for (i in 0 until n) {
-            val yi = polygon[i].y
-            val yj = polygon[j].y
-            val xi = polygon[i].x
-            val xj = polygon[j].x
-
-            if ((yi > py) != (yj > py) &&
-                px < (xj - xi) * (py - yi) / (yj - yi) + xi
-            ) {
-                inside = !inside
-            }
-            j = i
-        }
-        return inside
     }
 
     // -----------------------------------------------------------------------

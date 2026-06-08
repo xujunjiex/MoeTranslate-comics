@@ -88,7 +88,7 @@ object DBNetPostProcessor {
 
             if (boxWidth < minSize || boxHeight < minSize) { filteredBySize++; continue }
 
-            val avgProb = boxScoreFast(probMap, width, height, contour)
+            val avgProb = GeometryUtils.boxScoreFast(probMap, width, height, contour)
 
             val area = polygonArea(contour)
             val perimeter = contourPerimeter(contour)
@@ -197,7 +197,7 @@ object DBNetPostProcessor {
             if (boxWidth < minSize || boxHeight < minSize) { filteredBySize++; continue }
 
             // 计算概率（不在这里过滤，对齐 Python 注释掉的逻辑）
-            val avgProb = boxScoreFast(probMap, width, height, contour)
+            val avgProb = GeometryUtils.boxScoreFast(probMap, width, height, contour)
 
             val area = polygonArea(contour)
             val perimeter = contourPerimeter(contour)
@@ -392,7 +392,7 @@ object DBNetPostProcessor {
         }
 
         // 凸包
-        val hull = convexHull(points)
+        val hull = GeometryUtils.convexHull(points)
         if (hull.size < 3) {
             var minX = hull[0].x; var maxX = minX; var minY = hull[0].y; var maxY = minY
             for (p in hull) {
@@ -452,114 +452,6 @@ object DBNetPostProcessor {
         }
 
         return RotatedRect(bestCx, bestCy, bestW, bestH, bestAngle)
-    }
-
-    /**
-     * Graham scan 凸包算法。
-     */
-    private fun convexHull(points: Path64): Path64 {
-        if (points.size < 3) return points.toMutableList()
-
-        // 按 (x, y) 排序
-        val sorted = points.sortedWith(compareBy({ it.x }, { it.y }))
-        val n = sorted.size
-
-        // 下凸包
-        val lower = mutableListOf<Point64>()
-        for (p in sorted) {
-            while (lower.size >= 2 && cross(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
-                lower.removeAt(lower.size - 1)
-            }
-            lower.add(p)
-        }
-
-        // 上凸包
-        val upper = mutableListOf<Point64>()
-        for (i in n - 1 downTo 0) {
-            val p = sorted[i]
-            while (upper.size >= 2 && cross(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
-                upper.removeAt(upper.size - 1)
-            }
-            upper.add(p)
-        }
-
-        // 合并（去掉最后一个点，因为它是起点的重复）
-        lower.removeAt(lower.size - 1)
-        upper.removeAt(upper.size - 1)
-        return (lower + upper).toMutableList()
-    }
-
-    private fun cross(o: Point64, a: Point64, b: Point64): Double {
-        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-    }
-
-    // -----------------------------------------------------------------------
-    // 概率计算：射线法点在多边形内测试
-    // -----------------------------------------------------------------------
-
-    /**
-     * 计算轮廓内的平均概率（box_score_fast）。
-     * 使用射线法判断像素是否在多边形内。
-     */
-    private fun boxScoreFast(
-        probMap: FloatArray,
-        width: Int,
-        height: Int,
-        contour: Path64
-    ): Float {
-        // 获取轮廓的轴对齐外接矩形
-        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE
-        var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE
-        for (p in contour) {
-            if (p.x < minX) minX = p.x.toInt()
-            if (p.y < minY) minY = p.y.toInt()
-            if (p.x > maxX) maxX = p.x.toInt()
-            if (p.y > maxY) maxY = p.y.toInt()
-        }
-
-        // 裁剪到图像范围
-        minX = max(0, minX); minY = max(0, minY)
-        maxX = min(width - 1, maxX); maxY = min(height - 1, maxY)
-
-        if (minX > maxX || minY > maxY) return 0f
-
-        // 对 bbox 内每个像素，判断是否在轮廓内
-        var sum = 0f
-        var count = 0
-        for (y in minY..maxY) {
-            for (x in minX..maxX) {
-                if (pointInPolygon(x.toLong(), y.toLong(), contour)) {
-                    sum += probMap[y * width + x]
-                    count++
-                }
-            }
-        }
-
-        return if (count > 0) sum / count else 0f
-    }
-
-    /**
-     * 射线法判断点是否在多边形内。
-     * 从点向右发射水平射线，计算与多边形边的交叉次数。
-     */
-    private fun pointInPolygon(px: Long, py: Long, polygon: Path64): Boolean {
-        var inside = false
-        val n = polygon.size
-        var j = n - 1
-        for (i in 0 until n) {
-            val yi = polygon[i].y
-            val yj = polygon[j].y
-            val xi = polygon[i].x
-            val xj = polygon[j].x
-
-            if ((yi > py) != (yj > py) &&
-                px < (xj - xi) * (py - yi) / (yj - yi) + xi
-            ) {
-                inside = !inside
-            }
-            j = i
-        }
-        return inside
     }
 
     // -----------------------------------------------------------------------

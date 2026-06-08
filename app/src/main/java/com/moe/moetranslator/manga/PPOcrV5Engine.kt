@@ -450,7 +450,7 @@ object PPOcrV5Engine {
             if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
 
             // 概率评分
-            val score = boxScoreFast(pred, predW, predH, boxPoints)
+            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxPoints)
 
             // box_thresh 过滤：低于阈值的候选框直接跳过
             if (score < DET_BOX_THRESH) continue
@@ -590,7 +590,7 @@ object PPOcrV5Engine {
         }
 
         val ptsD = contour.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
-        val hull = convexHull(ptsD)
+        val hull = GeometryUtils.convexHull(ptsD)
         if (hull.size < 3) {
             return MiniBoxResult(null, 0f, 0f, 0f, 0f)
         }
@@ -649,107 +649,6 @@ object PPOcrV5Engine {
         }
 
         return bestBox ?: MiniBoxResult(null, 0f, 0f, 0f, 0f)
-    }
-
-    // -----------------------------------------------------------------------
-    // 凸包：Andrew 单调链
-    // -----------------------------------------------------------------------
-
-    private fun convexHull(points: List<Coordinate>): List<Coordinate> {
-        if (points.size < 3) return points.toList()
-
-        val sorted = points.sortedWith(compareBy({ it.x }, { it.y }))
-        val n = sorted.size
-
-        // 下凸包
-        val lower = mutableListOf<Coordinate>()
-        for (p in sorted) {
-            while (lower.size >= 2 && cross2D(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
-                lower.removeAt(lower.size - 1)
-            }
-            lower.add(p)
-        }
-
-        // 上凸包
-        val upper = mutableListOf<Coordinate>()
-        for (i in n - 1 downTo 0) {
-            val p = sorted[i]
-            while (upper.size >= 2 && cross2D(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
-                upper.removeAt(upper.size - 1)
-            }
-            upper.add(p)
-        }
-
-        lower.removeAt(lower.size - 1)
-        upper.removeAt(upper.size - 1)
-        return lower + upper
-    }
-
-    private fun cross2D(o: Coordinate, a: Coordinate, b: Coordinate): Double {
-        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-    }
-
-    // -----------------------------------------------------------------------
-    // boxScoreFast: 轮廓内平均概率
-    // -----------------------------------------------------------------------
-
-    private fun boxScoreFast(
-        bitmap: FloatArray,
-        w: Int,
-        h: Int,
-        box: List<PointF>
-    ): Float {
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        for (p in box) {
-            if (p.x < minX) minX = p.x
-            if (p.x > maxX) maxX = p.x
-            if (p.y < minY) minY = p.y
-            if (p.y > maxY) maxY = p.y
-        }
-
-        val x0 = max(0, minX.toInt().coerceIn(0, w - 1))
-        val x1 = min(w - 1, maxX.toInt().coerceIn(0, w - 1))
-        val y0 = max(0, minY.toInt().coerceIn(0, h - 1))
-        val y1 = min(h - 1, maxY.toInt().coerceIn(0, h - 1))
-
-        if (x0 > x1 || y0 > y1) return 0f
-
-        // 构建多边形用于 point-in-polygon 测试
-        val polygon = box.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
-
-        var sum = 0f
-        var count = 0
-        for (y in y0..y1) {
-            for (x in x0..x1) {
-                if (pointInPolygon(x.toDouble(), y.toDouble(), polygon)) {
-                    sum += bitmap[y * w + x]
-                    count++
-                }
-            }
-        }
-
-        return if (count > 0) sum / count else 0f
-    }
-
-    /**
-     * 射线法判断点是否在多边形内
-     */
-    private fun pointInPolygon(px: Double, py: Double, polygon: List<Coordinate>): Boolean {
-        var inside = false
-        val n = polygon.size
-        var j = n - 1
-        for (i in 0 until n) {
-            val yi = polygon[i].y
-            val yj = polygon[j].y
-            if ((yi > py) != (yj > py) &&
-                px < (polygon[j].x - polygon[i].x) * (py - yi) / (yj - yi) + polygon[i].x
-            ) {
-                inside = !inside
-            }
-            j = i
-        }
-        return inside
     }
 
     // -----------------------------------------------------------------------
