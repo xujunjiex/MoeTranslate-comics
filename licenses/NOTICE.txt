@@ -1,4 +1,4 @@
-This project incorporates code from other open source projects:
+This project incorporates code, models, and algorithms from other open source projects:
 
 -------------------------------------------
 From RTranslator project:
@@ -8,6 +8,84 @@ Copyright 2018-2020 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
+
+-------------------------------------------
+RapidOCR:
+-------------------------------------------
+Copyright 2020 RapidAI
+
+Licensed under the Apache License, Version 2.0.
+https://github.com/RapidAI/RapidOCR
+
+-------------------------------------------
+Comic Text and Bubble Detector:
+-------------------------------------------
+Copyright 2022 dmMaze
+
+Licensed under the GNU General Public License v3.0.
+https://github.com/dmMaze/comic-text-detector
+
+Used for: Text detection and bubble detection models in manga translation.
+
+-------------------------------------------
+RT-DETR (Real-Time Detection Transformer):
+-------------------------------------------
+Copyright 2023 lyuwenyu
+
+Licensed under the Apache License, Version 2.0.
+https://github.com/lyuwenyu/RT-DETR
+
+Used for: Real-time text and bubble detection in manga translation.
+
+-------------------------------------------
+manga-ocr:
+-------------------------------------------
+Copyright 2022 kha-white
+
+Licensed under the Apache License, Version 2.0.
+https://github.com/kha-white/manga-ocr
+
+Used for: Optical character recognition for Japanese manga text.
+
+-------------------------------------------
+manga-image-translator:
+-------------------------------------------
+Copyright 2021 zyddnys
+
+Licensed under the GNU General Public License v3.0.
+https://github.com/zyddnys/manga-image-translator
+
+Used for: Reference implementation for manga translation pipeline.
+
+-------------------------------------------
+pixelmatch:
+-------------------------------------------
+Copyright 2015 Mapbox
+
+Licensed under the ISC License.
+https://github.com/mapbox/pixelmatch
+
+Used for: YIQ-aware pixel comparison algorithm for game screen change detection.
+
+-------------------------------------------
+ONNX Runtime:
+-------------------------------------------
+Copyright 2018 Microsoft Corporation
+
+Licensed under the MIT License.
+https://github.com/microsoft/onnxruntime
+
+Used for: Cross-platform neural network inference engine.
+
+-------------------------------------------
+JTS Topology Suite:
+-------------------------------------------
+Copyright 2021 Eclipse Foundation
+
+Licensed under the Eclipse Public License 2.0 and Eclipse Distribution License 1.0.
+https://github.com/locationtech/jts
+
+Used for: Polygon geometry operations in text region processing.
 
 -------------------------------------------
 Additional Notices:
