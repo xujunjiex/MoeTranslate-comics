@@ -145,6 +145,37 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/status_overlay_category"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreference
+            android:key="status_overlay_enabled"
+            app:iconSpaceReserved="false"
+            android:defaultValue="true"
+            android:title="@string/status_overlay_enabled_title"
+            android:summary="@string/status_overlay_enabled_summary"/>
+
+        <ListPreference
+            android:key="Status_Position"
+            app:iconSpaceReserved="false"
+            android:defaultValue="top"
+            android:title="@string/status_overlay_position_title"
+            android:entries="@array/status_overlay_position_entries"
+            android:entryValues="@array/status_overlay_position_values"
+            android:dependency="status_overlay_enabled"/>
+
+        <ListPreference
+            android:key="Status_Duration"
+            app:iconSpaceReserved="false"
+            android:defaultValue="2000"
+            android:title="@string/status_overlay_duration_title"
+            android:entries="@array/status_overlay_duration_entries"
+            android:entryValues="@array/status_overlay_duration_values"
+            android:dependency="status_overlay_enabled"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/other_setting"
         app:iconSpaceReserved="false">
 

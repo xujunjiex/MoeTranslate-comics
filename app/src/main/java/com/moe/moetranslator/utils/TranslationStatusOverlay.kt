@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -78,7 +79,7 @@ class TranslationStatusOverlay(private val context: Context) {
         ensureView()
         overlayView?.let { view ->
             view.text = message
-            view.setBackgroundColor(Color.argb(200, 0, 0, 0))
+            view.background = createRoundedBackground(Color.argb(150, 0, 0, 0))
             view.setOnClickListener(null)
             view.isClickable = false
             addToWindowIfNeeded()
@@ -114,12 +115,12 @@ class TranslationStatusOverlay(private val context: Context) {
             ensureView()
             overlayView?.let { view ->
                 view.text = message
-                view.setBackgroundColor(Color.argb(200, 180, 0, 0))
+                view.background = createRoundedBackground(Color.argb(150, 180, 0, 0))
                 view.isClickable = true
                 view.setOnClickListener {
                     copyToClipboard(message)
                     view.text = "已复制"
-                    view.setBackgroundColor(Color.argb(200, 0, 120, 0))
+                    view.background = createRoundedBackground(Color.argb(150, 0, 120, 0))
                     view.isClickable = false
                     scheduleAutoDismiss(true, 1000L)
                 }
@@ -168,6 +169,15 @@ class TranslationStatusOverlay(private val context: Context) {
 
     // ========== Internal ==========
 
+    private fun createRoundedBackground(color: Int): GradientDrawable {
+        val radius = 16 * context.resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = radius
+            setColor(color)
+        }
+    }
+
     private fun isEnabled(): Boolean {
         val enabled = prefs.getBoolean("status_overlay_enabled", true)
         LogCollector.d(TAG, "isEnabled: $enabled")
@@ -190,8 +200,10 @@ class TranslationStatusOverlay(private val context: Context) {
         if (overlayView != null) return
         overlayView = TextView(context).apply {
             setTextColor(Color.WHITE)
-            textSize = 14f
-            setPadding(48, 32, 48, 32)
+            textSize = 13f
+            val hPad = (20 * context.resources.displayMetrics.density).toInt()
+            val vPad = (12 * context.resources.displayMetrics.density).toInt()
+            setPadding(hPad, vPad, hPad, vPad)
             gravity = Gravity.CENTER
         }
     }

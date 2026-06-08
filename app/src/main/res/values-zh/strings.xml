@@ -51,7 +51,6 @@
     <string name="faq_title">常见问题</string>
     <string name="error_code">错误代码</string>
     <string name="check_update">检查更新</string>
-    <string name="clear_cache">清除缓存</string>
     <string name="cache_indicator">⚡ </string>
     <string name="about_page">关于</string>
     <string name="choose_mode">选择您希望使用的翻译模式</string>
@@ -262,10 +261,6 @@
     <string name="stop_success">停止成功</string>
     <string name="stop_failed">停止失败：%s</string>
     <string name="textview_tip">这里将会显示翻译结果，请注意不要和原文的位置重合，以免影响截图翻译。</string>
-    <string name="cache_content">星译最多缓存最近200张翻译时的截图，截图大于200张时会进行覆盖，这些截图保存在Android/data/com.moe.moetranslator/cache/screenshots文件夹中，您可以随时在文件管理中查看。一般来说，这些截图不会占用太多空间，当然，您也可以选择现在清除这些缓存数据。</string>
-    <string name="clear_cache_success">清除成功</string>
-    <string name="clear_cache_failed">清除失败</string>
-    <string name="keep_cache">暂时保留</string>
     <string name="still_running">翻译悬浮球好像还在运行，请先关闭它再调整设置吧</string>
     <string name="invalid_combination">源语言和目标语言相同，这是无意义的翻译组合哦</string>
     <string name="bingapi_name">必应翻译</string>
@@ -381,6 +376,7 @@
     <string name="jump">跳转</string>
     <string name="auto_translate_start">自动翻译已开启，请注意API额度消耗</string>
     <string name="auto_translate_stop">自动翻译已关闭</string>
+    <string name="auto_translate_disabled_hint">请先停止自动翻译</string>
     <string name="auto_translate_changed">检测到屏幕方向改变，自动翻译已关闭</string>
     <string name="auto_translate">游戏/视频自动翻译</string>
     <string name="auto_translate_interval">自动翻译时间间隔</string>
@@ -547,4 +543,12 @@
     <string name="history_deleted">历史记录已删除</string>
     <string name="history_cleared">历史记录已清空</string>
     <string name="history_copied">已复制到剪贴板</string>
+
+    <!-- Translation Status Overlay -->
+    <string name="status_overlay_category">翻译通知</string>
+    <string name="status_overlay_enabled_title">显示翻译状态提示</string>
+    <string name="status_overlay_enabled_summary">翻译时显示浮动状态提示条</string>
+    <string name="status_overlay_position_title">提示位置</string>
+    <string name="status_overlay_duration_title">提示显示时长</string>
+    <string name="status_overlay_copied">已复制</string>
 </resources>

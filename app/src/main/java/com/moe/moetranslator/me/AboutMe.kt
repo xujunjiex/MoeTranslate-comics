@@ -25,7 +25,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
@@ -42,7 +41,6 @@ import com.moe.moetranslator.utils.UiUtils
 import com.moe.moetranslator.utils.UpdateChecker
 import com.moe.moetranslator.utils.UpdateResult
 import kotlinx.coroutines.launch
-import java.io.File
 
 
 class AboutMe : Fragment() {
@@ -62,7 +60,6 @@ class AboutMe : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.cachesize.text = getCacheSize()
         setupButton()
     }
 
@@ -116,9 +113,6 @@ class AboutMe : Fragment() {
         binding.updateBtn.setOnClickListener{
             UiUtils.showToast(requireContext(), getString(R.string.getting_update), isShort = false)
             checkForUpdate()
-        }
-        binding.cleanBtn.setOnClickListener {
-            showClearCacheDialog()
         }
         binding.developerBtn.setOnClickListener {
             val intent = Intent(requireContext(), SettingPageActivity::class.java)
@@ -183,26 +177,6 @@ class AboutMe : Fragment() {
         }
     }
 
-    private fun showClearCacheDialog(){
-        val dialog = AlertDialog.Builder(activity)
-            .setTitle(R.string.clear_cache)
-            .setMessage(R.string.cache_content)
-            .setCancelable(false)
-            .setPositiveButton(R.string.clear_cache) { _, _ ->
-                val success = clearCache()
-                if(success){
-                    UiUtils.showToast(requireContext(), getString(R.string.clear_cache_success), isShort = false)
-                }else{
-                    UiUtils.showToast(requireContext(), getString(R.string.clear_cache_failed), isShort = false)
-                }
-                binding.cachesize.text = getCacheSize()
-            }
-            .setNegativeButton(R.string.keep_cache) { _, _ ->}
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
-
     private fun checkForUpdate() {
         viewLifecycleOwner.lifecycleScope.launch {
             when (val result = updateChecker.checkForUpdate()) {
@@ -228,44 +202,6 @@ class AboutMe : Fragment() {
             .create()
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
-
-    private fun getCacheSize(): String {
-        val cacheDir = File(requireContext().externalCacheDir, "screenshots")
-
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
-            return "0.00KB"
-        }
-
-        var size = 0L
-        cacheDir.listFiles()?.forEach { file ->
-            if (file.isFile) {
-                size += file.length()
-            }
-        }
-
-        return when {
-            size < 1024 * 1024 -> String.format("%.2fKB", size / 1024.0)
-            else -> String.format("%.2fMB", size / (1024.0 * 1024.0))
-        }
-    }
-
-    private fun clearCache(): Boolean {
-        val cacheDir = File(requireContext().externalCacheDir, "screenshots")
-
-        if (!cacheDir.exists()) {
-            return true
-        }
-
-        var success = true
-        cacheDir.listFiles()?.forEach { file ->
-            if (file.isFile && !file.delete()) {
-                success = false
-            }
-        }
-
-        return success
     }
 
 }

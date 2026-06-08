@@ -50,7 +50,6 @@
     <string name="faq_title">FAQ</string>
     <string name="error_code">Error Code</string>
     <string name="check_update">Check for Updates</string>
-    <string name="clear_cache">Clear Cache</string>
     <string name="cache_indicator">⚡ Cache</string>
     <string name="about_page">About</string>
     <string name="choose_mode">Select the translation mode you wish to use</string>
@@ -261,10 +260,6 @@
     <string name="stop_success">Stop successfully</string>
     <string name="stop_failed">Stop failed：%s</string>
     <string name="textview_tip">The translation result will be displayed here, please be careful not to coincide with the position of the original text, so as not to affect the translation of the screenshot.</string>
-    <string name="cache_content">StarFlow caches up to the last 200 screenshots when it is translated, and it will be overwritten when the screenshots are greater than 200, and these screenshots are saved in the Android/data/com.moe.moetranslator/cache/screenshots folder, which you can view in the file management at any time. Generally speaking, these screenshots won\'t take up much space, and of course, you can also choose to clear these cache data now.</string>
-    <string name="clear_cache_success">Clear successfully</string>
-    <string name="clear_cache_failed">Clear failed</string>
-    <string name="keep_cache">Reserved for now</string>
     <string name="still_running">The Translation Floatingball seems to be still running, so please turn it off before adjusting the settings</string>
     <string name="invalid_combination">The source language and the target language are the same, which is a meaningless translation combination</string>
     <string name="bingapi_name">Bing Translate</string>
@@ -379,6 +374,7 @@
     <string name="jump">Jump</string>
     <string name="auto_translate_start">Automatic translation is enabled, please pay attention to API quota consumption</string>
     <string name="auto_translate_stop">Automatic translation is turned off</string>
+    <string name="auto_translate_disabled_hint">Please stop auto-translate first</string>
     <string name="auto_translate_changed">Screen orientation change detected and automatic translation is turned off</string>
     <string name="auto_translate">Game/Video Auto Translate</string>
     <string name="auto_translate_interval">Automatic translation intervals</string>
@@ -496,4 +492,12 @@
 
     <!-- RT-DETR-V2 download -->
     <string name="rtdetr_download_desc">Bubble+text detection, fast, download required (~11MB)</string>
+
+    <!-- Translation Status Overlay -->
+    <string name="status_overlay_category">Translation Notification</string>
+    <string name="status_overlay_enabled_title">Show translation status</string>
+    <string name="status_overlay_enabled_summary">Show floating notification during translation</string>
+    <string name="status_overlay_position_title">Notification position</string>
+    <string name="status_overlay_duration_title">Notification duration</string>
+    <string name="status_overlay_copied">Copied</string>
 </resources>

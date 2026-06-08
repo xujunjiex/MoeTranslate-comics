@@ -108,4 +108,32 @@
     <string-array name="manga_ocr_version_values">
         <item>FULL</item>
     </string-array>
+
+    <!-- Status Overlay Position -->
+    <string-array name="status_overlay_position_entries">
+        <item>Top</item>
+        <item>Center</item>
+        <item>Bottom</item>
+    </string-array>
+
+    <string-array name="status_overlay_position_values">
+        <item>top</item>
+        <item>center</item>
+        <item>bottom</item>
+    </string-array>
+
+    <!-- Status Overlay Duration -->
+    <string-array name="status_overlay_duration_entries">
+        <item>1 second</item>
+        <item>2 seconds</item>
+        <item>3 seconds</item>
+        <item>5 seconds</item>
+    </string-array>
+
+    <string-array name="status_overlay_duration_values">
+        <item>1000</item>
+        <item>2000</item>
+        <item>3000</item>
+        <item>5000</item>
+    </string-array>
 </resources>

@@ -179,6 +179,18 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             getString(R.string.pixel_check_interval_summary, pixelCheckInterval.entry)
         }
 
+        // 翻译通知 - 提示位置和时长
+        findPreference<ListPreference>("Status_Position")?.apply {
+            summaryProvider = Preference.SummaryProvider<ListPreference> { pref ->
+                pref.entry ?: ""
+            }
+        }
+        findPreference<ListPreference>("Status_Duration")?.apply {
+            summaryProvider = Preference.SummaryProvider<ListPreference> { pref ->
+                pref.entry ?: ""
+            }
+        }
+
         // 漫画翻译结果颜色
         mangaTextColor = findPreference("manga_text_color")!!
         mangaBgColor = findPreference("manga_bg_color")!!
