@@ -14,12 +14,12 @@ export default defineUserConfig({
     '/': {
       title: 'StarFlow',
       lang: 'zh-CN',
-      description: 'Android 翻译应用，支持游戏翻译和漫画翻译。',
+      description: 'Android 翻译应用，支持游戏/视频翻译和漫画翻译。',
     },
     '/en/': {
       title: 'StarFlow',
       lang: 'en-US',
-      description: 'Android translation app with game translation and manga translation support.',
+      description: 'Android translation app with game/video translation and manga translation support.',
     },
   },
 

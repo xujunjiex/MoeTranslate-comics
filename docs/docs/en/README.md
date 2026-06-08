@@ -29,9 +29,9 @@ config:
    type: features
    features:
      -
-       title: Game Translation
+       title: Game/Video Translation
        icon: 📲
-       details: Screenshot OCR + translation API with multiple engines
+       details: Screenshot OCR + translation API, pixel-driven auto-translate, multiple engines
      -
        title: Manga Translation
        icon: 💬

@@ -29,9 +29,9 @@ config:
     type: features
     features:
       -
-        title: 游戏翻译
+        title: 游戏/视频翻译
         icon: 📲
-        details: 截图 OCR + 翻译 API，支持多种翻译引擎
+        details: 截图 OCR + 翻译 API，像素驱动自动翻译，支持多种翻译引擎
       -
         title: 漫画翻译
         icon: 💬
