@@ -140,7 +140,7 @@ class NLLBDownloadFragment : Fragment() {
         }
 
         binding.downloadHandText.setOnClickListener {
-            val url = "https://github.com/xujunjiex/MoeTranslate-comics/releases"
+            val url = "https://github.com/xujunjiex/StarFlow/releases"
             val intent = Intent(Intent.ACTION_VIEW)
             intent.data = Uri.parse(url)
             startActivity(intent)

@@ -98,7 +98,7 @@ class Developer : Fragment() {
         }
 
         binding.github.setOnClickListener {
-            val url = "https://github.com/xujunjiex/MoeTranslate-comics"
+            val url = "https://github.com/xujunjiex/StarFlow"
             val intent = Intent(Intent.ACTION_VIEW)
             intent.data = Uri.parse(url)
             startActivity(intent)

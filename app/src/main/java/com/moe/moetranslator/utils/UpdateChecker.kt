@@ -36,7 +36,7 @@ class UpdateChecker(private val context: Context) {
 
     companion object {
         private const val TAG = "UpdateChecker"
-        private const val RELEASES_API = "https://api.github.com/repos/xujunjiex/MoeTranslate-comics/releases/latest"
+        private const val RELEASES_API = "https://api.github.com/repos/xujunjiex/StarFlow/releases/latest"
     }
 
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {

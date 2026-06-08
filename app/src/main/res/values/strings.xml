@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">StarFlow</string>
     <string name="floating_ball_menu_1">Floating Ball Menu</string>
-    <string name="accessibility_service_label">MoeTranslator Translate Service</string>
+    <string name="accessibility_service_label">StarFlow Translate Service</string>
     <string name="accessibility_service_description">[Function Description] \nEnable accessibility permissions to take screenshots for translation.\nWhen granting permissions, a warning will pop up. Please rest assured that StarFlow will not collect any of your information.</string>
     <string name="translate_page">Translate</string>
     <string name="history_page">History</string>
