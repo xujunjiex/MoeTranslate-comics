@@ -7,17 +7,17 @@
 .idea/tasks.xml
 .idea/gradle.xml
 .idea/dictionaries
+
+# Build outputs
 app/build
 app/release
-
-# cpp
-app/.cxx
-
-# Gradle files
 .gradle/
 build/
 /framework/build/
 local.properties
+
+# cpp
+app/.cxx
 
 # OS-specific files
 .DS_Store
@@ -28,18 +28,19 @@ local.properties
 ehthumbs.db
 Thumbs.db
 
-# Log Files
+# Logs
 *.log
+logs/
 
-# Reference repos
+# Gitignored directories
 .reference/
-
-# Tools and scripts
 tools/
 scripts/
-
-# Old markdown assets
 markdown/
+docs/
+
+# Claude Code
+CLAUDE.md
 
 # 模型文件 (太大不适合 git)
 app/src/main/assets/**/*.onnx
@@ -47,13 +48,6 @@ app/src/main/assets/**/*.onnx.bak
 app/src/main/assets/**/*.onnx.data
 app/src/main/assets/**/*.ckpt
 app/src/main/assets/**/*.safetensors
-
-# Claude Code
-.claude/
-CLAUDE.md
-
-# Local logs
-logs/
 
 # Local test files
 call_vision.py
