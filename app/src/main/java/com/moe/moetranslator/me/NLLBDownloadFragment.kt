@@ -26,7 +26,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
@@ -41,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import com.moe.moetranslator.databinding.FragmentNllbDownloadBinding
 import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.UiUtils
 import java.util.Locale
 
 // 保存下载进度信息
@@ -498,14 +498,6 @@ class NLLBDownloadFragment : Fragment() {
 
     private fun updateUI(isDownloading: Boolean) {
         binding.downloadButton.text = if (isDownloading) getString(R.string.stop_download) else getString(R.string.start_download)
-    }
-
-    private fun showToast(str: String, isShort: Boolean = false){
-        if (isShort) {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_LONG).show()
-        }
     }
 
     override fun onDestroy() {

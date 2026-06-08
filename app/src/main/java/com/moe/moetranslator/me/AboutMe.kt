@@ -31,13 +31,14 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentAboutMeBinding
 import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.ServiceUtils
+import com.moe.moetranslator.utils.UiUtils
 import com.moe.moetranslator.utils.UpdateChecker
 import com.moe.moetranslator.utils.UpdateResult
 import kotlinx.coroutines.launch
@@ -67,8 +68,8 @@ class AboutMe : Fragment() {
 
     private fun setupButton(){
         binding.translateModeBtn.setOnClickListener{
-            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
-                showToast(getString(R.string.still_running))
+            if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) || ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)){
+                UiUtils.showToast(requireContext(), getString(R.string.still_running), isShort = false)
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)
                 intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_TRANSLATE_MODE)
@@ -76,8 +77,8 @@ class AboutMe : Fragment() {
             }
         }
         binding.apiConfigBtn.setOnClickListener {
-            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
-                showToast(getString(R.string.still_running))
+            if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) || ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)){
+                UiUtils.showToast(requireContext(), getString(R.string.still_running), isShort = false)
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)
                 intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_API_CONFIG)
@@ -85,8 +86,8 @@ class AboutMe : Fragment() {
             }
         }
         binding.personalizationBtn.setOnClickListener {
-            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
-                showToast(getString(R.string.still_running))
+            if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) || ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)){
+                UiUtils.showToast(requireContext(), getString(R.string.still_running), isShort = false)
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)
                 intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_PERSONALIZATION)
@@ -94,8 +95,8 @@ class AboutMe : Fragment() {
             }
         }
         binding.modelManagementBtn.setOnClickListener {
-            if (isServiceRunning(FloatingBallService::class.java) || isServiceRunning(MangaFloatingService::class.java)){
-                showToast(getString(R.string.still_running))
+            if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) || ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)){
+                UiUtils.showToast(requireContext(), getString(R.string.still_running), isShort = false)
             } else {
                 val intent = Intent(requireContext(), SettingPageActivity::class.java)
                 intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_MODEL_MANAGEMENT)
@@ -113,7 +114,7 @@ class AboutMe : Fragment() {
             startActivity(intent)
         }
         binding.updateBtn.setOnClickListener{
-            showToast(getString(R.string.getting_update))
+            UiUtils.showToast(requireContext(), getString(R.string.getting_update), isShort = false)
             checkForUpdate()
         }
         binding.cleanBtn.setOnClickListener {
@@ -152,7 +153,7 @@ class AboutMe : Fragment() {
         dialogView.findViewById<View>(R.id.btn_copy).setOnClickListener {
             val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("app_logs", logs))
-            showToast(getString(R.string.log_copied))
+            UiUtils.showToast(requireContext(), getString(R.string.log_copied), isShort = false)
         }
 
         dialogView.findViewById<View>(R.id.btn_clear).setOnClickListener {
@@ -176,9 +177,9 @@ class AboutMe : Fragment() {
                 .format(java.util.Date())
             val file = java.io.File(dir, "moe_log_$timestamp.txt")
             file.writeText(logs)
-            showToast(getString(R.string.log_exported, file.absolutePath))
+            UiUtils.showToast(requireContext(), getString(R.string.log_exported, file.absolutePath), isShort = false)
         } catch (e: Exception) {
-            showToast(getString(R.string.log_export_failed, e.message ?: "未知错误"))
+            UiUtils.showToast(requireContext(), getString(R.string.log_export_failed, e.message ?: "未知错误"), isShort = false)
         }
     }
 
@@ -190,9 +191,9 @@ class AboutMe : Fragment() {
             .setPositiveButton(R.string.clear_cache) { _, _ ->
                 val success = clearCache()
                 if(success){
-                    showToast(getString(R.string.clear_cache_success))
+                    UiUtils.showToast(requireContext(), getString(R.string.clear_cache_success), isShort = false)
                 }else{
-                    showToast(getString(R.string.clear_cache_failed))
+                    UiUtils.showToast(requireContext(), getString(R.string.clear_cache_failed), isShort = false)
                 }
                 binding.cachesize.text = getCacheSize()
             }
@@ -206,8 +207,8 @@ class AboutMe : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             when (val result = updateChecker.checkForUpdate()) {
                 is UpdateResult.UpdateAvailable -> { showUpdateDialog(result) }
-                is UpdateResult.NoUpdate -> { showToast(getString(R.string.no_update)) }
-                else -> { showToast(getString(R.string.internet_error)) }
+                is UpdateResult.NoUpdate -> { UiUtils.showToast(requireContext(), getString(R.string.no_update), isShort = false) }
+                else -> { UiUtils.showToast(requireContext(), getString(R.string.internet_error), isShort = false) }
             }
         }
     }
@@ -267,19 +268,4 @@ class AboutMe : Fragment() {
         return success
     }
 
-    // 检查服务是否正在运行
-    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
-        val manager = requireContext().getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        Log.d("SERVICE",manager.getRunningServices(Int.MAX_VALUE).toString())
-        return manager.getRunningServices(Int.MAX_VALUE)
-            .any { it.service.className == serviceClass.name }
-    }
-
-    private fun showToast(str: String, isShort: Boolean = false){
-        if (isShort) {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_LONG).show()
-        }
-    }
 }

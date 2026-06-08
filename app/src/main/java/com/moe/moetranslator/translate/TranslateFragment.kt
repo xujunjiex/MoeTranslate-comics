@@ -52,6 +52,8 @@ import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.NotificationChecker
 import com.moe.moetranslator.utils.NotificationResult
+import com.moe.moetranslator.utils.ServiceUtils
+import com.moe.moetranslator.utils.UiUtils
 import com.moe.moetranslator.utils.UpdateResult
 import kotlinx.coroutines.launch
 import java.io.File
@@ -127,8 +129,8 @@ class TranslateFragment : Fragment() {
         checkForUpdate()
         checkNotification()
         showAPIName()
-        setTitleAndButton(isServiceRunning(FloatingBallService::class.java))
-        setMangaButtonState(isServiceRunning(MangaFloatingService::class.java))
+        setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))
+        setMangaButtonState(ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
 
         val helpIntent = Intent(requireContext(), FirstLaunchPage::class.java)
         binding.help.setOnClickListener {
@@ -136,18 +138,18 @@ class TranslateFragment : Fragment() {
         }
 
         binding.notice.setOnClickListener {
-            showToast(getString(R.string.getting_notification))
+            UiUtils.showToast(requireContext(), getString(R.string.getting_notification), isShort = false)
             checkNotification(true)
         }
 
         binding.selectedAPI.setOnClickListener {
-            showToast(getString(R.string.more_api))
+            UiUtils.showToast(requireContext(), getString(R.string.more_api), isShort = false)
         }
 
         binding.startButton.setOnClickListener {
-            if (!isServiceRunning(FloatingBallService::class.java)) {
+            if (!ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java)) {
                 // Stop manga translation if running
-                if (isServiceRunning(MangaFloatingService::class.java)) {
+                if (ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)) {
                     MangaFloatingService.stop(requireContext())
                     setMangaButtonState(false)
                 }
@@ -168,19 +170,19 @@ class TranslateFragment : Fragment() {
 
         // 漫画翻译按钮
         binding.mangaButton.setOnClickListener {
-            if (!isServiceRunning(MangaFloatingService::class.java)) {
+            if (!ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)) {
                 // Stop normal translation if running
-                if (isServiceRunning(FloatingBallService::class.java)) {
+                if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java)) {
                     stopFloatingBallService()
                 }
                 if (checkAndroidSDK() && checkAccessibilityService() && checkFloatingBall()) {
                     MangaFloatingService.start(requireContext())
-                    showToast("漫画翻译已启动")
+                    UiUtils.showToast(requireContext(), "漫画翻译已启动", isShort = false)
                     setMangaButtonState(true)
                 }
             } else {
                 MangaFloatingService.stop(requireContext())
-                showToast("漫画翻译已停止")
+                UiUtils.showToast(requireContext(), "漫画翻译已停止", isShort = false)
                 setMangaButtonState(false)
             }
         }
@@ -236,7 +238,7 @@ class TranslateFragment : Fragment() {
                 }
 
                 else -> {
-                    if (userGet) showToast(getString(R.string.get_notification_error))
+                    if (userGet) UiUtils.showToast(requireContext(), getString(R.string.get_notification_error), isShort = false)
                 }
             }
         }
@@ -244,7 +246,7 @@ class TranslateFragment : Fragment() {
 
     private fun checkCombination(): Boolean =
         if (prefs.getString("Source_Language", "ja") == prefs.getString("Target_Language", "zh")) {
-            showToast(getString(R.string.invalid_combination))
+            UiUtils.showToast(requireContext(), getString(R.string.invalid_combination), isShort = false)
             false
         } else {
             true
@@ -1006,57 +1008,41 @@ class TranslateFragment : Fragment() {
         Log.d(TAG, "onResume")
 
         showAPIName()
-        setTitleAndButton(isServiceRunning(FloatingBallService::class.java))
+        setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))
     }
 
     // 实际启动服务的方法
     private fun launchFloatingBallService() {
         try {
             // 检查服务是否已经在运行
-            if (!isServiceRunning(FloatingBallService::class.java)) {
+            if (!ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java)) {
                 val serviceIntent = Intent(requireContext(), FloatingBallService::class.java)
                 requireContext().startService(serviceIntent)
-                showToast(getString(R.string.startup_success), true)
+                UiUtils.showToast(requireContext(), getString(R.string.startup_success), isShort = true)
                 setTitleAndButton(true)
             } else {
                 setTitleAndButton(true)
-                showToast("already running")
+                UiUtils.showToast(requireContext(), "already running", isShort = false)
             }
         } catch (e: Exception) {
-            showToast(getString(R.string.startup_failure, e.toString()))
+            UiUtils.showToast(requireContext(), getString(R.string.startup_failure, e.toString()), isShort = false)
         }
     }
 
     private fun stopFloatingBallService() {
         try {
             // 检查服务是否已经停止
-            if (isServiceRunning(FloatingBallService::class.java)) {
+            if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java)) {
                 val intent = Intent(requireContext(), FloatingBallService::class.java)
                 requireContext().stopService(intent)
-                showToast(getString(R.string.stop_success), true)
+                UiUtils.showToast(requireContext(), getString(R.string.stop_success), isShort = true)
                 setTitleAndButton(false)
             } else {
                 setTitleAndButton(false)
-                showToast("already stopped")
+                UiUtils.showToast(requireContext(), "already stopped", isShort = false)
             }
         } catch (e: Exception) {
-            showToast(getString(R.string.stop_failed, e.toString()))
-        }
-    }
-
-    // 检查服务是否正在运行
-    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
-        val manager = requireContext().getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        Log.d("SERVICE", manager.getRunningServices(Int.MAX_VALUE).toString())
-        return manager.getRunningServices(Int.MAX_VALUE)
-            .any { it.service.className == serviceClass.name }
-    }
-
-    private fun showToast(str: String, isShort: Boolean = false) {
-        if (isShort) {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_LONG).show()
+            UiUtils.showToast(requireContext(), getString(R.string.stop_failed, e.toString()), isShort = false)
         }
     }
 }

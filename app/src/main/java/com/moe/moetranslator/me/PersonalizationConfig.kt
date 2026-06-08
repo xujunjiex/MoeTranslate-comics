@@ -25,7 +25,6 @@ import android.provider.OpenableColumns
 import android.view.LayoutInflater
 import android.widget.EditText
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.preference.ListPreference
 import androidx.preference.Preference
@@ -40,6 +39,8 @@ import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LanguageManager
+import com.moe.moetranslator.utils.ServiceUtils
+import com.moe.moetranslator.utils.UiUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -91,7 +92,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         // 字体相关
         resultFont.setOnPreferenceClickListener {
             if (isAnyTranslationServiceRunning()) {
-                showToast(getString(R.string.stop_service_first), true)
+                UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
             } else {
                 showFontOptionsDialog()
             }
@@ -101,7 +102,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         // 字体大小
         resultFontSize.setOnPreferenceClickListener {
             if (isAnyTranslationServiceRunning()) {
-                showToast(getString(R.string.stop_service_first), true)
+                UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
             } else {
                 showFontSizeDialog()
             }
@@ -112,7 +113,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         findPreference<ColorPreferenceCompat>("result_view_font_color")?.apply {
             setOnPreferenceChangeListener { _, newValue ->
                 if (isAnyTranslationServiceRunning()) {
-                    showToast(getString(R.string.stop_service_first), true)
+                    UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
                     false
                 } else {
                     prefs.setInt("Custom_Result_Font_Color", newValue as Int)
@@ -126,7 +127,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         findPreference<ColorPreferenceCompat>("result_view_background_color")?.apply {
             setOnPreferenceChangeListener { _, newValue ->
                 if (isAnyTranslationServiceRunning()) {
-                    showToast(getString(R.string.stop_service_first), true)
+                    UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
                     false
                 } else {
                     prefs.setInt("Custom_Result_Background_Color", newValue as Int)
@@ -252,7 +253,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
                 languagePreference.value = newLanguage
 
                 // 提示用户
-                showToast(getString(R.string.language_changed), true)
+                UiUtils.showToast(requireContext(), getString(R.string.language_changed), isShort = true)
 
                 // 退出应用，用户重新打开时会应用新语言
                 activity?.let { LanguageManager.exitApplication(it) }
@@ -337,7 +338,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
                     prefs.setLong("Custom_Long_Press_Delay", value)
                     updatePressSummary()
                 } catch (e: Exception) {
-                    showToast(getString(R.string.font_size_invalid), true)
+                    UiUtils.showToast(requireContext(), getString(R.string.font_size_invalid), isShort = true)
                 }
             }
             .setNegativeButton(R.string.user_cancel, null)
@@ -434,7 +435,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             }
         } catch (e: Exception) {
             // 通用错误处理
-            showToast(e.message ?: "unknow error", false)
+            UiUtils.showToast(requireContext(), e.message ?: "unknow error", isShort = false)
         }
     }
 
@@ -456,7 +457,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         // 更新配置
         prefs.setString("Custom_Result_Font", originalFileName)
         updateFontSummary()
-        showToast(getString(R.string.set_success), true)
+        UiUtils.showToast(requireContext(), getString(R.string.set_success), isShort = true)
     }
 
     private fun handleImageFile(uri: Uri, originalFileName: String) {
@@ -478,7 +479,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         prefs.setString("Custom_Floating_Pic", originalFileName)
         ballIcon.refreshPreview()
         updateIconSummary()
-        showToast(getString(R.string.set_success), true)
+        UiUtils.showToast(requireContext(), getString(R.string.set_success), isShort = true)
     }
 
     // 文件复制方法
@@ -490,25 +491,10 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         } ?: throw IOException("open file error")
     }
 
-    private fun showToast(str: String, isShort: Boolean = false){
-        if (isShort) {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), str, Toast.LENGTH_LONG).show()
-        }
-    }
-
     private fun isAnyTranslationServiceRunning(): Boolean {
         return AccessibilityServiceManager.getService() != null &&
-                (isServiceRunning(FloatingBallService::class.java) ||
-                 isServiceRunning(MangaFloatingService::class.java))
-    }
-
-    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
-        val manager = requireContext().getSystemService(ActivityManager::class.java)
-        @Suppress("DEPRECATION")
-        return manager.getRunningServices(Integer.MAX_VALUE)
-            .any { it.service.className == serviceClass.name }
+                (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) ||
+                 ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
     }
 
 }

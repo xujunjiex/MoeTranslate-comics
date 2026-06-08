@@ -32,6 +32,7 @@ import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
 
 import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.ServiceUtils
 
 
 class TranslationMode : Fragment() {
@@ -83,14 +84,7 @@ class TranslationMode : Fragment() {
 
     private fun isAnyTranslationServiceRunning(): Boolean {
         return AccessibilityServiceManager.getService() != null &&
-                (isServiceRunning(FloatingBallService::class.java) ||
-                 isServiceRunning(MangaFloatingService::class.java))
-    }
-
-    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
-        val manager = requireContext().getSystemService(ActivityManager::class.java)
-        @Suppress("DEPRECATION")
-        return manager.getRunningServices(Integer.MAX_VALUE)
-            .any { it.service.className == serviceClass.name }
+                (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) ||
+                 ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
     }
 }

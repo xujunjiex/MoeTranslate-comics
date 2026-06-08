@@ -24,12 +24,12 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentOpenaiApiBinding
 import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.UiUtils
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -136,11 +136,11 @@ class OpenAIText :Fragment() {
 
             lifecycleScope.launch {
                 ConfigurationStorage.saveOpenAIProviderToList(prefs, provider, providerIndex)
-                showToast(getString(R.string.save_successfully))
+                UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
                 requireActivity().finish()
             }
         } catch (e: Exception){
-            showToast(getString(R.string.failed_save_config, e.message))
+            UiUtils.showToast(requireContext(), getString(R.string.failed_save_config, e.message))
         }
     }
 
@@ -161,7 +161,7 @@ class OpenAIText :Fragment() {
                 binding.editUserPrompt.setText(defaultUserPrompt)
             }
         } catch (e: Exception) {
-            showToast("Error loading configuration: ${e.message}")
+            UiUtils.showToast(requireContext(), "Error loading configuration: ${e.message}")
         }
     }
 
@@ -171,7 +171,7 @@ class OpenAIText :Fragment() {
         val modelName = binding.editModelName.text.toString().trim()
 
         if (apiKey.isBlank() || baseUrl.isBlank() || modelName.isBlank()) {
-            showToast(getString(R.string.fill_blank))
+            UiUtils.showToast(requireContext(), getString(R.string.fill_blank))
             return
         }
 
@@ -273,15 +273,11 @@ class OpenAIText :Fragment() {
                 } else if (currentIndex > providerIndex) {
                     prefs.setInt("OpenAI_Selected_Provider", currentIndex - 1)
                 }
-                showToast(getString(R.string.save_successfully))
+                UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
                 requireActivity().finish()
             }
             .setNegativeButton(R.string.user_cancel, null)
             .create()
             .show()
-    }
-
-    private fun showToast(message: String) {
-        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 }

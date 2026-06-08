@@ -28,13 +28,13 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.textfield.TextInputEditText
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentCustomTextApiBinding
 import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.UiUtils
 import kotlinx.coroutines.launch
 
 class CustomTextAPI :Fragment() {
@@ -177,11 +177,11 @@ class CustomTextAPI :Fragment() {
 
             lifecycleScope.launch {
                 ConfigurationStorage.saveTextConfigToList(prefs, named, apiCode!!)
-                showToast(getString(R.string.save_successfully))
+                UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
                 requireActivity().finish()
             }
         } catch (e: Exception){
-            showToast(getString(R.string.failed_save_config, e.message))
+            UiUtils.showToast(requireContext(), getString(R.string.failed_save_config, e.message))
         }
     }
 
@@ -230,7 +230,7 @@ class CustomTextAPI :Fragment() {
                 updateViewVisibility()
 
             } catch (e: Exception) {
-                showToast("Error loading configuration: ${e.message}")
+                UiUtils.showToast(requireContext(), "Error loading configuration: ${e.message}")
             }
         }
     }
@@ -265,15 +265,11 @@ class CustomTextAPI :Fragment() {
                 } else if (currentIndex > apiCode!!) {
                     prefs.setInt("Custom_Text_API", currentIndex - 1)
                 }
-                showToast(getString(R.string.save_successfully))
+                UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
                 requireActivity().finish()
             }
             .setNegativeButton(R.string.user_cancel, null)
             .create()
             .show()
-    }
-
-    private fun showToast(message: String) {
-        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 }

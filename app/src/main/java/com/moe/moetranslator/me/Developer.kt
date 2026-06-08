@@ -28,6 +28,7 @@ import android.view.ViewGroup
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentDeveloperBinding
 import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.UiUtils
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
 import nl.dionsegijn.konfetti.core.emitter.Emitter
@@ -110,9 +111,9 @@ class Developer : Fragment() {
         binding.advancedModeSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("Manga_Advanced_Mode", isChecked)
             if (isChecked) {
-                showToast("高级模型搭配已开启，可自由搭配检测器和识别器")
+                UiUtils.showToast(requireContext(),"高级模型搭配已开启，可自由搭配检测器和识别器")
             } else {
-                showToast("高级模型搭配已关闭，使用固定搭配模式")
+                UiUtils.showToast(requireContext(),"高级模型搭配已关闭，使用固定搭配模式")
             }
         }
 
@@ -122,7 +123,7 @@ class Developer : Fragment() {
         binding.ctdDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("CTD_Debug_View", isChecked)
             if (isChecked) {
-                showToast("CTD 调试模式已开启，请在漫画翻译界面截图测试")
+                UiUtils.showToast(requireContext(),"CTD 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
 
@@ -131,7 +132,7 @@ class Developer : Fragment() {
         binding.rtdetrDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("RTDetrV2_Debug_View", isChecked)
             if (isChecked) {
-                showToast("RT-DETR-V2 调试模式已开启，请在漫画翻译界面截图测试")
+                UiUtils.showToast(requireContext(),"RT-DETR-V2 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
 
@@ -140,7 +141,7 @@ class Developer : Fragment() {
         binding.mlkitDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("MLKit_Debug_View", isChecked)
             if (isChecked) {
-                showToast("ML Kit 调试模式已开启，请在漫画翻译界面截图测试")
+                UiUtils.showToast(requireContext(),"ML Kit 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
 
@@ -149,7 +150,7 @@ class Developer : Fragment() {
         binding.ppocrv5DebugSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("PPOcrV5_Debug_View", isChecked)
             if (isChecked) {
-                showToast("PP-OCRv5 调试模式已开启，请在漫画翻译界面截图测试")
+                UiUtils.showToast(requireContext(),"PP-OCRv5 调试模式已开启，请在漫画翻译界面截图测试")
             }
         }
 
@@ -158,13 +159,11 @@ class Developer : Fragment() {
         binding.gameTranslateDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.setBoolean("Game_Translate_Debug_View", isChecked)
             if (isChecked) {
-                showToast("游戏翻译调试模式已开启，请在游戏翻译界面测试")
+                UiUtils.showToast(requireContext(),"游戏翻译调试模式已开启，请在游戏翻译界面测试")
             }
         }
     }
 
-    private fun showToast(message: String) {
-        android.widget.Toast.makeText(requireContext(), message, android.widget.Toast.LENGTH_SHORT).show()
-    }
+}
 
 }
