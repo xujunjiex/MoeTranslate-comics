@@ -110,7 +110,6 @@ set(SPM_SRCS
   model_factory.h
   char_model.h
   model_interface.h
-  testharness.h
   unigram_model.h
   bpe_model.cc
   char_model.cc
@@ -286,25 +285,21 @@ if (NOT MSVC)
   endif()
 endif()
 
-add_executable(spm_encode spm_encode_main.cc)
-add_executable(spm_decode spm_decode_main.cc)
-add_executable(spm_normalize spm_normalize_main.cc)
-add_executable(spm_train spm_train_main.cc)
-add_executable(spm_export_vocab spm_export_vocab_main.cc)
-
-target_link_libraries(spm_encode sentencepiece)
-target_link_libraries(spm_decode sentencepiece)
-target_link_libraries(spm_normalize sentencepiece sentencepiece_train)
-target_link_libraries(spm_train sentencepiece sentencepiece_train)
-target_link_libraries(spm_export_vocab sentencepiece)
+# Android build: skip CLI tools (spm_encode_main.cc etc. are not tracked in git)
+# add_executable(spm_encode spm_encode_main.cc)
+# add_executable(spm_decode spm_decode_main.cc)
+# add_executable(spm_normalize spm_normalize_main.cc)
+# add_executable(spm_train spm_train_main.cc)
+# add_executable(spm_export_vocab spm_export_vocab_main.cc)
 
 if (SPM_ENABLE_NFKC_COMPILE)
   add_executable(compile_charsmap compile_charsmap_main.cc)
   target_link_libraries(compile_charsmap sentencepiece sentencepiece_train)
 endif()
 
-list(APPEND SPM_INSTALLTARGETS
-  spm_encode spm_decode spm_normalize spm_train spm_export_vocab)
+# Android build: skip CLI tool install targets
+# list(APPEND SPM_INSTALLTARGETS
+#   spm_encode spm_decode spm_normalize spm_train spm_export_vocab)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
   install(TARGETS ${SPM_INSTALLTARGETS}
