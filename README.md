@@ -28,17 +28,21 @@
 
 **调试浮窗：** 实时显示翻译状态、像素差异、耗时，可折叠日志面板。
 
+**OCR 引擎：** ML Kit、PP-OCRv5（默认）、manga-ocr，可在设置中切换。
+
 支持的翻译 API：ML Kit、NLLB、必应翻译、小牛翻译、OpenAI 兼容接口、火山引擎、Azure、DeepL、百度翻译、腾讯云、自定义 API。
 
 ### 📖 漫画翻译
 
 漫画/游戏气泡文字检测 + OCR + 翻译 + 竖排渲染：
 
-- **检测引擎：** PP-OCRv5 det、CTD（Comic Text Detector）、RT-DETR-V2（气泡/文字检测）、ML Kit
-- **OCR 引擎：** PP-OCRv5 rec（中/日/英/韩）、manga-ocr（竖排日文）、ML Kit
+- **检测引擎：** PP-OCRv5 det（默认）、CTD（Comic Text Detector）、RT-DETR-V2（气泡/文字检测）、ML Kit
+- **OCR 引擎：** PP-OCRv5 rec（中/日/英/韩，默认）、manga-ocr（竖排日文）、ML Kit
+- **普通/高级模式：** 普通模式固定搭配循环切换，高级模式自由搭配检测器+OCR
 - **翻译：** 复用游戏翻译的所有 API
 - **渲染：** 半透明背景 + 竖排/横排文字覆盖
 - **自动翻译：** pHash 相似度检测，翻页自动触发
+- **翻译缓存：** pHash 相似度匹配（阈值 0.92），5 分钟 TTL
 
 ### 📚 翻译历史
 
@@ -57,11 +61,11 @@
 ## 项目结构
 
 - `translate/` — 游戏/视频翻译引擎（AutoTranslateEngine、FloatingBallService、GameOcrEngine）
-- `manga/` — 漫画翻译引擎（气泡检测 + OCR + 翻译 + 竖排渲染）
+- `manga/` — 漫画翻译引擎（气泡检测 + OCR + 翻译 + 竖排渲染、GeometryUtils、OnnxUtils）
 - `bridge/` — 桥接层（OCRBridge、TranslateBridge、ScreenshotBridge）
 - `me/` — 设置和 API 配置
 - `launch/` — 启动引导
-- `utils/` — 工具类（PixelCompare、LogCollector、UpdateChecker）
+- `utils/` — 工具类（PixelCompare、LogCollector、UpdateChecker、UiUtils、ServiceUtils）
 - `data/` — Room 数据库、TranslationCacheManager
 - `ui/history/` — 历史记录 UI
 - `translationapi/` — 翻译 API 实现
@@ -83,4 +87,17 @@
 
 ## 许可证
 
-LGPL
+本项目基于 LGPL 许可证发布。详见 [licenses/](licenses/) 目录。
+
+### 第三方许可
+
+| 项目 | 许可证 |
+|------|--------|
+| RapidOCR | Apache 2.0 |
+| Comic Text and Bubble Detector | MIT |
+| RT-DETR | Apache 2.0 |
+| manga-ocr | Apache 2.0 |
+| manga-image-translator | Apache 2.0 |
+| pixelmatch | ISC |
+| ONNX Runtime | MIT |
+| JTS | EPL 2.0 / EDL 1.0 |
