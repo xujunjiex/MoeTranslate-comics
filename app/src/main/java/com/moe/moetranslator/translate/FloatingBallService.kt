@@ -84,11 +84,6 @@ data class FloatingBallConfig(
     var LONG_PRESS_DELAY:Long = 500L   // 长按触发时间（毫秒）
 )
 
-data class FloatingTextViewConfig(
-    val floatingTextViewInitialX: Int = 0,
-    val floatingTextViewInitialY: Int = 0
-)
-
 data class CropViewConfig(
     val cropViewInitialX: Int = 50,
     val cropViewInitialY: Int = 50
@@ -105,17 +100,15 @@ sealed class GestureType {
 sealed class BallStatus {
     object Normal : BallStatus()
     object Crop : BallStatus()
-    object MovingText : BallStatus()
 }
 
 class FloatingBallService : LifecycleService() {
     private lateinit var windowManager: WindowManager
     private lateinit var floatingBallView: View
-    private lateinit var floatingTextView: TextView
+    private lateinit var translationResultView: TranslationResultView
     private lateinit var cropView: CropView
 
     private var floatingBallParams: WindowManager.LayoutParams? = null
-    private var floatingTextViewParams: WindowManager.LayoutParams? = null
     private var cropViewParams: WindowManager.LayoutParams? = null
 
     private lateinit var prefs: CustomPreference
@@ -128,7 +121,6 @@ class FloatingBallService : LifecycleService() {
 
     // 配置
     private var floatingBallConfig = FloatingBallConfig()
-    private var floatingTextViewConfig = FloatingTextViewConfig()
     private var cropViewConfig = CropViewConfig()
 
     // 悬浮球触摸相关变量
@@ -137,11 +129,8 @@ class FloatingBallService : LifecycleService() {
     private var floatingBallInitialTouchX: Float = 0f
     private var floatingBallInitialTouchY: Float = 0f
 
-    // 翻译结果触摸相关变量
-    private var floatingTextViewInitialX: Int = 0
-    private var floatingTextViewInitialY: Int = 0
-    private var floatingTextViewInitialTouchX: Float = 0f
-    private var floatingTextViewInitialTouchY: Float = 0f
+    // 翻译结果视图状态
+    private var isResultViewShowing = false
 
     // 长按处理器
     private val handler = Handler(Looper.getMainLooper())
@@ -385,18 +374,6 @@ class FloatingBallService : LifecycleService() {
             y = floatingBallConfig.floatingBallInitialY
         }
 
-        // 设置翻译结果视图参数
-        floatingTextViewParams = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.CENTER
-            x = floatingTextViewConfig.floatingTextViewInitialX
-            y = floatingTextViewConfig.floatingTextViewInitialY
-        }
-
         // 设置裁剪框视图参数
         cropViewParams = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -413,7 +390,18 @@ class FloatingBallService : LifecycleService() {
         floatingBallView = LayoutInflater.from(this).inflate(R.layout.floatball_layout, null)
 
         // 创建翻译结果视图
-        floatingTextView = FloatingTextView.translateTextView(this)
+        val resultParams = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.TRANSLUCENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = Gravity.CENTER
+            x = 0
+            y = 0
+        }
+        translationResultView = TranslationResultView(this, windowManager, resultParams)
+        translationResultView.onClose = { removeResultView() }
 
         // 创建裁剪框视图
         cropView = CropView(this)
@@ -512,39 +500,6 @@ class FloatingBallService : LifecycleService() {
             }
         }
 
-        floatingTextView.setOnTouchListener { view, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    if(view.isClickable){
-                        floatingTextViewInitialX = floatingTextViewParams?.x ?: 0
-                        floatingTextViewInitialY = floatingTextViewParams?.y ?: 0
-                        floatingTextViewInitialTouchX = event.rawX
-                        floatingTextViewInitialTouchY = event.rawY
-                        true
-                    }else{
-                        false
-                    }
-                }
-                MotionEvent.ACTION_UP -> {
-                    view.isClickable
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if(view.isClickable){
-                        floatingTextViewParams?.apply {
-                            x = (floatingTextViewInitialX + (event.rawX - floatingTextViewInitialTouchX)).toInt()
-                            y = (floatingTextViewInitialY + (event.rawY - floatingTextViewInitialTouchY)).toInt()
-                            windowManager.updateViewLayout(floatingTextView, this)
-                        }
-                        true
-                    }else{
-                        false
-                    }
-                }
-                else -> {
-                    false
-                }
-            }
-        }
     }
 
     private fun handleLongPress() {
@@ -572,7 +527,7 @@ class FloatingBallService : LifecycleService() {
         val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, ocrLabel)
 
         // 动态计算菜单索引
-        var idx = 4  // 前 4 项固定：框选、位置、移除、字体
+        var idx = 2  // 前 2 项固定：框选、字体
         val ocrIdx = idx++                  // OCR 模型
         val historyIdx = idx++              // 历史
         val autoIdx = idx++                 // 自动翻译
@@ -585,34 +540,11 @@ class FloatingBallService : LifecycleService() {
                     0 -> {
                         when (currentBallStatus) {
                             is BallStatus.Crop -> showToast(getString(R.string.repeat_crop), true)
-                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first), true)
                             is BallStatus.Normal -> setCropView()
                         }
                         dialog.dismiss()
                     }
                     1 -> {
-                        when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.crop_first), true)
-                            is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview), true)
-                            is BallStatus.Normal -> setMovingTextView()
-                        }
-                        dialog.dismiss()
-                    }
-                    2 -> {
-                        when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.crop_first), true)
-                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first), true)
-                            is BallStatus.Normal -> {
-                                if(isViewAdded(floatingTextView)){
-                                    windowManager.removeView(floatingTextView)
-                                }else{
-                                    showToast(getString(R.string.not_added_remove), true)
-                                }
-                            }
-                        }
-                        dialog.dismiss()
-                    }
-                    3 -> {
                         if (isAutoTranslating) {
                             showToast(getString(R.string.auto_translate_disabled_hint), true)
                         } else {
@@ -639,8 +571,12 @@ class FloatingBallService : LifecycleService() {
                         dialog.dismiss()
                     }
                     closeIdx -> {
-                        stopServiceAndRemoveViews()
-                        dialog.dismiss()
+                        if (isAutoTranslating) {
+                            showToast(getString(R.string.game_cannot_close_ball), true)
+                        } else {
+                            stopServiceAndRemoveViews()
+                            dialog.dismiss()
+                        }
                     }
                     backIdx -> {
                         backToMainActivity()
@@ -766,12 +702,9 @@ class FloatingBallService : LifecycleService() {
                             // 点击：显示翻译结果
                             val selected = historyList[position]
                             if (selected.translatedText != null) {
-                                floatingTextView.text = selected.translatedText
-                                if (!isViewAdded(floatingTextView)) {
-                                    windowManager.addView(floatingTextView, floatingTextViewParams)
-                                    windowManager.removeView(floatingBallView)
-                                    windowManager.addView(floatingBallView, floatingBallParams)
-                                    setFloatingTextViewTouchable(false)
+                                translationResultView.setText(selected.translatedText)
+                                if (!isResultViewShowing) {
+                                    showResultView()
                                 }
                             }
                         },
@@ -818,10 +751,6 @@ class FloatingBallService : LifecycleService() {
                 showToast(getString(R.string.crop_first), true)
                 return
             }
-            is BallStatus.MovingText -> {
-                showToast(getString(R.string.textview_first), true)
-                return
-            }
             is BallStatus.Normal -> {}
         }
 
@@ -834,11 +763,8 @@ class FloatingBallService : LifecycleService() {
         }
 
         // 确保翻译结果视图已添加
-        if (!isViewAdded(floatingTextView)) {
-            windowManager.addView(floatingTextView, floatingTextViewParams)
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-            setFloatingTextViewTouchable(false)
+        if (!isResultViewShowing) {
+            showResultView()
         }
 
         // 初始化并启动自动翻译引擎
@@ -896,12 +822,24 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun setCropView(){
+        val dm = resources.displayMetrics
+        val screenWidth = dm.widthPixels
+        val screenHeight = dm.heightPixels
+
         // 若有保存的裁剪框，则直接应用
         if ((orientation == this.resources.configuration.orientation) && (mRectF != null)){
             cropView.setRect(mRectF!!)
         }else{
-            cropView.setRect(RectF(5f, 5f, 350f, 350f))
+            // 屏幕中央长方形：宽 80%，高 60%
+            val rectWidth = (screenWidth * 0.8).toInt()
+            val rectHeight = (screenHeight * 0.6).toInt()
+            val left = (screenWidth - rectWidth) / 2f
+            val top = (screenHeight - rectHeight) / 2f
+            cropView.setRect(RectF(left, top, left + rectWidth, top + rectHeight))
         }
+
+        // 设置确认按钮回调
+        cropView.onConfirmCrop = { confirmCrop() }
 
         windowManager.addView(cropView, cropViewParams)
 
@@ -914,18 +852,29 @@ class FloatingBallService : LifecycleService() {
         currentBallStatus = BallStatus.Crop
     }
 
-    private fun setMovingTextView(){
-        if(isViewAdded(floatingTextView)){
-            setFloatingTextViewTouchable(true)
-        }else{
-            windowManager.addView(floatingTextView, floatingTextViewParams)
+    private fun confirmCrop() {
+        mRectF = cropView.mRect
+        windowManager.removeView(cropView)
+        showToast(getString(R.string.game_crop_done), true)
+        currentBallStatus = BallStatus.Normal
+    }
 
+    private fun showResultView() {
+        if (!isViewAdded(translationResultView)) {
+            val params = translationResultView.layoutParams as WindowManager.LayoutParams
+            windowManager.addView(translationResultView, params)
             // 保持悬浮球在最上层
             windowManager.removeView(floatingBallView)
             windowManager.addView(floatingBallView, floatingBallParams)
-            setFloatingTextViewTouchable(true)
         }
-        currentBallStatus = BallStatus.MovingText
+        isResultViewShowing = true
+    }
+
+    private fun removeResultView() {
+        if (isViewAdded(translationResultView)) {
+            windowManager.removeView(translationResultView)
+        }
+        isResultViewShowing = false
     }
 
     private fun handleClick() {
@@ -946,48 +895,41 @@ class FloatingBallService : LifecycleService() {
                 if (AccessibilityServiceManager.getService() == null) {
                     showToast(getString(R.string.accessibility_recycle), true)
                     return
-                }else{
-                    if(!isViewAdded(floatingTextView)){
-                        windowManager.addView(floatingTextView, floatingTextViewParams)
-
-                        // 保持悬浮球在最上层
-                        windowManager.removeView(floatingBallView)
-                        windowManager.addView(floatingBallView, floatingBallParams)
-                        setFloatingTextViewTouchable(false)
-                    }
-                    if (orientation == this.resources.configuration.orientation){
-                        if(isTranslating.get()){
-                            showToast(getString(R.string.is_translating), true)
-                        }else{
-                            // 手动翻译：如果自动翻译中，强制翻译当前页面
-                            if (isAutoTranslating) {
-                                autoTranslateEngine?.isManualForceTranslate = true
-                            }
-                            if (isGameDebugEnabled() && !isAutoTranslating) {
-                                showDebugOverlay()
-                                updateDebugStatus("【检测中】手动翻译")
-                            }
-                            AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
-                        }
-                    }else{
-                        showToast(getString(R.string.orientation_changed), true)
-                    }
                 }
+
+                // 未框选时弹出提示
+                if (mRectF == null) {
+                    showToast(getString(R.string.game_please_crop_first), true)
+                    return
+                }
+
+                if (orientation != this.resources.configuration.orientation) {
+                    showToast(getString(R.string.orientation_changed), true)
+                    return
+                }
+
+                if (isTranslating.get()) {
+                    showToast(getString(R.string.is_translating), true)
+                    return
+                }
+
+                // 确保翻译结果视图已添加
+                if (!isResultViewShowing) {
+                    showResultView()
+                }
+
+                // 手动翻译：如果自动翻译中，强制翻译当前页面
+                if (isAutoTranslating) {
+                    autoTranslateEngine?.isManualForceTranslate = true
+                }
+                if (isGameDebugEnabled() && !isAutoTranslating) {
+                    showDebugOverlay()
+                    updateDebugStatus("【检测中】手动翻译")
+                }
+                AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
             }
             is BallStatus.Crop -> {
-                mRectF = cropView.mRect
-                windowManager.removeView(cropView)
-                if (!(prefs.getBoolean("Custom_Adjust_Not_Text", false))){
-                    showToast(getString(R.string.finish_crop), true)
-                }
-                currentBallStatus = BallStatus.Normal
-            }
-            is BallStatus.MovingText -> {
-                setFloatingTextViewTouchable(false)
-                if (!(prefs.getBoolean("Custom_Adjust_Not_Text", false))){
-                    showToast(getString(R.string.finish_textview), true)
-                }
-                currentBallStatus = BallStatus.Normal
+                // 框选确认通过 CropView 的确认按钮完成，此处忽略
             }
         }
     }
@@ -1013,7 +955,7 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun showFontSizeDialog(){
-        val dialog = Dialogs.fontSizeDialog(this, floatingTextView, null)
+        val dialog = Dialogs.fontSizeDialog(this, translationResultView.getTextView(), null)
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
@@ -1055,7 +997,7 @@ class FloatingBallService : LifecycleService() {
                                         val elapsed = System.currentTimeMillis() - translateStartTime
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         statusOverlay.showImmediate("缓存命中")
-                                        floatingTextView.text = ocrDecision.cachedText
+                                        translationResultView.setText(ocrDecision.cachedText)
                                         engine.markIdle()
                                         updateDebugStatus("【IDLE】等待像素变化")
                                         isTranslating.set(false)
@@ -1102,9 +1044,9 @@ class FloatingBallService : LifecycleService() {
                         updateDebugStatus("【缓存】database", elapsedMs = elapsed)
                         statusOverlay.show("缓存命中")
                         if (isGameDebugEnabled()) {
-                            floatingTextView.text = getString(R.string.cache_indicator) + dbCache.translatedText
+                            translationResultView.setText(getString(R.string.cache_indicator) + dbCache.translatedText)
                         } else {
-                            floatingTextView.text = dbCache.translatedText
+                            translationResultView.setText(dbCache.translatedText)
                         }
                         isTranslating.set(false)
                     } else {
@@ -1147,9 +1089,14 @@ class FloatingBallService : LifecycleService() {
                         // 调试模式强制显示原文+译文，否则按个性设置
                         val showSourceMode = if (isGameDebugEnabled()) 1 else prefs.getInt("Custom_Show_Source_Mode", 0)
                         when (showSourceMode) {
-                            0 -> floatingTextView.text = result.translatedText
-                            1 -> floatingTextView.text = str + "\n\n" + result.translatedText
-                            else -> floatingTextView.text = result.translatedText + "\n\n" + str
+                            0 -> translationResultView.setText(result.translatedText)
+                            1 -> translationResultView.setText(str + "\n\n" + result.translatedText)
+                            else -> translationResultView.setText(result.translatedText + "\n\n" + str)
+                        }
+
+                        // 自动翻译中自动恢复显示
+                        if (isAutoTranslating && !isResultViewShowing) {
+                            showResultView()
                         }
 
                         // 更新缓存并进入 IDLE
@@ -1169,7 +1116,7 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.e(TAG, "文本翻译失败", result.error)
                         updateDebugStatus("【错误】翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
-                        floatingTextView.text = getString(R.string.translation_failed, result.error.message)
+                        translationResultView.setText(getString(R.string.translation_failed, result.error.message))
                     }
                 }
                 isTranslating.set(false)
@@ -1193,13 +1140,17 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.d(TAG, "图片翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】图片翻译", elapsedMs = elapsed)
                         statusOverlay.showImmediate("翻译完成")
-                        floatingTextView.text = result.translatedText
+                        translationResultView.setText(result.translatedText)
+                        // 自动翻译中自动恢复显示
+                        if (isAutoTranslating && !isResultViewShowing) {
+                            showResultView()
+                        }
                     }
                     is TranslationResult.Error -> {
                         LogCollector.e(TAG, "图片翻译失败", result.error)
                         updateDebugStatus("【错误】图片翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
-                        floatingTextView.text = getString(R.string.translation_failed, result.error.message)
+                        translationResultView.setText(getString(R.string.translation_failed, result.error.message))
                     }
                 }
                 isTranslating.set(false)
@@ -1272,8 +1223,8 @@ class FloatingBallService : LifecycleService() {
             if (isViewAdded(floatingBallView)) {
                 windowManager.removeView(floatingBallView)
             }
-            if (isViewAdded(floatingTextView)) {
-                windowManager.removeView(floatingTextView)
+            if (isViewAdded(translationResultView)) {
+                windowManager.removeView(translationResultView)
             }
             if (isViewAdded(cropView)) {
                 windowManager.removeView(cropView)
@@ -1296,20 +1247,6 @@ class FloatingBallService : LifecycleService() {
             stopSelf()
         } catch (e: Exception) {
             showToast("Stop service failed: ${e.message}")
-        }
-    }
-
-    private fun setFloatingTextViewTouchable(touchable: Boolean) {
-        floatingTextView.isClickable = touchable
-        if (prefs.getBoolean("Custom_Result_Penetrability", true)){
-            floatingTextViewParams?.apply {
-                if (touchable) {
-                    flags = flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                } else {
-                    flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                }
-                windowManager.updateViewLayout(floatingTextView, this)
-            }
         }
     }
 
@@ -1346,8 +1283,8 @@ class FloatingBallService : LifecycleService() {
         if (isViewAdded(floatingBallView)) {
             windowManager.removeView(floatingBallView)
         }
-        if (isViewAdded(floatingTextView)) {
-            windowManager.removeView(floatingTextView)
+        if (isViewAdded(translationResultView)) {
+            windowManager.removeView(translationResultView)
         }
         if (isViewAdded(cropView)) {
             windowManager.removeView(cropView)

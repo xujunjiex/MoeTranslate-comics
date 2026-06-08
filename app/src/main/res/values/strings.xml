@@ -537,6 +537,12 @@
     <string name="game_start_auto">Turn On Automatic Translation</string>
     <string name="game_stop_auto">Turn Off Automatic Translation</string>
     <string name="game_close_ball">Close Floating Ball</string>
+    <string name="game_lock_position">Lock Position</string>
+    <string name="game_unlock_position">Unlock Position</string>
+    <string name="game_please_crop_first">Please select translation area first</string>
+    <string name="game_crop_confirm">Confirm</string>
+    <string name="game_crop_done">Area selected</string>
+    <string name="game_cannot_close_ball">Cannot close floating ball during auto-translate</string>
     <string name="game_back_main">Return to StarFlow Main Page</string>
     <string name="game_show_log">Show Log</string>
     <string name="game_hide_log">Hide Log</string>

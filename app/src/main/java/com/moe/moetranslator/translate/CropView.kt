@@ -48,6 +48,12 @@ class CropView(ctx:Context) : View(ctx) {
     private var actionDownRectRight = 0f    //按下时的右
     private var actionDownRectBottom = 0f   //按下时的底
 
+    // 确认按钮
+    private var confirmButtonRect = RectF()
+    private var showConfirmButton = false
+    private val confirmButtonText = "确认"
+    var onConfirmCrop: (() -> Unit)? = null
+
     fun setRect(rectF: RectF) {  //设置初始矩形宽高
         mRect = RectF(rectF)
         mInitRect = RectF(rectF)
@@ -64,6 +70,12 @@ class CropView(ctx:Context) : View(ctx) {
                 viewTreeObserver.removeOnGlobalLayoutListener(this)
             }
         })
+        showConfirmButton = true
+    }
+
+    fun setConfirmButtonVisible(visible: Boolean) {
+        showConfirmButton = visible
+        invalidate()
     }
 
     @SuppressLint("DrawAllocation")
@@ -105,6 +117,34 @@ class CropView(ctx:Context) : View(ctx) {
             mRect.right - 40, mRect.bottom, mRect.right + 5, mRect.bottom
         )
         canvas.drawLines(pts, paint)
+
+        // 绘制确认按钮
+        if (showConfirmButton) {
+            val btnWidth = 200f
+            val btnHeight = 60f
+            val btnX = (width - btnWidth) / 2
+            val btnY = height - 180f
+            confirmButtonRect.set(btnX, btnY, btnX + btnWidth, btnY + btnHeight)
+
+            // 按钮背景
+            val btnPaint = Paint().apply {
+                color = Color.argb(200, 66, 133, 244)
+                style = Paint.Style.FILL
+                isAntiAlias = true
+            }
+            canvas.drawRoundRect(confirmButtonRect, 30f, 30f, btnPaint)
+
+            // 按钮文字
+            val textPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 40f
+                textAlign = Paint.Align.CENTER
+                isAntiAlias = true
+            }
+            val textX = confirmButtonRect.centerX()
+            val textY = confirmButtonRect.centerY() + 14f
+            canvas.drawText(confirmButtonText, textX, textY, textPaint)
+        }
     }
 
     private fun getViewOffset(): Point {
@@ -120,6 +160,16 @@ class CropView(ctx:Context) : View(ctx) {
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                // 检查确认按钮点击
+                if (showConfirmButton && confirmButtonRect.contains(
+                        mActionMovePoint.x.toFloat(),
+                        mActionMovePoint.y.toFloat()
+                    )
+                ) {
+                    onConfirmCrop?.invoke()
+                    return true
+                }
+
                 mOriPoint.x = event.x.toInt()
                 mOriPoint.y = event.y.toInt()
                 actionDownRectLeft = mRect.left //按下左 = 原来左

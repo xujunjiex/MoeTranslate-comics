@@ -54,13 +54,7 @@ object Dialogs {
         // 0: 框选位置
         strItems.add(ctx.getString(R.string.game_crop_position))
         imgItems.add(R.drawable.crop_screen)
-        // 1: 调整位置
-        strItems.add(ctx.getString(R.string.game_adjust_position))
-        imgItems.add(R.drawable.result_position)
-        // 2: 移除结果
-        strItems.add(ctx.getString(R.string.game_remove_result))
-        imgItems.add(R.drawable.remove_result)
-        // 3: 字体大小
+        // 1: 字体大小
         strItems.add(ctx.getString(R.string.game_font_size))
         imgItems.add(R.drawable.result_size)
         // 4: OCR 模型（动态标签）
