@@ -50,6 +50,19 @@ app/src/main/assets/**/*.onnx.data
 app/src/main/assets/**/*.ckpt
 app/src/main/assets/**/*.safetensors
 
+# sentencepiece: tests, python, docs, data (not needed for Android build)
+app/src/main/cpp/data/
+app/src/main/cpp/doc/
+app/src/main/cpp/python/
+app/src/main/cpp/src/*_test.cc
+app/src/main/cpp/src/test_main.cc
+app/src/main/cpp/src/testharness.*
+app/src/main/cpp/src/spm_*_main.cc
+app/src/main/cpp/src/compile_charsmap_main.cc
+app/src/main/cpp/CONTRIBUTING.md
+app/src/main/cpp/README.md
+app/src/main/cpp/sentencepiece.pc.in
+
 # Local test files
 call_vision.py
 test_image.b64
