@@ -38,6 +38,9 @@ Thumbs.db
 tools/
 scripts/
 
+# Old markdown assets
+markdown/
+
 # 模型文件 (太大不适合 git)
 app/src/main/assets/**/*.onnx
 app/src/main/assets/**/*.onnx.bak
