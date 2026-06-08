@@ -58,6 +58,7 @@ docs/node_modules/
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Local plans
 docs/superpowers/plans/*.md
