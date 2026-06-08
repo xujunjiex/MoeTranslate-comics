@@ -375,7 +375,7 @@ object CTDPostProcessor {
                     // 计算凸包作为轮廓（等价于 cv2.CHAIN_APPROX_SIMPLE 的效果）
                     val hull = GeometryUtils.convexHull(componentPixels)
                     if (hull.size >= 3) {
-                        contours.add(hull)
+                        contours.add(hull.toMutableList())
                     }
                 }
 

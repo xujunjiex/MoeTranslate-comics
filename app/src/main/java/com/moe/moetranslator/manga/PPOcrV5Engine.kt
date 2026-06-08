@@ -450,7 +450,8 @@ object PPOcrV5Engine {
             if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
 
             // 概率评分
-            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxPoints)
+            val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
+            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
 
             // box_thresh 过滤：低于阈值的候选框直接跳过
             if (score < DET_BOX_THRESH) continue

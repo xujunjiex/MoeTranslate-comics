@@ -165,5 +165,3 @@ class Developer : Fragment() {
     }
 
 }
-
-}
