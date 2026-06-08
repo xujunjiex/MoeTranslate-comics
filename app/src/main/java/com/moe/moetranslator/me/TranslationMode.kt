@@ -17,22 +17,14 @@
 
 package com.moe.moetranslator.me
 
-import android.app.ActivityManager
 import android.os.Bundle
-import android.util.Log
-import android.widget.Toast
-import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import com.moe.moetranslator.databinding.FragmentTranslationModeBinding
+import androidx.fragment.app.Fragment
 import com.moe.moetranslator.R
-import com.moe.moetranslator.translate.AccessibilityServiceManager
-import com.moe.moetranslator.translate.FloatingBallService
-import com.moe.moetranslator.manga.MangaFloatingService
-
+import com.moe.moetranslator.databinding.FragmentTranslationModeBinding
 import com.moe.moetranslator.utils.CustomPreference
-import com.moe.moetranslator.utils.ServiceUtils
 
 
 class TranslationMode : Fragment() {
@@ -51,40 +43,14 @@ class TranslationMode : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        if(prefs.getInt("Translate_Mode", 0) == 0){
-            binding.ocrModeLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
-            binding.picModeLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
-        }else{
-            binding.ocrModeLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
-            binding.picModeLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
-        }
+
+        // 强制使用OCR模式，隐藏图片翻译模式
+        prefs.setInt("Translate_Mode", 0)
+        binding.ocrModeLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
+        binding.picModeLayout.visibility = View.GONE
+
         binding.ocrModeLayout.setOnClickListener {
-            if (isAnyTranslationServiceRunning()) {
-                Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            binding.ocrModeLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
-            binding.picModeLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
-            prefs.setInt("Translate_Mode", 0)
-            Log.d("RADIO","A")
+            // OCR模式已固定，无需切换
         }
-
-        binding.picModeLayout.setOnClickListener {
-            if (isAnyTranslationServiceRunning()) {
-                Toast.makeText(requireContext(), getString(R.string.stop_service_first), Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            binding.ocrModeLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
-            binding.picModeLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
-            prefs.setInt("Translate_Mode", 1)
-            Log.d("RADIO","B")
-        }
-
-    }
-
-    private fun isAnyTranslationServiceRunning(): Boolean {
-        return AccessibilityServiceManager.getService() != null &&
-                (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) ||
-                 ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
     }
 }

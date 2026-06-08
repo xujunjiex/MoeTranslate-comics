@@ -147,9 +147,7 @@ class APIConfig : PreferenceFragmentCompat() {
                 true
             }
 
-            // 动态自定义文本 API
-            ConfigurationStorage.migrateOldTextConfigs(prefs)
-            setupDynamicCustomApiList(prefs, true)
+            // 自定义云端文本翻译API已禁用
         }else{
             findPreference<Preference>("ui_manage_baidu_api_pic")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
@@ -261,7 +259,6 @@ class APIConfig : PreferenceFragmentCompat() {
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
         val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
-        val customTextApi = prefs.getInt("Custom_Text_API", 0)
         val customPicApi = prefs.getInt("Custom_Pic_API", 0)
 
         // 加载设置到UI上
@@ -320,11 +317,11 @@ class APIConfig : PreferenceFragmentCompat() {
                     setKey(key)
                 }
                 else -> {
-                    val apiList = ConfigurationStorage.loadTextConfigList(prefs)
-                    if (customTextApi < apiList.size) {
-                        val key = "ui_custom_api_text_$customTextApi"
-                        findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                    }
+                    // 自定义云端文本翻译API已禁用，重置为默认Bing
+                    prefs.setInt("Text_API", Constants.TextApi.BING.id)
+                    val key = "ui_bing_translation_text"
+                    findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
+                    setKey(key)
                 }
             }
             else -> when (picApi) {
@@ -547,7 +544,6 @@ class APIConfig : PreferenceFragmentCompat() {
         // 从编辑页面返回时刷新厂商列表
         if (::prefs.isInitialized) {
             setupOpenAIProviderList(prefs)
-            setupDynamicCustomApiList(prefs, true)
             setupDynamicCustomApiList(prefs, false)
         }
     }

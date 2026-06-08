@@ -281,9 +281,8 @@ class ModelManagementFragment : Fragment() {
     // ========== manga-ocr 下载相关（版本列表）==========
 
     private fun updateMangaOcrStatus() {
-        for (version in MangaOcrDownloadManager.ModelVersion.entries) {
-            updateMangaOcrVersionStatus(version)
-        }
+        // 只更新2025版，原版已禁用
+        updateMangaOcrVersionStatus(MangaOcrDownloadManager.ModelVersion.V2025)
     }
 
     private fun updateMangaOcrVersionStatus(version: MangaOcrDownloadManager.ModelVersion) {

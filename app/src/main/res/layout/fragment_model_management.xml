@@ -328,8 +328,9 @@
                     android:textColor="#888"
                     android:layout_marginBottom="8dp"/>
 
-                <!-- 原版 -->
-                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_full_row"/>
+                <!-- 原版（已禁用） -->
+                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_full_row"
+                    android:visibility="gone"/>
 
                 <!-- 2025版 -->
                 <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_v2025_row"/>
