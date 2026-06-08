@@ -142,6 +142,36 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 
 ## 自动翻译
 
+### 游戏翻译（像素驱动）
+
+**核心文件：** `AutoTranslateEngine.kt`（状态机）、`FloatingBallService`（主服务）、`GameOcrEngine.kt`（OCR 封装）、`PixelCompare.kt`（像素比较）、`GameDebugOverlay.kt`（调试浮窗）
+
+**状态机：**
+```
+IDLE（跳过OCR）──像素变化──→ CHANGED ──稳定1帧──→ STABLE_1 ──稳定2帧──→ STABLE_2（触发OCR）→ IDLE
+```
+- IDLE：翻译完成后进入，像素不变则跳过 OCR（节省性能）
+- CHANGED：像素和上帧不同，重新计数
+- STABLE_1/STABLE_2：连续稳定帧，达到 2 帧触发 OCR
+- 稳定性检测可关闭：关闭后像素变化立即触发 OCR（适合视频字幕）
+
+**LRU 缓存：** `LruCache<String, String>(20)`，OCR 文本精确匹配，命中直接返回翻译结果
+
+**像素比较（PixelCompare）：** YIQ 感知色彩差异（移植自 pixelmatch），`diffThreshold` 控制页面变化判定（默认 1%）
+
+**设置：**
+- `Game_Pixel_Similar_Threshold`：像素变化阈值（默认 1%）
+- `Game_Pixel_Check_Interval`：检测间隔（最低 300ms）
+- `pixel_stability_check`：翻页稳定性检测开关
+
+**OCR 引擎（GameOcrEngine）：**
+- MLKit(0)、PP-OCRv5(1)、manga-ocr(2)
+- MLKit 和 PP-OCRv5 固定使用直接合并（不保留换行）
+
+**调试浮窗（GameDebugOverlay）：** 关于页面开启，显示状态 + 像素差异 + 耗时，点击展开日志面板（最近 20 条，自动去重）
+
+### 漫画翻译（自动翻页）
+
 **状态机（`MangaFloatingService`）：**
 ```
 IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次sim≥0.95──→ STABLE（翻译）→ IDLE
@@ -173,7 +203,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager
+tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot
 ```
 
 ## 关键约束
