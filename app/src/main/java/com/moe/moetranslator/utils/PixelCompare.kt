@@ -16,19 +16,17 @@ object PixelCompare {
     // YIQ 差异最大可能值
     private const val MAX_YIQ_DELTA = 35215f
 
-    // diffRatio 小于此值认为画面没变
-    private const val SIMILAR_THRESHOLD = 0.005f
-
     /**
      * 比较两帧像素数组的差异（推荐，避免 Bitmap.copy() 共享缓冲区问题）
      * @param prevPixels 上一帧像素数据
      * @param currPixels 当前帧像素数据
      * @param width 图像宽度
      * @param height 图像高度
-     * @param threshold YIQ 颜色差异阈值 (0~1)，默认 0.1
+     * @param yiqThreshold YIQ 颜色差异阈值 (0~1)，控制单个像素颜色差异灵敏度
+     * @param diffThreshold diffRatio 阈值 (0~1)，超过此值认为画面变化，默认 0.05 (5%)
      * @return CompareResult
      */
-    fun comparePixels(prevPixels: IntArray, currPixels: IntArray, width: Int, height: Int, threshold: Float = 0.1f): CompareResult {
+    fun comparePixels(prevPixels: IntArray, currPixels: IntArray, width: Int, height: Int, yiqThreshold: Float = 0.1f, diffThreshold: Float = 0.05f): CompareResult {
         val totalPixels = width * height
         require(prevPixels.size >= totalPixels && currPixels.size >= totalPixels) {
             "Pixel array size mismatch: need $totalPixels, got prev=${prevPixels.size} curr=${currPixels.size}"
@@ -47,7 +45,7 @@ object PixelCompare {
         }
 
         // 最大可接受的 YIQ 差异平方值
-        val maxDelta = MAX_YIQ_DELTA * threshold * threshold
+        val maxDelta = MAX_YIQ_DELTA * yiqThreshold * yiqThreshold
         var diff = 0
 
         // 逐像素比较
@@ -71,7 +69,7 @@ object PixelCompare {
         }
 
         val diffRatio = diff.toFloat() / totalPixels
-        return CompareResult(diff, totalPixels, diffRatio, diffRatio < SIMILAR_THRESHOLD)
+        return CompareResult(diff, totalPixels, diffRatio, diffRatio < diffThreshold)
     }
 
     /**

@@ -191,11 +191,6 @@
     <string name="translate_result_box">翻译结果框</string>
     <string name="translate_result_box_with_hint">翻译结果框（不适用于漫画翻译）</string>
     <string name="ocr_category_with_hint">OCR（不适用于漫画翻译）</string>
-    <string name="merge_ocr">合并多行OCR结果</string>
-    <string name="merge_ocr_summary">当前模式：%s\n默认OCR结果会将一段文字分成多行，大大降低翻译效果。建议选择"直接合并"以获得绝大多数情况下的最佳效果</string>
-    <string name="no_merge">不合并</string>
-    <string name="segmented_merging">分段合并</string>
-    <string name="direct_mergig">直接合并</string>
     <string name="show_source_text_title">同时显示原文</string>
     <string name="show_source_text_summary">当前模式：%s\n（仅对OCR模式生效）在显示翻译结果的同时，也显示OCR后的原文</string>
     <string name="volcapi_name">火山引擎</string>
@@ -262,7 +257,7 @@
     <string name="welcome_home_subtitle">请配置以下选项来开始你的翻译之旅</string>
     <string name="welcome_home_title_2">翻译已启动！</string>
     <string name="welcome_home_subtitle_2">您可以随时改变"源/目标"语言或停止翻译</string>
-    <string name="start_ball">游戏翻译</string>
+    <string name="start_ball">游戏/视频翻译</string>
     <string name="stop_ball">我要停！</string>
     <string name="stop_success">停止成功</string>
     <string name="stop_failed">停止失败：%s</string>
@@ -387,20 +382,11 @@
     <string name="auto_translate_start">自动翻译已开启，请注意API额度消耗</string>
     <string name="auto_translate_stop">自动翻译已关闭</string>
     <string name="auto_translate_changed">检测到屏幕方向改变，自动翻译已关闭</string>
-    <string name="auto_translate">自动翻译</string>
+    <string name="auto_translate">游戏/视频自动翻译</string>
     <string name="auto_translate_interval">自动翻译时间间隔</string>
-    <string name="auto_translate_str_length">字长阈值</string>
-    <string name="auto_translate_str_similarity">相似度阈值</string>
     <string name="currtent_interval">当前时间间隔：%s ms</string>
     <string name="set_auto_translate_interval">设置自动翻译的时间间隔</string>
     <string name="auto_translate_interval_summary">当前时间间隔：%s ms\n（漫画翻译专用）自动翻译模式下，页面无变化时的轮询检测间隔</string>
-    <string name="current_str_length">当前字长阈值：%s</string>
-    <string name="set_str_length">设置字长阈值</string>
-    <string name="auto_translate_str_length_summary">当前字长阈值：%s\n（游戏翻译专用）OCR结果字数小于该值时，跳过相似度判断直接翻译</string>
-    <string name="auto_translate_str_similarity_summary">当前相似度阈值：%s\n（游戏翻译专用）对比本次与上次OCR结果的相似度，超过该值视为相同内容，跳过翻译</string>
-    <string name="str_similarity_tips">两个字符串之间的相似度使用 Levenshtein 距离计算，请输入0至1之间的小数</string>
-    <string name="current_str_similarity">当前相似度阈值：%s</string>
-    <string name="set_str_similarity">设置相似度阈值</string>
     <string name="api_key">API_KEY</string>
     <string name="model">model</string>
     <string name="system_prompt">系统提示词（留空使用默认）</string>
@@ -531,7 +517,7 @@
     <!-- 历史记录 -->
     <string name="clear_history">清空</string>
     <string name="no_history">暂无历史记录</string>
-    <string name="history_game_tab">游戏翻译</string>
+    <string name="history_game_tab">游戏/视频</string>
     <string name="history_manga_tab">漫画翻译</string>
     <string name="confirm_clear_history">确认清空所有历史记录？</string>
     <string name="game_ocr_engine_label">OCR模型</string>
@@ -552,7 +538,7 @@
     <string name="game_show_log">显示日志</string>
     <string name="game_hide_log">隐藏日志</string>
     <string name="pixel_stability_title">翻页稳定性检测</string>
-    <string name="pixel_stability_summary">开启后，画面停止变化一段时间才触发翻译。适合快速翻页场景，避免在翻页动画中触发无用翻译。关闭则检测到画面变化立即翻译，响应更快但可能翻译到过渡画面。</string>
+    <string name="pixel_stability_summary">开启：画面稳定后才触发翻译，适合经常跳过大片文本的场景。关闭：检测到变化立即翻译，会翻译到连续跳过的文本，但延迟更低，适合自动字幕或视频场景。</string>
     <string name="pixel_threshold_title">像素变化阈值</string>
     <string name="pixel_threshold_summary">当前: %s。diffRatio 低于此值认为画面没变化</string>
     <string name="pixel_check_interval_title">检测间隔</string>

@@ -379,7 +379,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_centerVertical="true"
-                        android:text="游戏翻译调试"
+                        android:text="游戏/视频翻译调试"
                         android:textColor="#6A6464"
                         android:textSize="18sp" />
 

@@ -2,19 +2,6 @@
 <resources>
     <!-- Game menus are now built dynamically in Dialogs.kt -->
 
-    <string-array name="ocr_merge_mode_entries">
-        <item>No merging</item>
-        <item>Segmented merging</item>
-        <item>Direct merging</item>
-    </string-array>
-
-
-    <string-array name="ocr_merge_mode_values">
-        <item>0</item>
-        <item>1</item>
-        <item>2</item>
-    </string-array>
-
     <string-array name="show_source_text_entries">
         <item>Not shown</item>
         <item>Above the result text</item>
@@ -51,14 +38,12 @@
     </string-array>
 
     <string-array name="pixel_check_interval_entries">
-        <item>250ms</item>
         <item>300ms</item>
         <item>400ms</item>
         <item>500ms</item>
     </string-array>
 
     <string-array name="pixel_check_interval_values">
-        <item>250</item>
         <item>300</item>
         <item>400</item>
         <item>500</item>

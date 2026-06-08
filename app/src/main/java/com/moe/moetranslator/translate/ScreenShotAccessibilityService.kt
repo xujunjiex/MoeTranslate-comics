@@ -81,13 +81,14 @@ class ScreenShotAccessibilityService: AccessibilityService() {
 
                             Log.d("ASSOFFSET", "x:"+offset.x+"  y:"+offset.y)
                             if (mRectF != null){
-                                bitmap = Bitmap.createBitmap(
-                                    bitmap!!,
-                                    mRectF.left.toInt() + offset.x,    // 起始X坐标
-                                    mRectF.top.toInt() + offset.y,     // 起始Y坐标
-                                    mRectF.width().toInt(), // 裁剪宽度
-                                    mRectF.height().toInt() // 裁剪高度
-                                )
+                                val b = bitmap!!
+                                val x = (mRectF.left.toInt() + offset.x).coerceIn(0, b.width - 1)
+                                val y = (mRectF.top.toInt() + offset.y).coerceIn(0, b.height - 1)
+                                val w = mRectF.width().toInt().coerceAtMost(b.width - x)
+                                val h = mRectF.height().toInt().coerceAtMost(b.height - y)
+                                if (w > 0 && h > 0) {
+                                    bitmap = Bitmap.createBitmap(b, x, y, w, h)
+                                }
                             }
 
                             //使用sharedflow，发送截图完成信号以及bitmap

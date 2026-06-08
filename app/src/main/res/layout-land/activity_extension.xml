@@ -18,7 +18,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="32dp"
-        android:text="漫画 &amp; 游戏翻译扩展"
+        android:text="漫画 &amp; 游戏/视频翻译扩展"
         android:textColor="#666666"
         android:textSize="16sp" />
 
@@ -72,7 +72,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="游戏模式"
+                android:text="游戏/视频模式"
                 android:textSize="20sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="8dp" />
@@ -87,7 +87,7 @@
                 android:id="@+id/btn_game_start"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:text="启动游戏翻译"
+                android:text="启动游戏/视频翻译"
                 android:backgroundTint="#03DAC5" />
         </LinearLayout>
     </androidx.cardview.widget.CardView>

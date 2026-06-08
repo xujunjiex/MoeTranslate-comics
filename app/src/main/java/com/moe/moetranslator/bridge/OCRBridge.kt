@@ -55,7 +55,7 @@ object OCRBridge {
 
     suspend fun recognizeText(language: String, bitmap: Bitmap): String {
         LogCollector.d(TAG, "recognizeText: bitmap=${bitmap.width}x${bitmap.height}")
-        return com.moe.moetranslator.translate.OCRTextRecognizer.getPicText(language, bitmap, 0)
+        return com.moe.moetranslator.translate.OCRTextRecognizer.getPicText(language, bitmap)
     }
 
     private fun getTextRecognizer(language: String): TextRecognizer {

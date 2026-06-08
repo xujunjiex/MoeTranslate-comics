@@ -2,19 +2,6 @@
 <resources>
     <!-- Game menus are now built dynamically in Dialogs.kt -->
 
-    <string-array name="ocr_merge_mode_entries">
-        <item>不合并</item>
-        <item>分段合并</item>
-        <item>直接合并</item>
-    </string-array>
-
-
-    <string-array name="ocr_merge_mode_values">
-        <item>0</item>
-        <item>1</item>
-        <item>2</item>
-    </string-array>
-
     <string-array name="show_source_text_entries">
         <item>不显示</item>
         <item>在结果上方</item>
@@ -51,14 +38,12 @@
     </string-array>
 
     <string-array name="pixel_check_interval_entries">
-        <item>250ms</item>
         <item>300ms</item>
         <item>400ms</item>
         <item>500ms</item>
     </string-array>
 
     <string-array name="pixel_check_interval_values">
-        <item>250</item>
         <item>300</item>
         <item>400</item>
         <item>500</item>

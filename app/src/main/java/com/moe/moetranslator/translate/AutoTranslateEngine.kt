@@ -29,7 +29,7 @@ class AutoTranslateEngine(
         private const val TAG = "AutoTranslateEngine"
         private const val STABLE_FRAMES = 2
         private const val LRU_CAPACITY = 20
-        private const val DEFAULT_PIXEL_THRESHOLD = 5
+        private const val DEFAULT_PIXEL_THRESHOLD = 1
     }
 
     // 像素稳定状态机
@@ -106,11 +106,11 @@ class AutoTranslateEngine(
         // 读取用户设置的像素阈值
         val prefs = CustomPreference.getInstance(context)
         val thresholdPct = prefs.getInt("Game_Pixel_Similar_Threshold", DEFAULT_PIXEL_THRESHOLD)
-        val threshold = thresholdPct / 100f
+        val diffThreshold = thresholdPct / 100f
 
         val prevPixels = lastPixels
         if (prevPixels != null && lastWidth == w && lastHeight == h) {
-            val result = PixelCompare.comparePixels(prevPixels, currPixels, w, h, threshold)
+            val result = PixelCompare.comparePixels(prevPixels, currPixels, w, h, diffThreshold = diffThreshold)
             lastDiffRatio = result.diffRatio
             lastPixels = currPixels
 
@@ -118,6 +118,7 @@ class AutoTranslateEngine(
                 // 像素没变
                 if (pixelState == PixelState.IDLE) {
                     // 已翻译过，像素仍不变，跳过 OCR
+                    LogCollector.d(TAG, "【IDLE】像素未变 diff=${"%.6f".format(result.diffRatio)}, 跳过OCR")
                     return Decision.Idle(result.diffRatio)
                 }
                 stableCount++
@@ -159,8 +160,9 @@ class AutoTranslateEngine(
         val normalizedText = TextSimilarity.normalize(ocrText)
 
         if (normalizedText.isBlank()) {
-            LogCollector.d(TAG, "【跳过】OCR 结果为空")
-            return Decision.PixelChanging(0f)
+            LogCollector.d(TAG, "【跳过】OCR 结果为空，进入IDLE等待页面变化")
+            markIdle()
+            return Decision.Idle(0f)
         }
 
         if (isManualForceTranslate) {

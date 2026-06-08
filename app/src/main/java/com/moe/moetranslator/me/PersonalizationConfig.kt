@@ -54,15 +54,12 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var ballPress: Preference
     private lateinit var resultFont: Preference
     private lateinit var resultFontSize: Preference
-    private lateinit var ocrMergeMode: ListPreference
     private lateinit var showSource: ListPreference
     private lateinit var pixelStabilityCheck: SwitchPreference
     private lateinit var pixelThreshold: ListPreference
     private lateinit var pixelCheckInterval: ListPreference
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
-    private lateinit var strLength: Preference
-    private lateinit var strSimilarity: Preference
 
     private lateinit var languagePreference: ListPreference
 
@@ -74,7 +71,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         ballPress = findPreference<Preference>("floating_ball_press")!!
         resultFont = findPreference<Preference>("result_font")!!
         resultFontSize = findPreference<Preference>("result_font_size")!!
-        ocrMergeMode = findPreference<ListPreference>("ocr_merge_mode")!!
         showSource = findPreference<ListPreference>("show_source_text")!!
         pixelStabilityCheck = findPreference<SwitchPreference>("pixel_stability_check")!!
         pixelThreshold = findPreference<ListPreference>("pixel_threshold")!!
@@ -149,15 +145,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             summary = getString(R.string.penetrability_summary)
         }
 
-        // OCR合并模式
-        ocrMergeMode.setOnPreferenceChangeListener { _, newValue ->
-            prefs.setInt("Custom_OCR_Merge_Mode", newValue.toString().toInt())
-            true
-        }
-        ocrMergeMode.summaryProvider = Preference.SummaryProvider<ListPreference> { _ ->
-            getString(R.string.merge_ocr_summary, ocrMergeMode.entry)
-        }
-
         // 显示原文
         showSource.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Custom_Show_Source_Mode", newValue.toString().toInt())
@@ -205,20 +192,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 字长阈值
-        strLength = findPreference("auto_translate_str_length")!!
-        strLength.setOnPreferenceClickListener {
-            showStrLengthDialog()
-            true
-        }
-
-        // 相似度阈值
-        strSimilarity = findPreference("auto_translate_str_similarity")!!
-        strSimilarity.setOnPreferenceClickListener {
-            showStrSimilarityDialog()
-            true
-        }
-
         // 提示文本
         findPreference<SwitchPreference>("adjust_tip")?.setOnPreferenceChangeListener { preference, newValue ->
             prefs.setBoolean("Custom_Adjust_Not_Text", newValue as Boolean)
@@ -230,8 +203,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         updatePressSummary()
         updateFontSummary()
         updateFontSizeSummary()
-        updateStrLengthSummary()
-        updateStrSimilaritySummary()
         setupLanguagePreference()
     }
 
@@ -318,73 +289,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         resultFontSize.summary = getString(R.string.font_size_summary, prefs.getFloat("Custom_Result_Font_Size", 16f).toString())
     }
 
-    private fun updateStrLengthSummary() {
-        strLength.summary = getString(R.string.auto_translate_str_length_summary, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
-    }
-
-    private fun updateStrSimilaritySummary() {
-        strSimilarity.summary = getString(R.string.auto_translate_str_similarity_summary, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
-    }
-
-    private fun showStrLengthDialog() {
-        val customView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_message_edittext, null)
-        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = getString(R.string.int_only)
-        }
-        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            hint = getString(R.string.current_str_length, prefs.getInt("Auto_Translate_Str_Length", 10).toString())
-        }
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.set_str_length)
-            .setView(customView)
-            .setPositiveButton(R.string.save) { _, _ ->
-                try {
-                    val value = input.text.toString().toInt()
-                    prefs.setInt("Auto_Translate_Str_Length", value)
-                    updateStrLengthSummary()
-                } catch (e: Exception) {
-                    showToast(getString(R.string.font_size_invalid), true)
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
-
-    private fun showStrSimilarityDialog() {
-        val customView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_message_edittext, null)
-        customView.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = getString(R.string.str_similarity_tips)
-        }
-        val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            hint = getString(R.string.current_str_similarity, prefs.getFloat("Auto_Translate_Str_Similarity", 0.8f).toString())
-        }
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.set_str_similarity)
-            .setView(customView)
-            .setPositiveButton(R.string.save) { _, _ ->
-                try {
-                    val value = input.text.toString().toFloat()
-                    if (value in 0f..1f) {
-                        prefs.setFloat("Auto_Translate_Str_Similarity", value)
-                        updateStrSimilaritySummary()
-                    } else {
-                        showToast(getString(R.string.str_similarity_tips), true)
-                    }
-                } catch (e: Exception) {
-                    showToast(getString(R.string.font_size_invalid), true)
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    }
 
     private fun showBallOptionsDialog(){
         val options = arrayOf(getString(R.string.ball_icon_default), getString(R.string.pic_choose))

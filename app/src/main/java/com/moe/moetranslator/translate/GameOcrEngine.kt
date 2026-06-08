@@ -31,20 +31,19 @@ class GameOcrEngine(private val context: Context) {
     suspend fun recognize(bitmap: Bitmap): String {
         val engine = prefs.getInt("Game_OCR_Engine", 0)
         val language = prefs.getString("Source_Language", "ja")
-        val mergeMode = prefs.getInt("Custom_OCR_Merge_Mode", 2)
 
         return when (engine) {
-            1 -> recognizeWithPPOcrV5(bitmap, language, mergeMode)
-            2 -> recognizeWithMangaOcr(bitmap, language, mergeMode)
-            else -> recognizeWithMLKit(bitmap, language, mergeMode)
+            1 -> recognizeWithPPOcrV5(bitmap, language)
+            2 -> recognizeWithMangaOcr(bitmap, language)
+            else -> recognizeWithMLKit(bitmap, language)
         }
     }
 
-    private suspend fun recognizeWithMLKit(bitmap: Bitmap, language: String, mergeMode: Int): String {
-        return OCRTextRecognizer.getPicText(language, bitmap, mergeMode)
+    private suspend fun recognizeWithMLKit(bitmap: Bitmap, language: String): String {
+        return OCRTextRecognizer.getPicText(language, bitmap)
     }
 
-    private suspend fun recognizeWithPPOcrV5(bitmap: Bitmap, language: String, mergeMode: Int): String {
+    private suspend fun recognizeWithPPOcrV5(bitmap: Bitmap, language: String): String {
         initPPOcrV5IfNeeded()
         val recLang = PPOcrV5Engine.getRecLang(language)
         return if (recLang != null) {
@@ -54,18 +53,18 @@ class GameOcrEngine(private val context: Context) {
             result.texts.joinToString("")
         } else {
             LogCollector.w(TAG, "PP-OCRv5 不支持语言: $language, 回退 ML Kit")
-            recognizeWithMLKit(bitmap, language, mergeMode)
+            recognizeWithMLKit(bitmap, language)
         }
     }
 
-    private suspend fun recognizeWithMangaOcr(bitmap: Bitmap, language: String, mergeMode: Int): String {
+    private suspend fun recognizeWithMangaOcr(bitmap: Bitmap, language: String): String {
         initMangaOcrIfNeeded()
         return if (MangaOcrBridge.isAvailable()) {
             val textBlocks = MangaOcrBridge.recognizeWithLocation(bitmap, language)
             textBlocks.joinToString("\n") { it.text }
         } else {
             LogCollector.w(TAG, "manga-ocr 未初始化, 回退 ML Kit")
-            recognizeWithMLKit(bitmap, language, mergeMode)
+            recognizeWithMLKit(bitmap, language)
         }
     }
 

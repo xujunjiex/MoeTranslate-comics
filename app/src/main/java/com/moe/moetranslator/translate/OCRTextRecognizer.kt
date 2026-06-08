@@ -52,7 +52,7 @@ object OCRTextRecognizer {
     }
 
     // 使用suspend函数使其成为协程
-    suspend fun getPicText(language: String, bitmap: Bitmap, mergeMode: Int): String =
+    suspend fun getPicText(language: String, bitmap: Bitmap): String =
         withContext(Dispatchers.Default) {
             suspendCancellableCoroutine { continuation ->
                 val recognizer = getOrCreateRecognizer(language)
@@ -60,11 +60,7 @@ object OCRTextRecognizer {
                     val image = InputImage.fromBitmap(bitmap, 0)
                     recognizer.process(image)
                         .addOnSuccessListener { visionText ->
-                            val resultText = if (mergeMode != 0) {
-                                mergeText(visionText, language, mergeMode)
-                            } else {
-                                visionText.text
-                            }
+                            val resultText = mergeText(visionText, language)
                             LogCollector.d(TAG, "getPicText: bitmap=${bitmap.width}x${bitmap.height}")
                             continuation.resume(resultText)
                         }
@@ -78,7 +74,7 @@ object OCRTextRecognizer {
             }
         }
 
-    private fun mergeText(visionText: Text, language: String, mergeMode: Int): String {
+    private fun mergeText(visionText: Text, language: String): String {
 
         // 没有blocks，直接返回空字符串
         if (visionText.textBlocks.isEmpty()) return ""
@@ -96,11 +92,7 @@ object OCRTextRecognizer {
                 ).takeIf { it.isNotEmpty() }
             }
         }.joinToString(
-            separator = when {
-                mergeMode == 1 -> "\n\n"
-                language == "en" -> " "
-                else -> ""
-            },
+            separator = if (language == "en") " " else "",
             transform = { it }
         )
     }

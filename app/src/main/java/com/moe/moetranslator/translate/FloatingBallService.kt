@@ -165,12 +165,12 @@ class FloatingBallService : LifecycleService() {
 
 
     companion object {
-        private const val DEFAULT_PIXEL_CHECK_INTERVAL_MS = 250L
+        private const val DEFAULT_PIXEL_CHECK_INTERVAL_MS = 300L
         private const val OCR_TIMEOUT_MS = 3000L
     }
 
     private fun getPixelCheckInterval(): Long {
-        return prefs.getInt("Game_Pixel_Check_Interval", 250).toLong().coerceAtLeast(250L)
+        return prefs.getInt("Game_Pixel_Check_Interval", 300).toLong().coerceAtLeast(300L)
     }
 
     // 缓存管理
@@ -898,6 +898,7 @@ class FloatingBallService : LifecycleService() {
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         floatingTextView.text = ocrDecision.cachedText
                                         engine.markIdle()
+                                        updateDebugStatus("【IDLE】等待像素变化")
                                         isTranslating.set(false)
                                     }
                                     is AutoTranslateEngine.Decision.Translate -> {
@@ -985,6 +986,9 @@ class FloatingBallService : LifecycleService() {
                         // 更新缓存并进入 IDLE
                         autoTranslateEngine?.onTranslationSuccess(str, result.translatedText)
                         autoTranslateEngine?.markIdle()
+                        LogCollector.d("FloatingBallService", "翻译完成，准备进入IDLE")
+                        updateDebugStatus("【IDLE】等待像素变化")
+                        LogCollector.d("FloatingBallService", "IDLE状态已更新到调试浮窗")
 
                         // 保存到历史
                         saveTranslationToCache(
