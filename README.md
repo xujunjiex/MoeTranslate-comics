@@ -53,6 +53,9 @@
 ## 构建
 
 ```bash
+# 首次克隆后，创建 local.properties（路径用正斜杠）
+echo sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk > local.properties
+
 ./gradlew assembleDebug
 ```
 
