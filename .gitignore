@@ -48,20 +48,9 @@ app/src/main/assets/**/*.onnx.data
 app/src/main/assets/**/*.ckpt
 app/src/main/assets/**/*.safetensors
 
-# docs: 只保留 docs/docs/ 内容，其余排除
-docs/*.md
-docs/package.json
-docs/package-lock.json
-docs/superpowers/
-docs/docs/.vuepress/
-docs/node_modules/
-
 # Claude Code
 .claude/
 CLAUDE.md
-
-# Local plans
-docs/superpowers/plans/*.md
 
 # Local logs
 logs/
