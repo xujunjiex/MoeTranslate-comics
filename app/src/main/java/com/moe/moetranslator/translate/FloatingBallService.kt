@@ -33,16 +33,20 @@ import android.view.*
 import android.widget.AdapterView
 import android.widget.ImageView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.moetranslator.MainActivity
 import com.moe.moetranslator.R
 import com.moe.moetranslator.me.ConfigurationStorage
+import com.moe.moetranslator.manga.MangaOcrBridge
+import com.moe.moetranslator.manga.MangaOcrDownloadManager
+import com.moe.moetranslator.manga.MangaOcrRecognizer
+import com.moe.moetranslator.manga.PPOcrV5Engine
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.KeystoreManager
+import com.moe.moetranslator.utils.TranslationStatusOverlay
 import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -161,6 +165,7 @@ class FloatingBallService : LifecycleService() {
 
     // 自动翻译相关属性
     private var isAutoTranslating = false
+    private var isMenuShowing = false
     private val autoTranslateHandler = Handler(Looper.getMainLooper())
 
 
@@ -179,9 +184,15 @@ class FloatingBallService : LifecycleService() {
     // 自动翻译引擎
     private var autoTranslateEngine: AutoTranslateEngine? = null
 
+    // OCR 引擎（手动翻译时使用）
+    private lateinit var ocrEngine: GameOcrEngine
+
     // 游戏翻译调试浮窗
     private var gameDebugOverlay: GameDebugOverlay? = null
     private var translateStartTime = 0L
+
+    // 翻译状态提示条
+    private lateinit var statusOverlay: TranslationStatusOverlay
 
     private fun isGameDebugEnabled(): Boolean =
         prefs.getBoolean("Game_Translate_Debug_View", false)
@@ -224,72 +235,141 @@ class FloatingBallService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        LogCollector.d(TAG, "FloatingBallService onCreate")
         prefs = CustomPreference.getInstance(this)
+        statusOverlay = TranslationStatusOverlay(this)
         initialize()
         setupScreenshotCollector()
+        LogCollector.d(TAG, "FloatingBallService created")
     }
 
     @SuppressLint("InflateParams")
     private fun initialize() {
         // 初始化缓存管理器
         cacheManager = TranslationCacheManager(this)
+        LogCollector.d(TAG, "缓存管理器初始化完成")
 
         // 初始化翻译API
+        LogCollector.d(TAG, "开始初始化翻译 API, Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
         try {
             if (prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id){
                 when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
                     Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)){
-                        Constants.TextAI.MLKIT.id -> translatorText = MLKitTranslation()
-                        Constants.TextAI.NLLB.id -> translatorText = NLLBTranslation(this)
-                        else -> { showToast("Unknown Translator.") }
+                        Constants.TextAI.MLKIT.id -> {
+                            translatorText = MLKitTranslation()
+                            LogCollector.d(TAG, "翻译 API 初始化: MLKit Translation")
+                        }
+                        Constants.TextAI.NLLB.id -> {
+                            translatorText = NLLBTranslation(this)
+                            LogCollector.d(TAG, "翻译 API 初始化: NLLB Translation")
+                        }
+                        else -> {
+                            LogCollector.e(TAG, "Unknown AI Translator: ${prefs.getInt("Text_AI", 0)}")
+                            showToast("Unknown Translator.")
+                        }
                     }
-                    Constants.TextApi.BING.id -> translatorText = BingTranslation()
-                    Constants.TextApi.NIUTRANS.id -> translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
+                    Constants.TextApi.BING.id -> {
+                        translatorText = BingTranslation()
+                        LogCollector.d(TAG, "翻译 API 初始化: Bing Translation")
+                    }
+                    Constants.TextApi.NIUTRANS.id -> {
+                        translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: NiuTrans")
+                    }
                     Constants.TextApi.OPENAI.id -> {
                         val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
                         val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                         if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                             val provider = providerList[selectedIndex]
                             translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = provider.systemPrompt, userPrompt = provider.userPrompt)
+                            LogCollector.d(TAG, "翻译 API 初始化: OpenAI (${provider.modelName})")
                         } else {
+                            LogCollector.e(TAG, "No OpenAI Provider Config Found")
                             showToast("No OpenAI Provider Config Found.")
                         }
                     }
-                    Constants.TextApi.VOLC.id -> translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)
-                    Constants.TextApi.AZURE.id -> translatorText = AzureTranslation(KeystoreManager.retrieveKey(this, "Azure")!!)
-                    Constants.TextApi.DEEPL.id -> translatorText = DeepLTranslation(KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST")!!, KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY")!!)
-                    Constants.TextApi.BAIDU.id -> translatorText = BaiduTranslationText(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
-                    Constants.TextApi.TENCENT.id -> translatorText = TencentTranslationText(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
+                    Constants.TextApi.VOLC.id -> {
+                        translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: Volc Translation")
+                    }
+                    Constants.TextApi.AZURE.id -> {
+                        translatorText = AzureTranslation(KeystoreManager.retrieveKey(this, "Azure")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: Azure Translation")
+                    }
+                    Constants.TextApi.DEEPL.id -> {
+                        translatorText = DeepLTranslation(KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST")!!, KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: DeepL Translation")
+                    }
+                    Constants.TextApi.BAIDU.id -> {
+                        translatorText = BaiduTranslationText(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: Baidu Translation")
+                    }
+                    Constants.TextApi.TENCENT.id -> {
+                        translatorText = TencentTranslationText(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: Tencent Translation")
+                    }
                     Constants.TextApi.CUSTOM_TEXT.id -> {
                         val apiList = ConfigurationStorage.loadTextConfigList(prefs)
                         val selectedIndex = prefs.getInt("Custom_Text_API", 0)
                         if (apiList.isEmpty() || selectedIndex >= apiList.size) {
+                            LogCollector.e(TAG, "No Custom Text API Config Found")
                             showToast("No Custom Text API Config Found.")
                         } else {
                             translatorText = CustomTranslationText(apiList[selectedIndex].config)
+                            LogCollector.d(TAG, "翻译 API 初始化: Custom Text API")
                         }
                     }
-                    else -> { showToast("Unknown Translator.") }
+                    else -> {
+                        LogCollector.e(TAG, "Unknown Text API: ${prefs.getInt("Text_API", 0)}")
+                        showToast("Unknown Translator.")
+                    }
                 }
             }else{
                 when (prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)){
-                    Constants.PicApi.BAIDU.id -> translatorPic = BaiduTranslationImage(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
-                    Constants.PicApi.TENCENT.id -> translatorPic = TencentTranslationImage(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
+                    Constants.PicApi.BAIDU.id -> {
+                        translatorPic = BaiduTranslationImage(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: Baidu Image Translation")
+                    }
+                    Constants.PicApi.TENCENT.id -> {
+                        translatorPic = TencentTranslationImage(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
+                        LogCollector.d(TAG, "翻译 API 初始化: Tencent Image Translation")
+                    }
                     Constants.PicApi.CUSTOM_PIC.id -> {
                         val apiList = ConfigurationStorage.loadPicConfigList(prefs)
                         val selectedIndex = prefs.getInt("Custom_Pic_API", 0)
                         if (apiList.isEmpty() || selectedIndex >= apiList.size) {
+                            LogCollector.e(TAG, "No Custom Pic API Config Found")
                             showToast("No Custom Pic API Config Found.")
                         } else {
                             translatorPic = CustomTranslationImage(apiList[selectedIndex].config)
+                            LogCollector.d(TAG, "翻译 API 初始化: Custom Pic API")
                         }
                     }
-                    else -> { showToast("Unknown Translator.") }
+                    else -> {
+                        LogCollector.e(TAG, "Unknown Pic API: ${prefs.getInt("Pic_API", 0)}")
+                        showToast("Unknown Translator.")
+                    }
                 }
             }
         } catch (e: Exception){
+            LogCollector.e(TAG, "翻译 API 初始化失败", e)
             showToast("Initialize Error: ${e.message}")
         }
+
+        // 显示翻译 API 初始化成功的消息
+        if (translatorText != null || translatorPic != null) {
+            val apiName = if (translatorText != null) {
+                translatorText!!::class.simpleName ?: "Text API"
+            } else {
+                translatorPic!!::class.simpleName ?: "Pic API"
+            }
+            LogCollector.d(TAG, "翻译 API 初始化成功: $apiName")
+            showToast("$apiName 初始化成功")
+        }
+
+        // 初始化 OCR 引擎
+        ocrEngine = GameOcrEngine(this) { msg -> showToast(msg, true) }
+        LogCollector.d(TAG, "OCR 引擎初始化: ${getOcrEngineName()}")
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
@@ -504,24 +584,24 @@ class FloatingBallService : LifecycleService() {
                 when (p2) {
                     0 -> {
                         when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.repeat_crop))
-                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                            is BallStatus.Crop -> showToast(getString(R.string.repeat_crop), true)
+                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first), true)
                             is BallStatus.Normal -> setCropView()
                         }
                         dialog.dismiss()
                     }
                     1 -> {
                         when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                            is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview))
+                            is BallStatus.Crop -> showToast(getString(R.string.crop_first), true)
+                            is BallStatus.MovingText -> showToast(getString(R.string.repeat_textview), true)
                             is BallStatus.Normal -> setMovingTextView()
                         }
                         dialog.dismiss()
                     }
                     2 -> {
                         when (currentBallStatus) {
-                            is BallStatus.Crop -> showToast(getString(R.string.crop_first))
-                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first))
+                            is BallStatus.Crop -> showToast(getString(R.string.crop_first), true)
+                            is BallStatus.MovingText -> showToast(getString(R.string.textview_first), true)
                             is BallStatus.Normal -> {
                                 if(isViewAdded(floatingTextView)){
                                     windowManager.removeView(floatingTextView)
@@ -533,14 +613,22 @@ class FloatingBallService : LifecycleService() {
                         dialog.dismiss()
                     }
                     3 -> {
-                        showFontSizeDialog()
-                        dialog.dismiss()
+                        if (isAutoTranslating) {
+                            showToast(getString(R.string.auto_translate_disabled_hint), true)
+                        } else {
+                            showFontSizeDialog()
+                            dialog.dismiss()
+                        }
                     }
                     ocrIdx -> {
-                        // 循环切换，不关闭菜单
-                        cycleOcrEngine()
-                        val adapter = listView.adapter as MenuDialogAdapter
-                        adapter.updateLabel(ocrIdx, getString(R.string.game_ocr_engine_label) + "：" + getOcrEngineLabel())
+                        if (isAutoTranslating) {
+                            showToast(getString(R.string.auto_translate_disabled_hint), true)
+                        } else {
+                            // 循环切换，不关闭菜单
+                            cycleOcrEngine()
+                            val adapter = listView.adapter as MenuDialogAdapter
+                            adapter.updateLabel(ocrIdx, getString(R.string.game_ocr_engine_label) + "：" + getOcrEngineLabel())
+                        }
                     }
                     historyIdx -> {
                         showTranslationHistoryDialog()
@@ -565,6 +653,8 @@ class FloatingBallService : LifecycleService() {
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        isMenuShowing = true
+        dialog.setOnDismissListener { isMenuShowing = false }
     }
 
     private fun getOcrEngineLabel(): String {
@@ -585,8 +675,70 @@ class FloatingBallService : LifecycleService() {
             2 -> getString(R.string.game_ocr_engine_manga_ocr)
             else -> getString(R.string.game_ocr_engine_mlkit)
         }
-        LogCollector.d("FloatingBallService", "OCR 引擎切换为: $label")
-        showToast(getString(R.string.game_ocr_engine_label) + "：$label")
+        val fromLabel = when (current) {
+            1 -> getString(R.string.game_ocr_engine_ppocr)
+            2 -> getString(R.string.game_ocr_engine_manga_ocr)
+            else -> getString(R.string.game_ocr_engine_mlkit)
+        }
+        LogCollector.d(TAG, "OCR 引擎切换: $fromLabel → $label")
+        showToast(getString(R.string.game_ocr_engine_label) + "：$label", true)
+
+        // 释放旧引擎
+        when (current) {
+            1 -> {
+                if (PPOcrV5Engine.isInitialized) {
+                    LogCollector.d(TAG, "释放 PP-OCRv5 识别器")
+                    PPOcrV5Engine.release()
+                }
+            }
+            2 -> {
+                if (MangaOcrBridge.isAvailable()) {
+                    LogCollector.d(TAG, "释放 manga-ocr 识别器")
+                    MangaOcrRecognizer.release()
+                }
+            }
+        }
+
+        // 立即初始化新引擎
+        lifecycleScope.launch {
+            try {
+                when (next) {
+                    1 -> {
+                        // PP-OCRv5
+                        LogCollector.d(TAG, "初始化 PP-OCRv5 识别器...")
+                        showToast("PP-OCRv5 识别器初始化中...", true)
+                        withContext(Dispatchers.IO) {
+                            PPOcrV5Engine.initialize(this@FloatingBallService)
+                        }
+                        LogCollector.d(TAG, "PP-OCRv5 识别器初始化成功")
+                        showToast("PP-OCRv5 识别器初始化成功", true)
+                    }
+                    2 -> {
+                        // manga-ocr
+                        val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@FloatingBallService)
+                        if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@FloatingBallService, activeVersion)) {
+                            LogCollector.d(TAG, "初始化 manga-ocr 识别器...")
+                            showToast("manga-ocr 识别器初始化中...", true)
+                            withContext(Dispatchers.IO) {
+                                MangaOcrBridge.initializeDownloaded(this@FloatingBallService, activeVersion)
+                            }
+                            LogCollector.d(TAG, "manga-ocr 识别器初始化成功")
+                            showToast("manga-ocr 识别器初始化成功", true)
+                        } else {
+                            LogCollector.w(TAG, "manga-ocr 未下载")
+                            showToast("manga-ocr 未下载，请先在模型管理中下载", true)
+                        }
+                    }
+                    else -> {
+                        // MLKit 无需初始化
+                        LogCollector.d(TAG, "MLKit 无需初始化")
+                    }
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "OCR 引擎初始化失败", e)
+                showToast("OCR 引擎初始化失败: ${e.message}", true)
+            }
+        }
     }
 
     private fun showTranslationHistoryDialog() {
@@ -657,17 +809,17 @@ class FloatingBallService : LifecycleService() {
     // 5.1.0新增：启动自动翻译
     private fun startAutoTranslate() {
         if (AccessibilityServiceManager.getService() == null) {
-            showToast(getString(R.string.accessibility_recycle))
+            showToast(getString(R.string.accessibility_recycle), true)
             return
         }
 
         when (currentBallStatus) {
             is BallStatus.Crop -> {
-                showToast(getString(R.string.crop_first))
+                showToast(getString(R.string.crop_first), true)
                 return
             }
             is BallStatus.MovingText -> {
-                showToast(getString(R.string.textview_first))
+                showToast(getString(R.string.textview_first), true)
                 return
             }
             is BallStatus.Normal -> {}
@@ -678,7 +830,7 @@ class FloatingBallService : LifecycleService() {
                 showToast(getString(R.string.is_translating), true)
             }
         } else {
-            showToast(getString(R.string.orientation_changed))
+            showToast(getString(R.string.orientation_changed), true)
         }
 
         // 确保翻译结果视图已添加
@@ -695,7 +847,8 @@ class FloatingBallService : LifecycleService() {
             cacheManager = cacheManager,
             scope = lifecycleScope,
             getSourceLanguage = { prefs.getString("Source_Language", "ja") },
-            getTargetLanguage = { prefs.getString("Target_Language", "zh") }
+            getTargetLanguage = { prefs.getString("Target_Language", "zh") },
+            onMessage = { msg -> showToast(msg, true) }
         )
         autoTranslateEngine?.start()
 
@@ -723,6 +876,10 @@ class FloatingBallService : LifecycleService() {
 
     private fun runAutoDetect() {
         if (!isAutoTranslating) return
+        if (isMenuShowing) {
+            scheduleNextDetection(1000L)
+            return
+        }
         if (isTranslating.get()) {
             // 上一次截图还在处理中，跳过（截图回调的 finally 会调度下一次）
             return
@@ -787,7 +944,7 @@ class FloatingBallService : LifecycleService() {
         when (currentBallStatus){
             is BallStatus.Normal -> {
                 if (AccessibilityServiceManager.getService() == null) {
-                    showToast(getString(R.string.accessibility_recycle))
+                    showToast(getString(R.string.accessibility_recycle), true)
                     return
                 }else{
                     if(!isViewAdded(floatingTextView)){
@@ -813,7 +970,7 @@ class FloatingBallService : LifecycleService() {
                             AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
                         }
                     }else{
-                        showToast(getString(R.string.orientation_changed))
+                        showToast(getString(R.string.orientation_changed), true)
                     }
                 }
             }
@@ -844,7 +1001,7 @@ class FloatingBallService : LifecycleService() {
                 } catch (e: Exception) {
                     isTranslating.set(false)
                     updateDebugStatus("【错误】截图处理失败: ${e.message?.take(30)}")
-                    showToast("OCR Failed：$e")
+                    statusOverlay.showError("OCR失败：$e")
                 } finally {
                     // 截图处理完成后再调度下一次，避免截图频率超限
                     if (isAutoTranslating) {
@@ -892,10 +1049,12 @@ class FloatingBallService : LifecycleService() {
                             if (pixelDecision.stableCount >= 2) {
                                 // 达到稳定阈值，触发 OCR
                                 updateDebugStatus("【触发OCR】", diffRatio = pixelDecision.diffRatio)
+                                statusOverlay.showImmediate("文字识别中...")
                                 when (val ocrDecision = engine.ocrAndTranslate(bitmap)) {
                                     is AutoTranslateEngine.Decision.CacheHit -> {
                                         val elapsed = System.currentTimeMillis() - translateStartTime
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
+                                        statusOverlay.showImmediate("缓存命中")
                                         floatingTextView.text = ocrDecision.cachedText
                                         engine.markIdle()
                                         updateDebugStatus("【IDLE】等待像素变化")
@@ -903,6 +1062,7 @@ class FloatingBallService : LifecycleService() {
                                     }
                                     is AutoTranslateEngine.Decision.Translate -> {
                                         updateDebugStatus("【翻译中】", diffRatio = pixelDecision.diffRatio)
+                                        statusOverlay.showImmediate("翻译中...")
                                         translateByText(ocrDecision.ocrText)
                                     }
                                     else -> {
@@ -920,11 +1080,13 @@ class FloatingBallService : LifecycleService() {
                     }
                 } else {
                     // 手动翻译模式
+                    statusOverlay.showImmediate("检测中...")
                     updateDebugStatus("【检测中】手动翻译")
                     translateStartTime = System.currentTimeMillis()
-                    val txt = GameOcrEngine(this).recognize(bitmap)
+                    val txt = ocrEngine.recognize(bitmap)
                     if (txt.isBlank()) {
                         updateDebugStatus("【跳过】OCR 结果为空")
+                        statusOverlay.showImmediate("未检测到文字")
                         isTranslating.set(false)
                         return
                     }
@@ -938,6 +1100,7 @@ class FloatingBallService : LifecycleService() {
                     if (dbCache?.translatedText != null) {
                         val elapsed = System.currentTimeMillis() - translateStartTime
                         updateDebugStatus("【缓存】database", elapsedMs = elapsed)
+                        statusOverlay.show("缓存命中")
                         if (isGameDebugEnabled()) {
                             floatingTextView.text = getString(R.string.cache_indicator) + dbCache.translatedText
                         } else {
@@ -946,11 +1109,13 @@ class FloatingBallService : LifecycleService() {
                         isTranslating.set(false)
                     } else {
                         updateDebugStatus("【翻译中】手动")
+                        statusOverlay.show("翻译中...")
                         translateByText(txt)
                     }
                 }
             } else {
                 updateDebugStatus("【翻译中】图片翻译")
+                statusOverlay.show("翻译中...")
                 val bitmapCopy = bitmap.copy(bitmap.config!!, true)
                 translateByPic(bitmapCopy)
             }
@@ -958,7 +1123,7 @@ class FloatingBallService : LifecycleService() {
             isTranslating.set(false)
             updateDebugStatus("【错误】${e.message?.take(30) ?: "未知"}")
             e.printStackTrace()
-            showToast(getString(R.string.translation_failed, e.message))
+            statusOverlay.showError("翻译失败：${e.message ?: "未知错误"}")
         } finally {
             bitmap.recycle()
         }
@@ -968,11 +1133,15 @@ class FloatingBallService : LifecycleService() {
 
     // 文本翻译
     private fun translateByText(str: String) {
-        translatorText?.getTranslation(str, prefs.getString("Source_Language", "ja"), prefs.getString("Target_Language", "zh")) { result ->
+        val sourceLang = prefs.getString("Source_Language", "ja")
+        val targetLang = prefs.getString("Target_Language", "zh")
+        LogCollector.d(TAG, "开始文本翻译: ${str.take(50)}..., $sourceLang → $targetLang")
+        translatorText?.getTranslation(str, sourceLang, targetLang) { result ->
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
                         val elapsed = System.currentTimeMillis() - translateStartTime
+                        LogCollector.d(TAG, "文本翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】", elapsedMs = elapsed)
 
                         // 调试模式强制显示原文+译文，否则按个性设置
@@ -986,9 +1155,8 @@ class FloatingBallService : LifecycleService() {
                         // 更新缓存并进入 IDLE
                         autoTranslateEngine?.onTranslationSuccess(str, result.translatedText)
                         autoTranslateEngine?.markIdle()
-                        LogCollector.d("FloatingBallService", "翻译完成，准备进入IDLE")
+                        statusOverlay.showImmediate("翻译完成")
                         updateDebugStatus("【IDLE】等待像素变化")
-                        LogCollector.d("FloatingBallService", "IDLE状态已更新到调试浮窗")
 
                         // 保存到历史
                         saveTranslationToCache(
@@ -998,7 +1166,9 @@ class FloatingBallService : LifecycleService() {
                         )
                     }
                     is TranslationResult.Error -> {
+                        LogCollector.e(TAG, "文本翻译失败", result.error)
                         updateDebugStatus("【错误】翻译失败")
+                        statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
                         floatingTextView.text = getString(R.string.translation_failed, result.error.message)
                     }
                 }
@@ -1011,17 +1181,24 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun translateByPic(bitmap: Bitmap){
-        translatorPic?.getTranslation(bitmap, prefs.getString("Source_Language", "ja"), prefs.getString("Target_Language", "zh")){
+        val sourceLang = prefs.getString("Source_Language", "ja")
+        val targetLang = prefs.getString("Target_Language", "zh")
+        LogCollector.d(TAG, "开始图片翻译: ${bitmap.width}x${bitmap.height}, $sourceLang → $targetLang")
+        translatorPic?.getTranslation(bitmap, sourceLang, targetLang){
                 result->
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
                         val elapsed = System.currentTimeMillis() - translateStartTime
+                        LogCollector.d(TAG, "图片翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】图片翻译", elapsedMs = elapsed)
+                        statusOverlay.showImmediate("翻译完成")
                         floatingTextView.text = result.translatedText
                     }
                     is TranslationResult.Error -> {
+                        LogCollector.e(TAG, "图片翻译失败", result.error)
                         updateDebugStatus("【错误】图片翻译失败")
+                        statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
                         floatingTextView.text = getString(R.string.translation_failed, result.error.message)
                     }
                 }
@@ -1056,13 +1233,16 @@ class FloatingBallService : LifecycleService() {
         }
     }
 
-    fun showToast(message: String, isShort: Boolean = false) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            if (isShort) {
-                Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
-            }
+    /**
+     * 显示提示消息
+     * @param message 消息内容
+     * @param immediate true=覆盖显示（状态进度、模型切换），false=队列显示（初始化、启停提示）
+     */
+    fun showToast(message: String, immediate: Boolean = false) {
+        if (immediate) {
+            statusOverlay.showImmediate(message)
+        } else {
+            statusOverlay.show(message)
         }
     }
 
@@ -1140,6 +1320,7 @@ class FloatingBallService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        LogCollector.d(TAG, "FloatingBallService onDestroy")
         super.onDestroy()
 
         // 停止自动翻译引擎
@@ -1154,6 +1335,9 @@ class FloatingBallService : LifecycleService() {
         // 隐藏调试浮窗
         hideDebugOverlay()
         gameDebugOverlay = null
+
+        // 释放状态提示条
+        statusOverlay.release()
 
         // 清理 handler
         autoTranslateHandler.removeCallbacksAndMessages(null)
@@ -1175,5 +1359,6 @@ class FloatingBallService : LifecycleService() {
         translatorPic?.release()
         handler.removeCallbacks(longPressRunnable)
         lifecycleScope.cancel()
+        LogCollector.d(TAG, "FloatingBallService destroyed")
     }
 }

@@ -23,7 +23,8 @@ class AutoTranslateEngine(
     private val cacheManager: TranslationCacheManager,
     private val scope: kotlinx.coroutines.CoroutineScope,
     private val getSourceLanguage: () -> String,
-    private val getTargetLanguage: () -> String
+    private val getTargetLanguage: () -> String,
+    private val onMessage: ((String) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "AutoTranslateEngine"
@@ -46,7 +47,7 @@ class AutoTranslateEngine(
     private var stableCount = 0
 
     // OCR 引擎
-    private val ocrEngine = GameOcrEngine(context)
+    private val ocrEngine = GameOcrEngine(context, onMessage)
 
     // 强制翻译标志（手动点击时跳过像素检查）
     var isManualForceTranslate = false

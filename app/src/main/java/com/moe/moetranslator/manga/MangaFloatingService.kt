@@ -25,7 +25,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.ImageView
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -43,6 +42,7 @@ import com.moe.moetranslator.translate.TranslationTextAPI
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.KeystoreManager
+import com.moe.moetranslator.utils.TranslationStatusOverlay
 import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -120,16 +120,8 @@ class MangaFloatingService : LifecycleService() {
     private var isResultShowing = false
     private var isMenuShowing = false
 
-    // Progress overlay
-    private lateinit var progressOverlayView: android.widget.TextView
-    private var progressOverlayParams: WindowManager.LayoutParams? = null
-    private var isProgressShowing = false
-
-    // Toast overlay (替代系统 Toast，不受系统限制)
-    private var toastOverlayView: android.widget.TextView? = null
-    private var toastOverlayParams: WindowManager.LayoutParams? = null
-    private var isToastShowing = false
-    private val toastDismissRunnable = Runnable { dismissToastOverlay() }
+    // 翻译状态提示条
+    private lateinit var statusOverlay: TranslationStatusOverlay
 
     // Long press detection
     private val handler = Handler(Looper.getMainLooper())
@@ -190,6 +182,7 @@ class MangaFloatingService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         prefs = CustomPreference.getInstance(this)
+        statusOverlay = TranslationStatusOverlay(this)
         cacheManager = TranslationCacheManager(this)
         config = loadConfig()
         initTranslator()
@@ -207,19 +200,19 @@ class MangaFloatingService : LifecycleService() {
         initializeViews()
         setupScreenshotCollector()
 
-        // 初始化 OCR 引擎（根据配置）
+        // 初始化 OCR 引擎（识别器）
         when (config.ocrEngine) {
             OcrEngine.MLKit -> {}  // MLKit 无需初始化
             OcrEngine.MangaOcr -> lifecycleScope.launch { ensureMangaOcrInitialized() }
-            OcrEngine.PPOcrV5 -> lifecycleScope.launch { initPPOcrV5() }
+            OcrEngine.PPOcrV5 -> lifecycleScope.launch { initPPOcrV5("识别器") }
         }
 
-        // 初始化检测引擎
+        // 初始化检测引擎（检测器）
         when (config.detEngine) {
             DetEngine.CTD -> initCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> lifecycleScope.launch { initRTDetrV2() }
-            DetEngine.PP_OCR_V5 -> lifecycleScope.launch { initPPOcrV5() }
+            DetEngine.PP_OCR_V5 -> lifecycleScope.launch { initPPOcrV5("检测器") }
         }
 
         LogCollector.d(TAG, "MangaFloatingService created")
@@ -234,6 +227,7 @@ class MangaFloatingService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         removeAllViews()
+        statusOverlay.release()
         translatorText?.release()
         autoTranslateHandler.removeCallbacksAndMessages(null)
         clearRegionCache()
@@ -307,6 +301,13 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.e(TAG, "initTranslator: Exception", e)
             showToast("Initialize Error: ${e.message}")
         }
+
+        // 显示翻译 API 初始化成功的消息
+        if (translatorText != null) {
+            val apiName = translatorText!!::class.simpleName ?: "Translation API"
+            showToast("$apiName 初始化成功")
+        }
+
         LogCollector.d(TAG, "initTranslator: result translatorText=${translatorText?.javaClass?.simpleName}")
     }
 
@@ -325,16 +326,16 @@ class MangaFloatingService : LifecycleService() {
                 // 检查模型是否已下载
                 if (!CTDModelManager.isModelAvailable(this@MangaFloatingService)) {
                     LogCollector.d(TAG, "initCTD: CTD 模型未下载")
-                    showToast("CTD 模型未下载，请先在模型管理中下载")
+                    showToast("CTD 检测器模型未下载，请先在模型管理中下载")
                     return@launch
                 }
                 LogCollector.d(TAG, "initCTD: 开始初始化 CTD")
                 CTDDetector.initialize(this@MangaFloatingService)
                 LogCollector.d(TAG, "initCTD: CTD 初始化完成")
-                showToast("CTD 初始化完成")
+                showToast("CTD 检测器初始化成功")
             } catch (e: Exception) {
                 LogCollector.e(TAG, "initCTD: 初始化失败", e)
-                showToast("CTD 初始化失败: ${e.message ?: "未知错误"}")
+                showToast("CTD 检测器初始化失败: ${e.message ?: "未知错误"}")
             }
         }
     }
@@ -357,7 +358,7 @@ class MangaFloatingService : LifecycleService() {
         if (!CTDModelManager.isModelAvailable(this@MangaFloatingService)) {
             LogCollector.d(TAG, "initCTDIfNeeded: CTD 模型未下载")
             withContext(Dispatchers.Main) {
-                showToast("CTD 模型未下载，请先在模型管理中下载")
+                showToast("CTD 检测器模型未下载，请先在模型管理中下载")
             }
             throw IllegalStateException("CTD model not downloaded")
         }
@@ -370,7 +371,7 @@ class MangaFloatingService : LifecycleService() {
         } catch (e: Exception) {
             LogCollector.e(TAG, "initCTDIfNeeded: 初始化失败", e)
             withContext(Dispatchers.Main) {
-                showToast("CTD 初始化失败: ${e.message}")
+                showToast("CTD 检测器初始化失败: ${e.message}")
             }
             throw e
         }
@@ -380,10 +381,10 @@ class MangaFloatingService : LifecycleService() {
         lifecycleScope.launch {
             try {
                 initRTDetrV2IfNeeded()
-                showToast("RT-DETR-V2 初始化完成")
+                showToast("RT-DETR-V2 检测器初始化成功")
             } catch (e: Exception) {
-                LogCollector.e(TAG, "RT-DETR-V2 初始化失败", e)
-                showToast("RT-DETR-V2 初始化失败: ${e.message ?: "未知错误"}")
+                LogCollector.e(TAG, "RT-DETR-V2 检测器初始化失败", e)
+                showToast("RT-DETR-V2 检测器初始化失败: ${e.message ?: "未知错误"}")
             }
         }
     }
@@ -399,7 +400,7 @@ class MangaFloatingService : LifecycleService() {
         } catch (e: Exception) {
             LogCollector.e(TAG, "initRTDetrV2IfNeeded: 初始化失败", e)
             withContext(Dispatchers.Main) {
-                showToast("RT-DETR-V2 初始化失败: ${e.message}")
+                showToast("RT-DETR-V2 检测器初始化失败: ${e.message}")
             }
             throw e
         }
@@ -416,14 +417,18 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- PP-OCRv5 ----------
 
-    private fun initPPOcrV5() {
+    /**
+     * 初始化 PP-OCRv5
+     * @param role 角色："检测器" 或 "识别器"
+     */
+    private fun initPPOcrV5(role: String = "检测器") {
         lifecycleScope.launch {
             try {
                 initPPOcrV5IfNeeded()
-                showToast("PP-OCRv5 初始化完成")
+                showToast("PP-OCRv5${role}初始化成功")
             } catch (e: Exception) {
-                LogCollector.e(TAG, "PP-OCRv5 初始化失败", e)
-                showToast("PP-OCRv5 初始化失败: ${e.message ?: "未知错误"}")
+                LogCollector.e(TAG, "PP-OCRv5${role}初始化失败", e)
+                showToast("PP-OCRv5${role}初始化失败: ${e.message ?: "未知错误"}")
             }
         }
     }
@@ -438,9 +443,6 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.d(TAG, "initPPOcrV5IfNeeded: PP-OCRv5 初始化完成")
         } catch (e: Exception) {
             LogCollector.e(TAG, "initPPOcrV5IfNeeded: 初始化失败", e)
-            withContext(Dispatchers.Main) {
-                showToast("PP-OCRv5 初始化失败: ${e.message}")
-            }
             throw e
         }
     }
@@ -484,9 +486,9 @@ class MangaFloatingService : LifecycleService() {
                         }
                         currentLoadedMangaOcrVersion = versionStr
                     } catch (e: Exception) {
-                        LogCollector.e(TAG, "manga-ocr 初始化失败", e)
+                        LogCollector.e(TAG, "manga-ocr 识别器初始化失败", e)
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(applicationContext, R.string.manga_ocr_init_failed, Toast.LENGTH_LONG).show()
+                            statusOverlay.showError("manga-ocr 识别器初始化失败：${e.message ?: "未知错误"}")
                         }
                         return
                     }
@@ -494,7 +496,7 @@ class MangaFloatingService : LifecycleService() {
                     // 未下载，提示用户去下载
                     LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 未下载，提示用户")
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(applicationContext, R.string.manga_ocr_download_required, Toast.LENGTH_LONG).show()
+                        statusOverlay.showImmediate(getString(R.string.manga_ocr_download_required))
                     }
                     return
                 }
@@ -505,6 +507,9 @@ class MangaFloatingService : LifecycleService() {
             }
         }
         LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 初始化完成")
+        withContext(Dispatchers.Main) {
+            showToast("manga-ocr 识别器初始化成功")
+        }
     }
 
     private fun loadConfig(): MangaModeConfig {
@@ -588,43 +593,6 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // Progress overlay (initially not added)
-        progressOverlayView = android.widget.TextView(this).apply {
-            text = getString(R.string.manga_translating)
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            setBackgroundColor(Color.argb(200, 0, 0, 0))
-            setPadding(48, 32, 48, 32)
-            gravity = android.view.Gravity.CENTER
-        }
-
-        progressOverlayParams = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 100
-        }
-
-        // Toast overlay (底部弹出提示，替代系统 Toast)
-        toastOverlayView = android.widget.TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setBackgroundColor(Color.argb(220, 50, 50, 50))
-            setPadding(40, 24, 40, 24)
-            gravity = android.view.Gravity.CENTER
-        }
-        toastOverlayParams = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = 200
-        }
-
         // Crop view (initially not added)
         cropView = CropView(this)
         cropViewParams = WindowManager.LayoutParams().apply {
@@ -761,7 +729,7 @@ class MangaFloatingService : LifecycleService() {
                     // 切换全屏/框选
                     if (cropRect != null) {
                         cropRect = null
-                        showToast(getString(R.string.manga_mode_fullscreen))
+                        showToast(getString(R.string.manga_mode_fullscreen), true)
                         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                         adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
                     } else {
@@ -770,11 +738,19 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 1 -> {
-                    showFontSizeDialog()
+                    if (isAutoTranslating) {
+                        showToast(getString(R.string.auto_translate_disabled_hint), true)
+                    } else {
+                        showFontSizeDialog()
+                    }
                 }
                 2 -> {
-                    // 切换模型（固定搭配）
-                    toggleModelSimple(dialog, listView)
+                    if (isAutoTranslating) {
+                        showToast(getString(R.string.auto_translate_disabled_hint), true)
+                    } else {
+                        // 切换模型（固定搭配）
+                        toggleModelSimple(dialog, listView)
+                    }
                 }
                 3 -> {
                     // 自动翻译
@@ -831,7 +807,7 @@ class MangaFloatingService : LifecycleService() {
                 0 -> {
                     if (cropRect != null) {
                         cropRect = null
-                        showToast(getString(R.string.manga_mode_fullscreen))
+                        showToast(getString(R.string.manga_mode_fullscreen), true)
                         val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                         adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
                     } else {
@@ -840,13 +816,25 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 1 -> {
-                    showFontSizeDialog()
+                    if (isAutoTranslating) {
+                        showToast(getString(R.string.auto_translate_disabled_hint), true)
+                    } else {
+                        showFontSizeDialog()
+                    }
                 }
                 2 -> {
-                    toggleDetModel(dialog, listView)
+                    if (isAutoTranslating) {
+                        showToast(getString(R.string.auto_translate_disabled_hint), true)
+                    } else {
+                        toggleDetModel(dialog, listView)
+                    }
                 }
                 3 -> {
-                    toggleOcrEngine(dialog, listView)
+                    if (isAutoTranslating) {
+                        showToast(getString(R.string.auto_translate_disabled_hint), true)
+                    } else {
+                        toggleOcrEngine(dialog, listView)
+                    }
                 }
                 4 -> {
                     toggleAutoTranslate()
@@ -925,17 +913,17 @@ class MangaFloatingService : LifecycleService() {
             OcrEngine.MLKit -> {
                 releaseMangaOcr()
                 releasePPOcrV5()
-                showToast(getString(R.string.manga_ocr_mlkit))
+                showToast(getString(R.string.manga_ocr_mlkit), true)
             }
             OcrEngine.MangaOcr -> {
                 releasePPOcrV5()
-                showToast(getString(R.string.manga_ocr_initializing))
+                showToast("manga-ocr 识别器初始化中...", true)
                 lifecycleScope.launch { ensureMangaOcrInitialized() }
             }
             OcrEngine.PPOcrV5 -> {
                 releaseMangaOcr()
-                showToast("PP-OCRv5 初始化中...")
-                lifecycleScope.launch { initPPOcrV5() }
+                showToast("PP-OCRv5 识别器初始化中...", true)
+                lifecycleScope.launch { initPPOcrV5("识别器") }
             }
         }
     }
@@ -996,20 +984,20 @@ class MangaFloatingService : LifecycleService() {
                 config = config.copy(detEngine = DetEngine.MLKIT, ocrEngine = OcrEngine.MLKit)
                 prefs.setInt("Manga_Det_Model", DetEngine.MLKIT.value)
                 prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
-                showToast(getString(R.string.manga_model_mlkit))
+                showToast(getString(R.string.manga_model_mlkit), true)
             }
             "ppocr" -> {
                 config = config.copy(detEngine = DetEngine.PP_OCR_V5, ocrEngine = OcrEngine.PPOcrV5)
                 prefs.setInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value)
                 prefs.setInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)
-                showToast(getString(R.string.manga_model_ppocr))
-                lifecycleScope.launch { initPPOcrV5() }
+                showToast(getString(R.string.manga_model_ppocr), true)
+                lifecycleScope.launch { initPPOcrV5("检测器+识别器") }
             }
             "manga" -> {
                 config = config.copy(detEngine = DetEngine.RT_DETR_V2, ocrEngine = OcrEngine.MangaOcr)
                 prefs.setInt("Manga_Det_Model", DetEngine.RT_DETR_V2.value)
                 prefs.setInt("Manga_Rec_Model", OcrEngine.MangaOcr.value)
-                showToast(getString(R.string.manga_model_manga_ocr))
+                showToast(getString(R.string.manga_model_manga_ocr), true)
                 lifecycleScope.launch {
                     initRTDetrV2()
                     ensureMangaOcrInitialized()
@@ -1051,14 +1039,14 @@ class MangaFloatingService : LifecycleService() {
         // 释放旧引擎，初始化新引擎
         when (newEngine) {
             DetEngine.CTD -> {
-                showToast("CTD 初始化中...")
+                showToast("CTD 检测器初始化中...", true)
                 initCTD()
             }
             DetEngine.MLKIT -> {
                 releaseCTD()
                 releaseRTDetrV2()
                 releasePPOcrV5()
-                showToast(getString(R.string.manga_det_mlkit))
+                showToast(getString(R.string.manga_det_mlkit), true)
             }
             DetEngine.RT_DETR_V2 -> {
                 releaseCTD()
@@ -1069,14 +1057,14 @@ class MangaFloatingService : LifecycleService() {
                     prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
                     LogCollector.d(TAG, "RT-DETR-V2 不支持 PPOcrV5，自动切换为 MLKit")
                 }
-                showToast("RT-DETR-V2 初始化中...")
+                showToast("RT-DETR-V2 检测器初始化中...", true)
                 lifecycleScope.launch { initRTDetrV2() }
             }
             DetEngine.PP_OCR_V5 -> {
                 releaseCTD()
                 releaseRTDetrV2()
-                showToast("PP-OCRv5 初始化中...")
-                lifecycleScope.launch { initPPOcrV5() }
+                showToast("PP-OCRv5 检测器初始化中...", true)
+                lifecycleScope.launch { initPPOcrV5("检测器") }
             }
         }
     }
@@ -1099,13 +1087,13 @@ class MangaFloatingService : LifecycleService() {
                 if (which == 0) {
                     config = config.copy(autoFontSize = true)
                     prefs.setBoolean("Manga_Auto_Font_Size", true)
-                    showToast(getString(R.string.manga_font_size_auto))
+                    showToast(getString(R.string.manga_font_size_auto), true)
                 } else {
                     val newSize = sizes[which].toFloat()
                     config = config.copy(fontSize = newSize, autoFontSize = false)
                     prefs.setFloat("Manga_Font_Size", newSize)
                     prefs.setBoolean("Manga_Auto_Font_Size", false)
-                    showToast("${sizes[which]}sp")
+                    showToast("${sizes[which]}sp", true)
                 }
                 d.dismiss()
             }
@@ -1128,7 +1116,7 @@ class MangaFloatingService : LifecycleService() {
 
     private fun startAutoTranslate() {
         if (AccessibilityServiceManager.getService() == null) {
-            showToast(getString(R.string.accessibility_recycle))
+            showToast(getString(R.string.accessibility_recycle), true)
             return
         }
         isAutoTranslating = true
@@ -1296,7 +1284,7 @@ class MangaFloatingService : LifecycleService() {
 
     private fun startCropSelection() {
         if (isCropActive) {
-            showToast(getString(R.string.manga_crop_active))
+            showToast(getString(R.string.manga_crop_active), true)
             return
         }
 
@@ -1359,7 +1347,7 @@ class MangaFloatingService : LifecycleService() {
             windowManager.addView(floatingBallView, floatingBallParams)
         }
 
-        showToast(getString(R.string.manga_crop_confirm))
+        showToast(getString(R.string.manga_crop_confirm), true)
     }
 
     // ---------- Click handler ----------
@@ -1387,7 +1375,7 @@ class MangaFloatingService : LifecycleService() {
         LogCollector.d(TAG, "========== triggerTranslation START ==========")
         if (isProcessing) {
             LogCollector.d(TAG, "triggerTranslation: already processing, skipping")
-            showToast(getString(R.string.is_translating))
+            showToast(getString(R.string.is_translating), true)
             return
         }
         if (isCropActive) {
@@ -1398,7 +1386,7 @@ class MangaFloatingService : LifecycleService() {
         val service = AccessibilityServiceManager.getService()
         LogCollector.d(TAG, "triggerTranslation: accessibilityService=$service")
         if (service == null) {
-            showToast(getString(R.string.accessibility_recycle))
+            showToast(getString(R.string.accessibility_recycle), true)
             return
         }
 
@@ -1447,6 +1435,7 @@ class MangaFloatingService : LifecycleService() {
                         processMangaScreenshot(bitmap, pHash)
                     } else {
                         // 手动模式：直接翻译
+                        showProgressOverlay("检测中...")
                         try {
                             processMangaScreenshot(bitmap)
                         } finally {
@@ -1456,7 +1445,7 @@ class MangaFloatingService : LifecycleService() {
                     LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
-                    showToast(getString(R.string.translation_failed, e.message ?: "Unknown error"))
+                    statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
                     isProcessing = false
                     dismissProgressOverlay()
                 }
@@ -1495,6 +1484,7 @@ class MangaFloatingService : LifecycleService() {
                 val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA)
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
+                    statusOverlay.showImmediate("缓存命中")
                     lastTranslatedHash = currentPHash
                     withContext(Dispatchers.Main) {
                         showResultOverlay(cached.resultBitmap, fromCache = true)
@@ -1555,7 +1545,7 @@ class MangaFloatingService : LifecycleService() {
                             showPPOcrV5DebugView(bitmap, ocrResult)
                         } else {
                             LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
-                            showToast("PP-OCRv5 不支持语言: ${config.sourceLang}")
+                            showToast("PP-OCRv5 不支持语言: ${config.sourceLang}", true)
                         }
                         return
                     }
@@ -1576,6 +1566,7 @@ class MangaFloatingService : LifecycleService() {
             }
 
             // Step 1: 文字检测 + 识别
+            showProgressOverlay("文字识别中...")
             val ppRecLang = PPOcrV5Engine.getRecLang(config.sourceLang)
             LogCollector.d(TAG, "Step 1 配置: detEngine=${config.detEngine}, ocrEngine=${config.ocrEngine}, sourceLang=${config.sourceLang}" +
                 if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
@@ -1629,7 +1620,7 @@ class MangaFloatingService : LifecycleService() {
             if (textBlocks.isEmpty()) {
                 LogCollector.d(TAG, "processMangaScreenshot: No text found, returning early")
                 if (!isAutoTranslating) {
-                    showToast(getString(R.string.no_text_found))
+                    showToast(getString(R.string.no_text_found), true)
                 }
                 return
             }
@@ -1682,6 +1673,7 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.d(TAG, "processMangaScreenshot: Step 4 - Rendering merged overlay")
             renderAndShowMergedOverlay(bitmap, newTranslatedBubbles)
             LogCollector.d(TAG, "processMangaScreenshot: Step 4 - DONE")
+            statusOverlay.showImmediate("翻译完成")
 
             // 更新区域缓存和 pHash
             lastTranslatedHash = currentPHash
@@ -2725,33 +2717,12 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun showProgressOverlay(text: String = getString(R.string.manga_translating)) {
-        if (isProgressShowing) {
-            progressOverlayView.text = text
-            return
-        }
-        try {
-            progressOverlayView.text = text
-            windowManager.addView(progressOverlayView, progressOverlayParams)
-            isProgressShowing = true
-            // Keep floating ball on top
-            if (isViewAdded(floatingBallView)) {
-                windowManager.removeView(floatingBallView)
-                windowManager.addView(floatingBallView, floatingBallParams)
-            }
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "Error showing progress", e)
-        }
+        LogCollector.d(TAG, "showProgressOverlay called: $text")
+        statusOverlay.showImmediate(text, autoDismiss = false)
     }
 
     private fun dismissProgressOverlay() {
-        if (isProgressShowing) {
-            try {
-                windowManager.removeView(progressOverlayView)
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "Error dismissing progress", e)
-            }
-            isProgressShowing = false
-        }
+        statusOverlay.dismiss()
     }
 
     // ---------- Helpers ----------
@@ -2791,29 +2762,21 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    private fun showToast(message: String) {
-        handler.post {
-            try {
-                toastOverlayView?.text = message
-                if (!isToastShowing) {
-                    windowManager.addView(toastOverlayView, toastOverlayParams)
-                    isToastShowing = true
-                }
-                handler.removeCallbacks(toastDismissRunnable)
-                handler.postDelayed(toastDismissRunnable, 2500)
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "showToast failed: $message", e)
-            }
+    /**
+     * 显示提示消息
+     * @param message 消息内容
+     * @param immediate true=覆盖显示（状态进度、模型切换），false=队列显示（初始化、启停提示）
+     */
+    private fun showToast(message: String, immediate: Boolean = false) {
+        if (immediate) {
+            statusOverlay.showImmediate(message)
+        } else {
+            statusOverlay.show(message)
         }
     }
 
     private fun dismissToastOverlay() {
-        if (isToastShowing) {
-            try {
-                windowManager.removeView(toastOverlayView)
-            } catch (_: Exception) {}
-            isToastShowing = false
-        }
+        statusOverlay.dismiss()
     }
 
     // ---------- Notification ----------

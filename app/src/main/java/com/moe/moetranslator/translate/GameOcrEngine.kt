@@ -15,7 +15,10 @@ import kotlinx.coroutines.withContext
  * 封装 MLKit(0)、PP-OCRv5(1)、manga-ocr(2) 三种引擎，
  * 统一调用接口，支持引擎切换和自动降级。
  */
-class GameOcrEngine(private val context: Context) {
+class GameOcrEngine(
+    private val context: Context,
+    private val onMessage: ((String) -> Unit)? = null
+) {
 
     companion object {
         private const val TAG = "GameOcrEngine"
@@ -69,23 +72,35 @@ class GameOcrEngine(private val context: Context) {
     }
 
     private fun initPPOcrV5IfNeeded() {
+        LogCollector.d(TAG, "initPPOcrV5IfNeeded: isInitialized=${PPOcrV5Engine.isInitialized}")
         if (PPOcrV5Engine.isInitialized) return
         synchronized(PPOcrV5Engine) {
             if (!PPOcrV5Engine.isInitialized) {
+                LogCollector.d(TAG, "initPPOcrV5IfNeeded: 开始初始化 PP-OCRv5")
+                onMessage?.invoke("PP-OCRv5 识别器初始化中...")
                 PPOcrV5Engine.initialize(context)
+                LogCollector.d(TAG, "initPPOcrV5IfNeeded: PP-OCRv5 初始化完成")
+                onMessage?.invoke("PP-OCRv5 识别器初始化成功")
             }
         }
     }
 
     private suspend fun initMangaOcrIfNeeded() {
+        LogCollector.d(TAG, "initMangaOcrIfNeeded: isAvailable=${MangaOcrBridge.isAvailable()}")
         if (MangaOcrBridge.isAvailable()) return
         try {
             val activeVersion = MangaOcrDownloadManager.getActiveVersion(context)
+            LogCollector.d(TAG, "initMangaOcrIfNeeded: activeVersion=$activeVersion")
             if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(context, activeVersion)) {
+                LogCollector.d(TAG, "initMangaOcrIfNeeded: 开始初始化 manga-ocr")
+                onMessage?.invoke("manga-ocr 识别器初始化中...")
                 MangaOcrBridge.initializeDownloaded(context, activeVersion)
+                LogCollector.d(TAG, "initMangaOcrIfNeeded: manga-ocr 初始化完成")
+                onMessage?.invoke("manga-ocr 识别器初始化成功")
             }
         } catch (e: Exception) {
-            LogCollector.e(TAG, "manga-ocr 初始化失败", e)
+            LogCollector.e(TAG, "manga-ocr 识别器初始化失败", e)
+            onMessage?.invoke("manga-ocr 识别器初始化失败: ${e.message}")
         }
     }
 }

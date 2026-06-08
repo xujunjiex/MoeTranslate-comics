@@ -46,13 +46,14 @@ class LaunchActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        prefs = CustomPreference.getInstance(this)
+
         // 锁定竖屏
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
         // 初始化路径管理类
         AppPathManager.init(this)
         // 初始化工具类
         UtilTools.init(this)
-        prefs = CustomPreference.getInstance(this)
 
         setContentView(R.layout.activity_launch)
 

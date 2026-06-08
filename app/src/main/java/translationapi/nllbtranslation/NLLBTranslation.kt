@@ -18,16 +18,17 @@
 package translationapi.nllbtranslation
 
 import android.content.Context
-import android.widget.Toast
 import com.moe.moetranslator.R
 import com.moe.moetranslator.translate.CustomLocale
 import com.moe.moetranslator.translate.TranslationResult
 import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.moetranslator.utils.TranslationStatusOverlay
 
 class NLLBTranslation(context: Context) : TranslationTextAPI {
     private val ctx = context.applicationContext
     private var currentTask: Thread? = null
     private var isInitialized = false
+    private val statusOverlay = TranslationStatusOverlay(ctx)
 
     private var nllbTranslator: TranslationCore = TranslationCore(ctx, object :InitializationListener{
         override fun onInitializationComplete() {
@@ -86,11 +87,10 @@ class NLLBTranslation(context: Context) : TranslationTextAPI {
 
     override fun release() {
         cancelTranslation()
+        statusOverlay.release()
     }
 
     private fun showToast(@androidx.annotation.StringRes messageId: Int) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            Toast.makeText(ctx, ctx.getString(messageId), Toast.LENGTH_LONG).show()
-        }
+        statusOverlay.show(ctx.getString(messageId))
     }
 }

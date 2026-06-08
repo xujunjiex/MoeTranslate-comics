@@ -25,8 +25,8 @@ import android.os.Build
 import android.util.Log
 import android.view.Display.DEFAULT_DISPLAY
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Toast
 import androidx.annotation.RequiresApi
+import com.moe.moetranslator.utils.TranslationStatusOverlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +34,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 // 单例类管理SharedFlow
 object ScreenshotManager {
@@ -56,6 +55,7 @@ object ScreenshotManager {
 
 class ScreenShotAccessibilityService: AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var statusOverlay: TranslationStatusOverlay
 
     // 当用户点击悬浮球时调用此方法
     fun takeScreenshot(mRectF: RectF?, offset: Point) {
@@ -94,26 +94,10 @@ class ScreenShotAccessibilityService: AccessibilityService() {
                             //使用sharedflow，发送截图完成信号以及bitmap
                             bitmap?.let { nonNullBitmap ->
                                 serviceScope.launch {
-
-                                    // 在IO线程保存图片
-                                    val savePath = withContext(Dispatchers.IO) {
-                                        ImageFileManager.saveBitmapToCache(
-                                            applicationContext,
-                                            nonNullBitmap
-                                        )
-                                    }
-
-                                    when(savePath){
-                                        null -> {
-                                            showToast("Failed to save image")
-                                        }
-                                        else -> {
-                                            try {
-                                                ScreenshotManager.emitScreenshot(nonNullBitmap)
-                                            } catch (e: Exception) {
-                                                showToast("Error emitting screenshot：$e")
-                                            }
-                                        }
+                                    try {
+                                        ScreenshotManager.emitScreenshot(nonNullBitmap)
+                                    } catch (e: Exception) {
+                                        showToast("Error emitting screenshot：$e")
                                     }
                                 }
                             }
@@ -145,13 +129,12 @@ class ScreenShotAccessibilityService: AccessibilityService() {
 
 
     fun showToast(message: String) {
-        serviceScope.launch {
-            Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
-        }
+        statusOverlay.show(message)
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        statusOverlay = TranslationStatusOverlay(this)
         AccessibilityServiceManager.setService(this)
         Log.d("CONNECT", "Service Connected")
     }
@@ -171,6 +154,10 @@ class ScreenShotAccessibilityService: AccessibilityService() {
         super.onDestroy()
         // 取消服务
         AccessibilityServiceManager.setService(null)
+        // 释放悬浮提示条
+        if (::statusOverlay.isInitialized) {
+            statusOverlay.release()
+        }
         // 取消所有协程
         serviceScope.cancel()
     }
