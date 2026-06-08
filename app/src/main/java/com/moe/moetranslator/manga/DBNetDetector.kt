@@ -46,7 +46,7 @@ object DBNetDetector {
             }
 
             val modelPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/${DBNetModelManager.getModelFileName()}")
+                OnnxUtils.copyAssetToCache(context, "$modelDir/${DBNetModelManager.getModelFileName()}")
             } else {
                 "$modelDir/${DBNetModelManager.getModelFileName()}"
             }
@@ -143,7 +143,7 @@ object DBNetDetector {
 
         // 3. 获取输出
         val dbTensor = outputs.get("db").get() as OnnxTensor
-        val dbData = extractFloatArray(dbTensor)
+        val dbData = OnnxUtils.extractFloatArray(dbTensor)
         val dbShape = dbTensor.info.shape  // [1, 2, H, W]
 
         val dbH = dbShape[2].toInt()
@@ -229,17 +229,6 @@ object DBNetDetector {
             val ex = Math.exp(x.toDouble()).toFloat()
             ex / (1f + ex)
         }
-    }
-
-    /**
-     * 从 OnnxTensor 提取 float 数组
-     */
-    private fun extractFloatArray(tensor: OnnxTensor): FloatArray {
-        val buffer = tensor.floatBuffer
-        val arr = FloatArray(buffer.remaining())
-        buffer.get(arr)
-        buffer.rewind()
-        return arr
     }
 
     /**

@@ -375,7 +375,7 @@ object CTDDetector {
             throw IllegalStateException("找不到 2 通道 det 输出 tensor")
         }
 
-        val linesData = extractFloatArray(linesMapTensor)
+        val linesData = OnnxUtils.extractFloatArray(linesMapTensor)
         val linesShape = linesMapTensor.info.shape
         val linesC = linesShape[1].toInt()  // 通道数（可能是 1 或 2）
         val linesW = linesShape[3].toInt()
@@ -467,33 +467,6 @@ object CTDDetector {
             val ex = Math.exp(x.toDouble()).toFloat()
             ex / (1f + ex)
         }
-    }
-
-    /**
-     * 从 OnnxTensor 提取 float 数组
-     */
-    private fun extractFloatArray(tensor: OnnxTensor): FloatArray {
-        val buffer = tensor.floatBuffer
-        val arr = FloatArray(buffer.remaining())
-        buffer.get(arr)
-        buffer.rewind()
-        return arr
-    }
-
-    /**
-     * 将 assets 文件复制到缓存目录
-     */
-    private fun copyAssetToCache(context: Context, assetPath: String): String {
-        val fileName = assetPath.substringAfterLast("/")
-        val cacheFile = context.cacheDir.resolve(fileName)
-        LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
-        context.assets.open(assetPath).use { input ->
-            cacheFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
-        return cacheFile.absolutePath
     }
 
     /**

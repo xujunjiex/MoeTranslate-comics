@@ -118,9 +118,9 @@ object ComicBubbleDetector {
             val boxesTensor = results.get("boxes").get() as OnnxTensor
             val scoresTensor = results.get("scores").get() as OnnxTensor
 
-            val labels = extractLongArray(labelsTensor)
-            val boxes = extractFloatArray(boxesTensor)
-            val scores = extractFloatArray(scoresTensor)
+            val labels = OnnxUtils.extractLongArray(labelsTensor)
+            val boxes = OnnxUtils.extractFloatArray(boxesTensor)
+            val scores = OnnxUtils.extractFloatArray(scoresTensor)
 
             labelsTensor.close()
             boxesTensor.close()
@@ -160,9 +160,9 @@ object ComicBubbleDetector {
             val labelsTensor = results.get("labels").get() as OnnxTensor
             val boxesTensor = results.get("boxes").get() as OnnxTensor
             val scoresTensor = results.get("scores").get() as OnnxTensor
-            val labels = extractLongArray(labelsTensor)
-            val boxes = extractFloatArray(boxesTensor)
-            val scores = extractFloatArray(scoresTensor)
+            val labels = OnnxUtils.extractLongArray(labelsTensor)
+            val boxes = OnnxUtils.extractFloatArray(boxesTensor)
+            val scores = OnnxUtils.extractFloatArray(scoresTensor)
             labelsTensor.close()
             boxesTensor.close()
             scoresTensor.close()
@@ -378,38 +378,6 @@ object ComicBubbleDetector {
             ortEnv!!, floatBuffer,
             longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
         )
-    }
-
-    private fun extractFloatArray(tensor: OnnxTensor): FloatArray {
-        val buffer = tensor.floatBuffer
-        val arr = FloatArray(buffer.remaining())
-        buffer.get(arr)
-        buffer.rewind()
-        return arr
-    }
-
-    private fun extractLongArray(tensor: OnnxTensor): LongArray {
-        val buffer = tensor.longBuffer
-        val arr = LongArray(buffer.remaining())
-        buffer.get(arr)
-        buffer.rewind()
-        return arr
-    }
-
-    private fun copyAssetToCache(context: Context, assetPath: String): String {
-        val fileName = assetPath.substringAfterLast("/")
-        // 使用子目录避免与其他模型的 model.onnx 冲突
-        val cacheDir = java.io.File(context.cacheDir, MODEL_DIR)
-        cacheDir.mkdirs()
-        val cacheFile = java.io.File(cacheDir, fileName)
-        LogCollector.d(TAG, "复制 assets 文件: $assetPath -> ${cacheFile.absolutePath}")
-        context.assets.open(assetPath).use { input ->
-            cacheFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        LogCollector.d(TAG, "复制完成: ${cacheFile.absolutePath} (${cacheFile.length()} bytes)")
-        return cacheFile.absolutePath
     }
 
     /**
