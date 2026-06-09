@@ -81,7 +81,7 @@ data class FloatingBallConfig(
     val floatingBallInitialY: Int = 200,
     val CLICK_SLOP:Float = 5f,           // 点击判定的最大移动距离
     val LONG_PRESS_SLOP:Float = 10f,     // 长按判定的最大移动距离
-    var LONG_PRESS_DELAY:Long = 500L   // 长按触发时间（毫秒）
+    var LONG_PRESS_DELAY:Long = 300L   // 长按触发时间（毫秒）
 )
 
 data class CropViewConfig(
@@ -109,6 +109,7 @@ class FloatingBallService : LifecycleService() {
     private lateinit var cropView: CropView
 
     private var floatingBallParams: WindowManager.LayoutParams? = null
+    private var resultViewParams: WindowManager.LayoutParams? = null
     private var cropViewParams: WindowManager.LayoutParams? = null
 
     private lateinit var prefs: CustomPreference
@@ -390,7 +391,7 @@ class FloatingBallService : LifecycleService() {
         floatingBallView = LayoutInflater.from(this).inflate(R.layout.floatball_layout, null)
 
         // 创建翻译结果视图
-        val resultParams = WindowManager.LayoutParams().apply {
+        resultViewParams = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             format = PixelFormat.TRANSLUCENT
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -400,7 +401,7 @@ class FloatingBallService : LifecycleService() {
             x = 0
             y = 0
         }
-        translationResultView = TranslationResultView(this, windowManager, resultParams)
+        translationResultView = TranslationResultView(this, windowManager, resultViewParams!!)
         translationResultView.onClose = { removeResultView() }
 
         // 创建裁剪框视图
@@ -429,7 +430,7 @@ class FloatingBallService : LifecycleService() {
         }
 
         // 设置长按判定时间
-        floatingBallConfig.LONG_PRESS_DELAY = prefs.getLong("Custom_Long_Press_Delay", 500L)
+        floatingBallConfig.LONG_PRESS_DELAY = prefs.getLong("Custom_Long_Press_Delay", 300L)
 
         // 添加到窗口
         windowManager.addView(floatingBallView, floatingBallParams)
@@ -830,17 +831,15 @@ class FloatingBallService : LifecycleService() {
         if ((orientation == this.resources.configuration.orientation) && (mRectF != null)){
             cropView.setRect(mRectF!!)
         }else{
-            // 屏幕中央长方形：宽 80%，高 60%
-            val rectWidth = (screenWidth * 0.8).toInt()
-            val rectHeight = (screenHeight * 0.6).toInt()
+            // 屏幕中央扁长方形：宽 90%，高 35%
+            val rectWidth = (screenWidth * 0.9).toInt()
+            val rectHeight = (screenHeight * 0.35).toInt()
             val left = (screenWidth - rectWidth) / 2f
             val top = (screenHeight - rectHeight) / 2f
             cropView.setRect(RectF(left, top, left + rectWidth, top + rectHeight))
         }
 
-        // 设置确认按钮回调
         cropView.onConfirmCrop = { confirmCrop() }
-
         windowManager.addView(cropView, cropViewParams)
 
         // 存储屏幕方向
@@ -854,15 +853,18 @@ class FloatingBallService : LifecycleService() {
 
     private fun confirmCrop() {
         mRectF = cropView.mRect
-        windowManager.removeView(cropView)
+        try {
+            windowManager.removeView(cropView)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "Error removing crop view", e)
+        }
         showToast(getString(R.string.game_crop_done), true)
         currentBallStatus = BallStatus.Normal
     }
 
     private fun showResultView() {
         if (!isViewAdded(translationResultView)) {
-            val params = translationResultView.layoutParams as WindowManager.LayoutParams
-            windowManager.addView(translationResultView, params)
+            windowManager.addView(translationResultView, resultViewParams)
             // 保持悬浮球在最上层
             windowManager.removeView(floatingBallView)
             windowManager.addView(floatingBallView, floatingBallParams)

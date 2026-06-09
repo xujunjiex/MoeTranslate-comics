@@ -156,7 +156,6 @@ class MangaFloatingService : LifecycleService() {
     private var cropViewParams: WindowManager.LayoutParams? = null
     private var cropRect: RectF? = null
     private var isCropActive = false
-    private var cropConfirmView: View? = null
 
     private lateinit var prefs: CustomPreference
     private lateinit var config: MangaModeConfig
@@ -1288,12 +1287,22 @@ class MangaFloatingService : LifecycleService() {
             return
         }
 
+        val dm = resources.displayMetrics
+        val screenWidth = dm.widthPixels
+        val screenHeight = dm.heightPixels
+
         if (cropRect != null && resources.configuration.orientation == 1) {
             cropView.setRect(cropRect!!)
         } else {
-            cropView.setRect(RectF(50f, 50f, 400f, 400f))
+            // 屏幕中央长方形：宽 80%，高 60%
+            val rectWidth = (screenWidth * 0.8).toInt()
+            val rectHeight = (screenHeight * 0.6).toInt()
+            val left = (screenWidth - rectWidth) / 2f
+            val top = (screenHeight - rectHeight) / 2f
+            cropView.setRect(RectF(left, top, left + rectWidth, top + rectHeight))
         }
 
+        cropView.onConfirmCrop = { confirmCrop() }
         windowManager.addView(cropView, cropViewParams)
         isCropActive = true
 
@@ -1302,27 +1311,6 @@ class MangaFloatingService : LifecycleService() {
             windowManager.removeView(floatingBallView)
             windowManager.addView(floatingBallView, floatingBallParams)
         }
-
-        showCropConfirmButton()
-    }
-
-    private fun showCropConfirmButton() {
-        val confirmBtn = android.widget.Button(this).apply {
-            text = "确认"
-            setOnClickListener { confirmCrop() }
-        }
-        cropConfirmView = confirmBtn
-
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = 200
-        }
-        windowManager.addView(confirmBtn, params)
     }
 
     private fun confirmCrop() {
@@ -1334,12 +1322,6 @@ class MangaFloatingService : LifecycleService() {
         } catch (e: Exception) {
             LogCollector.e(TAG, "Error removing crop view", e)
         }
-        try {
-            cropConfirmView?.let { windowManager.removeView(it) }
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "Error removing confirm button", e)
-        }
-        cropConfirmView = null
 
         // Keep floating ball on top
         if (isViewAdded(floatingBallView)) {
@@ -2754,9 +2736,6 @@ class MangaFloatingService : LifecycleService() {
         if (isCropActive) {
             try {
                 windowManager.removeView(cropView)
-            } catch (e: Exception) { /* ignore */ }
-            try {
-                cropConfirmView?.let { windowManager.removeView(it) }
             } catch (e: Exception) { /* ignore */ }
             isCropActive = false
         }

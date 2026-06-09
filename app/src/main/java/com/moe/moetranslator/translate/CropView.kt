@@ -24,6 +24,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
@@ -49,9 +50,7 @@ class CropView(ctx:Context) : View(ctx) {
     private var actionDownRectBottom = 0f   //按下时的底
 
     // 确认按钮
-    private var confirmButtonRect = RectF()
-    private var showConfirmButton = false
-    private val confirmButtonText = "确认"
+    private val confirmButtonRect = RectF()
     var onConfirmCrop: (() -> Unit)? = null
 
     fun setRect(rectF: RectF) {  //设置初始矩形宽高
@@ -70,12 +69,6 @@ class CropView(ctx:Context) : View(ctx) {
                 viewTreeObserver.removeOnGlobalLayoutListener(this)
             }
         })
-        showConfirmButton = true
-    }
-
-    fun setConfirmButtonVisible(visible: Boolean) {
-        showConfirmButton = visible
-        invalidate()
     }
 
     @SuppressLint("DrawAllocation")
@@ -118,33 +111,29 @@ class CropView(ctx:Context) : View(ctx) {
         )
         canvas.drawLines(pts, paint)
 
-        // 绘制确认按钮
-        if (showConfirmButton) {
-            val btnWidth = 200f
-            val btnHeight = 60f
-            val btnX = (width - btnWidth) / 2
-            val btnY = height - 180f
-            confirmButtonRect.set(btnX, btnY, btnX + btnWidth, btnY + btnHeight)
+        // 绘制确认按钮（跟随框选底部）
+        val btnWidth = 200f
+        val btnHeight = 65f
+        val btnGap = 20f
+        val btnX = (mRect.left + mRect.right - btnWidth) / 2
+        val btnY = mRect.bottom + btnGap
+        confirmButtonRect.set(btnX, btnY, btnX + btnWidth, btnY + btnHeight)
 
-            // 按钮背景
-            val btnPaint = Paint().apply {
-                color = Color.argb(200, 66, 133, 244)
-                style = Paint.Style.FILL
-                isAntiAlias = true
-            }
-            canvas.drawRoundRect(confirmButtonRect, 30f, 30f, btnPaint)
-
-            // 按钮文字
-            val textPaint = Paint().apply {
-                color = Color.WHITE
-                textSize = 40f
-                textAlign = Paint.Align.CENTER
-                isAntiAlias = true
-            }
-            val textX = confirmButtonRect.centerX()
-            val textY = confirmButtonRect.centerY() + 14f
-            canvas.drawText(confirmButtonText, textX, textY, textPaint)
+        val btnPaint = Paint().apply {
+            color = Color.argb(220, 70, 130, 230)
+            style = Paint.Style.FILL
+            isAntiAlias = true
         }
+        canvas.drawRoundRect(confirmButtonRect, 25f, 25f, btnPaint)
+
+        val textPaint = Paint().apply {
+            color = Color.WHITE
+            textSize = 32f
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        canvas.drawText("确认", confirmButtonRect.centerX(), confirmButtonRect.centerY() + 16f, textPaint)
     }
 
     private fun getViewOffset(): Point {
@@ -161,7 +150,7 @@ class CropView(ctx:Context) : View(ctx) {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 // 检查确认按钮点击
-                if (showConfirmButton && confirmButtonRect.contains(
+                if (confirmButtonRect.contains(
                         mActionMovePoint.x.toFloat(),
                         mActionMovePoint.y.toFloat()
                     )
@@ -318,7 +307,7 @@ class CropView(ctx:Context) : View(ctx) {
         if (mPressPointIndex > -1 && mPressPointIndex < 9) {
             return mPressPointIndex
         }
-        val POINT_RADIUS = 900 //触点可响应区域的半径平方
+        val POINT_RADIUS = 2500 //触点可响应区域的半径平方
         if ((x - mRect.left) * (x - mRect.left) + (y - mRect.top) * (y - mRect.top) < POINT_RADIUS) {
             return 0
         } else if ((x - (mRect.left + mRect.right) / 2) * (x - (mRect.left + mRect.right) / 2) +
