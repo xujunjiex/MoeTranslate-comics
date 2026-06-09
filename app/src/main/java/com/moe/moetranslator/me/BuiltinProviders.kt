@@ -14,9 +14,23 @@ object BuiltinProviders {
     private const val DEFAULT_USER_PROMPT =
         "将以下文本从usefromlang翻译为usetolang，只输出译文：\n\nusesourcetext"
 
+    // 漫画模式默认提示词
+    private const val DEFAULT_MANGA_SYSTEM_PROMPT =
+        "你是漫画翻译引擎。逐条翻译，保持每条的[N]编号格式不变。只输出译文，不输出任何解释、标注、引言或附加内容。"
+
+    private const val DEFAULT_MANGA_USER_PROMPT =
+        "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
+
+    // 漫画模式JSON格式提示词（智谱AI结构化输出用）
+    private const val DEFAULT_MANGA_SYSTEM_PROMPT_JSON =
+        "你是漫画翻译引擎。将每条文本翻译后以JSON格式返回：{\"translations\":[\"译文1\",\"译文2\"]}。数组顺序与输入编号一致，只输出JSON。"
+
+    private const val DEFAULT_MANGA_USER_PROMPT_JSON =
+        "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
+
     val providers = listOf(
         OpenAIProviderConfig(
-            name = "豆包",
+            name = "火山引擎",
             apiKey = "",
             baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
             modelName = "doubao-seed-2-0-pro-260215",
@@ -31,10 +45,14 @@ object BuiltinProviders {
             ),
             defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT,
             defaultUserPrompt = DEFAULT_USER_PROMPT,
-            selectedModelIndex = 0
+            defaultMangaSystemPrompt = DEFAULT_MANGA_SYSTEM_PROMPT,
+            defaultMangaUserPrompt = DEFAULT_MANGA_USER_PROMPT,
+            selectedModelIndex = 0,
+            consoleUrl = "https://console.volcengine.com/ark",
+            continuationType = OpenAIProviderConfig.CONTINUATION_STANDARD
         ),
         OpenAIProviderConfig(
-            name = "GLM",
+            name = "智谱AI",
             apiKey = "",
             baseUrl = "https://open.bigmodel.cn/api/paas/v4",
             modelName = "glm-4-flash-250414",
@@ -49,7 +67,11 @@ object BuiltinProviders {
             ),
             defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT,
             defaultUserPrompt = DEFAULT_USER_PROMPT,
-            selectedModelIndex = 0
+            defaultMangaSystemPrompt = DEFAULT_MANGA_SYSTEM_PROMPT_JSON,
+            defaultMangaUserPrompt = DEFAULT_MANGA_USER_PROMPT_JSON,
+            selectedModelIndex = 0,
+            consoleUrl = "https://open.bigmodel.cn/",
+            continuationType = OpenAIProviderConfig.CONTINUATION_JSON
         ),
         OpenAIProviderConfig(
             name = "DeepSeek",
@@ -62,25 +84,33 @@ object BuiltinProviders {
             models = listOf("deepseek-v4-pro", "deepseek-v4-flash"),
             defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT,
             defaultUserPrompt = DEFAULT_USER_PROMPT,
-            selectedModelIndex = 0
+            defaultMangaSystemPrompt = DEFAULT_MANGA_SYSTEM_PROMPT,
+            defaultMangaUserPrompt = DEFAULT_MANGA_USER_PROMPT,
+            selectedModelIndex = 0,
+            consoleUrl = "https://platform.deepseek.com/",
+            continuationType = OpenAIProviderConfig.CONTINUATION_PREFIX
         ),
         OpenAIProviderConfig(
-            name = "千问",
+            name = "通义千问",
             apiKey = "",
             baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            modelName = "qwen3.5-plus",
+            modelName = "qwen3.7-plus",
             systemPrompt = DEFAULT_SYSTEM_PROMPT,
             userPrompt = DEFAULT_USER_PROMPT,
             providerType = OpenAIProviderConfig.PROVIDER_TYPE_BUILTIN,
             models = listOf(
+                "qwen3.7-max",
+                "qwen3.7-plus",
                 "qwen3.6-plus",
-                "qwen3.6-flash",
-                "qwen3.5-plus",
-                "qwen3.5-flash"
+                "qwen3.6-flash"
             ),
             defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT,
             defaultUserPrompt = DEFAULT_USER_PROMPT,
-            selectedModelIndex = 0
+            defaultMangaSystemPrompt = DEFAULT_MANGA_SYSTEM_PROMPT,
+            defaultMangaUserPrompt = DEFAULT_MANGA_USER_PROMPT,
+            selectedModelIndex = 0,
+            consoleUrl = "https://dashscope.console.aliyun.com/",
+            continuationType = OpenAIProviderConfig.CONTINUATION_PARTIAL
         )
     )
 }

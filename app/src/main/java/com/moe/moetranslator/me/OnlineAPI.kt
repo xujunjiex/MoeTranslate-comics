@@ -68,6 +68,7 @@ class OnlineAPI : Fragment() {
     }
 
     private fun prepareNiu(){
+        binding.apiConfigImageView.setImageResource(R.drawable.ic_api_niu)
         binding.tvApiType.text = getString(R.string.api_name, getString(R.string.niuapi_name))
         binding.account.hint = getString(R.string.niu_noneed)
         binding.account.isFocusable = false
@@ -111,6 +112,7 @@ class OnlineAPI : Fragment() {
     }
 
     private fun prepareVolc(){
+        binding.apiConfigImageView.setImageResource(R.drawable.ic_api_volc)
         binding.tvApiType.text = getString(R.string.api_name, getString(R.string.volcapi_name))
         if (prefs.getString("Volc_ACCOUNT_EncryptedKey","") != ""){
             binding.account.hint = getString(R.string.api_saved)
@@ -156,6 +158,7 @@ class OnlineAPI : Fragment() {
     }
 
     private fun prepareAzure(){
+        binding.apiConfigImageView.setImageResource(R.drawable.ic_api_azure)
         binding.tvApiType.text = getString(R.string.api_name, getString(R.string.azureapi_name))
         binding.account.hint = getString(R.string.niu_noneed)
         binding.account.isFocusable = false
@@ -199,6 +202,7 @@ class OnlineAPI : Fragment() {
     }
 
     private fun prepareDeepL(){
+        binding.apiConfigImageView.setImageResource(R.drawable.ic_api_deepl)
         binding.tvApiType.text = getString(R.string.api_name, getString(R.string.deeplapi_name))
         if (prefs.getString("DeepL_Translate_APIKEY_EncryptedKey","") != ""){
             binding.account.hint = getString(R.string.api_saved)
@@ -244,6 +248,7 @@ class OnlineAPI : Fragment() {
     }
 
     private fun prepareBaidu(){
+        binding.apiConfigImageView.setImageResource(R.drawable.ic_api_baidu)
         binding.tvApiType.text = getString(R.string.api_name, getString(R.string.baiduapi_name))
         if (prefs.getString("Baidu_Translate_ACCOUNT_EncryptedKey","") != ""){
             binding.account.hint = getString(R.string.api_saved)
@@ -289,6 +294,7 @@ class OnlineAPI : Fragment() {
     }
 
     private fun prepareTencent(){
+        binding.apiConfigImageView.setImageResource(R.drawable.ic_api_tencent)
         binding.tvApiType.text = getString(R.string.api_name, getString(R.string.tencentapi_name))
         if (prefs.getString("Tencent_Cloud_ACCOUNT_EncryptedKey","") != ""){
             binding.account.hint = getString(R.string.api_saved)

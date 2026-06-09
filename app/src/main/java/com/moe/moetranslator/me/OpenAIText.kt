@@ -48,6 +48,16 @@ class OpenAIText :Fragment() {
     private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
     private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
+    private var currentTab = 0  // 0=游戏模式, 1=漫画模式
+    private var mangaSystemPrompt: String = ""
+    private var mangaUserPrompt: String = ""
+    private var defaultMangaSystemPrompt: String = ""
+    private var defaultMangaUserPrompt: String = ""
+
+    // 新建用户API时的漫画默认提示词
+    private val fallbackMangaSystemPrompt = "你是漫画翻译引擎。只输出译文，不输出任何解释、标注、引言或附加内容。"
+    private val fallbackMangaUserPrompt = "将以下漫画文本从usefromlang翻译为usetolang，逐条翻译，保持每条的[N]编号格式不变，只输出译文：\n\nusesourcetext"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = CustomPreference.getInstance(requireContext())
@@ -69,36 +79,67 @@ class OpenAIText :Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        setupTabs()
         setupButtons()
         loadConfig()
-
-        if(!prefs.getBoolean("Read_OpenAI_API_Introduce", false)){
-            showIntroduce()
-        }
-    }
-
-    private fun showIntroduce(){
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.introduce_openai_api_title)
-            .setMessage(R.string.introduce_openai_api_content)
-            .setCancelable(false)
-            .setPositiveButton(R.string.user_known, null)
-            .setNeutralButton(R.string.introduce_not_show_again){
-                    _, _ ->
-                prefs.setBoolean("Read_OpenAI_API_Introduce", true)
-            }
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun setupButtons() {
-        binding.introduce.setOnClickListener{ showIntroduce() }
         binding.btnSave.setOnClickListener { saveConfiguration() }
         binding.btnDelete.setOnClickListener { deleteConfiguration() }
         binding.btnTest.setOnClickListener { testConnection() }
         if (isNew) {
             binding.btnDelete.visibility = View.GONE
+        }
+    }
+
+    private fun setupTabs() {
+        binding.promptModeTabs.addTab(binding.promptModeTabs.newTab().setText(R.string.tab_game_mode))
+        binding.promptModeTabs.addTab(binding.promptModeTabs.newTab().setText(R.string.tab_manga_mode))
+
+        binding.promptModeTabs.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+                // Save current tab's content before switching
+                saveCurrentTabContent()
+                currentTab = tab?.position ?: 0
+                switchPromptDisplay()
+            }
+            override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+            override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+        })
+    }
+
+    private fun saveCurrentTabContent() {
+        val currentText = binding.editSystemPrompt.text.toString()
+        val currentUserText = binding.editUserPrompt.text.toString()
+        if (currentTab == 0) {
+            // Was on game tab, these are already the "active" prompts
+        } else {
+            // Was on manga tab
+            mangaSystemPrompt = currentText
+            mangaUserPrompt = currentUserText
+        }
+    }
+
+    private fun switchPromptDisplay() {
+        val allProviders = ConfigurationStorage.loadAllProviders(prefs)
+        if (!isNew && providerIndex < allProviders.size) {
+            val provider = allProviders[providerIndex]
+            if (currentTab == 0) {
+                binding.editSystemPrompt.setText(provider.systemPrompt)
+                binding.editUserPrompt.setText(provider.userPrompt)
+            } else {
+                binding.editSystemPrompt.setText(provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt })
+                binding.editUserPrompt.setText(provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt })
+            }
+        } else {
+            if (currentTab == 0) {
+                binding.editSystemPrompt.setText(defaultSystemPrompt)
+                binding.editUserPrompt.setText(defaultUserPrompt)
+            } else {
+                binding.editSystemPrompt.setText(defaultMangaSystemPrompt.ifEmpty { fallbackMangaSystemPrompt })
+                binding.editUserPrompt.setText(defaultMangaUserPrompt.ifEmpty { fallbackMangaUserPrompt })
+            }
         }
     }
 
@@ -123,8 +164,26 @@ class OpenAIText :Fragment() {
             throw Exception(getString(R.string.fill_blank))
         }
 
-        val systemPrompt = binding.editSystemPrompt.text.toString().ifBlank { original.defaultSystemPrompt }
-        val userPrompt = binding.editUserPrompt.text.toString().ifBlank { original.defaultUserPrompt }
+        // Determine prompts based on current tab
+        val systemPrompt: String
+        val userPrompt: String
+        val mangaSys: String
+        val mangaUsr: String
+
+        if (currentTab == 0) {
+            // Currently on game tab - editor has game prompts
+            systemPrompt = binding.editSystemPrompt.text.toString().ifBlank { original.defaultSystemPrompt }
+            userPrompt = binding.editUserPrompt.text.toString().ifBlank { original.defaultUserPrompt }
+            mangaSys = mangaSystemPrompt.ifBlank { original.defaultMangaSystemPrompt }
+            mangaUsr = mangaUserPrompt.ifBlank { original.defaultMangaUserPrompt }
+        } else {
+            // Currently on manga tab - editor has manga prompts
+            systemPrompt = original.systemPrompt.ifBlank { original.defaultSystemPrompt }
+            userPrompt = original.userPrompt.ifBlank { original.defaultUserPrompt }
+            mangaSys = binding.editSystemPrompt.text.toString().ifBlank { original.defaultMangaSystemPrompt }
+            mangaUsr = binding.editUserPrompt.text.toString().ifBlank { original.defaultMangaUserPrompt }
+        }
+
         val selectedModelIndex = this.selectedModelIndex
 
         // 保存到内置API修改列表
@@ -135,6 +194,8 @@ class OpenAIText :Fragment() {
             apiKey = apiKey,
             systemPrompt = if (systemPrompt != original.defaultSystemPrompt) systemPrompt else null,
             userPrompt = if (userPrompt != original.defaultUserPrompt) userPrompt else null,
+            mangaSystemPrompt = if (mangaSys != original.defaultMangaSystemPrompt) mangaSys else null,
+            mangaUserPrompt = if (mangaUsr != original.defaultMangaUserPrompt) mangaUsr else null,
             selectedModelIndex = selectedModelIndex
         )
         if (existingIndex >= 0) {
@@ -164,16 +225,22 @@ class OpenAIText :Fragment() {
             throw Exception(getString(R.string.fill_blank))
         }
 
-        val systemPrompt = if (binding.editSystemPrompt.text.toString().isBlank()) {
-            defaultSystemPrompt
-        } else {
-            binding.editSystemPrompt.text.toString()
-        }
+        // Determine prompts based on current tab
+        val systemPrompt: String
+        val userPrompt: String
+        val mangaSys: String
+        val mangaUsr: String
 
-        val userPrompt = if (binding.editUserPrompt.text.toString().isBlank()) {
-            defaultUserPrompt
+        if (currentTab == 0) {
+            systemPrompt = binding.editSystemPrompt.text.toString().ifBlank { defaultSystemPrompt }
+            userPrompt = binding.editUserPrompt.text.toString().ifBlank { defaultUserPrompt }
+            mangaSys = mangaSystemPrompt.ifBlank { "" }
+            mangaUsr = mangaUserPrompt.ifBlank { "" }
         } else {
-            binding.editUserPrompt.text.toString()
+            systemPrompt = defaultSystemPrompt
+            userPrompt = defaultUserPrompt
+            mangaSys = binding.editSystemPrompt.text.toString().ifBlank { "" }
+            mangaUsr = binding.editUserPrompt.text.toString().ifBlank { "" }
         }
 
         val provider = OpenAIProviderConfig(
@@ -182,7 +249,9 @@ class OpenAIText :Fragment() {
             baseUrl = normalizedUrl,
             modelName = binding.editModelName.text.toString().trim(),
             systemPrompt = systemPrompt,
-            userPrompt = userPrompt
+            userPrompt = userPrompt,
+            mangaSystemPrompt = mangaSys,
+            mangaUserPrompt = mangaUsr
         )
 
         lifecycleScope.launch {
@@ -203,6 +272,12 @@ class OpenAIText :Fragment() {
                 binding.editSystemPrompt.setText(provider.systemPrompt)
                 binding.editUserPrompt.setText(provider.userPrompt)
 
+                // 加载漫画提示词
+                mangaSystemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
+                mangaUserPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
+                defaultMangaSystemPrompt = provider.defaultMangaSystemPrompt
+                defaultMangaUserPrompt = provider.defaultMangaUserPrompt
+
                 if (provider.isBuiltin) {
                     setupBuiltinMode(provider)
                 } else {
@@ -212,6 +287,10 @@ class OpenAIText :Fragment() {
                 // 新建时设置默认prompt
                 binding.editSystemPrompt.setText(defaultSystemPrompt)
                 binding.editUserPrompt.setText(defaultUserPrompt)
+                mangaSystemPrompt = ""
+                mangaUserPrompt = ""
+                defaultMangaSystemPrompt = fallbackMangaSystemPrompt
+                defaultMangaUserPrompt = fallbackMangaUserPrompt
                 setupUserMode()
             }
         } catch (e: Exception) {
@@ -220,13 +299,23 @@ class OpenAIText :Fragment() {
     }
 
     private fun setupBuiltinMode(provider: OpenAIProviderConfig) {
-        // 名称和URL只读
-        binding.editProviderName.isEnabled = false
-        binding.editProviderName.alpha = 0.6f
-        binding.editBaseUrl.isEnabled = false
-        binding.editBaseUrl.alpha = 0.6f
-        binding.builtinBadge.visibility = View.VISIBLE
-        binding.builtinUrlBadge.visibility = View.VISIBLE
+        // 显示提供商图标和名称（居中显示）
+        binding.providerIcon.visibility = View.VISIBLE
+        binding.providerIcon.setImageResource(builtinIconRes(provider.name))
+        binding.providerNameText.visibility = View.VISIBLE
+        binding.providerNameText.text = provider.name
+        binding.providerNameInputLayout.visibility = View.GONE
+        // 隐藏整个URL卡片
+        binding.baseUrlCard.visibility = View.GONE
+
+        // 显示控制台链接（不显示URL，点击跳转）
+        if (provider.consoleUrl.isNotEmpty()) {
+            binding.consoleLink.visibility = View.VISIBLE
+            binding.consoleLink.text = "🔑 获取 API Key"
+            binding.consoleLink.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(provider.consoleUrl)))
+            }
+        }
 
         // 模型：点击弹出自定义PopupWindow选择
         binding.modelInputLayout.visibility = View.GONE
@@ -236,20 +325,36 @@ class OpenAIText :Fragment() {
         binding.modelSelector.setOnClickListener { anchor ->
             showModelPopup(provider.models, anchor)
         }
-        binding.modelTips.visibility = View.GONE
+        binding.modelTips.visibility = View.VISIBLE
 
         // 重置按钮
         binding.btnResetSystemPrompt.visibility = View.VISIBLE
         binding.btnResetUserPrompt.visibility = View.VISIBLE
         binding.btnResetSystemPrompt.setOnClickListener {
-            binding.editSystemPrompt.setText(provider.defaultSystemPrompt)
+            if (currentTab == 0) {
+                binding.editSystemPrompt.setText(provider.defaultSystemPrompt)
+            } else {
+                binding.editSystemPrompt.setText(provider.defaultMangaSystemPrompt)
+            }
         }
         binding.btnResetUserPrompt.setOnClickListener {
-            binding.editUserPrompt.setText(provider.defaultUserPrompt)
+            if (currentTab == 0) {
+                binding.editUserPrompt.setText(provider.defaultUserPrompt)
+            } else {
+                binding.editUserPrompt.setText(provider.defaultMangaUserPrompt)
+            }
         }
 
         // 隐藏删除按钮
         binding.btnDelete.visibility = View.GONE
+    }
+
+    private fun builtinIconRes(name: String): Int = when (name) {
+        "火山引擎" -> R.drawable.ic_provider_doubao
+        "智谱AI" -> R.drawable.ic_provider_zhipu
+        "DeepSeek" -> R.drawable.ic_provider_deepseek
+        "通义千问" -> R.drawable.ic_provider_qianwen
+        else -> R.drawable.ic_launcher_foreground
     }
 
     private fun setupUserMode() {
@@ -258,7 +363,10 @@ class OpenAIText :Fragment() {
         binding.editProviderName.alpha = 1.0f
         binding.editBaseUrl.isEnabled = true
         binding.editBaseUrl.alpha = 1.0f
-        binding.builtinBadge.visibility = View.GONE
+        binding.providerNameText.visibility = View.GONE
+        binding.providerNameInputLayout.visibility = View.VISIBLE
+        binding.providerIcon.visibility = View.GONE
+        binding.baseUrlCard.visibility = View.VISIBLE
         binding.builtinUrlBadge.visibility = View.GONE
 
         // 模型：文本输入

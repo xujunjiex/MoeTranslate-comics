@@ -33,6 +33,7 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.me.ConfigurationStorage
+import com.moe.moetranslator.me.OpenAIProviderConfig
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CropView
 import com.moe.moetranslator.translate.Dialogs
@@ -278,7 +279,15 @@ class MangaFloatingService : LifecycleService() {
                     val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                     if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                         val provider = providerList[selectedIndex]
-                        translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = provider.systemPrompt, userPrompt = provider.userPrompt)
+                        translatorText = OpenAITranslation(
+                            apiKey = provider.apiKey,
+                            baseUrl = provider.baseUrl,
+                            model = provider.modelName,
+                            systemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt },
+                            userPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt },
+                            continuationType = provider.continuationType,
+                            prefillContent = if (provider.continuationType != OpenAIProviderConfig.CONTINUATION_NONE && provider.continuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else ""
+                        )
                     } else {
                         showToast("No OpenAI Provider Config Found.")
                     }
@@ -1457,9 +1466,10 @@ class MangaFloatingService : LifecycleService() {
                     LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
-                    statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
                     isProcessing = false
+                    // 先 dismiss 进度条，再显示错误（错误会保持显示直到用户点击复制）
                     dismissProgressOverlay()
+                    statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
                 }
             }
             LogCollector.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
@@ -2013,9 +2023,8 @@ class MangaFloatingService : LifecycleService() {
     ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
         LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request")
 
-        // 构建带编号的文本，前置格式约束保证 AI 按编号返回
-        val formatInstruction = "请逐条翻译以下文本，保持每条的[N]编号格式不变，只输出翻译结果，不要添加额外解释：\n"
-        val numberedText = formatInstruction + bubbles.mapIndexed { index, (_, text) ->
+        // 构建带编号的文本，格式说明由用户提示词中的模板提供
+        val numberedText = bubbles.mapIndexed { index, (_, text) ->
             "[${index + 1}] $text"
         }.joinToString("\n")
 
@@ -2052,8 +2061,15 @@ class MangaFloatingService : LifecycleService() {
             throw RuntimeException("AI batch translation failed: $errorMsg")
         }
 
-        // 按编号解析结果
-        val translations = parseNumberedTranslations(resultText!!, bubbles.size)
+        LogCollector.d(TAG, "AI原始返回文本: $resultText")
+
+        // 按编号解析结果（支持JSON格式和编号格式）
+        val result = resultText!!.trim()
+        val translations = if (result.startsWith("{")) {
+            parseJsonTranslations(result, bubbles.size)
+        } else {
+            parseNumberedTranslations(result, bubbles.size)
+        }
         LogCollector.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
         // 输出翻译结果
         for (i in translations.indices) {
@@ -2071,6 +2087,54 @@ class MangaFloatingService : LifecycleService() {
                 fontSize = bubble.fontSize,
                 direction = bubble.direction
             )
+        }
+    }
+
+    /**
+     * 解析JSON格式的翻译结果
+     * 支持格式:
+     *   1. {"translations": ["译文1", "译文2"]}
+     *   2. ["译文1", "译文2"]
+     *   3. [{"translations": ["译文1"]}, ...] (模型可能返回的混合格式)
+     */
+    private fun parseJsonTranslations(text: String, expectedCount: Int): List<String> {
+        return try {
+            val results = mutableListOf<String>()
+
+            // 尝试解析为 JSON 对象 {"translations": [...]}
+            try {
+                val jsonObject = org.json.JSONObject(text)
+                val translations = jsonObject.getJSONArray("translations")
+                for (i in 0 until translations.length().coerceAtMost(expectedCount)) {
+                    results.add(translations.getString(i))
+                }
+            } catch (_: Exception) {
+                // 尝试解析为 JSON 数组
+                val jsonArray = org.json.JSONArray(text)
+                for (i in 0 until jsonArray.length().coerceAtMost(expectedCount)) {
+                    val item = jsonArray.get(i)
+                    when (item) {
+                        is String -> results.add(item)
+                        is org.json.JSONObject -> {
+                            // 处理 {"translations": ["译文"]} 格式的数组元素
+                            if (item.has("translations")) {
+                                val arr = item.getJSONArray("translations")
+                                if (arr.length() > 0) results.add(arr.getString(0))
+                            }
+                        }
+                        // 跳过数字等其他类型（如 [2], [3]）
+                    }
+                }
+            }
+
+            // 补齐不足的部分
+            while (results.size < expectedCount) {
+                results.add("")
+            }
+            results.take(expectedCount)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "Failed to parse JSON translations: ${text.take(200)}", e)
+            List(expectedCount) { "" }
         }
     }
 

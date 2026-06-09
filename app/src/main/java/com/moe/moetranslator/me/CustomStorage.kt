@@ -73,13 +73,24 @@ data class OpenAIProviderConfig(
     val defaultSystemPrompt: String = "",
     val defaultUserPrompt: String = "",
     val selectedModelIndex: Int = 0,
-    val apiFormat: String = FORMAT_CHAT_COMPLETIONS
+    val apiFormat: String = FORMAT_CHAT_COMPLETIONS,
+    val consoleUrl: String = "",
+    val continuationType: String = CONTINUATION_NONE,
+    val mangaSystemPrompt: String = "",
+    val mangaUserPrompt: String = "",
+    val defaultMangaSystemPrompt: String = "",
+    val defaultMangaUserPrompt: String = ""
 ) {
     companion object {
         const val PROVIDER_TYPE_BUILTIN = "builtin"
         const val PROVIDER_TYPE_USER = "user"
         const val FORMAT_CHAT_COMPLETIONS = "chat_completions"
         const val FORMAT_RESPONSES = "responses"
+        const val CONTINUATION_NONE = "none"
+        const val CONTINUATION_STANDARD = "standard"
+        const val CONTINUATION_PARTIAL = "partial"
+        const val CONTINUATION_PREFIX = "prefix"
+        const val CONTINUATION_JSON = "json"
     }
 
     val isBuiltin: Boolean get() = providerType == PROVIDER_TYPE_BUILTIN
@@ -92,6 +103,8 @@ data class BuiltInProviderMod(
     val apiKey: String = "",
     val systemPrompt: String? = null,
     val userPrompt: String? = null,
+    val mangaSystemPrompt: String? = null,
+    val mangaUserPrompt: String? = null,
     val selectedModelIndex: Int = 0
 )
 
@@ -485,6 +498,8 @@ object ConfigurationStorage {
     private const val KEY_MODEL_NAME = "modelName"
     private const val KEY_SYSTEM_PROMPT = "systemPrompt"
     private const val KEY_USER_PROMPT = "userPrompt"
+    private const val KEY_MANGA_SYSTEM_PROMPT = "mangaSystemPrompt"
+    private const val KEY_MANGA_USER_PROMPT = "mangaUserPrompt"
 
     // ==================== 内置API管理 ====================
 
@@ -504,6 +519,8 @@ object ConfigurationStorage {
                     put(KEY_API_KEY, mod.apiKey)
                     put(KEY_SYSTEM_PROMPT, mod.systemPrompt ?: JSONObject.NULL)
                     put(KEY_USER_PROMPT, mod.userPrompt ?: JSONObject.NULL)
+                    put(KEY_MANGA_SYSTEM_PROMPT, mod.mangaSystemPrompt ?: JSONObject.NULL)
+                    put(KEY_MANGA_USER_PROMPT, mod.mangaUserPrompt ?: JSONObject.NULL)
                     put(KEY_SELECTED_MODEL_INDEX, mod.selectedModelIndex)
                 })
             }
@@ -526,6 +543,8 @@ object ConfigurationStorage {
                     apiKey = obj.optString(KEY_API_KEY, ""),
                     systemPrompt = if (obj.isNull(KEY_SYSTEM_PROMPT)) null else obj.optString(KEY_SYSTEM_PROMPT, null),
                     userPrompt = if (obj.isNull(KEY_USER_PROMPT)) null else obj.optString(KEY_USER_PROMPT, null),
+                    mangaSystemPrompt = if (obj.isNull(KEY_MANGA_SYSTEM_PROMPT)) null else obj.optString(KEY_MANGA_SYSTEM_PROMPT, null),
+                    mangaUserPrompt = if (obj.isNull(KEY_MANGA_USER_PROMPT)) null else obj.optString(KEY_MANGA_USER_PROMPT, null),
                     selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
                 ))
             }
@@ -552,6 +571,8 @@ object ConfigurationStorage {
             apiKey = mod.apiKey,
             systemPrompt = mod.systemPrompt ?: builtin.defaultSystemPrompt,
             userPrompt = mod.userPrompt ?: builtin.defaultUserPrompt,
+            mangaSystemPrompt = mod.mangaSystemPrompt ?: builtin.defaultMangaSystemPrompt,
+            mangaUserPrompt = mod.mangaUserPrompt ?: builtin.defaultMangaUserPrompt,
             selectedModelIndex = mod.selectedModelIndex,
             modelName = builtin.models.getOrElse(mod.selectedModelIndex) { builtin.models[0] }
         )
@@ -568,6 +589,8 @@ object ConfigurationStorage {
                     put(KEY_MODEL_NAME, provider.modelName)
                     put(KEY_SYSTEM_PROMPT, provider.systemPrompt)
                     put(KEY_USER_PROMPT, provider.userPrompt)
+                    put(KEY_MANGA_SYSTEM_PROMPT, provider.mangaSystemPrompt)
+                    put(KEY_MANGA_USER_PROMPT, provider.mangaUserPrompt)
                     put(KEY_PROVIDER_TYPE, provider.providerType)
                     put(KEY_SELECTED_MODEL_INDEX, provider.selectedModelIndex)
                 })
@@ -593,6 +616,8 @@ object ConfigurationStorage {
                     modelName = obj.getString(KEY_MODEL_NAME),
                     systemPrompt = obj.getString(KEY_SYSTEM_PROMPT),
                     userPrompt = obj.getString(KEY_USER_PROMPT),
+                    mangaSystemPrompt = obj.optString(KEY_MANGA_SYSTEM_PROMPT, ""),
+                    mangaUserPrompt = obj.optString(KEY_MANGA_USER_PROMPT, ""),
                     providerType = obj.optString(KEY_PROVIDER_TYPE, OpenAIProviderConfig.PROVIDER_TYPE_USER),
                     selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
                 ))

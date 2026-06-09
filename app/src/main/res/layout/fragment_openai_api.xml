@@ -29,68 +29,45 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- 查看提示 -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/introduce"
+        <!-- 厂商图标和名称（一行居中，无卡片） -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="@color/card_background"
-            app:cardElevation="2dp">
+            android:orientation="horizontal"
+            android:gravity="center_vertical|center_horizontal">
 
-            <LinearLayout
+            <ImageView
+                android:id="@+id/providerIcon"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:visibility="gone" />
+
+            <!-- 内置API：直接显示名称 -->
+            <TextView
+                android:id="@+id/providerNameText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="18sp"
+                android:textColor="#333333"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <!-- 自定义API：可编辑名称 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/providerNameInputLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                android:visibility="gone">
 
-                <TextView
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editProviderName"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="16sp"
-                    android:text="@string/dont_know_custom">
-                </TextView>
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 厂商名称输入 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="@color/card_background"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/editProviderName"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:hint="@string/custom_api_name_hint" />
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <TextView
-                    android:id="@+id/builtinBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/builtin_api_prefix"
-                    android:textColor="?android:textColorSecondary"
-                    android:textSize="12sp"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    android:hint="@string/custom_api_name_hint" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
 
         <!-- ApiKey输入 -->
         <com.google.android.material.card.MaterialCardView
@@ -116,11 +93,21 @@
                         android:layout_height="wrap_content"
                         android:hint="@string/api_key" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:id="@+id/consoleLink"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="#55AEEA"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <!-- 基础URL输入 -->
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/baseUrlCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
@@ -159,7 +146,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="@string/base_url_tips"
-                    android:textColor="?android:textColorSecondary" />
+                    android:textColor="#999999"
+                    android:textSize="12sp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -226,10 +214,25 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="@string/model_tips"
-                    android:textColor="?android:textColorSecondary" />
+                    android:textColor="#999999"
+                    android:textSize="12sp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <!-- 模式切换 Tab -->
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/prompt_mode_tabs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="8dp"
+            app:tabMode="fixed"
+            app:tabGravity="fill"
+            app:tabIndicatorColor="@color/design_default_color_primary"
+            app:tabSelectedTextColor="@color/design_default_color_primary"
+            app:tabTextColor="@android:color/darker_gray" />
 
         <!-- 系统提示词输入 -->
         <com.google.android.material.card.MaterialCardView
@@ -313,7 +316,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="@string/openai_use_source_text"
-                    android:textColor="?android:textColorSecondary" />
+                    android:textColor="#999999"
+                    android:textSize="12sp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

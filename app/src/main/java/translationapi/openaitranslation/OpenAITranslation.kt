@@ -47,7 +47,9 @@ class OpenAITranslation(
     private val systemPrompt: String,
     private val userPrompt: String,
     private val maxTokens: Int = 1000,
-    private val temperature: Float = 0.3f
+    private val temperature: Float = 0.3f,
+    private val continuationType: String = "none",
+    private val prefillContent: String = ""
 ) : TranslationTextAPI {
 
     companion object {
@@ -106,8 +108,14 @@ class OpenAITranslation(
         val requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = true)
         Log.d(TAG, "Request: $requestBody")
 
+        val endpoint = if (continuationType == "prefix") {
+            "$baseUrl/beta/chat/completions"
+        } else {
+            "$baseUrl/chat/completions"
+        }
+
         val request = Request.Builder()
-            .url("$baseUrl/chat/completions")
+            .url(endpoint)
             .post(requestBody.toRequestBody(JSON))
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
@@ -139,12 +147,16 @@ class OpenAITranslation(
         val fromLang = CustomLocale.getInstance(from).getDisplayName()
         val toLang = CustomLocale.getInstance(to).getDisplayName()
 
+        Log.d(TAG, "翻译配置: model=$model, from=$from($fromLang), to=$to($toLang), continuationType=$continuationType")
+        Log.d(TAG, "SystemPrompt: $systemPrompt")
+        Log.d(TAG, "UserPrompt模板: $userPrompt")
+
         val fullUserPrompt = userPrompt
             .replace("usefromlang", fromLang)
             .replace("usetolang", toLang)
             .replace("usesourcetext", text)
 
-        Log.d(TAG, "fullUserPrompt: $fullUserPrompt")
+        Log.d(TAG, "UserPrompt: $fullUserPrompt")
 
         return fullUserPrompt
     }
@@ -159,6 +171,17 @@ class OpenAITranslation(
                 put("role", "user")
                 put("content", userPrompt)
             })
+            // 续写模式：添加 assistant prefill（JSON模式不加，靠 response_format 控制）
+            if (prefillContent.isNotEmpty() && continuationType != "none" && continuationType != "json") {
+                put(JSONObject().apply {
+                    put("role", "assistant")
+                    put("content", prefillContent)
+                    when (continuationType) {
+                        "partial" -> put("partial", true)   // 千问
+                        "prefix" -> put("prefix", true)     // DeepSeek
+                    }
+                })
+            }
         }
 
         return JSONObject().apply {
@@ -170,6 +193,12 @@ class OpenAITranslation(
             if (disableThinking) {
                 put("thinking", JSONObject().apply {
                     put("type", "disabled")
+                })
+            }
+            // 智谱AI结构化输出：强制JSON格式
+            if (continuationType == "json") {
+                put("response_format", JSONObject().apply {
+                    put("type", "json_object")
                 })
             }
         }.toString()
@@ -196,6 +225,8 @@ class OpenAITranslation(
             val firstChoice = choices.getJSONObject(0)
             val message = firstChoice.getJSONObject("message")
             val content = message.getString("content").trim()
+
+            Log.d(TAG, "翻译结果: $content")
 
             if (content.isEmpty()) {
                 throw IOException("Empty translation result")

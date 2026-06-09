@@ -74,7 +74,7 @@ class NiuTranslation(private val apiKey: String) : TranslationTextAPI {
             put("src_text", text)
         }.toString()
 
-        Log.d("NIUTRANS", "Request: $jsonBody")
+        Log.d("NIUTRANS", "Request: from=$from, to=$to")
 
         // 创建请求
         val request = Request.Builder()

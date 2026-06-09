@@ -96,6 +96,18 @@ class APIConfig : PreferenceFragmentCompat() {
                 true
             }
 
+            // 应用淡灰色小字样式到所有管理按钮
+            listOf("ui_manage_niu_api_text", "ui_manage_volc_api_text", "ui_manage_azure_api_text",
+                "ui_manage_deepl_api_text", "ui_manage_baidu_api_text", "ui_manage_tencent_api_text").forEach { key ->
+                findPreference<Preference>(key)?.let { pref ->
+                    val origTitle = pref.title?.toString() ?: return@let
+                    pref.title = android.text.SpannableString(origTitle).apply {
+                        setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#999999")), 0, origTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(android.text.style.RelativeSizeSpan(0.85f), 0, origTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                }
+            }
+
             findPreference<Preference>("ui_manage_niu_api_text")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                     putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_NIU_API)
@@ -149,6 +161,17 @@ class APIConfig : PreferenceFragmentCompat() {
 
             // 自定义云端文本翻译API已禁用
         }else{
+            // 应用淡灰色小字样式到图片翻译管理按钮
+            listOf("ui_manage_baidu_api_pic", "ui_manage_tencent_api_pic").forEach { key ->
+                findPreference<Preference>(key)?.let { pref ->
+                    val origTitle = pref.title?.toString() ?: return@let
+                    pref.title = android.text.SpannableString(origTitle).apply {
+                        setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#999999")), 0, origTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(android.text.style.RelativeSizeSpan(0.85f), 0, origTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                }
+            }
+
             findPreference<Preference>("ui_manage_baidu_api_pic")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                     putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_BAIDU_API)
@@ -401,7 +424,7 @@ class APIConfig : PreferenceFragmentCompat() {
                 val switchPref = SwitchPreferenceCompat(requireContext()).apply {
                     key = switchKey
                     title = named.name
-                    isIconSpaceReserved = false
+                    isIconSpaceReserved = true
                     isChecked = selectedIndex == index && prefs.getInt("Text_API", 0) == Constants.TextApi.CUSTOM_TEXT.id
                     setOnPreferenceChangeListener { _, newValue ->
                         if (newValue as Boolean) {
@@ -428,8 +451,12 @@ class APIConfig : PreferenceFragmentCompat() {
 
                 val managePref = Preference(requireContext()).apply {
                     key = manageKey
-                    title = getString(R.string.custom_api_manage)
-                    isIconSpaceReserved = false
+                    val manageTitle = getString(R.string.custom_api_manage)
+                    title = android.text.SpannableString(manageTitle).apply {
+                        setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#999999")), 0, manageTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(android.text.style.RelativeSizeSpan(0.85f), 0, manageTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    isIconSpaceReserved = true
                     setOnPreferenceClickListener {
                         val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                             putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
@@ -447,7 +474,7 @@ class APIConfig : PreferenceFragmentCompat() {
                 val addPref = Preference(requireContext()).apply {
                     key = "ui_custom_api_text_add"
                     title = getString(R.string.custom_api_add_new)
-                    isIconSpaceReserved = false
+                    isIconSpaceReserved = true
                     setOnPreferenceClickListener {
                         val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                             putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_TEXT_API)
@@ -471,7 +498,7 @@ class APIConfig : PreferenceFragmentCompat() {
                 val switchPref = SwitchPreferenceCompat(requireContext()).apply {
                     key = switchKey
                     title = named.name
-                    isIconSpaceReserved = false
+                    isIconSpaceReserved = true
                     isChecked = selectedIndex == index && prefs.getInt("Pic_API", 0) == Constants.PicApi.CUSTOM_PIC.id
                     setOnPreferenceChangeListener { _, newValue ->
                         if (newValue as Boolean) {
@@ -498,8 +525,12 @@ class APIConfig : PreferenceFragmentCompat() {
 
                 val managePref = Preference(requireContext()).apply {
                     key = manageKey
-                    title = getString(R.string.custom_api_manage)
-                    isIconSpaceReserved = false
+                    val manageTitle = getString(R.string.custom_api_manage)
+                    title = android.text.SpannableString(manageTitle).apply {
+                        setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#999999")), 0, manageTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(android.text.style.RelativeSizeSpan(0.85f), 0, manageTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    isIconSpaceReserved = true
                     setOnPreferenceClickListener {
                         val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                             putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
@@ -517,7 +548,7 @@ class APIConfig : PreferenceFragmentCompat() {
                 val addPref = Preference(requireContext()).apply {
                     key = "ui_custom_api_pic_add"
                     title = getString(R.string.custom_api_add_new)
-                    isIconSpaceReserved = false
+                    isIconSpaceReserved = true
                     setOnPreferenceClickListener {
                         val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                             putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_CUSTOM_PIC_API)
@@ -559,6 +590,9 @@ class APIConfig : PreferenceFragmentCompat() {
         val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
         val isOpenAISelected = prefs.getInt("Text_API", 0) == Constants.TextApi.OPENAI.id
 
+        // 自定义API计数器（用于轮流分配图标）
+        var customIndex = 0
+
         allProviders.forEachIndexed { index, provider ->
             // Switch - 选择此厂商
             val switchKey = "ui_openai_provider_select_$index"
@@ -570,9 +604,16 @@ class APIConfig : PreferenceFragmentCompat() {
                         requireContext(),
                         builtinIconRes(provider.name)
                     )
+                } else {
+                    // 自定义API轮流使用3个图标
+                    icon = androidx.core.content.ContextCompat.getDrawable(
+                        requireContext(),
+                        customIconRes(customIndex)
+                    )
+                    customIndex++
                 }
                 summary = provider.modelName
-                isIconSpaceReserved = false
+                isIconSpaceReserved = true
                 isChecked = isOpenAISelected && selectedProvider == index
                 setOnPreferenceChangeListener { _, newValue ->
                     if (newValue as Boolean) {
@@ -617,8 +658,12 @@ class APIConfig : PreferenceFragmentCompat() {
             // 管理按钮
             val managePref = Preference(requireContext()).apply {
                 key = "ui_openai_provider_manage_$index"
-                title = getString(R.string.manage_openai_provider, provider.name)
-                isIconSpaceReserved = false
+                val manageTitle = getString(R.string.manage_openai_provider, provider.name)
+                title = android.text.SpannableString(manageTitle).apply {
+                    setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#999999")), 0, manageTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(android.text.style.RelativeSizeSpan(0.85f), 0, manageTitle.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                isIconSpaceReserved = true
                 setOnPreferenceClickListener {
                     val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                         putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
@@ -638,7 +683,7 @@ class APIConfig : PreferenceFragmentCompat() {
             val addPref = Preference(requireContext()).apply {
                 key = "ui_openai_provider_add"
                 title = getString(R.string.custom_api_add_new)
-                isIconSpaceReserved = false
+                isIconSpaceReserved = true
                 setOnPreferenceClickListener {
                     val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                         putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
@@ -654,18 +699,27 @@ class APIConfig : PreferenceFragmentCompat() {
     }
 
     private fun builtinIconRes(name: String): Int = when (name) {
-        "豆包" -> R.drawable.ic_provider_doubao
-        "GLM" -> R.drawable.ic_provider_zhipu
+        "火山引擎" -> R.drawable.ic_provider_doubao
+        "智谱AI" -> R.drawable.ic_provider_zhipu
         "DeepSeek" -> R.drawable.ic_provider_deepseek
-        "千问" -> R.drawable.ic_provider_qianwen
+        "通义千问" -> R.drawable.ic_provider_qianwen
         else -> R.drawable.ic_launcher_foreground
     }
 
+    private fun customIconRes(index: Int): Int = when (index % 3) {
+        0 -> R.drawable.ic_provider_custom_1
+        1 -> R.drawable.ic_provider_custom_2
+        2 -> R.drawable.ic_provider_custom_3
+        else -> R.drawable.ic_provider_custom_1
+    }
+
     private fun testOpenAIProvider(provider: OpenAIProviderConfig) {
+        var cancelled = false
         val progressDialog = AlertDialog.Builder(requireContext())
             .setTitle(R.string.test_provider)
             .setMessage(R.string.testing_connection)
-            .setCancelable(false)
+            .setCancelable(true)
+            .setNegativeButton(R.string.user_cancel) { _, _ -> cancelled = true }
             .create()
         progressDialog.show()
 
@@ -704,6 +758,7 @@ class APIConfig : PreferenceFragmentCompat() {
                     val body = response.body?.string() ?: ""
                     activity?.runOnUiThread {
                         progressDialog.dismiss()
+                        if (cancelled) return@runOnUiThread
                         if (response.isSuccessful) {
                             AlertDialog.Builder(requireContext())
                                 .setTitle(R.string.test_success)
@@ -722,6 +777,7 @@ class APIConfig : PreferenceFragmentCompat() {
             } catch (e: Exception) {
                 activity?.runOnUiThread {
                     progressDialog.dismiss()
+                    if (cancelled) return@runOnUiThread
                     AlertDialog.Builder(requireContext())
                         .setTitle(R.string.test_failed)
                         .setMessage(e.message ?: "Unknown error")
