@@ -131,6 +131,7 @@ class MangaFloatingService : LifecycleService() {
     // Auto-translate — 基于图像哈希 + 区域级缓存的智能自动翻译
     private var isAutoTranslating = false
     private var isManualTranslating = false  // 手动翻译标志：暂停自动检测，跳过 pHash 门控
+    private var wasAutoTranslatingBeforeCrop = false  // 框选前的自动翻译状态
     private val autoTranslateHandler = Handler(Looper.getMainLooper())
 
     // 检测状态机
@@ -777,7 +778,14 @@ class MangaFloatingService : LifecycleService() {
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // 横屏时缩小菜单，竖屏保持原样
+        if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+            val maxW = (resources.displayMetrics.widthPixels * 0.4).toInt()
+            val maxH = (resources.displayMetrics.heightPixels * 0.7).toInt()
+            dialog.window?.setLayout(maxW, maxH)
+        } else {
+            dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
         dialog.setOnDismissListener { isMenuShowing = false }
     }
 
@@ -860,7 +868,14 @@ class MangaFloatingService : LifecycleService() {
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // 横屏时缩小菜单，竖屏保持原样
+        if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+            val maxW = (resources.displayMetrics.widthPixels * 0.4).toInt()
+            val maxH = (resources.displayMetrics.heightPixels * 0.7).toInt()
+            dialog.window?.setLayout(maxW, maxH)
+        } else {
+            dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
         dialog.setOnDismissListener { isMenuShowing = false }
     }
 
@@ -1287,6 +1302,13 @@ class MangaFloatingService : LifecycleService() {
             return
         }
 
+        // 暂停自动翻译
+        if (isAutoTranslating) {
+            wasAutoTranslatingBeforeCrop = true
+            stopAutoTranslate()
+            LogCollector.d(TAG, "框选模式：暂停自动翻译")
+        }
+
         val dm = resources.displayMetrics
         val screenWidth = dm.widthPixels
         val screenHeight = dm.heightPixels
@@ -1330,6 +1352,13 @@ class MangaFloatingService : LifecycleService() {
         }
 
         showToast(getString(R.string.manga_crop_confirm), true)
+
+        // 恢复自动翻译
+        if (wasAutoTranslatingBeforeCrop) {
+            wasAutoTranslatingBeforeCrop = false
+            startAutoTranslate()
+            LogCollector.d(TAG, "框选完成：恢复自动翻译")
+        }
     }
 
     // ---------- Click handler ----------

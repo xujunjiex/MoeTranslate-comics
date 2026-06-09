@@ -111,29 +111,29 @@ class CropView(ctx:Context) : View(ctx) {
         )
         canvas.drawLines(pts, paint)
 
-        // 绘制确认按钮（跟随框选底部）
-        val btnWidth = 200f
-        val btnHeight = 65f
-        val btnGap = 20f
+        // 绘制确认按钮（框选内部底部，半透明）
+        val btnWidth = 240f
+        val btnHeight = 75f
+        val btnGap = 15f
         val btnX = (mRect.left + mRect.right - btnWidth) / 2
-        val btnY = mRect.bottom + btnGap
+        val btnY = mRect.bottom - btnHeight - btnGap
         confirmButtonRect.set(btnX, btnY, btnX + btnWidth, btnY + btnHeight)
 
         val btnPaint = Paint().apply {
-            color = Color.argb(220, 70, 130, 230)
+            color = Color.argb(160, 66, 133, 244)
             style = Paint.Style.FILL
             isAntiAlias = true
         }
-        canvas.drawRoundRect(confirmButtonRect, 25f, 25f, btnPaint)
+        canvas.drawRoundRect(confirmButtonRect, 30f, 30f, btnPaint)
 
         val textPaint = Paint().apply {
             color = Color.WHITE
-            textSize = 32f
+            textSize = 36f
             textAlign = Paint.Align.CENTER
             isAntiAlias = true
             typeface = Typeface.DEFAULT_BOLD
         }
-        canvas.drawText("确认", confirmButtonRect.centerX(), confirmButtonRect.centerY() + 16f, textPaint)
+        canvas.drawText("确认", confirmButtonRect.centerX(), confirmButtonRect.centerY() + 18f, textPaint)
     }
 
     private fun getViewOffset(): Point {
