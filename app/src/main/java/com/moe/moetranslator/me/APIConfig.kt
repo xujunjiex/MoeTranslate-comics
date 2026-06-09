@@ -288,8 +288,11 @@ class APIConfig : PreferenceFragmentCompat() {
                 Constants.TextApi.OPENAI.id -> {
                     // OpenAI通过厂商列表的select switch来选中
                     val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
-                    val key = "ui_openai_provider_select_$selectedProvider"
-                    findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
+                    val allProviders = ConfigurationStorage.loadAllProviders(prefs)
+                    if (selectedProvider < allProviders.size) {
+                        val key = "ui_openai_provider_select_$selectedProvider"
+                        findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
+                    }
                 }
                 Constants.TextApi.VOLC.id -> {
                     val key = "ui_volc_translation_text"
@@ -552,16 +555,22 @@ class APIConfig : PreferenceFragmentCompat() {
         val category = findPreference<PreferenceCategory>("ui_openai_providers") ?: return
         category.removeAll()
 
-        val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+        val allProviders = ConfigurationStorage.loadAllProviders(prefs)
         val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
         val isOpenAISelected = prefs.getInt("Text_API", 0) == Constants.TextApi.OPENAI.id
 
-        providerList.forEachIndexed { index, provider ->
+        allProviders.forEachIndexed { index, provider ->
             // Switch - 选择此厂商
             val switchKey = "ui_openai_provider_select_$index"
             val switchPref = SwitchPreferenceCompat(requireContext()).apply {
                 key = switchKey
                 title = provider.name
+                if (provider.isBuiltin) {
+                    icon = androidx.core.content.ContextCompat.getDrawable(
+                        requireContext(),
+                        builtinIconRes(provider.name)
+                    )
+                }
                 summary = provider.modelName
                 isIconSpaceReserved = false
                 isChecked = isOpenAISelected && selectedProvider == index
@@ -623,8 +632,9 @@ class APIConfig : PreferenceFragmentCompat() {
             category.addPreference(managePref)
         }
 
-        // 添加新厂商按钮
-        if (providerList.size < ConfigurationStorage.MAX_CUSTOM_API_COUNT) {
+        // 添加新厂商按钮（只对用户API计数）
+        val userProviderCount = allProviders.count { !it.isBuiltin }
+        if (userProviderCount < ConfigurationStorage.MAX_CUSTOM_API_COUNT) {
             val addPref = Preference(requireContext()).apply {
                 key = "ui_openai_provider_add"
                 title = getString(R.string.custom_api_add_new)
@@ -632,7 +642,7 @@ class APIConfig : PreferenceFragmentCompat() {
                 setOnPreferenceClickListener {
                     val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                         putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_OPENAI_API)
-                        putExtra(ManageActivity.EXTRA_CUSTOM_CODE, providerList.size)
+                        putExtra(ManageActivity.EXTRA_CUSTOM_CODE, allProviders.size)
                         putExtra(ManageActivity.EXTRA_IS_NEW, true)
                     }
                     startActivity(intent)
@@ -641,6 +651,14 @@ class APIConfig : PreferenceFragmentCompat() {
             }
             category.addPreference(addPref)
         }
+    }
+
+    private fun builtinIconRes(name: String): Int = when (name) {
+        "豆包" -> R.drawable.ic_provider_doubao
+        "GLM" -> R.drawable.ic_provider_zhipu
+        "DeepSeek" -> R.drawable.ic_provider_deepseek
+        "千问" -> R.drawable.ic_provider_qianwen
+        else -> R.drawable.ic_launcher_foreground
     }
 
     private fun testOpenAIProvider(provider: OpenAIProviderConfig) {

@@ -296,7 +296,7 @@ class TranslateFragment : Fragment() {
                 }
 
                 Constants.TextApi.OPENAI.id -> {
-                    val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                    val providerList = ConfigurationStorage.loadAllProviders(prefs)
                     val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
                     val name = if (selectedProvider < providerList.size) providerList[selectedProvider].name else getString(R.string.uniaiapi_name)
                     binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.ocr)}）"
@@ -512,7 +512,7 @@ class TranslateFragment : Fragment() {
                 }
 
                 Constants.TextApi.OPENAI.id -> {
-                    val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                    val providerList = ConfigurationStorage.loadAllProviders(prefs)
                     val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
                     if (providerList.isEmpty() || selectedProvider >= providerList.size) {
                         val dialog = AlertDialog.Builder(requireContext())

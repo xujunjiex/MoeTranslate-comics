@@ -464,6 +464,14 @@
     <string name="log_export">导出</string>
     <string name="log_exported">日志已导出到：%s</string>
     <string name="log_export_failed">导出失败：%s</string>
+    <string name="log_error_copied">错误信息已复制到剪贴板</string>
+    <!-- 内置 API -->
+    <string name="builtin_providers_title">内置 API</string>
+    <string name="reset_to_default">重置为默认</string>
+    <string name="model_selection">模型选择</string>
+    <string name="builtin_field_readonly">内置 API 此字段不可修改</string>
+    <string name="builtin_api_prefix">内置</string>
+
     <!-- 模型管理 -->
     <string name="model_management">模型管理</string>
     <string name="model_management_tip">管理已下载的识别模型</string>

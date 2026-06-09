@@ -79,6 +79,16 @@
                         android:layout_height="wrap_content"
                         android:hint="@string/custom_api_name_hint" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:id="@+id/builtinBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/builtin_api_prefix"
+                    android:textColor="?android:textColorSecondary"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -135,6 +145,16 @@
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <TextView
+                    android:id="@+id/builtinUrlBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/builtin_field_readonly"
+                    android:textColor="?android:textColorSecondary"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -144,7 +164,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 模型名称输入 -->
+        <!-- 模型选择/输入 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -158,7 +178,9 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
+                <!-- 用户自定义API：文本输入 -->
                 <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/modelInputLayout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
@@ -169,7 +191,37 @@
                         android:hint="@string/model" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- 内置API：点击选择模型 -->
+                <LinearLayout
+                    android:id="@+id/modelSpinnerLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/model_selection"
+                        android:textColor="?android:textColorSecondary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/modelSelector"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:paddingVertical="12dp"
+                        android:paddingHorizontal="4dp"
+                        android:textSize="16sp"
+                        android:textColor="#333333"
+                        android:background="?attr/selectableItemBackground"
+                        android:drawableEnd="@drawable/baseline_expand_more"
+                        android:drawableTint="#999999" />
+                </LinearLayout>
+
                 <TextView
+                    android:id="@+id/modelTips"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -205,6 +257,17 @@
 
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <TextView
+                    android:id="@+id/btnResetSystemPrompt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/reset_to_default"
+                    android:textColor="#55AEEA"
+                    android:textSize="13sp"
+                    android:visibility="gone"
+                    android:background="?attr/selectableItemBackground" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -233,6 +296,17 @@
                         android:hint="@string/user_prompt" />
 
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:id="@+id/btnResetUserPrompt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/reset_to_default"
+                    android:textColor="#55AEEA"
+                    android:textSize="13sp"
+                    android:visibility="gone"
+                    android:background="?attr/selectableItemBackground" />
 
                 <TextView
                     android:layout_width="wrap_content"

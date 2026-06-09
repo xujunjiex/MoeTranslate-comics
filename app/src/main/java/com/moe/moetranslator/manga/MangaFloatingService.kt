@@ -53,6 +53,7 @@ import kotlinx.coroutines.withContext
 import translationapi.bingtranslation.BingTranslation
 import translationapi.niutrans.NiuTranslation
 import translationapi.openaitranslation.OpenAITranslation
+import translationapi.doubaotranslation.DoubaoTranslation
 import translationapi.volctranslation.VolcTranslation
 import translationapi.azuretranslation.AzureTranslation
 import translationapi.deepltranslation.DeepLTranslation
@@ -273,7 +274,7 @@ class MangaFloatingService : LifecycleService() {
                 Constants.TextApi.BING.id -> translatorText = BingTranslation()
                 Constants.TextApi.NIUTRANS.id -> translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
                 Constants.TextApi.OPENAI.id -> {
-                    val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                    val providerList = ConfigurationStorage.loadAllProviders(prefs)
                     val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                     if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                         val provider = providerList[selectedIndex]

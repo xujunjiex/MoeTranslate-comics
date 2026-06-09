@@ -57,6 +57,7 @@ import translationapi.baidutranslation.BaiduTranslationImage
 import translationapi.baidutranslation.BaiduTranslationText
 import translationapi.bingtranslation.BingTranslation
 import translationapi.customtranslation.CustomTranslationImage
+import translationapi.doubaotranslation.DoubaoTranslation
 import translationapi.customtranslation.CustomTranslationText
 import translationapi.deepltranslation.DeepLTranslation
 import translationapi.mlkittranslation.MLKitTranslation
@@ -268,7 +269,7 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.d(TAG, "翻译 API 初始化: NiuTrans")
                     }
                     Constants.TextApi.OPENAI.id -> {
-                        val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
+                        val providerList = ConfigurationStorage.loadAllProviders(prefs)
                         val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                         if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                             val provider = providerList[selectedIndex]

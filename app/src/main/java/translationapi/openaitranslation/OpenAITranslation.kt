@@ -102,40 +102,24 @@ class OpenAITranslation(
         val systemPrompt = buildSystemPrompt()
         val userPrompt = buildUserPrompt(text, from, to)
 
-        // 先尝试禁用推理的请求（豆包等推理模型需要）
-        var requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = true)
+        // 构建请求体，始终发送 thinking:disabled 禁用思考模式
+        val requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = true)
         Log.d(TAG, "Request: $requestBody")
 
-        var request = Request.Builder()
+        val request = Request.Builder()
             .url("$baseUrl/chat/completions")
             .post(requestBody.toRequestBody(JSON))
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .build()
 
-        var response = client.newCall(request).execute()
+        val response = client.newCall(request).execute()
         ensureActive()
 
-        // 如果失败，去掉 thinking 参数重试（兼容不支持该参数的厂商）
         if (!response.isSuccessful) {
+            val errorBody = response.body?.string() ?: ""
             response.close()
-            Log.d(TAG, "Request with thinking:disabled failed (${response.code}), retrying without it")
-            requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = false)
-            Log.d(TAG, "Retry Request: $requestBody")
-
-            request = Request.Builder()
-                .url("$baseUrl/chat/completions")
-                .post(requestBody.toRequestBody(JSON))
-                .addHeader("Authorization", "Bearer $apiKey")
-                .addHeader("Content-Type", "application/json")
-                .build()
-
-            response = client.newCall(request).execute()
-            ensureActive()
-
-            if (!response.isSuccessful) {
-                throw IOException("Unexpected response ${response.code}: ${response.message}")
-            }
+            throw IOException("Request failed ${response.code}: $errorBody")
         }
 
         // 解析响应

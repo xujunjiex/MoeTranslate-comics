@@ -1,6 +1,7 @@
 package com.moe.moetranslator.bridge
 
 import android.content.Context
+import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.me.ConfigurationStorage.loadTextConfig
 import com.moe.moetranslator.translate.TranslationResult
 import com.moe.moetranslator.translate.TranslationTextAPI
@@ -14,6 +15,7 @@ import translationapi.customtranslation.CustomTranslationText
 import translationapi.deepltranslation.DeepLTranslation
 import translationapi.niutrans.NiuTranslation
 import translationapi.openaitranslation.OpenAITranslation
+import translationapi.doubaotranslation.DoubaoTranslation
 import translationapi.tencentcloud.TencentTranslationText
 import translationapi.volctranslation.VolcTranslation
 
@@ -46,18 +48,20 @@ object TranslateBridge {
                 NiuTranslation(key)
             }
             Constants.TextApi.OPENAI -> {
-                val apiKey = prefs.getString("OpenAI_Api_Key", "")
-                val baseUrl = prefs.getString("OpenAI_Base_Url", "")
-                val model = prefs.getString("OpenAI_Model_Name", "")
-                val systemPrompt = prefs.getString("OpenAI_System_Prompt", defaultSystemPrompt)
-                val userPrompt = prefs.getString("OpenAI_User_Prompt", defaultUserPrompt)
-                OpenAITranslation(
-                    apiKey = apiKey,
-                    baseUrl = baseUrl,
-                    model = model,
-                    systemPrompt = systemPrompt,
-                    userPrompt = userPrompt
-                )
+                val providerList = ConfigurationStorage.loadAllProviders(prefs)
+                val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
+                if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
+                    val provider = providerList[selectedIndex]
+                    OpenAITranslation(
+                        apiKey = provider.apiKey,
+                        baseUrl = provider.baseUrl,
+                        model = provider.modelName,
+                        systemPrompt = provider.systemPrompt,
+                        userPrompt = provider.userPrompt
+                    )
+                } else {
+                    null
+                }
             }
             Constants.TextApi.VOLC -> {
                 val ak = KeystoreManager.retrieveKey(context, "Volc_ACCOUNT")

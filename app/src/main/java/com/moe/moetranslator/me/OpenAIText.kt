@@ -19,11 +19,16 @@ package com.moe.moetranslator.me
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupWindow
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
@@ -39,6 +44,7 @@ class OpenAIText :Fragment() {
     private lateinit var prefs: CustomPreference
     private var providerIndex: Int = 0
     private var isNew = false
+    private var selectedModelIndex: Int = 0
     private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
     private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
@@ -97,107 +103,293 @@ class OpenAIText :Fragment() {
     }
 
     private fun saveConfiguration() {
-        try{
-            val providerName = binding.editProviderName.text.toString().trim()
-            if (providerName.isBlank()) {
-                throw Exception(getString(R.string.custom_api_name_blank))
-            }
+        try {
+            val allProviders = ConfigurationStorage.loadAllProviders(prefs)
+            val isBuiltin = !isNew && providerIndex < allProviders.size && allProviders[providerIndex].isBuiltin
 
-            if(binding.editApiKey.text.toString().trim().isBlank()){
-                throw Exception(getString(R.string.fill_blank))
-            }
-
-            val normalizedUrl = UrlUtils.normalizeUrl(requireContext(), binding.editBaseUrl.text.toString())
-
-            if(binding.editModelName.text.toString().trim().isBlank()){
-                throw Exception(getString(R.string.fill_blank))
-            }
-
-            val systemPrompt = if (binding.editSystemPrompt.text.toString().isBlank()) {
-                defaultSystemPrompt
+            if (isBuiltin) {
+                saveBuiltinConfig(allProviders[providerIndex])
             } else {
-                binding.editSystemPrompt.text.toString()
+                saveUserConfig()
             }
-
-            val userPrompt = if (binding.editUserPrompt.text.toString().isBlank()) {
-                defaultUserPrompt
-            } else {
-                binding.editUserPrompt.text.toString()
-            }
-
-            val provider = OpenAIProviderConfig(
-                name = providerName,
-                apiKey = binding.editApiKey.text.toString().trim(),
-                baseUrl = normalizedUrl,
-                modelName = binding.editModelName.text.toString().trim(),
-                systemPrompt = systemPrompt,
-                userPrompt = userPrompt
-            )
-
-            lifecycleScope.launch {
-                ConfigurationStorage.saveOpenAIProviderToList(prefs, provider, providerIndex)
-                UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
-                requireActivity().finish()
-            }
-        } catch (e: Exception){
+        } catch (e: Exception) {
             UiUtils.showToast(requireContext(), getString(R.string.failed_save_config, e.message))
+        }
+    }
+
+    private fun saveBuiltinConfig(original: OpenAIProviderConfig) {
+        val apiKey = binding.editApiKey.text.toString().trim()
+        if (apiKey.isBlank()) {
+            throw Exception(getString(R.string.fill_blank))
+        }
+
+        val systemPrompt = binding.editSystemPrompt.text.toString().ifBlank { original.defaultSystemPrompt }
+        val userPrompt = binding.editUserPrompt.text.toString().ifBlank { original.defaultUserPrompt }
+        val selectedModelIndex = this.selectedModelIndex
+
+        // 保存到内置API修改列表
+        val mods = ConfigurationStorage.loadBuiltInProviderMods(prefs).toMutableList()
+        val existingIndex = mods.indexOfFirst { it.name == original.name }
+        val mod = BuiltInProviderMod(
+            name = original.name,
+            apiKey = apiKey,
+            systemPrompt = if (systemPrompt != original.defaultSystemPrompt) systemPrompt else null,
+            userPrompt = if (userPrompt != original.defaultUserPrompt) userPrompt else null,
+            selectedModelIndex = selectedModelIndex
+        )
+        if (existingIndex >= 0) {
+            mods[existingIndex] = mod
+        } else {
+            mods.add(mod)
+        }
+        ConfigurationStorage.saveBuiltInProviderMods(prefs, mods)
+
+        UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
+        requireActivity().finish()
+    }
+
+    private fun saveUserConfig() {
+        val providerName = binding.editProviderName.text.toString().trim()
+        if (providerName.isBlank()) {
+            throw Exception(getString(R.string.custom_api_name_blank))
+        }
+
+        if (binding.editApiKey.text.toString().trim().isBlank()) {
+            throw Exception(getString(R.string.fill_blank))
+        }
+
+        val normalizedUrl = UrlUtils.normalizeUrl(requireContext(), binding.editBaseUrl.text.toString())
+
+        if (binding.editModelName.text.toString().trim().isBlank()) {
+            throw Exception(getString(R.string.fill_blank))
+        }
+
+        val systemPrompt = if (binding.editSystemPrompt.text.toString().isBlank()) {
+            defaultSystemPrompt
+        } else {
+            binding.editSystemPrompt.text.toString()
+        }
+
+        val userPrompt = if (binding.editUserPrompt.text.toString().isBlank()) {
+            defaultUserPrompt
+        } else {
+            binding.editUserPrompt.text.toString()
+        }
+
+        val provider = OpenAIProviderConfig(
+            name = providerName,
+            apiKey = binding.editApiKey.text.toString().trim(),
+            baseUrl = normalizedUrl,
+            modelName = binding.editModelName.text.toString().trim(),
+            systemPrompt = systemPrompt,
+            userPrompt = userPrompt
+        )
+
+        lifecycleScope.launch {
+            ConfigurationStorage.saveOpenAIProviderToList(prefs, provider, providerIndex - BuiltinProviders.providers.size)
+            UiUtils.showToast(requireContext(), getString(R.string.save_successfully))
+            requireActivity().finish()
         }
     }
 
     private fun loadConfig() {
         try {
-            val providerList = ConfigurationStorage.loadOpenAIProviders(prefs)
-            if (!isNew && providerIndex < providerList.size) {
-                val provider = providerList[providerIndex]
+            val allProviders = ConfigurationStorage.loadAllProviders(prefs)
+            if (!isNew && providerIndex < allProviders.size) {
+                val provider = allProviders[providerIndex]
                 binding.editProviderName.setText(provider.name)
                 binding.editApiKey.setText(provider.apiKey)
                 binding.editBaseUrl.setText(provider.baseUrl)
-                binding.editModelName.setText(provider.modelName)
                 binding.editSystemPrompt.setText(provider.systemPrompt)
                 binding.editUserPrompt.setText(provider.userPrompt)
+
+                if (provider.isBuiltin) {
+                    setupBuiltinMode(provider)
+                } else {
+                    setupUserMode()
+                }
             } else {
                 // 新建时设置默认prompt
                 binding.editSystemPrompt.setText(defaultSystemPrompt)
                 binding.editUserPrompt.setText(defaultUserPrompt)
+                setupUserMode()
             }
         } catch (e: Exception) {
             UiUtils.showToast(requireContext(), "Error loading configuration: ${e.message}")
         }
     }
 
+    private fun setupBuiltinMode(provider: OpenAIProviderConfig) {
+        // 名称和URL只读
+        binding.editProviderName.isEnabled = false
+        binding.editProviderName.alpha = 0.6f
+        binding.editBaseUrl.isEnabled = false
+        binding.editBaseUrl.alpha = 0.6f
+        binding.builtinBadge.visibility = View.VISIBLE
+        binding.builtinUrlBadge.visibility = View.VISIBLE
+
+        // 模型：点击弹出自定义PopupWindow选择
+        binding.modelInputLayout.visibility = View.GONE
+        binding.modelSpinnerLayout.visibility = View.VISIBLE
+        selectedModelIndex = provider.selectedModelIndex
+        binding.modelSelector.text = provider.models[selectedModelIndex]
+        binding.modelSelector.setOnClickListener { anchor ->
+            showModelPopup(provider.models, anchor)
+        }
+        binding.modelTips.visibility = View.GONE
+
+        // 重置按钮
+        binding.btnResetSystemPrompt.visibility = View.VISIBLE
+        binding.btnResetUserPrompt.visibility = View.VISIBLE
+        binding.btnResetSystemPrompt.setOnClickListener {
+            binding.editSystemPrompt.setText(provider.defaultSystemPrompt)
+        }
+        binding.btnResetUserPrompt.setOnClickListener {
+            binding.editUserPrompt.setText(provider.defaultUserPrompt)
+        }
+
+        // 隐藏删除按钮
+        binding.btnDelete.visibility = View.GONE
+    }
+
+    private fun setupUserMode() {
+        // 名称和URL可编辑
+        binding.editProviderName.isEnabled = true
+        binding.editProviderName.alpha = 1.0f
+        binding.editBaseUrl.isEnabled = true
+        binding.editBaseUrl.alpha = 1.0f
+        binding.builtinBadge.visibility = View.GONE
+        binding.builtinUrlBadge.visibility = View.GONE
+
+        // 模型：文本输入
+        binding.modelInputLayout.visibility = View.VISIBLE
+        binding.modelSpinnerLayout.visibility = View.GONE
+        binding.modelTips.visibility = View.VISIBLE
+
+        // 隐藏重置按钮
+        binding.btnResetSystemPrompt.visibility = View.GONE
+        binding.btnResetUserPrompt.visibility = View.GONE
+
+        // 显示删除按钮（非新建时）
+        if (!isNew) {
+            binding.btnDelete.visibility = View.VISIBLE
+        }
+    }
+
+    private fun showModelPopup(models: List<String>, anchor: View) {
+        val context = requireContext()
+        val density = context.resources.displayMetrics.density
+
+        val popupView = LayoutInflater.from(context).inflate(R.layout.popup_model_selector, null)
+        val container = popupView.findViewById<android.widget.LinearLayout>(R.id.model_list_container)
+
+        val freeModels = setOf("glm-4-flash-250414")
+
+        fun refreshItems() {
+            container.removeAllViews()
+            models.forEachIndexed { index, model ->
+                val isSelected = index == selectedModelIndex
+                val displayName = if (model in freeModels) "$model（免费）" else model
+
+                val item = TextView(context).apply {
+                    text = displayName
+                    textSize = 15f
+                    setPadding((24 * density).toInt(), (14 * density).toInt(), (24 * density).toInt(), (14 * density).toInt())
+                    setTextColor(if (isSelected) Color.parseColor("#55AEEA") else Color.parseColor("#333333"))
+                    isClickable = true
+                    isFocusable = true
+                    setBackgroundResource(R.drawable.ripple_item_bg)
+                    setOnClickListener {
+                        selectedModelIndex = index
+                        binding.modelSelector.text = model
+                        popupWindow?.dismiss()
+                    }
+                }
+                container.addView(item)
+
+                if (index < models.size - 1) {
+                    val divider = View(context).apply {
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, (1 * density).toInt()
+                        ).apply {
+                            marginStart = (16 * density).toInt()
+                            marginEnd = (16 * density).toInt()
+                        }
+                        setBackgroundColor(Color.parseColor("#E8E8E8"))
+                    }
+                    container.addView(divider)
+                }
+            }
+        }
+
+        refreshItems()
+
+        val popup = PopupWindow(popupView, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        popup.isOutsideTouchable = true
+        popup.elevation = 8f * density
+        popup.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        popup.showAsDropDown(anchor, 0, (4 * density).toInt(), Gravity.START)
+        popupWindow = popup
+    }
+
+    private var popupWindow: PopupWindow? = null
+
     private fun testConnection() {
         val apiKey = binding.editApiKey.text.toString().trim()
-        val baseUrl = binding.editBaseUrl.text.toString().trim()
-        val modelName = binding.editModelName.text.toString().trim()
-
-        if (apiKey.isBlank() || baseUrl.isBlank() || modelName.isBlank()) {
+        if (apiKey.isBlank()) {
             UiUtils.showToast(requireContext(), getString(R.string.fill_blank))
             return
         }
 
-        val progressDialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.test_provider)
-            .setMessage(R.string.testing_connection)
-            .setCancelable(false)
-            .create()
-        progressDialog.show()
+        val allProviders = ConfigurationStorage.loadAllProviders(prefs)
+        val isBuiltin = !isNew && providerIndex < allProviders.size && allProviders[providerIndex].isBuiltin
+
+        val baseUrl: String
+        val modelName: String
+        if (isBuiltin) {
+            val provider = allProviders[providerIndex]
+            baseUrl = provider.baseUrl
+            modelName = provider.models.getOrElse(selectedModelIndex) { provider.models[0] }
+        } else {
+            baseUrl = binding.editBaseUrl.text.toString().trim()
+            modelName = binding.editModelName.text.toString().trim()
+            if (baseUrl.isBlank() || modelName.isBlank()) {
+                UiUtils.showToast(requireContext(), getString(R.string.fill_blank))
+                return
+            }
+        }
+
+        // 自定义加载弹窗
+        val loadingDialog = showCustomDialog(getString(R.string.testing_connection), null, isCancelable = false)
 
         Thread {
             try {
                 val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
+
+                val testSystemPrompt = "你是翻译引擎。只输出译文，不输出任何解释。保持原文格式。"
+                val testUserPrompt = "将以下文本从日语翻译为中文，只输出译文：\n\nこんにちは、世界。今日はとても良い天気ですね。"
 
                 val jsonBody = org.json.JSONObject().apply {
                     put("model", modelName)
                     put("messages", org.json.JSONArray().apply {
                         put(org.json.JSONObject().apply {
+                            put("role", "system")
+                            put("content", testSystemPrompt)
+                        })
+                        put(org.json.JSONObject().apply {
                             put("role", "user")
-                            put("content", "Hi")
+                            put("content", testUserPrompt)
                         })
                     })
-                    put("max_tokens", 10)
+                    put("max_tokens", 200)
+                    put("temperature", 0.3)
+                    put("stream", false)
+                    put("thinking", org.json.JSONObject().apply {
+                        put("type", "disabled")
+                    })
                 }
 
                 val normalizedUrl = if (baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) {
@@ -222,43 +414,47 @@ class OpenAIText :Fragment() {
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string() ?: "Empty response"
                     activity?.runOnUiThread {
-                        progressDialog.dismiss()
+                        loadingDialog.dismiss()
                         if (response.isSuccessful) {
-                            // 解析返回的翻译内容
                             val result = try {
                                 val jsonObj = org.json.JSONObject(body)
                                 jsonObj.getJSONArray("choices")
                                     .getJSONObject(0)
                                     .getJSONObject("message")
                                     .getString("content")
+                                    .trim()
                             } catch (e: Exception) {
                                 body
                             }
-                            AlertDialog.Builder(requireContext())
-                                .setTitle(R.string.test_success)
-                                .setMessage(result)
-                                .setPositiveButton(R.string.user_known, null)
-                                .show()
+                            showCustomDialog(getString(R.string.test_success), result, isCancelable = true)
                         } else {
-                            AlertDialog.Builder(requireContext())
-                                .setTitle(R.string.test_failed)
-                                .setMessage("HTTP ${response.code}\n$body")
-                                .setPositiveButton(R.string.user_known, null)
-                                .show()
+                            showCustomDialog(getString(R.string.test_failed), "HTTP ${response.code}\n${body.take(300)}", isCancelable = true)
                         }
                     }
                 }
             } catch (e: Exception) {
                 activity?.runOnUiThread {
-                    progressDialog.dismiss()
-                    AlertDialog.Builder(requireContext())
-                        .setTitle(R.string.test_failed)
-                        .setMessage(e.message ?: "Unknown error")
-                        .setPositiveButton(R.string.user_known, null)
-                        .show()
+                    loadingDialog.dismiss()
+                    showCustomDialog(getString(R.string.test_failed), e.message ?: "Unknown error", isCancelable = true)
                 }
             }
         }.start()
+    }
+
+    private fun showCustomDialog(title: String, message: String?, isCancelable: Boolean): AlertDialog {
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(title)
+            .setMessage(message ?: "")
+            .setCancelable(isCancelable)
+            .apply {
+                if (isCancelable) {
+                    setPositiveButton(R.string.user_known, null)
+                }
+            }
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        return dialog
     }
 
     private fun deleteConfiguration() {
@@ -266,7 +462,9 @@ class OpenAIText :Fragment() {
             .setTitle(R.string.custom_api_delete)
             .setMessage(R.string.custom_api_delete_confirm)
             .setPositiveButton(R.string.user_known) { _, _ ->
-                ConfigurationStorage.deleteOpenAIProvider(prefs, providerIndex)
+                // 用户API的索引需要减去内置API数量
+                val userIndex = providerIndex - BuiltinProviders.providers.size
+                ConfigurationStorage.deleteOpenAIProvider(prefs, userIndex)
                 val currentIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                 if (currentIndex == providerIndex) {
                     prefs.setInt("OpenAI_Selected_Provider", 0)

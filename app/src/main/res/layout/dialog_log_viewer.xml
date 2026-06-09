@@ -27,7 +27,6 @@
             android:textSize="11sp"
             android:fontFamily="monospace"
             android:textColor="#333333"
-            android:textIsSelectable="true"
             android:padding="12dp"
             android:lineSpacingExtra="2dp"/>
     </ScrollView>

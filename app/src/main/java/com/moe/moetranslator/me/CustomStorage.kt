@@ -66,7 +66,33 @@ data class OpenAIProviderConfig(
     val baseUrl: String,
     val modelName: String,
     val systemPrompt: String,
-    val userPrompt: String
+    val userPrompt: String,
+    // 内置API相关字段
+    val providerType: String = PROVIDER_TYPE_USER,
+    val models: List<String> = emptyList(),
+    val defaultSystemPrompt: String = "",
+    val defaultUserPrompt: String = "",
+    val selectedModelIndex: Int = 0,
+    val apiFormat: String = FORMAT_CHAT_COMPLETIONS
+) {
+    companion object {
+        const val PROVIDER_TYPE_BUILTIN = "builtin"
+        const val PROVIDER_TYPE_USER = "user"
+        const val FORMAT_CHAT_COMPLETIONS = "chat_completions"
+        const val FORMAT_RESPONSES = "responses"
+    }
+
+    val isBuiltin: Boolean get() = providerType == PROVIDER_TYPE_BUILTIN
+    val isResponsesFormat: Boolean get() = apiFormat == FORMAT_RESPONSES
+}
+
+// 内置API用户修改数据模型
+data class BuiltInProviderMod(
+    val name: String,
+    val apiKey: String = "",
+    val systemPrompt: String? = null,
+    val userPrompt: String? = null,
+    val selectedModelIndex: Int = 0
 )
 
 // SharedPreferences存储
@@ -460,6 +486,77 @@ object ConfigurationStorage {
     private const val KEY_SYSTEM_PROMPT = "systemPrompt"
     private const val KEY_USER_PROMPT = "userPrompt"
 
+    // ==================== 内置API管理 ====================
+
+    private const val KEY_PROVIDER_TYPE = "providerType"
+    private const val KEY_MODELS = "models"
+    private const val KEY_DEFAULT_SYSTEM_PROMPT = "defaultSystemPrompt"
+    private const val KEY_DEFAULT_USER_PROMPT = "defaultUserPrompt"
+    private const val KEY_SELECTED_MODEL_INDEX = "selectedModelIndex"
+    private const val BUILTIN_MODS_KEY = "BuiltIn_Providers_Modifications"
+
+    fun saveBuiltInProviderMods(prefs: CustomPreference, mods: List<BuiltInProviderMod>) {
+        try {
+            val jsonArray = JSONArray()
+            mods.forEach { mod ->
+                jsonArray.put(JSONObject().apply {
+                    put(KEY_NAME, mod.name)
+                    put(KEY_API_KEY, mod.apiKey)
+                    put(KEY_SYSTEM_PROMPT, mod.systemPrompt ?: JSONObject.NULL)
+                    put(KEY_USER_PROMPT, mod.userPrompt ?: JSONObject.NULL)
+                    put(KEY_SELECTED_MODEL_INDEX, mod.selectedModelIndex)
+                })
+            }
+            prefs.setString(BUILTIN_MODS_KEY, jsonArray.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadBuiltInProviderMods(prefs: CustomPreference): List<BuiltInProviderMod> {
+        return try {
+            val jsonString = prefs.getString(BUILTIN_MODS_KEY, "")
+            if (jsonString.isEmpty()) return emptyList()
+            val jsonArray = JSONArray(jsonString)
+            val list = mutableListOf<BuiltInProviderMod>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(BuiltInProviderMod(
+                    name = obj.getString(KEY_NAME),
+                    apiKey = obj.optString(KEY_API_KEY, ""),
+                    systemPrompt = if (obj.isNull(KEY_SYSTEM_PROMPT)) null else obj.optString(KEY_SYSTEM_PROMPT, null),
+                    userPrompt = if (obj.isNull(KEY_USER_PROMPT)) null else obj.optString(KEY_USER_PROMPT, null),
+                    selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
+                ))
+            }
+            list
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    fun loadAllProviders(prefs: CustomPreference): List<OpenAIProviderConfig> {
+        val builtinMods = loadBuiltInProviderMods(prefs)
+        val builtinProviders = BuiltinProviders.providers.map { builtin ->
+            val mod = builtinMods.find { it.name == builtin.name }
+            applyMod(builtin, mod)
+        }
+        val userProviders = loadOpenAIProviders(prefs)
+        return builtinProviders + userProviders
+    }
+
+    private fun applyMod(builtin: OpenAIProviderConfig, mod: BuiltInProviderMod?): OpenAIProviderConfig {
+        if (mod == null) return builtin
+        return builtin.copy(
+            apiKey = mod.apiKey,
+            systemPrompt = mod.systemPrompt ?: builtin.defaultSystemPrompt,
+            userPrompt = mod.userPrompt ?: builtin.defaultUserPrompt,
+            selectedModelIndex = mod.selectedModelIndex,
+            modelName = builtin.models.getOrElse(mod.selectedModelIndex) { builtin.models[0] }
+        )
+    }
+
     fun saveOpenAIProviders(prefs: CustomPreference, list: List<OpenAIProviderConfig>) {
         try {
             val jsonArray = JSONArray()
@@ -471,6 +568,8 @@ object ConfigurationStorage {
                     put(KEY_MODEL_NAME, provider.modelName)
                     put(KEY_SYSTEM_PROMPT, provider.systemPrompt)
                     put(KEY_USER_PROMPT, provider.userPrompt)
+                    put(KEY_PROVIDER_TYPE, provider.providerType)
+                    put(KEY_SELECTED_MODEL_INDEX, provider.selectedModelIndex)
                 })
             }
             prefs.setString("OpenAI_Providers", jsonArray.toString())
@@ -493,7 +592,9 @@ object ConfigurationStorage {
                     baseUrl = obj.getString(KEY_BASE_URL),
                     modelName = obj.getString(KEY_MODEL_NAME),
                     systemPrompt = obj.getString(KEY_SYSTEM_PROMPT),
-                    userPrompt = obj.getString(KEY_USER_PROMPT)
+                    userPrompt = obj.getString(KEY_USER_PROMPT),
+                    providerType = obj.optString(KEY_PROVIDER_TYPE, OpenAIProviderConfig.PROVIDER_TYPE_USER),
+                    selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
                 ))
             }
             list

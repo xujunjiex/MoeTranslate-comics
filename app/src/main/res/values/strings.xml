@@ -467,6 +467,14 @@
     <string name="log_export">Export</string>
     <string name="log_exported">Logs exported to: %s</string>
     <string name="log_export_failed">Export failed: %s</string>
+    <string name="log_error_copied">Error copied to clipboard</string>
+    <!-- 内置 API -->
+    <string name="builtin_providers_title">Built-in APIs</string>
+    <string name="reset_to_default">Reset to Default</string>
+    <string name="model_selection">Model Selection</string>
+    <string name="builtin_field_readonly">This field is read-only for built-in APIs</string>
+    <string name="builtin_api_prefix">Built-in</string>
+
     <!-- 模型管理 -->
     <string name="model_management">Model Management</string>
     <string name="model_management_tip">Manage downloaded recognition models</string>
