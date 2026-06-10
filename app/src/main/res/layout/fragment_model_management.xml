@@ -70,7 +70,7 @@
                     android:textColor="#888"/>
             </LinearLayout>
 
-            <!-- PP-OCRv5 检测（内置） -->
+            <!-- PP-OCRv5 检测（内置在核心包中） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -92,7 +92,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="det 文字区域检测，内置"
+                        android:text="@string/ppocr_det_desc"
                         android:textSize="11sp"
                         android:textColor="#888"
                         android:layout_marginTop="2dp"/>
@@ -101,7 +101,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/model_built_in"
+                    android:text="@string/ppocr_included_in_core"
                     android:textSize="12sp"
                     android:textColor="#888"/>
             </LinearLayout>
@@ -269,42 +269,6 @@
                     android:textColor="#888"/>
             </LinearLayout>
 
-            <!-- PP-OCRv5 识别（内置） -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="PP-OCRv5"
-                        android:textSize="16sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="rec 多语言识别 (中日韩英)，内置"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_built_in"
-                    android:textSize="12sp"
-                    android:textColor="#888"/>
-            </LinearLayout>
-
             <!-- manga-ocr（需下载） -->
             <LinearLayout
                 android:id="@+id/manga_ocr_version_list"
@@ -334,6 +298,219 @@
 
                 <!-- 2025版 -->
                 <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_v2025_row"/>
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- PP-OCRv5 区域 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ppocr_section_title"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ppocr_section_desc"
+            android:textSize="12sp"
+            android:textColor="#888"
+            android:layout_marginTop="4dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/setting_shape"
+            android:padding="12dp"
+            android:layout_marginTop="8dp">
+
+            <!-- PP-OCRv5 中日英识别（内置） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PP-OCRv5 (中日英)"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/ppocr_rec_zh_desc"
+                        android:textSize="11sp"
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_included_in_core"
+                    android:textSize="12sp"
+                    android:textColor="#888"/>
+            </LinearLayout>
+
+            <!-- PP-OCRv5 英文识别（可下载） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="PP-OCRv5 (英文)"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_rec_en_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/ppocr_en_status"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12sp"/>
+
+                    <TextView
+                        android:id="@+id/ppocr_en_action_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:background="@drawable/btn_download"
+                        android:textColor="@android:color/white"
+                        android:textSize="12sp"
+                        android:text="@string/model_download"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- PP-OCRv5 韩文识别（可下载） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="PP-OCRv5 (韩文)"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_rec_ko_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/ppocr_ko_status"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12sp"/>
+
+                    <TextView
+                        android:id="@+id/ppocr_ko_action_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:background="@drawable/btn_download"
+                        android:textColor="@android:color/white"
+                        android:textSize="12sp"
+                        android:text="@string/model_download"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- PP-OCRv5 俄文识别（可下载） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="PP-OCRv5 (俄文)"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_rec_ru_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/ppocr_ru_status"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12sp"/>
+
+                    <TextView
+                        android:id="@+id/ppocr_ru_action_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:background="@drawable/btn_download"
+                        android:textColor="@android:color/white"
+                        android:textSize="12sp"
+                        android:text="@string/model_download"/>
+                </LinearLayout>
             </LinearLayout>
 
         </LinearLayout>

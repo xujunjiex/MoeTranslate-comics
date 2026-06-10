@@ -170,4 +170,21 @@
         <item>3000</item>
         <item>5000</item>
     </string-array>
+
+    <string-array name="context_count_entries">
+        <item>1 轮</item>
+        <item>2 轮</item>
+        <item>3 轮</item>
+        <item>5 轮</item>
+        <item>8 轮</item>
+        <item>10 轮</item>
+    </string-array>
+    <string-array name="context_count_values">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>5</item>
+        <item>8</item>
+        <item>10</item>
+    </string-array>
 </resources>

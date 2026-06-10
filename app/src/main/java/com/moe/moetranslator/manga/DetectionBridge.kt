@@ -209,7 +209,7 @@ object DetectionBridge {
             when (ocrEngine) {
                 CTDOCREngine.PPOcrV5 -> {
                     // PPOcrV5 单行单列识别器：用 BoxMerger 分组，逐个 QuadBox 透视裁剪识别，按组拼接文字
-                    val recLang = PPOcrV5Engine.getRecLang(language)
+                    val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
                     if (recLang != null) {
                         // 逐个 QuadBox 透视裁剪 + 识别
                         val allCropped = quadBoxes.map { qb -> PPOcrV5Engine.getRotateCropImage(bitmap, qb.pts) }
@@ -1313,7 +1313,7 @@ object DetectionBridge {
                     }
                 }
                 CTDOCREngine.PPOcrV5 -> {
-                    val recLang = PPOcrV5Engine.getRecLang(language)
+                    val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
                     if (recLang != null) {
                         val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
                         for (i in sortedBubbles.indices) {
@@ -1414,7 +1414,7 @@ object DetectionBridge {
         try {
             LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别, language=$language")
 
-            val recLang = PPOcrV5Engine.getRecLang(language)
+            val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
             if (recLang == null) {
                 LogCollector.w(TAG, "PP-OCRv5 不支持的语言: $language")
                 return emptyList()

@@ -14,6 +14,7 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.manga.CTDModelManager
 import com.moe.moetranslator.manga.MangaOcrDownloadManager
 import com.moe.moetranslator.manga.ModelDownloadManager
+import com.moe.moetranslator.manga.PPOcrModelManager
 import com.moe.moetranslator.manga.RTDetrModelManager
 import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +41,14 @@ class ModelManagementFragment : Fragment() {
     private var mangaOcrIsCancelled = false
     private var mangaOcrCurrentDownloadingVersion: MangaOcrDownloadManager.ModelVersion? = null
 
+    // PP-OCRv5 可选模型下载相关（核心模型内置在 assets 中）
+    private var ppOcrEnDownloadJob: Job? = null
+    private var ppOcrEnIsCancelled = false
+    private var ppOcrKoDownloadJob: Job? = null
+    private var ppOcrKoIsCancelled = false
+    private var ppOcrRuDownloadJob: Job? = null
+    private var ppOcrRuIsCancelled = false
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -54,6 +63,9 @@ class ModelManagementFragment : Fragment() {
         updateRTDetrStatus()
         updateCtdStatus()
         updateMangaOcrStatus()
+        updatePPOcrEnStatus()
+        updatePPOcrKoStatus()
+        updatePPOcrRuStatus()
     }
 
     private fun setButtonDeleteStyle(btn: TextView, isDelete: Boolean) {
@@ -454,6 +466,238 @@ class ModelManagementFragment : Fragment() {
         }
     }
 
+    // ========== PP-OCRv5 EN 下载相关 ==========（核心模型内置在 assets 中，无需下载）
+
+    private fun updatePPOcrEnStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.ppocr_en_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.ppocr_en_action_button)
+
+        val isDownloaded = PPOcrModelManager.isRecModelDownloaded(requireContext(), "en")
+        val isDownloading = ppOcrEnDownloadJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelPPOcrEnDownload() }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "en")
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showPPOcrDeleteConfirmDialog("en") }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startPPOcrDownload("en") }
+            }
+        }
+    }
+
+    private fun cancelPPOcrEnDownload() {
+        cancelPPOcrDownload("en")
+    }
+
+    // ========== PP-OCRv5 KO 下载相关 ==========
+
+    private fun updatePPOcrKoStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.ppocr_ko_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.ppocr_ko_action_button)
+
+        val isDownloaded = PPOcrModelManager.isRecModelDownloaded(requireContext(), "ko")
+        val isDownloading = ppOcrKoDownloadJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelPPOcrKoDownload() }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "ko")
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showPPOcrDeleteConfirmDialog("ko") }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startPPOcrDownload("ko") }
+            }
+        }
+    }
+
+    private fun cancelPPOcrKoDownload() {
+        cancelPPOcrDownload("ko")
+    }
+
+    // ========== PP-OCRv5 RU 下载相关 ==========
+
+    private fun updatePPOcrRuStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.ppocr_ru_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.ppocr_ru_action_button)
+
+        val isDownloaded = PPOcrModelManager.isRecModelDownloaded(requireContext(), "ru")
+        val isDownloading = ppOcrRuDownloadJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelPPOcrDownload("ru") }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "ru")
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showPPOcrDeleteConfirmDialog("ru") }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startPPOcrDownload("ru") }
+            }
+        }
+    }
+
+    // ========== PP-OCRv5 通用下载逻辑 ==========
+
+    private fun cancelPPOcrDownload(lang: String) {
+        when (lang) {
+            "en" -> { ppOcrEnIsCancelled = true; ppOcrEnDownloadJob?.cancel(); ppOcrEnDownloadJob = null }
+            "ko" -> { ppOcrKoIsCancelled = true; ppOcrKoDownloadJob?.cancel(); ppOcrKoDownloadJob = null }
+            "ru" -> { ppOcrRuIsCancelled = true; ppOcrRuDownloadJob?.cancel(); ppOcrRuDownloadJob = null }
+        }
+        LogCollector.d(TAG, "PP-OCRv5 $lang 下载已取消")
+        updatePPOcrStatus(lang)
+    }
+
+    private fun updatePPOcrStatus(lang: String) {
+        when (lang) {
+            "en" -> updatePPOcrEnStatus()
+            "ko" -> updatePPOcrKoStatus()
+            "ru" -> updatePPOcrRuStatus()
+        }
+    }
+
+    private fun startPPOcrDownload(lang: String) {
+        when (lang) {
+            "en" -> ppOcrEnIsCancelled = false
+            "ko" -> ppOcrKoIsCancelled = false
+            "ru" -> ppOcrRuIsCancelled = false
+        }
+
+        val isCancelled: () -> Boolean = {
+            when (lang) {
+                "en" -> ppOcrEnIsCancelled
+                "ko" -> ppOcrKoIsCancelled
+                else -> ppOcrRuIsCancelled
+            }
+        }
+
+        val statusId = when (lang) {
+            "en" -> R.id.ppocr_en_status
+            "ko" -> R.id.ppocr_ko_status
+            else -> R.id.ppocr_ru_status
+        }
+
+        val job = lifecycleScope.launch(Dispatchers.IO) {
+            LogCollector.d(TAG, "开始下载 PP-OCRv5 $lang 模型...")
+            try {
+                val result = PPOcrModelManager.downloadRecModel(
+                    requireContext(),
+                    lang,
+                    object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            if (isCancelled() || !isAdded) return
+                            handler.post {
+                                if (isCancelled() || !isAdded) return@post
+                                val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                                val statusText = rootView.findViewById<TextView>(statusId)
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
+                                statusText.text = "${getString(R.string.model_downloading)} $progress%  ${mbRead}/${mbTotal} MB$speedStr"
+                            }
+                        }
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    when (lang) {
+                        "en" -> ppOcrEnDownloadJob = null
+                        "ko" -> ppOcrKoDownloadJob = null
+                        "ru" -> ppOcrRuDownloadJob = null
+                    }
+                    if (isCancelled()) return@withContext
+                    if (result.isSuccess) {
+                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.model_download_failed, result.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
+                    }
+                    updatePPOcrStatus(lang)
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "PP-OCRv5 $lang 下载异常", e)
+                withContext(Dispatchers.Main) {
+                    when (lang) {
+                        "en" -> ppOcrEnDownloadJob = null
+                        "ko" -> ppOcrKoDownloadJob = null
+                        "ru" -> ppOcrRuDownloadJob = null
+                    }
+                    if (isCancelled()) return@withContext
+                    Toast.makeText(requireContext(), getString(R.string.model_download_failed, e.message), Toast.LENGTH_LONG).show()
+                    updatePPOcrStatus(lang)
+                }
+            }
+        }
+
+        when (lang) {
+            "en" -> ppOcrEnDownloadJob = job
+            "ko" -> ppOcrKoDownloadJob = job
+            "ru" -> ppOcrRuDownloadJob = job
+        }
+        updatePPOcrStatus(lang)
+    }
+
+    private fun showPPOcrDeleteConfirmDialog(lang: String) {
+        val name = when (lang) {
+            "en" -> "PP-OCRv5 EN"
+            "ko" -> "PP-OCRv5 KO"
+            else -> "PP-OCRv5 RU"
+        }
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(R.string.model_delete)
+            .setMessage(getString(R.string.model_delete_confirm, name))
+            .setPositiveButton(R.string.confirm) { _, _ -> deletePPOcrModel(lang) }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    private fun deletePPOcrModel(lang: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = PPOcrModelManager.deleteRecModel(requireContext(), lang)
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
+                }
+                if (lang == "en") updatePPOcrEnStatus() else updatePPOcrKoStatus()
+            }
+        }
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         handler.removeCallbacksAndMessages(null)
@@ -464,5 +708,11 @@ class ModelManagementFragment : Fragment() {
         mangaOcrDownloadJob?.cancel()
         mangaOcrDownloadJob = null
         mangaOcrCurrentDownloadingVersion = null
+        ppOcrEnDownloadJob?.cancel()
+        ppOcrEnDownloadJob = null
+        ppOcrKoDownloadJob?.cancel()
+        ppOcrKoDownloadJob = null
+        ppOcrRuDownloadJob?.cancel()
+        ppOcrRuDownloadJob = null
     }
 }

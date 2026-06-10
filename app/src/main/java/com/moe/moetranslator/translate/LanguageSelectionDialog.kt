@@ -33,6 +33,13 @@ class LanguageSelectionDialog(
     private val locales: List<CustomLocale>,
     private val onLanguageSelected: (CustomLocale) -> Unit)
 {
+    companion object {
+        // 语言附加描述（源语言选择时显示在名称后面）
+        private val LANGUAGE_TIPS = mapOf(
+            "ru" to "（仅支持 PP-OCRv5）"
+        )
+    }
+
     fun show() {
         val builder = AlertDialog.Builder(context)
         val inflater = LayoutInflater.from(context)
@@ -43,7 +50,9 @@ class LanguageSelectionDialog(
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val view = convertView ?: inflater.inflate(android.R.layout.simple_list_item_1, parent, false)
                 val textView = view.findViewById<TextView>(android.R.id.text1)
-                textView.text = locales[position].getDisplayName()
+                val locale = locales[position]
+                val tip = if (type == 1) LANGUAGE_TIPS[locale.getOriCode()] else null
+                textView.text = if (tip != null) "${locale.getDisplayName()} $tip" else locale.getDisplayName()
                 return view
             }
         }

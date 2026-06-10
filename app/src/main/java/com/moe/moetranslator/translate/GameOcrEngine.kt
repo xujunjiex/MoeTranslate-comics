@@ -48,7 +48,10 @@ class GameOcrEngine(
 
     private suspend fun recognizeWithPPOcrV5(bitmap: Bitmap, language: String): String {
         initPPOcrV5IfNeeded()
-        val recLang = PPOcrV5Engine.getRecLang(language)
+        val (recLang, hint) = PPOcrV5Engine.resolveRecLang(context, language)
+        if (hint != null) {
+            LogCollector.w(TAG, "PP-OCRv5: $hint")
+        }
         return if (recLang != null) {
             val result = withContext(Dispatchers.IO) {
                 PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = false)
