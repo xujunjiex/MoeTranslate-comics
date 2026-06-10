@@ -62,11 +62,11 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 - `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`ScreenShotAccessibilityService`（截屏）、`OCRTextRecognizer`（ML Kit OCR）、`TranslationTextAPI`/`TranslationPicAPI`（翻译接口）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器，含锁定/关闭按钮）、`CropView`（框选视图，含内置确认按钮）
 - `manga/` — 漫画翻译引擎：气泡检测 + OCR + 翻译 + 竖排文字渲染
 - `bridge/` — 桥接层：`OCRBridge`、`TranslateBridge`、`ScreenshotBridge`
-- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）
+- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，6 条 FAQ）
 - `launch/` — 首次启动引导
 - `utils/` — 工具类：`Constants`（枚举定义）、`CustomPreference`（配置封装）、`LogCollector`（日志收集）、`PixelCompare`（像素比较）、`UiUtils`（Toast 统一）、`ServiceUtils`（服务状态检测）、`UpdateChecker`（检查更新）
 - `data/` — Room 数据库、`TranslationCacheManager`、`HistoryEntity`/`PageCacheEntity`
-- `ui/history/` — 历史记录 UI：`HistoryFragment`、`HistoryGameAdapter`、`HistoryMangaAdapter`
+- `ui/history/` — 历史记录 UI：`HistoryFragment`、`HistoryGroupAdapter`（游戏分组）、`HistoryMangaGroupAdapter`（漫画分组）、`HistoryGameAdapter`、`HistoryMangaAdapter`、`MangaViewerActivity`（全屏图片浏览+译文详情）
 
 **翻译 API 实现** (`app/src/main/java/translationapi/`):
 每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`mlkittranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`
@@ -77,6 +77,35 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 
 **截图流程：** `ScreenShotAccessibilityService` → `ScreenshotManager.screenshotFlow`（SharedFlow）→ `FloatingBallService` 接收处理
 
+**翻译提示词架构：**
+
+提示词仅对 OpenAI 兼容 API 生效（火山/智谱/DeepSeek/通义千问/用户自建），非 OpenAI API（Volc/DeepL/Baidu/Azure/腾讯/Bing/Niutrans/NLLB）为纯机器翻译，不接受提示词配置。
+
+```
+定义层（源头）
+├── BuiltinProviders.kt    — 内置 API 默认提示词（DEFAULT_SYSTEM_PROMPT 等 6 个常量）
+└── OpenAIText.kt          — 用户自建 API 默认提示词（defaultSystemPrompt + fallbackManga*）
+
+存储层
+└── CustomStorage.kt       — 内置 API: BuiltInProviderMod（只存差异）; 用户 API: OpenAIProviderConfig（全量）
+
+读取层
+└── ConfigurationStorage.loadAllProviders() → applyMod()
+    内置: systemPrompt = mod.systemPrompt ?? builtin.defaultSystemPrompt
+    用户: 直接读取存储值
+
+使用层
+├── 游戏模式 FloatingBallService → OpenAITranslation(systemPrompt=provider.systemPrompt)
+└── 漫画模式 MangaFloatingService → OpenAITranslation(systemPrompt=provider.mangaSystemPrompt.ifEmpty{default})
+
+发送层（OpenAITranslation.kt）
+├── buildSystemPrompt()  — 上下文开启时前缀 "根据上下文剧情进行翻译..."
+├── buildUserPrompt()    — 替换 usefromlang/usetolang/usesourcetext 占位符
+└── buildRequestBody()   — messages: [system, (历史user/assistant对), user]
+```
+
+游戏/漫画提示词分离：`provider.systemPrompt`（游戏）和 `provider.mangaSystemPrompt`（漫画）独立存储、独立配置。漫画模式额外支持续写格式控制（见下文）。
+
 **聚合 AI 翻译续写模式（漫画格式控制）：**
 漫画翻译使用各厂商续写模式（assistant prefill）硬约束输出 `[1] 译文` 格式：
 - 火山引擎：`CONTINUATION_STANDARD`，无额外参数
@@ -86,6 +115,8 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 - `OpenAITranslation` 根据 `continuationType` 参数处理不同续写方式
 
 **内容安全审查：** 各 API 平台可能拦截敏感内容翻译（错误码 `data_inspection_failed`，HTTP 400）。不同平台审查阈值不同，被拦截时换平台或换模型。
+
+**AI 上下文（游戏模式）：** `FloatingBallService` 维护 `LinkedList<Pair<String, String>>` 存储历史翻译对（原文, 译文）。开启后系统提示词追加"根据上下文剧情进行翻译"，messages 中插入历史 user/assistant 对。用户可配置轮数（1-10，默认 5）。仅 OpenAI 兼容 API 生效，漫画模式不支持。设置项：`game_context_enabled`（开关）、`game_context_count`（轮数，存为 String）。
 
 **配置存储：** `CustomPreference` 单例封装 `SharedPreferences`。API 密钥通过 `KeystoreManager` 加密存储。
 
@@ -99,17 +130,37 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 
 | 模型 | 用途 | 大小 | 来源 | 存储位置 |
 |------|------|------|------|----------|
-| **PP-OCRv5 det** | 文字区域检测 | ~4.6MB | RapidAI/RapidOCR | assets/ppocrv5/ 内置 |
-| **PP-OCRv5 cls** | 方向分类 | ~1MB | RapidAI/RapidOCR | assets/ppocrv5/ 内置 |
-| **PP-OCRv5 rec zh** | 中文识别 | ~16MB | RapidAI/RapidOCR | assets/ppocrv5/ 内置 |
-| **PP-OCRv5 rec en** | 英文/拉丁文识别 | ~8.6MB | RapidAI/RapidOCR | assets/ppocrv5/ 内置 |
-| **PP-OCRv5 rec ko** | 韩文识别 | ~13MB | RapidAI/RapidOCR | assets/ppocrv5/ 内置 |
-| **Bubble Detector** | 气泡检测 | ~11MB | 内置 | assets/bubble_detector/ |
+| **PP-OCRv5 det** | 文字区域检测 | ~4.6MB | RapidAI/RapidOCR | **assets/ 内置** |
+| **PP-OCRv5 cls** | 方向分类 | ~1MB | RapidAI/RapidOCR | **assets/ 内置** |
+| **PP-OCRv5 rec zh** | 中日英混合识别 | ~16MB | RapidAI/RapidOCR | **assets/ 内置** |
+| **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | filesDir/ 可选下载 |
+| **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | filesDir/ 可选下载 |
+| **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | filesDir/ 可选下载 |
 | **CTD** | 文字区域检测 | ~94MB | GitHub releases | filesDir/ 下载 |
 | **RT-DETR v2** | 文字/气泡检测 | ~11MB | HuggingFace | filesDir/ 下载 |
 | **manga-ocr** | 竖排日文识别 | ~460MB/~135MB | HuggingFace | filesDir/ 下载 |
 
-内置模型合计约 **53MB**。
+PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中，约 22MB。可选 rec 模型（en/ko/ru）需用户从模型管理页面下载。
+
+### PP-OCRv5 模型下载地址（ModelScope）
+
+基础 URL: `https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec/`
+
+| 文件名 | ModelScope 文件名 | 大小 |
+|--------|-------------------|------|
+| rec_en.onnx | `en_PP-OCRv5_rec_mobile.onnx` | ~7.5MB |
+| rec_ko.onnx | `korean_PP-OCRv5_rec_mobile.onnx` | ~12.9MB |
+| rec_ru.onnx | `cyrillic_PP-OCRv5_rec_mobile.onnx` | ~7.7MB |
+
+字典文件（rec_en_dict.txt / rec_ko_dict.txt / rec_ru_dict.txt）内置在 assets 中，无需下载。
+
+### PP-OCRv5 语言 fallback 逻辑
+
+`PPOcrV5Engine.resolveRecLang()` 处理语言选择：
+- **ZH/JA**：始终可用（内置 rec_zh 模型，支持中日英混合识别）
+- **EN**：已下载 rec_en → 用 EN 模型；未下载 → fallback 到 ZH 模型（ch 也支持英文）
+- **KO**：已下载 rec_ko → 用 KO 模型；未下载 → 返回提示"请下载韩文模型"
+- **RU**：已下载 rec_ru → 用 RU 模型；未下载 → 返回提示"请下载俄文模型"
 
 ### 下载管理器
 
@@ -117,7 +168,8 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、进度回调）
 ├── CTDModelManager           # CTD 模型（单文件下载，~94MB）
 ├── RTDetrModelManager        # RT-DETR-V2 模型（单文件下载，~11MB）
-└── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载，支持 FULL/V2025 版本）
+├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载，支持 FULL/V2025 版本）
+└── PPOcrModelManager         # PP-OCRv5 可选模型管理（en~7.5MB/ko~13MB/ru~7.7MB）
 ```
 
 **关键规则：**
@@ -211,6 +263,8 @@ IDLE（跳过OCR）──像素变化──→ CHANGED ──稳定1帧──→
 
 **悬浮球长按延迟：** 默认 300ms（`FloatingBallConfig.LONG_PRESS_DELAY`）
 
+**自动翻译框选前置：** 启动自动翻译前必须先框选翻译区域（`mRectF != null`），未框选时提示"请先框选翻译区域"。
+
 ### 漫画翻译（自动翻页）
 
 **状态机（`MangaFloatingService`）：**
@@ -231,8 +285,16 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 `TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
 - 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.92）
 - 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
-- Room 数据库 `translation_history.db`，version 2，`fallbackToDestructiveMigration`
-- 历史 UI：`ui/history/HistoryFragment`，游戏列表 + 漫画网格
+- Room 数据库 `translation_history.db`，version 3，`fallbackToDestructiveMigration`
+- `HistoryEntity` 新增 `session_id` 字段（version 2→3 迁移）
+- 历史 UI：`ui/history/HistoryFragment`，游戏和漫画均按时间+会话分组显示
+- 漫画图片浏览：`MangaViewerActivity` 全屏翻页 + 底部译文详情面板
+
+**翻译会话：**
+- `FloatingBallService` / `MangaFloatingService` 每次启动生成 `UUID` 作为 `sessionId`
+- 通过 `CacheEntry.sessionId` 传给 `TranslationCacheManager.saveToCache()`
+- 历史查询 `getHistoryGrouped()` 按天+sessionId 分组
+- 旧数据（sessionId 为空）兼容处理
 
 **缓存标识：**
 - 游戏翻译：`FloatingBallService` 缓存命中时，翻译文本前显示"⚡"标识（紧凑前缀，不换行）
@@ -270,7 +332,7 @@ Get-Content "C:\Users\xjj20\Desktop\app_log.txt" | Select-String "关键词"
 ```
 
 **常用过滤：**
-- 翻译相关：`Select-String "MangaFloating|OpenAITrans|TranslateBridge|翻译配置|翻译结果"`
+- 翻译相关：`Select-String "MangaFloating|OpenAITrans|TranslateBridge|翻译配置|翻译结果|上下文"`
 - 错误：`Select-String "Error|Exception|FAILED|失败"`
 - 全部：直接 `Get-Content`
 
