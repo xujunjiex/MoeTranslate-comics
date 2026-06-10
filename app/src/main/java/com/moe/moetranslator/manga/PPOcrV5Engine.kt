@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
 import android.graphics.PointF
+import com.moe.moetranslator.R
 import com.moe.moetranslator.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
@@ -143,16 +144,18 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     /**
      * Rec 模型枚举（全部 PP-OCRv5 mobile）。
-     * ZH: 中英日混合（16MB）
+     * ZH: 中英日混合（~16MB，内置）
      * JA: 日文专用（复用 ZH 模型，日文由 ZH 模型覆盖）
-     * EN: 英文专用（7.6MB）
-     * KO: 韩文专用（13MB）
+     * EN: 英文专用（~7.5MB，可选下载）
+     * KO: 韩文专用（~13MB，可选下载）
+     * RU: 俄文/西里尔文字（~7.7MB，可选下载）
      */
     enum class RecLang(val code: String) {
         ZH("zh"),
         JA("zh"),   // 日文走 rec_zh（PP-OCRv5 中英日混合）
         EN("en"),
-        KO("ko");
+        KO("ko"),
+        RU("ru");
 
         fun recModelFile(): String = "ppocrv5/rec_$code.onnx"
         fun dictFile(): String = "ppocrv5/rec_${code}_dict.txt"
@@ -206,13 +209,13 @@ object PPOcrV5Engine {
                     setIntraOpNumThreads(4)
                 }
 
-                // det（PP-OCRv5 mobile，4.6MB 轻量模型，CPU 4 线程）
+                // det（内置，从 assets 加载）
                 LogCollector.d(TAG, "加载 det 模型...")
                 val detBytes = context.assets.open("ppocrv5/det_v5.onnx").use { it.readBytes() }
                 detSession = ortEnv!!.createSession(detBytes, sessionOpts)
-                LogCollector.d(TAG, "det 模型加载完成 (mobile)")
+                LogCollector.d(TAG, "det 模型加载完成")
 
-                // cls（可选）
+                // cls（内置，可选，从 assets 加载）
                 try {
                     LogCollector.d(TAG, "加载 cls 模型...")
                     val clsBytes = context.assets.open("ppocrv5/cls.onnx").use { it.readBytes() }
@@ -243,7 +246,8 @@ object PPOcrV5Engine {
     }
 
     /**
-     * 懒加载 rec 会话（线程安全，需要 Context 访问 assets）
+     * 懒加载 rec 会话（线程安全）
+     * ZH/JA（code="zh"）从内置 assets 加载；EN/KO 从 filesDir 加载（需用户下载）。
      */
     private fun getRecSession(context: Context, lang: RecLang): OrtSession? {
         recSessions[lang]?.let { return it }
@@ -259,7 +263,21 @@ object PPOcrV5Engine {
                     setCPUArenaAllocator(true)
                     setIntraOpNumThreads(4)
                 }
-                val bytes = context.assets.open(lang.recModelFile()).use { it.readBytes() }
+
+                val bytes = if (lang == RecLang.ZH || lang == RecLang.JA) {
+                    // 内置模型，从 assets 加载
+                    LogCollector.d(TAG, "从 assets 加载 rec 模型: ${lang.code}")
+                    context.assets.open("ppocrv5/rec_zh.onnx").use { it.readBytes() }
+                } else {
+                    // 可选模型，从 filesDir 加载
+                    val modelFile = PPOcrModelManager.getRecModelFile(context, lang.code)
+                    if (modelFile == null) {
+                        LogCollector.w(TAG, "rec 模型 ${lang.code} 未下载")
+                        return null
+                    }
+                    LogCollector.d(TAG, "从 filesDir 加载 rec 模型: ${lang.code}")
+                    modelFile.readBytes()
+                }
                 val session = ortEnv!!.createSession(bytes, opts)
                 recSessions[lang] = session
                 LogCollector.d(TAG, "rec 模型 ${lang.code} 加载完成")
@@ -273,16 +291,20 @@ object PPOcrV5Engine {
 
     /**
      * 加载字典文件：blank(0) + dict_chars + space(end)
+     * 所有字典内置在 assets 中。
      */
     private fun loadDictionary(context: Context) {
         val dicts = mutableMapOf<RecLang, List<String>>()
 
         for (lang in RecLang.entries) {
             try {
-                val lines = context.assets.open(lang.dictFile())
-                    .bufferedReader()
-                    .readLines()
-                    .filter { it.isNotEmpty() }
+                // ZH 和 JA 共用同一个字典文件
+                val dictFileName = if (lang == RecLang.JA) "ppocrv5/rec_zh_dict.txt"
+                    else "ppocrv5/rec_${lang.code}_dict.txt"
+
+                LogCollector.d(TAG, "从 assets 加载字典: ${lang.code} ($dictFileName)")
+                val lines = context.assets.open(dictFileName)
+                    .bufferedReader().readLines().filter { it.isNotEmpty() }
 
                 val dict = mutableListOf<String>()
                 dict.add("blank") // index 0
@@ -331,7 +353,58 @@ object PPOcrV5Engine {
         "ja", "japanese", "日本語" -> RecLang.JA
         "en", "english", "英语" -> RecLang.EN
         "ko", "korean", "한국어" -> RecLang.KO
+        "ru", "russian", "俄文" -> RecLang.RU
         else -> null
+    }
+
+    /**
+     * 检查指定语言的 rec 模型是否可用（已下载到 filesDir）。
+     * ZH/JA 内置（始终可用），EN/KO/RU 需用户下载。
+     */
+    fun isRecModelAvailable(context: Context, lang: RecLang): Boolean {
+        return if (lang == RecLang.ZH || lang == RecLang.JA) {
+            true // 内置模型
+        } else {
+            PPOcrModelManager.isRecModelDownloaded(context, lang.code)
+        }
+    }
+
+    /**
+     * 解析实际使用的 rec 语言（带 fallback）。
+     * - ZH/JA：始终可用（内置）
+     * - EN：已下载用 EN，否则 fallback 到 ZH（ch 模型也支持英文识别）
+     * - KO：已下载用 KO，否则返回 null（需提示用户下载）
+     * - RU：已下载用 RU，否则返回 null（需提示用户下载）
+     *
+     * @return Pair<实际RecLang, 提示消息?> 提示消息不为 null 时应展示给用户
+     */
+    fun resolveRecLang(context: Context, language: String): Pair<RecLang?, String?> {
+        val lang = getRecLang(language) ?: return Pair(null, null)
+
+        return when (lang) {
+            RecLang.ZH, RecLang.JA -> Pair(lang, null)
+            RecLang.EN -> {
+                if (isRecModelAvailable(context, RecLang.EN)) {
+                    Pair(RecLang.EN, null)
+                } else {
+                    Pair(RecLang.ZH, null) // fallback: ch 模型支持英文
+                }
+            }
+            RecLang.KO -> {
+                if (isRecModelAvailable(context, RecLang.KO)) {
+                    Pair(RecLang.KO, null)
+                } else {
+                    Pair(null, context.getString(R.string.ko_need_download_model))
+                }
+            }
+            RecLang.RU -> {
+                if (isRecModelAvailable(context, RecLang.RU)) {
+                    Pair(RecLang.RU, null)
+                } else {
+                    Pair(null, context.getString(R.string.ru_need_download_model))
+                }
+            }
+        }
     }
 
     // ========================================================================

@@ -302,6 +302,12 @@
     <string name="more_api">Adjust this option in the \"Translation Mode\" and \"API Configuration\" of the Settings page</string>
     <string name="faq_q3">Why did I click on the hoverball, but there was no translation result for a long time, and finally an error was reported?</string>
     <string name="faq_a3">This is most likely <b><u>due to poor internet connections</u></b>. Many waifu games need to use accelerators, but after using accelerators, it is relatively slow to access the domestic translation API. As a result, the translation will time out and errors will occur.\n\nAt this time, please <b><u>turn off your wifi, turn on the data data, and then speed up with the accelerator again</u></b>. At this point, you should be able to use the translation fluently. <b><u>There is no need to worry about data consumption</u></b>, generally speaking, when you use the translation mode of \"local OCR recognition + text translation\", the amount of traffic spent is minimal.</string>
+    <string name="faq_q4">Why can\'t I download models, update the software, or see update announcements in the model management page?</string>
+    <string name="faq_a4">This is because downloading models (GitHub/HuggingFace), checking for updates, and fetching announcements all require access to overseas services that are blocked in mainland China. <b><u>Please enable or switch your VPN</u></b> and try again. A stable proxy is recommended to ensure smooth network access.</string>
+    <string name="faq_q5">I\'m getting a \"DataInspectionFailed\" or \"Output data may contain inappropriate content\" error during translation?</string>
+    <string name="faq_a5">This is caused by the <b><u>content safety review mechanism</u></b> of the API platform. Translation platforms (such as Volc Engine, Tongyi Qianwen, etc.) may block sensitive content, and different platforms have different review thresholds.\n\nSolution: <b><u>Try switching to a different translation platform or model</u></b>. For example, switch from Volc Engine to DeepSeek or Tongyi Qianwen.</string>
+    <string name="faq_q6">Manga translation results are missing, inaccurate, or slow?</string>
+    <string name="faq_a6">You can try the following optimizations:\n\n1. <b><u>Frame the area that needs translation</u></b>: Precisely selecting the text area improves OCR accuracy and avoids recognizing irrelevant content.\n\n2. <b><u>Reduce UI interference</u></b>: Avoid selecting blank areas, game UI buttons, and other non-text content. Reducing unnecessary recognition improves speed.\n\n3. <b><u>Choose the right translation model</u></b>: Models with mini, lit, or flash labels have faster response times.</string>
     <string name="err_baidu_text_title">Baidu Translate（OCR）</string>
     <string name="err_baidu_text_content">The error code for Baidu Translate （Text） can be found at the link below:\nNote: You need to use desktop UA to browse normally, otherwise you will be redirected to the homepage of Baidu Translation Open Platform.\nhttps://fanyi-api.baidu.com/doc/21</string>
     <string name="err_bing_text_title">Bing Translate（OCR）</string>
@@ -391,7 +397,7 @@
     <string name="uniaiapi_name">Uni AI translation</string>
     <string name="uniaiapi_description">Supports AI interfaces including ChatGPT, Qwen, and DeepSeek, and as long as the AI interface is compatible with the OpenAI interface specification, StarFlow can be accessed</string>
     <string name="manage_uniai_api">Manage Uni AI translation API</string>
-    <string name="model_tips">选择带有 mini、lit、flash 标记的模型\n可获得更快的响应速度</string>
+    <string name="model_tips">选择带有 mini、lite、flash 标记的模型\n可获得更快的响应速度</string>
     <string name="introduce_openai_api_title">Uni AI Translation API Function Description</string>
     <string name="introduce_openai_api_content">\n⚠️ Note: <b>This is an advanced feature that requires you to have basic API call knowledge.</b>\n\n<big>1. Basic Description</big>\nThis feature allows you to use mainstream AI services for translation (<b>as long as they are compatible with OpenAI API specifications</b>), such as ChatGPT, Qwen, DeepSeek, etc. The integration method is through calling official API interfaces.\n\n<big>2. Parameter Description</big>\n1. API_KEY: The API key provided by the official website\n2. Base URL: The access endpoint provided by the official website  \n3. Model: The name of the model to be used\n4. System Prompt: Sets the identity for the model, keep default is recommended\n5. User Prompt: Translation instructions sent to the model, keep default is recommended\n\n<big>3. Configuration Example</big>\nTaking the integration of Alibaba\'s \"Qwen-Plus\" model as an example:\nFor API_KEY, fill in normally;\nFor Base URL, Alibaba\'s Qwen models generally use https://dashscope.aliyuncs.com/compatible-mode/v1;\nFor Model, the \"Qwen-Plus\" model corresponds to the code name qwen-plus;\nFor System Prompt and User Prompt, keep the defaults.\n\n<big>4. Before Using This Feature</big>\nYou can first test the API response using tools like Postman, Reqable, etc. After successful testing, fill in the relevant parameters into this feature.</string>
     <string name="base_url_tips">Not working? Try adding \"/v1\" to the end of the base URL; and \"/chat/completions\" will be added automatically.</string>
@@ -531,6 +537,11 @@
     <string name="history_deleted">History deleted</string>
     <string name="history_cleared">History cleared</string>
     <string name="history_copied">Copied to clipboard</string>
+    <string name="show_translation">Show Translation</string>
+    <string name="translation_detail">Translation Detail</string>
+    <string name="ocr_original_text">OCR Original</string>
+    <string name="ai_translated_text">AI Translation</string>
+    <string name="no_translation_data">No translation data</string>
     <string name="game_ocr_engine_label">OCR Model</string>
     <string name="game_ocr_engine_mlkit">ML Kit</string>
     <string name="game_ocr_engine_ppocr">PP-OCRv5</string>
@@ -560,6 +571,10 @@
     <string name="pixel_threshold_summary">Current: %s. Below this diffRatio = no change</string>
     <string name="pixel_check_interval_title">Check Interval</string>
     <string name="pixel_check_interval_summary">Current: %s. Pixel check interval</string>
+    <string name="game_context_title">AI Context</string>
+    <string name="game_context_summary">Carry translation history as context for better coherence (Game mode only, OpenAI-compatible APIs only)</string>
+    <string name="game_context_count_title">Context Rounds</string>
+    <string name="game_context_count_summary">Keep last %s rounds as context (Note: more rounds = more token usage)</string>
 
     <!-- Translation Status Overlay -->
     <string name="status_overlay_category">Translation Notification</string>
@@ -570,4 +585,32 @@
     <string name="status_overlay_copied">Copied</string>
     <string name="tab_game_mode">Game</string>
     <string name="tab_manga_mode">Manga</string>
+
+    <!-- Update Dialog -->
+    <string name="update_download_install">Download &amp; Install</string>
+    <string name="update_download_from_github">Download APK from GitHub Release</string>
+    <string name="update_github_release">GitHub Release Page</string>
+    <string name="update_other_download">Other download options</string>
+    <string name="update_baidu_pan">Baidu Pan</string>
+    <string name="update_quark_pan">Quark Pan</string>
+    <string name="update_cloud_delay_hint">⚠️ Cloud storage updates may be delayed. Please use GitHub download first.</string>
+    <string name="update_download_cancel">Cancel download</string>
+    <string name="update_download_speed">Speed: %.1f MB/s</string>
+    <string name="update_download_percent">%d%%</string>
+    <string name="update_installing">Installing…</string>
+    <string name="update_download_failed">Download failed: %s</string>
+
+    <!-- PP-OCRv5 models -->
+    <string name="ppocr_det_desc">det text detection, built-in</string>
+    <string name="ppocr_included_in_core">Built-in</string>
+    <string name="ppocr_rec_zh_desc">Chinese/Japanese/English recognition, built-in (~16MB)</string>
+    <string name="ppocr_rec_en_desc">English recognition, optional download (~7.5MB)</string>
+    <string name="ppocr_rec_ko_desc">Korean recognition, optional download (~13MB)</string>
+    <string name="ppocr_rec_ru_desc">Russian/Cyrillic recognition, optional download (~8MB)</string>
+    <string name="ppocr_section_title">PP-OCRv5</string>
+    <string name="ppocr_section_desc">PP-OCRv5 multilingual text recognition engine</string>
+    <string name="ru_need_ppocrv5_engine">Russian recognition requires PP-OCRv5 engine, please switch to PP-OCRv5 in manga settings</string>
+    <string name="ru_need_download_model">Please download PP-OCRv5 Russian model from model management page</string>
+    <string name="ko_need_download_model">Please download PP-OCRv5 Korean model from model management page</string>
+    <string name="manga_ocr_non_ja_hint">manga-ocr model is optimized for Japanese, current source language may affect recognition, consider switching to PP-OCRv5</string>
 </resources>

@@ -19,7 +19,10 @@ package com.moe.moetranslator.translate
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.widget.Toast
+import java.util.LinkedList
 import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.graphics.RectF
@@ -115,9 +118,6 @@ class FloatingBallService : LifecycleService() {
 
     private lateinit var prefs: CustomPreference
 
-    private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
-    private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
-
     // 是否正在翻译，默认false
     private val isTranslating = AtomicBoolean(false)
 
@@ -154,6 +154,14 @@ class FloatingBallService : LifecycleService() {
     private var translatorText: TranslationTextAPI? = null
     private var translatorPic: TranslationPicAPI? = null
 
+    // AI 上下文（仅游戏模式，仅 OpenAI 兼容 API）
+    private val contextHistory = LinkedList<Pair<String, String>>()
+    private var contextEnabled = false
+    private var contextMaxCount = 5
+
+    // 翻译会话 ID（每次服务启动生成新的）
+    private val sessionId = java.util.UUID.randomUUID().toString()
+
     // 自动翻译相关属性
     private var isAutoTranslating = false
     private var isMenuShowing = false
@@ -185,6 +193,9 @@ class FloatingBallService : LifecycleService() {
 
     // 翻译状态提示条
     private lateinit var statusOverlay: TranslationStatusOverlay
+
+    // SharedPreferences listener（防止被 GC 回收）
+    private var prefChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     private fun isGameDebugEnabled(): Boolean =
         prefs.getBoolean("Game_Translate_Debug_View", false)
@@ -230,8 +241,24 @@ class FloatingBallService : LifecycleService() {
         LogCollector.d(TAG, "FloatingBallService onCreate")
         prefs = CustomPreference.getInstance(this)
         statusOverlay = TranslationStatusOverlay(this)
+        // 读取 AI 上下文设置
+        contextEnabled = prefs.getBoolean("game_context_enabled", false)
+        contextMaxCount = try {
+            prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
+        } catch (e: Exception) { 5 }
         initialize()
         setupScreenshotCollector()
+
+        // 监听源语言和引擎变化，实时检查语言/模型提示
+        val watchedKeys = setOf("Source_Language", "Game_OCR_Engine")
+        prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key in watchedKeys) {
+                checkLanguageHints()
+            }
+        }
+        prefs.getSharedPreferences().registerOnSharedPreferenceChangeListener(prefChangeListener)
+        checkLanguageHints()
+
         LogCollector.d(TAG, "FloatingBallService created")
     }
 
@@ -687,6 +714,41 @@ class FloatingBallService : LifecycleService() {
         }
     }
 
+    /**
+     * 语言/模型可用性提示（系统 Toast）
+     * 场景：
+     * 1. manga-ocr 模型 + 非日文 → 提示
+     * 2. 韩文 + PP引擎 + KO未下载 → 提示下载
+     * 3. 俄文 + 非PP引擎 → 提示切换到PP
+     * 4. 俄文 + PP引擎 + RU未下载 → 提示下载
+     */
+    private fun checkLanguageHints() {
+        val currentOcr = prefs.getInt("Game_OCR_Engine", 0)
+        val isPP = currentOcr == 1  // PP-OCRv5
+        val isMangaOcr = currentOcr == 2  // manga-ocr
+        val src = prefs.getString("Source_Language", "ja")
+
+        // 优先级1：俄文 + 非PP引擎 → 提示切换到PP
+        if (src == "ru" && !isPP) {
+            Toast.makeText(this, getString(R.string.ru_need_ppocrv5_engine), Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 优先级2：PP引擎 + KO/RU未下载 → 提示下载
+        if (isPP) {
+            val (_, hint) = PPOcrV5Engine.resolveRecLang(this, src)
+            if (hint != null) {
+                Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+
+        // 优先级3：manga-ocr 模型 + 非日文 → 提示
+        if (isMangaOcr && src != "ja") {
+            Toast.makeText(this, getString(R.string.manga_ocr_non_ja_hint), Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showTranslationHistoryDialog() {
         lifecycleScope.launch {
             try {
@@ -761,7 +823,12 @@ class FloatingBallService : LifecycleService() {
                 showToast(getString(R.string.crop_first), true)
                 return
             }
-            is BallStatus.Normal -> {}
+            is BallStatus.Normal -> {
+                if (mRectF == null) {
+                    showToast(getString(R.string.crop_first), true)
+                    return
+                }
+            }
         }
 
         if (orientation == this.resources.configuration.orientation) {
@@ -1103,6 +1170,13 @@ class FloatingBallService : LifecycleService() {
         val sourceLang = prefs.getString("Source_Language", "ja")
         val targetLang = prefs.getString("Target_Language", "zh")
         LogCollector.d(TAG, "开始文本翻译: ${str.take(50)}..., $sourceLang → $targetLang")
+
+        // 更新 AI 上下文（仅 OpenAI 兼容 API）
+        (translatorText as? OpenAITranslation)?.updateContext(
+            if (contextEnabled) contextHistory.toList() else emptyList(),
+            contextEnabled
+        )
+
         translatorText?.getTranslation(str, sourceLang, targetLang) { result ->
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
@@ -1136,6 +1210,15 @@ class FloatingBallService : LifecycleService() {
                             translatedText = result.translatedText,
                             translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
                         )
+
+                        // 更新 AI 上下文
+                        if (contextEnabled && translatorText is OpenAITranslation) {
+                            contextHistory.addLast(Pair(str, result.translatedText))
+                            while (contextHistory.size > contextMaxCount) {
+                                contextHistory.removeFirst()
+                            }
+                            LogCollector.d(TAG, "上下文已更新: ${contextHistory.size}/$contextMaxCount 轮")
+                        }
                     }
                     is TranslationResult.Error -> {
                         LogCollector.e(TAG, "文本翻译失败", result.error)
@@ -1201,7 +1284,8 @@ class FloatingBallService : LifecycleService() {
                     sourceLang = prefs.getString("Source_Language", "ja"),
                     targetLang = prefs.getString("Target_Language", "zh"),
                     translatorName = translatorName,
-                    pHash = 0L
+                    pHash = 0L,
+                    sessionId = sessionId
                 ))
             } catch (e: Exception) {
                 LogCollector.e("FloatingBallService", "保存缓存失败", e)
@@ -1284,6 +1368,11 @@ class FloatingBallService : LifecycleService() {
     override fun onDestroy() {
         LogCollector.d(TAG, "FloatingBallService onDestroy")
         super.onDestroy()
+        // 注销 SharedPreferences listener
+        prefChangeListener?.let {
+            prefs.getSharedPreferences().unregisterOnSharedPreferenceChangeListener(it)
+        }
+        prefChangeListener = null
 
         // 停止自动翻译引擎
         autoTranslateEngine?.stop()

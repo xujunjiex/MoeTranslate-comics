@@ -8,6 +8,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -125,6 +127,9 @@ class MangaFloatingService : LifecycleService() {
     // 翻译状态提示条
     private lateinit var statusOverlay: TranslationStatusOverlay
 
+    // SharedPreferences listener（防止被 GC 回收）
+    private var prefChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
     // Long press detection
     private val handler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { handleLongPress() }
@@ -167,11 +172,11 @@ class MangaFloatingService : LifecycleService() {
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
     private var forceRefresh = false
+
+    // 翻译会话 ID（每次服务启动生成新的）
+    private val sessionId = java.util.UUID.randomUUID().toString()
     private var currentPHash = 0L
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
-
-    private val defaultSystemPrompt = "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n具体规则如下： \n1、根据用户的要求，将文本翻译成指定的目标语言；\n2、保持原意和语气；\n3、尽可能保持格式和结构；\n4、直接返回翻译后的文本，不要有任何解释或附加内容；\n5、如果文本已经是目标语言，请按原样返回。"
-    private val defaultUserPrompt = "请将下面的文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     private sealed class GestureType {
         object Click : GestureType()
@@ -187,7 +192,18 @@ class MangaFloatingService : LifecycleService() {
         statusOverlay = TranslationStatusOverlay(this)
         cacheManager = TranslationCacheManager(this)
         config = loadConfig()
+        checkLanguageHints()
         initTranslator()
+
+        // 监听源语言和引擎变化，实时检查语言/模型提示
+        val watchedKeys = setOf("Source_Language", "Manga_Det_Model", "Manga_Rec_Model")
+        prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key in watchedKeys) {
+                config = loadConfig()
+                checkLanguageHints()
+            }
+        }
+        prefs.getSharedPreferences().registerOnSharedPreferenceChangeListener(prefChangeListener)
 
         // 互斥：停止普通翻译服务
         try {
@@ -228,6 +244,11 @@ class MangaFloatingService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 注销 SharedPreferences listener
+        prefChangeListener?.let {
+            prefs.getSharedPreferences().unregisterOnSharedPreferenceChangeListener(it)
+        }
+        prefChangeListener = null
         removeAllViews()
         statusOverlay.release()
         translatorText?.release()
@@ -953,6 +974,46 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
+     * 语言/模型可用性提示（系统 Toast）
+     * 触发点：onCreate、toggleOcrEngine、toggleModelSimple、toggleDetModel、SharedPreferences listener
+     *
+     * 场景：
+     * 1. 漫画翻译运行中 + 非日文 → 提示
+     * 2. 韩文 + PP引擎 + KO未下载 → 提示下载
+     * 3. 俄文 + 非PP引擎 → 提示切换到PP
+     * 4. 俄文 + PP引擎 + RU未下载 → 提示下载
+     */
+    private fun checkLanguageHints() {
+        val isPP = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
+        val isMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
+        val src = config.sourceLang
+
+        // 优先级1：俄文 + 非PP引擎 → 提示切换到PP
+        if (src == "ru" && !isPP) {
+            showSystemToast(getString(R.string.ru_need_ppocrv5_engine))
+            return
+        }
+
+        // 优先级2：PP引擎 + KO/RU未下载 → 提示下载
+        if (isPP) {
+            val (_, hint) = PPOcrV5Engine.resolveRecLang(this, src)
+            if (hint != null) {
+                showSystemToast(hint)
+                return
+            }
+        }
+
+        // 优先级3：manga-ocr 模型 + 非日文 → 提示
+        if (isMangaOcr && src != "ja") {
+            showSystemToast(getString(R.string.manga_ocr_non_ja_hint))
+        }
+    }
+
+    private fun showSystemToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
      * 普通模式：切换固定搭配模型
      * MLKit → PP-OCRv5 → manga-ocr → MLKit
      */
@@ -1558,7 +1619,10 @@ class MangaFloatingService : LifecycleService() {
                     if (prefs.getBoolean("PPOcrV5_Debug_View", false)) {
                         LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
                         initPPOcrV5IfNeeded()
-                        val recLang = PPOcrV5Engine.getRecLang(config.sourceLang)
+                        val (recLang, hint) = PPOcrV5Engine.resolveRecLang(this@MangaFloatingService, config.sourceLang)
+                        if (hint != null) {
+                            showToast(hint, true)
+                        }
                         if (recLang != null) {
                             val ocrResult = withContext(Dispatchers.IO) {
                                 PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = false)
@@ -1589,7 +1653,14 @@ class MangaFloatingService : LifecycleService() {
 
             // Step 1: 文字检测 + 识别
             showProgressOverlay("文字识别中...")
-            val ppRecLang = PPOcrV5Engine.getRecLang(config.sourceLang)
+            val (ppRecLang, ppHint) = if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) {
+                PPOcrV5Engine.resolveRecLang(this@MangaFloatingService, config.sourceLang)
+            } else {
+                Pair(PPOcrV5Engine.getRecLang(config.sourceLang), null)
+            }
+            if (ppHint != null) {
+                showToast(ppHint, true)
+            }
             LogCollector.d(TAG, "Step 1 配置: detEngine=${config.detEngine}, ocrEngine=${config.ocrEngine}, sourceLang=${config.sourceLang}" +
                 if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
             val textBlocks: List<TextBlockInfo> = withContext(Dispatchers.IO) {
@@ -1922,15 +1993,20 @@ class MangaFloatingService : LifecycleService() {
         // 保存到缓存和历史
         try {
             val translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
+            // 从 allBubbles 聚合 OCR 原文和译文（allBubbles 包含缓存 + 新翻译）
+            val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
+            val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+            LogCollector.d(TAG, "保存缓存: ${allBubbles.size} 个气泡, ocr=${ocrTexts.take(50)}, trans=${transTexts.take(50)}")
             cacheManager.saveToCache(CacheEntry(
                 type = TranslationCacheManager.MODE_MANGA,
-                sourceText = null,
-                translatedText = null,
+                sourceText = ocrTexts.ifEmpty { null },
+                translatedText = transTexts.ifEmpty { null },
                 resultBitmap = resultBitmap.copy(resultBitmap.config ?: Bitmap.Config.ARGB_8888, false),
                 sourceLang = config.sourceLang,
                 targetLang = config.targetLang,
                 translatorName = translatorName,
-                pHash = currentPHash
+                pHash = currentPHash,
+                sessionId = sessionId
             ))
         } catch (e: Exception) {
             LogCollector.e(TAG, "保存缓存失败", e)
@@ -2060,8 +2136,6 @@ class MangaFloatingService : LifecycleService() {
         if (errorMsg != null) {
             throw RuntimeException("AI batch translation failed: $errorMsg")
         }
-
-        LogCollector.d(TAG, "AI原始返回文本: $resultText")
 
         // 按编号解析结果（支持JSON格式和编号格式）
         val result = resultText!!.trim()

@@ -302,6 +302,12 @@
     <string name="more_api">在【设置】页面的"翻译模式"和"API配置"中调整该选项</string>
     <string name="faq_q3">为什么点击了悬浮球，长时间没有翻译结果，最后报错？</string>
     <string name="faq_a3">这大概率是<b><u>由于网络不畅导致的</u></b>。很多外服游戏需要使用加速器，但使用加速器后，再访问国内的翻译API就比较慢了。所以就会导致翻译超时，出现错误。\n\n这时请<b><u>关闭您的wifi，打开数据流量，然后重新用加速器加速</u></b>。这时应该就能流畅使用翻译了。<b><u>无需担心流量消耗</u></b>，一般来说，当您使用"本地OCR识别+文本翻译"的翻译模式时，花费的流量是微乎其微的。</string>
+    <string name="faq_q4">为什么模型管理页面无法下载模型、无法更新软件、看不到更新公告？</string>
+    <string name="faq_a4">这是因为下载模型（GitHub/HuggingFace）、检查更新和获取公告都需要访问海外服务，这些服务在国内被屏蔽。<b><u>请开启或切换 VPN</u></b>后重试。建议使用稳定可靠的代理，确保网络通畅。</string>
+    <string name="faq_q5">翻译时显示 \"DataInspectionFailed\" 或 \"Output data may contain inappropriate content\" 报错？</string>
+    <string name="faq_a5">这是<b><u>API 平台的内容安全审查机制</u></b>导致的。各翻译平台（如火山引擎、通义千问等）会对敏感内容进行拦截，不同平台的审查阈值不同。\n\n解决方法：<b><u>尝试换一个翻译平台或模型</u></b>。例如从火山引擎切换到 DeepSeek 或通义千问。</string>
+    <string name="faq_q6">漫画模式翻译结果缺失、翻译不理想、翻译速度慢？</string>
+    <string name="faq_a6">可以尝试以下优化方法：\n\n1. <b><u>框选需要翻译的区域</u></b>：精确框选文字区域可以提高 OCR 识别精度，避免识别无关内容。\n\n2. <b><u>减少 UI 干扰</u></b>：避免框选空白区域、游戏 UI 按钮等非文字内容，减少不必要的识别可以提高速度。\n\n3. <b><u>选择合适的翻译模型</u></b>：带有 mini、lit、flash 标记的模型响应速度更快。</string>
     <string name="err_baidu_text_title">百度翻译（OCR）</string>
     <string name="err_baidu_text_content">百度翻译（文本）的错误码可在下方链接中找到：\n注意：需使用桌面端UA方可正常浏览，否则会跳转至百度翻译开放平台首页。\nhttps://fanyi-api.baidu.com/doc/21</string>
     <string name="err_bing_text_title">必应翻译（OCR）</string>
@@ -391,7 +397,7 @@
     <string name="uniaiapi_name">聚合 AI 翻译</string>
     <string name="uniaiapi_description">支持包括ChatGPT、Qwen、DeepSeek在内的AI接口，只要AI接口兼容OpenAI接口规范，星译便可接入</string>
     <string name="manage_uniai_api">管理聚合 AI 翻译API</string>
-    <string name="model_tips">选择带有 mini、lit、flash 标记的模型\n可获得更快的响应速度</string>
+    <string name="model_tips">选择带有 mini、lite、flash 标记的模型\n可获得更快的响应速度</string>
     <string name="introduce_openai_api_title">聚合AI翻译API功能说明</string>
     <string name="introduce_openai_api_content">\n⚠️注意：<b>这是一个高级功能，需要您了解基本的API调用知识。</b>\n\n<big>一、基本说明</big>\n此功能允许您使用市面上主流的AI来进行翻译（<b>只要兼容OpenAI接口规范即可接入</b>），如ChatGPT、Qwen、DeepSeek等，接入方式为调用官方API接口。\n\n<big>二、参数说明</big>\n1、API_KEY：对应官网上给出的API密钥\n2、基础URL：对应官网上给出的接入路径\n3、model：即使用的模型名称\n4、系统提示词：给模型设定身份，保持默认即可\n5、用户提示词：发送给模型的翻译指令，保持默认即可\n\n<big>三、填写示例</big>\n以接入阿里的"通义千问-Plus"模型为例：\n对于API_KEY，正常填写即可；\n对于基础URL，阿里旗下的千问模型一般都是https://dashscope.aliyuncs.com/compatible-mode/v1；\n对于model，"通义千问-Plus"模型对应的代号是qwen-plus；\n对于系统提示词和用户提示词，保持默认即可。\n\n\n<big>四、在使用该功能之前</big>\n您可以先使用Postman、Reqable等工具测试API响应，待测试成功后再将相关参数填入该功能中。</string>
     <string name="base_url_tips">无法使用？试试在基础URL最后加上"/v1"，"/chat/completions"会自动添加。</string>
@@ -518,6 +524,20 @@
     <!-- 模型下载提示 -->
     <string name="model_download_vpn_tip">💡 如无法下载模型，请开启 VPN 后重试\n下载过程中请勿退出当前页面</string>
 
+    <!-- PP-OCRv5 模型 -->
+    <string name="ppocr_det_desc">det 文字区域检测，内置</string>
+    <string name="ppocr_included_in_core">内置</string>
+    <string name="ppocr_rec_zh_desc">中日英混合识别，内置 (~16MB)</string>
+    <string name="ppocr_rec_en_desc">英文专用识别，可选下载 (~7.5MB)</string>
+    <string name="ppocr_rec_ko_desc">韩文专用识别，可选下载 (~13MB)</string>
+    <string name="ppocr_rec_ru_desc">俄文/西里尔文字识别，可选下载 (~8MB)</string>
+    <string name="ppocr_section_title">PP-OCRv5</string>
+    <string name="ppocr_section_desc">PP-OCRv5 多语言文字识别引擎</string>
+    <string name="ru_need_ppocrv5_engine">俄文识别需要 PP-OCRv5 引擎，请在漫画设置中切换到 PP-OCRv5</string>
+    <string name="ru_need_download_model">请在模型管理页面下载 PP-OCRv5 俄文模型</string>
+    <string name="ko_need_download_model">请在模型管理页面下载 PP-OCRv5 韩文模型</string>
+    <string name="manga_ocr_non_ja_hint">manga-ocr 模型针对日文优化，当前源语言可能影响识别效果，建议切换到 PP-OCRv5</string>
+
     <!-- 历史记录 -->
     <string name="clear_history">清空</string>
     <string name="no_history">暂无历史记录</string>
@@ -553,10 +573,19 @@
     <string name="pixel_threshold_summary">当前: %s。diffRatio 低于此值认为画面没变化</string>
     <string name="pixel_check_interval_title">检测间隔</string>
     <string name="pixel_check_interval_summary">当前: %s。像素快检的间隔时间</string>
+    <string name="game_context_title">AI 上下文</string>
+    <string name="game_context_summary">开启后翻译将携带历史对话上下文，提升翻译连贯性（仅游戏模式，仅支持聚合AI翻译）</string>
+    <string name="game_context_count_title">上下文轮数</string>
+    <string name="game_context_count_summary">保留最近 %s 轮翻译作为上下文（注意：轮数越多消耗 token 越多）</string>
     <string name="delete_history_confirm">确认删除此条历史记录？</string>
     <string name="history_deleted">历史记录已删除</string>
     <string name="history_cleared">历史记录已清空</string>
     <string name="history_copied">已复制到剪贴板</string>
+    <string name="show_translation">查看译文</string>
+    <string name="translation_detail">译文详情</string>
+    <string name="ocr_original_text">OCR 原文</string>
+    <string name="ai_translated_text">AI 译文</string>
+    <string name="no_translation_data">暂无译文数据</string>
 
     <!-- Translation Status Overlay -->
     <string name="status_overlay_category">翻译通知</string>
@@ -567,4 +596,18 @@
     <string name="status_overlay_copied">已复制</string>
     <string name="tab_game_mode">游戏模式</string>
     <string name="tab_manga_mode">漫画模式</string>
+
+    <!-- Update Dialog -->
+    <string name="update_download_install">直接下载安装</string>
+    <string name="update_download_from_github">从 GitHub Release 下载 APK</string>
+    <string name="update_github_release">GitHub Release 页面</string>
+    <string name="update_other_download">其他下载方式</string>
+    <string name="update_baidu_pan">百度网盘</string>
+    <string name="update_quark_pan">夸克网盘</string>
+    <string name="update_cloud_delay_hint">⚠️ 网盘更新可能滞后，请优先使用 GitHub 下载</string>
+    <string name="update_download_cancel">取消下载</string>
+    <string name="update_download_speed">速度: %.1f MB/s</string>
+    <string name="update_download_percent">%d%%</string>
+    <string name="update_installing">安装中…</string>
+    <string name="update_download_failed">下载失败：%s</string>
 </resources>

@@ -204,4 +204,9 @@ class CustomPreference private constructor(context: Context) {
     fun contains(key: String): Boolean {
         return prefs.contains(key)
     }
+
+    /**
+     * 暴露 SharedPreferences 实例，供 OnSharedPreferenceChangeListener 使用
+     */
+    fun getSharedPreferences(): SharedPreferences = prefs
 }
