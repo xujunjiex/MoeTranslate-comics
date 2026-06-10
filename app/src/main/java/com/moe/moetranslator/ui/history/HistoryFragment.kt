@@ -1,20 +1,16 @@
 package com.moe.moetranslator.ui.history
 
-import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.BitmapFactory
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
@@ -35,8 +31,8 @@ class HistoryFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var cacheManager: TranslationCacheManager
-    private lateinit var gameAdapter: HistoryGameAdapter
-    private lateinit var mangaAdapter: HistoryMangaAdapter
+    private lateinit var gameGroupAdapter: HistoryGroupAdapter
+    private lateinit var mangaGroupAdapter: HistoryMangaGroupAdapter
 
     // 0=游戏, 1=漫画
     private var currentTab = TranslationCacheManager.MODE_GAME
@@ -84,20 +80,21 @@ class HistoryFragment : Fragment() {
     }
 
     private fun setupRecyclerViews() {
-        gameAdapter = HistoryGameAdapter(
+        // 游戏历史：分组适配器
+        gameGroupAdapter = HistoryGroupAdapter(
             onItemClick = { entry -> copyTranslatedText(entry) },
             onItemLongClick = { entry -> showDeleteDialog(entry) }
         )
         binding.rvGameHistory.layoutManager = LinearLayoutManager(requireContext())
-        binding.rvGameHistory.adapter = gameAdapter
+        binding.rvGameHistory.adapter = gameGroupAdapter
 
-        mangaAdapter = HistoryMangaAdapter(
-            onItemClick = { entry -> showFullImage(entry) },
+        // 漫画历史：分组适配器
+        mangaGroupAdapter = HistoryMangaGroupAdapter(
+            onItemClick = { entry -> openMangaViewer(entry) },
             onItemLongClick = { entry -> showDeleteDialog(entry) }
         )
-        // 漫画使用 2 列网格
-        binding.rvMangaHistory.layoutManager = GridLayoutManager(requireContext(), 2)
-        binding.rvMangaHistory.adapter = mangaAdapter
+        binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
+        binding.rvMangaHistory.adapter = mangaGroupAdapter
     }
 
     private fun setupClearButton() {
@@ -123,17 +120,19 @@ class HistoryFragment : Fragment() {
     private fun loadHistory() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val history = cacheManager.getHistory(currentTab)
-                LogCollector.d(TAG, "loadHistory: type=$currentTab, count=${history.size}")
-
                 when (currentTab) {
                     TranslationCacheManager.MODE_GAME -> {
-                        gameAdapter.submitList(history)
-                        updateEmptyState(history.isEmpty())
+                        // 游戏历史：使用分组查询
+                        val groups = cacheManager.getHistoryGrouped(currentTab)
+                        gameGroupAdapter.submitList(groups)
+                        updateEmptyState(groups.isEmpty())
+                        LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组")
                     }
                     TranslationCacheManager.MODE_MANGA -> {
-                        mangaAdapter.submitList(history)
-                        updateEmptyState(history.isEmpty())
+                        val groups = cacheManager.getHistoryGrouped(currentTab)
+                        mangaGroupAdapter.submitList(groups)
+                        updateEmptyState(groups.isEmpty())
+                        LogCollector.d(TAG, "loadHistory: 漫画分组, ${groups.size} 个日期组")
                     }
                 }
             } catch (e: Exception) {
@@ -193,24 +192,14 @@ class HistoryFragment : Fragment() {
             .show()
     }
 
-    private fun showFullImage(entry: HistoryEntry) {
-        val path = entry.imagePath ?: entry.thumbnailPath
-        if (path.isNullOrEmpty() || !java.io.File(path).exists()) {
-            Toast.makeText(requireContext(), R.string.no_history, Toast.LENGTH_SHORT).show()
-            return
+    /**
+     * 打开漫画图片浏览页
+     */
+    private fun openMangaViewer(entry: HistoryEntry) {
+        val intent = Intent(requireContext(), MangaViewerActivity::class.java).apply {
+            putExtra(MangaViewerActivity.EXTRA_ENTRY_ID, entry.id)
         }
-
-        val bitmap = BitmapFactory.decodeFile(path) ?: return
-
-        val dialog = Dialog(requireContext(), android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen)
-        val imageView = ImageView(requireContext()).apply {
-            setImageBitmap(bitmap)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(0xFF000000.toInt())
-            setOnClickListener { dialog.dismiss() }
-        }
-        dialog.setContentView(imageView)
-        dialog.show()
+        startActivity(intent)
     }
 
     override fun onDestroyView() {

@@ -16,6 +16,9 @@ interface TranslationHistoryDao {
     @Query("SELECT * FROM translation_history WHERE type = :type ORDER BY createdAt DESC LIMIT :limit")
     suspend fun getHistoryByType(type: Int, limit: Int = 50): List<HistoryEntity>
 
+    @Query("SELECT * FROM translation_history WHERE session_id = :sessionId ORDER BY createdAt DESC")
+    suspend fun getHistoryBySessionId(sessionId: String): List<HistoryEntity>
+
     @Query("SELECT * FROM translation_history ORDER BY createdAt DESC LIMIT :limit")
     suspend fun getAllHistory(limit: Int = 50): List<HistoryEntity>
 

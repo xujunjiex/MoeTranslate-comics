@@ -39,6 +39,10 @@
             android:exported="false"
             android:theme="@style/settheme" />
         <activity
+            android:name=".ui.history.MangaViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
+        <activity
             android:name=".launch.FirstLaunchPage"
             android:exported="false"
             android:theme="@style/Base.Theme.MT" />
@@ -78,6 +82,16 @@
             android:foregroundServiceType="mediaProjection" />
 
         <!-- 漫画翻译悬浮窗服务 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <service
             android:name="com.moe.moetranslator.manga.MangaFloatingService"
             android:enabled="true"

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginBottom="8dp">
+
+    <!-- 日期标题 -->
+    <TextView
+        android:id="@+id/tvDateHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#15000000"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:textColor="#FF666666"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <!-- 会话列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvSessions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:nestedScrollingEnabled="false" />
+
+</LinearLayout>

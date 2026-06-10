@@ -1,5 +1,6 @@
 package com.moe.moetranslator.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -22,5 +23,7 @@ data class HistoryEntity(
     val targetLang: String,     // 目标语言代码
     val translatorName: String, // 翻译器名称
     val pHash: Long,            // 感知哈希值
-    val createdAt: Long         // 创建时间戳
+    val createdAt: Long,        // 创建时间戳
+    @ColumnInfo(name = "session_id", defaultValue = "")
+    val sessionId: String = ""  // 翻译会话 ID
 )

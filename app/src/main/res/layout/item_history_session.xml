@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginTop="4dp">
+
+    <!-- 会话时间段标题 -->
+    <TextView
+        android:id="@+id/tvSessionHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="24dp"
+        android:paddingVertical="6dp"
+        android:textColor="#FF999999"
+        android:textSize="12sp" />
+
+    <!-- 会话内的历史记录 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvSessionEntries"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:nestedScrollingEnabled="false" />
+
+</LinearLayout>

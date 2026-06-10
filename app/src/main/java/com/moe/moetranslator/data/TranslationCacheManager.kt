@@ -115,7 +115,8 @@ class TranslationCacheManager(private val context: Context) {
             targetLang = entry.targetLang,
             translatorName = entry.translatorName,
             pHash = entry.pHash,
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            sessionId = entry.sessionId
         )
         val historyId = dao.insertHistory(historyEntity)
         LogCollector.d(TAG, "saveToCache: 插入 history, id=$historyId")
@@ -164,6 +165,74 @@ class TranslationCacheManager(private val context: Context) {
             dao.getHistoryByType(type, limit)
         }
         entities.map { it.toHistoryEntry() }
+    }
+
+    /**
+     * 获取按日期和会话分组的历史记录（游戏模式）。
+     */
+    suspend fun getHistoryGrouped(type: Int, limit: Int = 200): List<HistoryGroup> = withContext(Dispatchers.IO) {
+        val entities = dao.getHistoryByType(type, limit)
+        val entries = entities.map { it.toHistoryEntry() }
+
+        if (entries.isEmpty()) return@withContext emptyList()
+
+        val calendar = java.util.Calendar.getInstance()
+        val today = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val yesterday = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+        val threeDaysAgo = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -3) }
+        val sevenDaysAgo = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -7) }
+
+        fun getDateLabel(timestamp: Long): String {
+            calendar.timeInMillis = timestamp
+            return when {
+                timestamp >= today.timeInMillis -> "今天"
+                timestamp >= yesterday.timeInMillis -> "昨天"
+                timestamp >= threeDaysAgo.timeInMillis -> "3天前"
+                timestamp >= sevenDaysAgo.timeInMillis -> "7天前"
+                else -> {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    sdf.format(java.util.Date(timestamp))
+                }
+            }
+        }
+
+        // 按日期分组
+        val groupedByDate = entries.groupBy { getDateLabel(it.createdAt) }
+
+        // 日期排序：今天的在最前面
+        val dateOrder = listOf("今天", "昨天", "3天前", "7天前")
+
+        groupedByDate.entries.sortedByDescending { entry ->
+            val idx = dateOrder.indexOf(entry.key)
+            if (idx >= 0) (-idx).toLong() else Long.MAX_VALUE - entry.value.maxOf { it.createdAt }
+        }.map { (dateLabel, dateEntries) ->
+            // 每个日期内按 sessionId 分组
+            val sessions = dateEntries.groupBy { it.sessionId }
+                .map { (sessionId, sessionEntries) ->
+                    HistorySession(
+                        sessionId = sessionId,
+                        startTime = sessionEntries.minOf { it.createdAt },
+                        endTime = sessionEntries.maxOf { it.createdAt },
+                        entries = sessionEntries.sortedByDescending { it.createdAt }
+                    )
+                }
+                .sortedByDescending { it.startTime }
+
+            HistoryGroup(dateLabel = dateLabel, sessions = sessions)
+        }
+    }
+
+    /**
+     * 按会话 ID 获取历史记录（用于漫画图片浏览）。
+     */
+    suspend fun getHistoryBySessionId(sessionId: String): List<HistoryEntry> = withContext(Dispatchers.IO) {
+        if (sessionId.isEmpty()) return@withContext emptyList()
+        dao.getHistoryBySessionId(sessionId).map { it.toHistoryEntry() }
     }
 
     /**
@@ -267,7 +336,8 @@ data class CacheEntry(
     val sourceLang: String,
     val targetLang: String,
     val translatorName: String,
-    val pHash: Long
+    val pHash: Long,
+    val sessionId: String = ""  // 翻译会话 ID
 )
 
 data class HistoryEntry(
@@ -280,7 +350,20 @@ data class HistoryEntry(
     val sourceLang: String,
     val targetLang: String,
     val translatorName: String,
-    val createdAt: Long
+    val createdAt: Long,
+    val sessionId: String = ""
+)
+
+data class HistoryGroup(
+    val dateLabel: String,           // "今天"、"昨天"、"2026-06-07"
+    val sessions: List<HistorySession>
+)
+
+data class HistorySession(
+    val sessionId: String,
+    val startTime: Long,
+    val endTime: Long,
+    val entries: List<HistoryEntry>
 )
 
 // ========== Entity -> Entry 转换 ==========
@@ -295,5 +378,6 @@ fun HistoryEntity.toHistoryEntry() = HistoryEntry(
     sourceLang = sourceLang,
     targetLang = targetLang,
     translatorName = translatorName,
-    createdAt = createdAt
+    createdAt = createdAt,
+    sessionId = sessionId
 )
