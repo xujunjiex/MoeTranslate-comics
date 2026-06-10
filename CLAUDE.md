@@ -133,12 +133,12 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 | **PP-OCRv5 det** | 文字区域检测 | ~4.6MB | RapidAI/RapidOCR | **assets/ 内置** |
 | **PP-OCRv5 cls** | 方向分类 | ~1MB | RapidAI/RapidOCR | **assets/ 内置** |
 | **PP-OCRv5 rec zh** | 中日英混合识别 | ~16MB | RapidAI/RapidOCR | **assets/ 内置** |
-| **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | filesDir/ 可选下载 |
-| **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | filesDir/ 可选下载 |
-| **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | filesDir/ 可选下载 |
-| **CTD** | 文字区域检测 | ~94MB | GitHub releases | filesDir/ 下载 |
-| **RT-DETR v2** | 文字/气泡检测 | ~11MB | HuggingFace | filesDir/ 下载 |
-| **manga-ocr** | 竖排日文识别 | ~460MB/~135MB | HuggingFace | filesDir/ 下载 |
+| **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **CTD** | 文字区域检测 | ~94MB | GitHub releases | getExternalFilesDir/ 下载 |
+| **RT-DETR v2** | 文字/气泡检测 | ~11MB | HuggingFace | getExternalFilesDir/ 下载 |
+| **manga-ocr** | 竖排日文识别 | ~460MB/~135MB | HuggingFace | getExternalFilesDir/ 下载 |
 
 PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中，约 22MB。可选 rec 模型（en/ko/ru）需用户从模型管理页面下载。
 
@@ -353,4 +353,22 @@ Get-Content "C:\Users\xjj20\Desktop\app_log.txt" | Select-String "关键词"
 
 ## 检查更新
 
-`UpdateChecker.kt` 调用 GitHub Releases API 检查新版本，对比 versionCode（如 `v0.0.2` → `2`），有新版本时弹窗提示并跳转到对应 Release 页面。
+`UpdateChecker.kt` 调用 GitHub Releases API 检查新版本，对比 versionCode（如 `v0.0.2` → `2`），有新版本时弹窗提供三种下载方式：
+- **直接下载**：从 Release assets 解析 APK 下载链接，app 内直接下载安装
+- **百度网盘**：从 Release body 解析百度网盘链接（包含"百度网盘"和"http"的行）
+- **夸克网盘**：从 Release body 解析夸克网盘链接（包含"夸克网盘"和"http"的行）
+
+### Release notes 格式规范
+
+Release notes 中必须包含以下信息，否则 app 内检查更新功能无法正常工作：
+
+```
+**下载说明**：
+- 百度网盘：https://pan.baidu.com/s/xxx?pwd=xxx
+- 夸克网盘：https://pan.quark.cn/s/xxx（暂无则写"暂无"）
+```
+
+创建 Release 时必须上传 APK 文件到 assets：
+```bash
+gh release create vX.X.X app/build/outputs/apk/release/app-release.apk --title "vX.X.X" --notes "..."
+```
