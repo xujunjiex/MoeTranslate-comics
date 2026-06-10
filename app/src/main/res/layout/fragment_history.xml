@@ -29,16 +29,25 @@
             app:tabTextColor="#888888" />
 
         <TextView
+            android:id="@+id/btn_refresh_history"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/refresh_history"
+            android:textColor="#55AEEA"
+            android:textSize="14sp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+
+        <TextView
             android:id="@+id/btn_clear_history"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/clear_history"
             android:textColor="#F44336"
             android:textSize="14sp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
             android:background="?attr/selectableItemBackgroundBorderless" />
     </LinearLayout>
 

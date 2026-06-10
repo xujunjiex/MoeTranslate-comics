@@ -31,14 +31,28 @@ object PerceptualHash {
 
     /**
      * 计算图片的 dHash。
+     * @param bitmap 原始图片
+     * @param centerCrop 是否裁剪到中心区域（提高框选偏移时的缓存命中率）
      * @return 64 位哈希值
      */
-    fun compute(bitmap: Bitmap): Long {
+    fun compute(bitmap: Bitmap, centerCrop: Boolean = false): Long {
+        val target = if (centerCrop) {
+            // 裁剪到中心 70%，忽略边缘区域（框选偏移主要影响边缘）
+            val cropW = (bitmap.width * 0.7f).toInt().coerceAtLeast(HASH_COLS)
+            val cropH = (bitmap.height * 0.7f).toInt().coerceAtLeast(HASH_ROWS)
+            val x = (bitmap.width - cropW) / 2
+            val y = (bitmap.height - cropH) / 2
+            Bitmap.createBitmap(bitmap, x, y, cropW, cropH)
+        } else {
+            bitmap
+        }
+
         // 1. 缩放到 9×8
-        val scaled = Bitmap.createScaledBitmap(bitmap, HASH_COLS, HASH_ROWS, true)
+        val scaled = Bitmap.createScaledBitmap(target, HASH_COLS, HASH_ROWS, true)
         val pixels = IntArray(HASH_COLS * HASH_ROWS)
         scaled.getPixels(pixels, 0, HASH_COLS, 0, 0, HASH_COLS, HASH_ROWS)
-        if (scaled !== bitmap) { scaled.recycle() }
+        if (scaled !== target) { scaled.recycle() }
+        if (target !== bitmap && centerCrop) { target.recycle() }
 
         // 2 & 3. 灰度比较相邻像素
         var hash = 0L

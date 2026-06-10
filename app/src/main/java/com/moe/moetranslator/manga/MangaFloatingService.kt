@@ -172,6 +172,7 @@ class MangaFloatingService : LifecycleService() {
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
     private var forceRefresh = false
+    private var isForceRefreshActive = false  // 保存 forceRefresh 状态，用于保存缓存时判断
 
     // 翻译会话 ID（每次服务启动生成新的）
     private val sessionId = java.util.UUID.randomUUID().toString()
@@ -1481,16 +1482,20 @@ class MangaFloatingService : LifecycleService() {
         dismissResultOverlay()
         dismissProgressOverlay()
 
-        LogCollector.d(TAG, "triggerTranslation: translatorText=${translatorText?.javaClass?.simpleName}")
-        LogCollector.d(TAG, "triggerTranslation: cropRect=$cropRect")
-        if (cropRect != null) {
-            LogCollector.d(TAG, "triggerTranslation: taking cropped screenshot")
-            AccessibilityServiceManager.takeScreenshot(cropRect, cropView.absolutePointOffset)
-        } else {
-            LogCollector.d(TAG, "triggerTranslation: taking full screenshot")
-            AccessibilityServiceManager.takeScreenshot(null, android.graphics.Point(0, 0))
+        // 延迟截图，确保 overlay 从屏幕上完全消失（需要等下一帧渲染）
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(150)
+            LogCollector.d(TAG, "triggerTranslation: translatorText=${translatorText?.javaClass?.simpleName}")
+            LogCollector.d(TAG, "triggerTranslation: cropRect=$cropRect")
+            if (cropRect != null) {
+                LogCollector.d(TAG, "triggerTranslation: taking cropped screenshot")
+                AccessibilityServiceManager.takeScreenshot(cropRect, cropView.absolutePointOffset)
+            } else {
+                LogCollector.d(TAG, "triggerTranslation: taking full screenshot")
+                AccessibilityServiceManager.takeScreenshot(null, android.graphics.Point(0, 0))
+            }
+            LogCollector.d(TAG, "========== triggerTranslation END ==========")
         }
-        LogCollector.d(TAG, "========== triggerTranslation END ==========")
     }
 
     // ---------- Screenshot collection ----------
@@ -1559,11 +1564,13 @@ class MangaFloatingService : LifecycleService() {
                 evictExpiredRegions()
             }
 
-            // 计算 pHash（自动翻译模式下由 collector 预计算）
-            currentPHash = precomputedPHash ?: PerceptualHash.compute(bitmap)
+            // 计算 pHash（使用中心裁剪提高框选偏移时的缓存命中率）
+            // precomputedPHash 是全图 pHash（用于页面变化检测），缓存匹配用中心裁剪 pHash
+            currentPHash = PerceptualHash.compute(bitmap, centerCrop = true)
 
             // 全局缓存检查
-            if (!forceRefresh) {
+            isForceRefreshActive = forceRefresh
+            if (!isForceRefreshActive) {
                 val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA)
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
@@ -1739,6 +1746,24 @@ class MangaFloatingService : LifecycleService() {
                 }
             }
             LogCollector.d(TAG, "processMangaScreenshot: Step 2 - Detected ${allBubbles.size} bubbles")
+
+            // Step 2.5: 文本匹配缓存（OCR 完成后，翻译前）
+            // 用 OCR 文本内容查找缓存，同一页不同框选范围只要文字相同就能命中
+            if (!isForceRefreshActive && allBubbles.isNotEmpty()) {
+                val ocrTexts = allBubbles.map { it.texts.joinToString("") }
+                val textCached = cacheManager.findMangaCacheByText(ocrTexts, config.sourceLang, config.targetLang)
+                if (textCached != null && textCached.resultBitmap != null) {
+                    LogCollector.d(TAG, "processMangaScreenshot: 文本缓存命中, historyId=${textCached.historyId}")
+                    statusOverlay.showImmediate("缓存命中")
+                    lastTranslatedHash = currentPHash
+                    // 同步 pHash 缓存
+                    cacheManager.syncPHashCache(currentPHash, TranslationCacheManager.MODE_MANGA, textCached.historyId)
+                    withContext(Dispatchers.Main) {
+                        showResultOverlay(textCached.resultBitmap, fromCache = true)
+                    }
+                    return
+                }
+            }
 
             // Step 3: Translate
             val newTranslatedBubbles: List<TranslatedBubble>
@@ -1997,7 +2022,7 @@ class MangaFloatingService : LifecycleService() {
             val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
             val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
             LogCollector.d(TAG, "保存缓存: ${allBubbles.size} 个气泡, ocr=${ocrTexts.take(50)}, trans=${transTexts.take(50)}")
-            cacheManager.saveToCache(CacheEntry(
+            val entry = CacheEntry(
                 type = TranslationCacheManager.MODE_MANGA,
                 sourceText = ocrTexts.ifEmpty { null },
                 translatedText = transTexts.ifEmpty { null },
@@ -2007,7 +2032,15 @@ class MangaFloatingService : LifecycleService() {
                 translatorName = translatorName,
                 pHash = currentPHash,
                 sessionId = sessionId
-            ))
+            )
+            // 强制刷新时替换旧缓存和历史，否则直接保存
+            if (isForceRefreshActive) {
+                cacheManager.refreshCache(currentPHash, TranslationCacheManager.MODE_MANGA, entry)
+                LogCollector.d(TAG, "强制刷新：替换旧缓存和历史")
+                isForceRefreshActive = false
+            } else {
+                cacheManager.saveToCache(entry)
+            }
         } catch (e: Exception) {
             LogCollector.e(TAG, "保存缓存失败", e)
         }

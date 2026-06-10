@@ -62,4 +62,14 @@ interface TranslationHistoryDao {
 
     @Query("SELECT * FROM page_cache WHERE mode = :mode ORDER BY lastAccessedAt ASC LIMIT 1")
     suspend fun getOldestCache(mode: Int): PageCacheEntity?
+
+    /**
+     * 按 OCR 原文查找漫画历史（用于文本匹配缓存）。
+     * 传入排序后的原文指纹（各气泡原文去编号后排序拼接）。
+     */
+    @Query("SELECT * FROM translation_history WHERE sourceText = :sourceTextFingerprint AND type = 1 AND sourceLang = :sourceLang AND targetLang = :targetLang LIMIT 1")
+    suspend fun findMangaHistoryByText(sourceTextFingerprint: String, sourceLang: String, targetLang: String): HistoryEntity?
+
+    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode LIMIT 1")
+    suspend fun findCacheByPHash(pHash: Long, mode: Int): PageCacheEntity?
 }

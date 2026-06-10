@@ -57,6 +57,7 @@ class HistoryFragment : Fragment() {
         setupTabs()
         setupRecyclerViews()
         setupClearButton()
+        setupRefreshButton()
         loadHistory()
     }
 
@@ -100,6 +101,13 @@ class HistoryFragment : Fragment() {
     private fun setupClearButton() {
         binding.btnClearHistory.setOnClickListener {
             showClearDialog()
+        }
+    }
+
+    private fun setupRefreshButton() {
+        binding.btnRefreshHistory.setOnClickListener {
+            loadHistory()
+            Toast.makeText(requireContext(), R.string.history_refreshed, Toast.LENGTH_SHORT).show()
         }
     }
 

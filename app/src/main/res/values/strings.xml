@@ -528,6 +528,8 @@
     <string name="model_download_vpn_tip">💡 If you can\'t download models, please enable VPN and try again\nDo not leave this page during download</string>
 
     <!-- History -->
+    <string name="refresh_history">Refresh</string>
+    <string name="history_refreshed">Refreshed</string>
     <string name="clear_history">Clear</string>
     <string name="no_history">No history yet</string>
     <string name="history_game_tab">Game/Video</string>

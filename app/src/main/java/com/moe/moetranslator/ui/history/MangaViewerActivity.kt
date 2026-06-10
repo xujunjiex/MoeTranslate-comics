@@ -262,7 +262,7 @@ class MangaImageAdapter(
 ) : RecyclerView.Adapter<MangaImageAdapter.ViewHolder>() {
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val imageView: android.widget.ImageView = view.findViewById(R.id.ivFullImage)
+        val imageView: ZoomableImageView = view.findViewById(R.id.ivFullImage)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -274,25 +274,14 @@ class MangaImageAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val entry = entries[position]
         val path = entry.imagePath ?: entry.thumbnailPath
+        val isThumbnail = entry.imagePath == null
         if (path != null && java.io.File(path).exists()) {
-            // 使用 inSampleSize 避免 OOM
-            val options = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            BitmapFactory.decodeFile(path, options)
-
-            val maxDim = 2048
-            var sampleSize = 1
-            while (options.outWidth / sampleSize > maxDim || options.outHeight / sampleSize > maxDim) {
-                sampleSize *= 2
-            }
-
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-            }
-            val bitmap = BitmapFactory.decodeFile(path, decodeOptions)
+            val bitmap = BitmapFactory.decodeFile(path)
+            LogCollector.d("MangaViewer", "加载图片: ${bitmap.width}x${bitmap.height}, isThumbnail=$isThumbnail, fileSize=${java.io.File(path).length() / 1024}KB")
+            holder.imageView.resetZoom()
             holder.imageView.setImageBitmap(bitmap)
         } else {
+            holder.imageView.resetZoom()
             holder.imageView.setImageBitmap(null)
         }
     }

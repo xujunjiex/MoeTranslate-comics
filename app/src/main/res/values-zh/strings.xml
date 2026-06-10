@@ -541,6 +541,8 @@
     <string name="model_storage_path_label">模型存储路径：</string>
 
     <!-- 历史记录 -->
+    <string name="refresh_history">刷新</string>
+    <string name="history_refreshed">已刷新</string>
     <string name="clear_history">清空</string>
     <string name="no_history">暂无历史记录</string>
     <string name="history_game_tab">游戏/视频</string>

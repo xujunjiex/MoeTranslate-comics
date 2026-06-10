@@ -20,7 +20,7 @@ class TranslationCacheManager(private val context: Context) {
         const val MODE_GAME = 0
         const val MODE_MANGA = 1
         private const val MAX_CACHE_PER_MODE = 100
-        private const val SIMILARITY_THRESHOLD_MANGA = 0.92f
+        private const val SIMILARITY_THRESHOLD_MANGA = 0.80f
         private const val THUMBNAIL_SIZE = 200
     }
 
@@ -92,6 +92,48 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     /**
+     * 按 OCR 原文查找漫画翻译缓存。
+     * 传入 OCR 识别的原文列表（纯文本，无编号），排序后拼接作为指纹。
+     * 同一页不同框选范围，只要 OCR 识别到相同的文字，就能命中缓存。
+     */
+    suspend fun findMangaCacheByText(
+        ocrTexts: List<String>,
+        sourceLang: String,
+        targetLang: String
+    ): CacheResult? = withContext(Dispatchers.IO) {
+        if (ocrTexts.isEmpty()) return@withContext null
+
+        // 当前 OCR 文本排序拼接作为查询指纹
+        val queryFingerprint = ocrTexts.sorted().joinToString("\n")
+
+        // 查找所有漫画历史，逐条比较指纹（history 中的 sourceText 格式为 "[1] text\n[2] text..."）
+        val allHistory = dao.getHistoryByType(MODE_MANGA, limit = 200)
+        for (history in allHistory) {
+            if (history.sourceText.isNullOrBlank()) continue
+            val storedFingerprint = extractTextFingerprint(history.sourceText)
+            if (storedFingerprint == queryFingerprint) {
+                dao.updateLastAccessed(history.id, System.currentTimeMillis())
+                LogCollector.d(TAG, "findMangaCacheByText: 命中, historyId=${history.id}")
+                return@withContext buildCacheResult(history)
+            }
+        }
+
+        LogCollector.d(TAG, "findMangaCacheByText: 未命中, texts=${ocrTexts.size}条")
+        null
+    }
+
+    /**
+     * 从 "[1] text1\n[2] text2..." 格式中提取纯文本，排序后拼接为指纹。
+     */
+    private fun extractTextFingerprint(numberedText: String): String {
+        val regex = Regex("""\[\d+]\s*""")
+        val texts = numberedText.split("\n")
+            .map { it.replace(regex, "").trim() }
+            .filter { it.isNotEmpty() }
+        return texts.sorted().joinToString("\n")
+    }
+
+    /**
      * 保存翻译结果到历史 + 缓存。自动执行 LRU 淘汰。
      */
     suspend fun saveToCache(entry: CacheEntry) = withContext(Dispatchers.IO) {
@@ -137,19 +179,47 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     /**
-     * 强制刷新缓存：删除旧缓存条目，保存新结果。
+     * 强制刷新缓存：删除旧缓存条目和对应的历史记录，保存新结果。
      */
     suspend fun refreshCache(pHash: Long, mode: Int, newEntry: CacheEntry) = withContext(Dispatchers.IO) {
-        // 删除旧的缓存条目（保留 history 记录）
+        // 删除旧的缓存条目和对应的历史记录
         val oldCache = dao.findCacheByExactHash(pHash, mode)
         if (oldCache != null) {
             dao.deleteCacheById(oldCache.id)
             LogCollector.d(TAG, "refreshCache: 删除旧 cache, id=${oldCache.id}")
+
+            // 删除旧的历史记录和图片文件
+            val oldHistory = dao.getHistoryById(oldCache.historyId)
+            if (oldHistory != null) {
+                oldHistory.imagePath?.let { File(it).delete() }
+                oldHistory.thumbnailPath?.let { File(it).delete() }
+                dao.deleteHistoryById(oldHistory.id.toInt())
+                LogCollector.d(TAG, "refreshCache: 删除旧 history, id=${oldHistory.id}")
+            }
         }
 
         // 保存新结果
         saveToCache(newEntry)
         LogCollector.d(TAG, "refreshCache: 保存新结果")
+    }
+
+    /**
+     * 同步 pHash 缓存：当文本匹配命中时，将当前 pHash 也关联到同一 historyId。
+     * 后续相同 pHash 可直接命中，无需再走文本匹配。
+     */
+    suspend fun syncPHashCache(pHash: Long, mode: Int, historyId: Long) = withContext(Dispatchers.IO) {
+        val existing = dao.findCacheByPHash(pHash, mode)
+        if (existing == null) {
+            val cacheEntity = PageCacheEntity(
+                historyId = historyId,
+                pHash = pHash,
+                mode = mode,
+                lastAccessedAt = System.currentTimeMillis(),
+                createdAt = System.currentTimeMillis()
+            )
+            dao.insertCache(cacheEntity)
+            LogCollector.d(TAG, "syncPHashCache: 新增 pHash=$pHash → historyId=$historyId")
+        }
     }
 
     // ========== 历史操作 ==========
@@ -300,6 +370,7 @@ class TranslationCacheManager(private val context: Context) {
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
+        LogCollector.d(TAG, "saveBitmap: ${bitmap.width}x${bitmap.height}, file=${file.length() / 1024}KB, path=$filename")
         return file.absolutePath
     }
 
