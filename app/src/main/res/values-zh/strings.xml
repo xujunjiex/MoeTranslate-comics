@@ -488,8 +488,8 @@
     <string name="recognizer_section">识别器</string>
     <string name="recognizer_ctc_desc">多语言文字识别，配合检测器使用，内置</string>
     <string name="recognizer_mlkit_desc">Google ML Kit OCR，约10MB，无需下载</string>
-    <string name="recognizer_manga_desc">manga-ocr - 日文 OCR，内嵌于应用中</string>
-    <string name="recognizer_manga_onnx_desc">专门识别竖排日文漫画。原版460MB速度极慢精度极高，2025版135MB速度大幅提升精度略低</string>
+    <string name="recognizer_manga_desc">专门识别竖排日文漫画，支持竖排文字</string>
+    <string name="recognizer_manga_onnx_desc">原版460MB速度极慢精度极高，2025版135MB速度大幅提升精度略低</string>
     <string name="model_coming_soon">即将支持</string>
     <string name="model_download">下载</string>
     <string name="model_delete">删除</string>

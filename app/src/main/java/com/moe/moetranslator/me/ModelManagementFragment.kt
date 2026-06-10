@@ -72,9 +72,16 @@ class ModelManagementFragment : Fragment() {
         // 浏览器下载按钮
         setupBrowserDownloadButtons()
 
-        // 显示模型存储路径
+        // 显示模型存储路径（Android 通用格式）
         val pathText = rootView.findViewById<TextView>(R.id.model_storage_path)
-        pathText.text = requireContext().getExternalFilesDir(null)?.absolutePath ?: "N/A"
+        val fullPath = requireContext().getExternalFilesDir(null)?.absolutePath ?: "N/A"
+        // 提取 Android/data/... 部分，去掉 /storage/emulated/0/ 前缀
+        val genericPath = if (fullPath.contains("Android/data/")) {
+            fullPath.substring(fullPath.indexOf("Android/data/"))
+        } else {
+            fullPath
+        }
+        pathText.text = genericPath
     }
 
     private fun setupBrowserDownloadButtons() {
@@ -333,7 +340,7 @@ class ModelManagementFragment : Fragment() {
     // ========== manga-ocr 下载相关（版本列表）==========
 
     private fun updateMangaOcrStatus() {
-        // 只更新2025版，原版已禁用
+        updateMangaOcrVersionStatus(MangaOcrDownloadManager.ModelVersion.FULL)
         updateMangaOcrVersionStatus(MangaOcrDownloadManager.ModelVersion.V2025)
     }
 
@@ -344,11 +351,15 @@ class ModelManagementFragment : Fragment() {
         val sizeText = rowView.findViewById<TextView>(R.id.version_size)
         val statusText = rowView.findViewById<TextView>(R.id.version_status)
         val actionBtn = rowView.findViewById<TextView>(R.id.version_action_button)
+        val browserBtn = rowView.findViewById<TextView>(R.id.version_browser_button)
 
         // version.description = "完整版 (343MB+117MB)"
         val descParts = version.description.split(" (")
         nameText.text = descParts[0]
         sizeText.text = if (descParts.size > 1) descParts[1].removeSuffix(")") else ""
+
+        // 浏览器下载按钮
+        browserBtn?.setOnClickListener { openBrowser(version.baseUrl) }
 
         val isDownloaded = MangaOcrDownloadManager.isVersionDownloaded(requireContext(), version)
         val isActive = MangaOcrDownloadManager.getActiveVersion(requireContext()) == version

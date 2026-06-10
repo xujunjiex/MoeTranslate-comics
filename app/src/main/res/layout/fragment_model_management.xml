@@ -306,8 +306,16 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="manga-ocr (ONNX)"
+                    android:text="manga-ocr"
                     android:textSize="16sp"
+                    android:layout_marginBottom="4dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/recognizer_manga_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
                     android:layout_marginBottom="4dp"/>
 
                 <TextView
@@ -318,9 +326,8 @@
                     android:textColor="#888"
                     android:layout_marginBottom="8dp"/>
 
-                <!-- 原版（已禁用） -->
-                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_full_row"
-                    android:visibility="gone"/>
+                <!-- 原版 -->
+                <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_full_row"/>
 
                 <!-- 2025版 -->
                 <include layout="@layout/manga_ocr_version_item" android:id="@+id/manga_ocr_v2025_row"/>
@@ -396,32 +403,33 @@
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp">
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="英文"
+                    android:textSize="14sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_rec_en_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
                     android:gravity="center_vertical">
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/ppocr_en_status"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="英文"
-                            android:textSize="14sp"/>
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/ppocr_rec_en_desc"
-                            android:textSize="11sp"
-                            android:textColor="#888"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
+                        android:textSize="12sp"/>
 
                     <TextView
                         android:id="@+id/ppocr_en_browser_button"
@@ -449,13 +457,6 @@
                         android:textSize="12sp"
                         android:text="@string/model_download"/>
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/ppocr_en_status"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:layout_marginTop="4dp"/>
             </LinearLayout>
 
             <!-- 韩文（可下载） -->
@@ -468,32 +469,33 @@
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp">
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="韩文"
+                    android:textSize="14sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_rec_ko_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
                     android:gravity="center_vertical">
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/ppocr_ko_status"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="韩文"
-                            android:textSize="14sp"/>
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/ppocr_rec_ko_desc"
-                            android:textSize="11sp"
-                            android:textColor="#888"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
+                        android:textSize="12sp"/>
 
                     <TextView
                         android:id="@+id/ppocr_ko_browser_button"
@@ -521,13 +523,6 @@
                         android:textSize="12sp"
                         android:text="@string/model_download"/>
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/ppocr_ko_status"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:layout_marginTop="4dp"/>
             </LinearLayout>
 
             <!-- 俄文（可下载） -->
@@ -540,32 +535,33 @@
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp">
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="俄文"
+                    android:textSize="14sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ppocr_rec_ru_desc"
+                    android:textSize="11sp"
+                    android:textColor="#888"
+                    android:layout_marginTop="2dp"/>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
                     android:gravity="center_vertical">
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/ppocr_ru_status"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="俄文"
-                            android:textSize="14sp"/>
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/ppocr_rec_ru_desc"
-                            android:textSize="11sp"
-                            android:textColor="#888"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
+                        android:textSize="12sp"/>
 
                     <TextView
                         android:id="@+id/ppocr_ru_browser_button"
@@ -593,13 +589,6 @@
                         android:textSize="12sp"
                         android:text="@string/model_download"/>
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/ppocr_ru_status"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:layout_marginTop="4dp"/>
             </LinearLayout>
 
         </LinearLayout>

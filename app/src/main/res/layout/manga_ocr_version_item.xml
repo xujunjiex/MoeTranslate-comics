@@ -27,6 +27,19 @@
             android:layout_marginEnd="8dp"/>
 
         <TextView
+            android:id="@+id/version_browser_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="@string/model_download_in_browser"
+            android:textSize="11sp"
+            android:textColor="#666"
+            android:layout_marginEnd="8dp"/>
+
+        <TextView
             android:id="@+id/version_action_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
