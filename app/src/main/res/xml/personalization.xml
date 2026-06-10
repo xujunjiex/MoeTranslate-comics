@@ -145,6 +145,28 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/game_context_title"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreference
+            android:key="game_context_enabled"
+            app:iconSpaceReserved="false"
+            android:defaultValue="false"
+            android:title="@string/game_context_title"
+            android:summary="@string/game_context_summary"/>
+
+        <ListPreference
+            android:key="game_context_count"
+            app:iconSpaceReserved="false"
+            android:defaultValue="5"
+            android:title="@string/game_context_count_title"
+            android:entries="@array/context_count_entries"
+            android:entryValues="@array/context_count_values"
+            android:dependency="game_context_enabled"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/status_overlay_category"
         app:iconSpaceReserved="false">
 

@@ -179,6 +179,23 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             getString(R.string.pixel_check_interval_summary, pixelCheckInterval.entry)
         }
 
+        // AI 上下文设置
+        findPreference<SwitchPreference>("game_context_enabled")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                prefs.setBoolean("game_context_enabled", newValue as Boolean)
+                true
+            }
+        }
+        findPreference<ListPreference>("game_context_count")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                prefs.setString("game_context_count", newValue.toString())
+                true
+            }
+            summaryProvider = Preference.SummaryProvider<ListPreference> { pref ->
+                getString(R.string.game_context_count_summary, pref.entry)
+            }
+        }
+
         // 翻译通知 - 提示位置和时长
         findPreference<ListPreference>("Status_Position")?.apply {
             summaryProvider = Preference.SummaryProvider<ListPreference> { pref ->

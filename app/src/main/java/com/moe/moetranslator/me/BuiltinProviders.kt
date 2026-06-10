@@ -9,21 +9,38 @@ package com.moe.moetranslator.me
 object BuiltinProviders {
 
     private const val DEFAULT_SYSTEM_PROMPT =
-        "你是翻译引擎。只输出译文，不输出任何解释、标注、引言或附加内容。保持原文格式。"
+        "你是专业翻译引擎。将用户提供的文本翻译为目标语言。\n" +
+        "规则：\n" +
+        "1. 只输出译文，不输出解释、标注或附加内容\n" +
+        "2. 保持原文格式（换行、标点风格等）\n" +
+        "3. 翻译应自然流畅，符合目标语言的表达习惯\n" +
+        "4. 专有名词（人名、地名、作品名）保留原文或使用通用译名\n" +
+        "5. 如果文本已经是目标语言，原样返回"
 
     private const val DEFAULT_USER_PROMPT =
-        "将以下文本从usefromlang翻译为usetolang，只输出译文：\n\nusesourcetext"
+        "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     // 漫画模式默认提示词
     private const val DEFAULT_MANGA_SYSTEM_PROMPT =
-        "你是漫画翻译引擎。逐条翻译，保持每条的[N]编号格式不变。只输出译文，不输出任何解释、标注、引言或附加内容。"
+        "你是漫画翻译引擎。逐条翻译以下文本，保持每条的[N]编号格式不变。\n" +
+        "规则：\n" +
+        "1. 只输出译文，不输出解释、标注或附加内容\n" +
+        "2. 翻译应口语化、自然，符合漫画对话的语气\n" +
+        "3. 保持编号格式：[1] 译文\n" +
+        "4. 象声词、感叹词根据目标语言习惯调整\n" +
+        "5. 如果文本已经是目标语言，原样返回"
 
     private const val DEFAULT_MANGA_USER_PROMPT =
         "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     // 漫画模式JSON格式提示词（智谱AI结构化输出用）
     private const val DEFAULT_MANGA_SYSTEM_PROMPT_JSON =
-        "你是漫画翻译引擎。将每条文本翻译后以JSON格式返回：{\"translations\":[\"译文1\",\"译文2\"]}。数组顺序与输入编号一致，只输出JSON。"
+        "你是漫画翻译引擎。将每条文本翻译后以JSON格式返回：{\"translations\":[\"译文1\",\"译文2\"]}。\n" +
+        "规则：\n" +
+        "1. 数组顺序与输入编号一致，只输出JSON\n" +
+        "2. 翻译应口语化、自然，符合漫画对话的语气\n" +
+        "3. 象声词、感叹词根据目标语言习惯调整\n" +
+        "4. 如果文本已经是目标语言，原样返回"
 
     private const val DEFAULT_MANGA_USER_PROMPT_JSON =
         "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"

@@ -57,6 +57,18 @@ class OpenAITranslation(
         private const val SOCKET_TIMEOUT = 30L // 30秒，AI接口需要更长时间
     }
 
+    // 上下文相关（动态更新，每次翻译前通过 updateContext 设置）
+    @Volatile private var currentContextHistory: List<Pair<String, String>> = emptyList()
+    @Volatile private var currentContextEnabled: Boolean = false
+
+    /**
+     * 更新上下文。每次翻译前调用，传入最新的历史对话。
+     */
+    fun updateContext(history: List<Pair<String, String>>, enabled: Boolean) {
+        this.currentContextHistory = history
+        this.currentContextEnabled = enabled
+    }
+
     // 创建协程作用域
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var currentJob: Job? = null
@@ -140,14 +152,18 @@ class OpenAITranslation(
     }
 
     private fun buildSystemPrompt(): String {
-        return systemPrompt
+        return if (currentContextEnabled && currentContextHistory.isNotEmpty()) {
+            "根据上下文剧情进行翻译，保持角色语气和用词一致。\n\n$systemPrompt"
+        } else {
+            systemPrompt
+        }
     }
 
     private fun buildUserPrompt(text: String, from: String, to: String): String {
         val fromLang = CustomLocale.getInstance(from).getDisplayName()
         val toLang = CustomLocale.getInstance(to).getDisplayName()
 
-        Log.d(TAG, "翻译配置: model=$model, from=$from($fromLang), to=$to($toLang), continuationType=$continuationType")
+        Log.d(TAG, "翻译配置: model=$model, from=$from($fromLang), to=$to($toLang), continuationType=$continuationType, context=${if (currentContextEnabled) "${currentContextHistory.size}轮" else "关闭"}")
         Log.d(TAG, "SystemPrompt: $systemPrompt")
         Log.d(TAG, "UserPrompt模板: $userPrompt")
 
@@ -167,6 +183,19 @@ class OpenAITranslation(
                 put("role", "system")
                 put("content", systemPrompt)
             })
+            // 上下文历史：插入历史 user/assistant 对
+            if (currentContextEnabled && currentContextHistory.isNotEmpty()) {
+                for ((src, tgt) in currentContextHistory) {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", "翻译：$src")
+                    })
+                    put(JSONObject().apply {
+                        put("role", "assistant")
+                        put("content", tgt)
+                    })
+                }
+            }
             put(JSONObject().apply {
                 put("role", "user")
                 put("content", userPrompt)
