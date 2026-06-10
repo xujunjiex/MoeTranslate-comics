@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <!-- 标题 -->
+    <TextView
+        android:id="@+id/update_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="#333333"/>
+
+    <!-- 更新日志 -->
+    <TextView
+        android:id="@+id/update_description"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:maxLines="5"
+        android:scrollbars="vertical"
+        android:textSize="14sp"
+        android:textColor="#666666"
+        android:lineSpacingExtra="4dp"/>
+
+    <!-- 分隔线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="12dp"
+        android:background="#E0E0E0"/>
+
+    <!-- 直接下载安装按钮区域 -->
+    <LinearLayout
+        android:id="@+id/btn_download_install"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/btn_download"
+        android:padding="14dp"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/update_download_install"
+            android:textSize="15sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/download_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/update_download_from_github"
+            android:textSize="12sp"
+            android:textColor="#CCFFFFFF"
+            android:layout_marginTop="2dp"/>
+
+        <!-- 下载进度区域（默认隐藏） -->
+        <LinearLayout
+            android:id="@+id/download_progress_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/download_progress"
+                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="6dp"
+                android:max="100"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/download_percent"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"
+                    android:textColor="#CCFFFFFF"/>
+
+                <TextView
+                    android:id="@+id/download_speed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#CCFFFFFF"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- GitHub Release 页面按钮 -->
+    <LinearLayout
+        android:id="@+id/btn_github_release"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#F5F5F5"
+        android:padding="12dp"
+        android:layout_marginBottom="12dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/update_github_release"
+            android:textSize="14sp"
+            android:textColor="#333333"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="›"
+            android:textSize="18sp"
+            android:textColor="#999999"/>
+    </LinearLayout>
+
+    <!-- 网盘下载区域 -->
+    <TextView
+        android:id="@+id/cloud_section_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/update_other_download"
+        android:textSize="12sp"
+        android:textColor="#999999"
+        android:layout_marginBottom="8dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <!-- 百度网盘 -->
+        <TextView
+            android:id="@+id/btn_baidu"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/update_baidu_pan"
+            android:textSize="13sp"
+            android:textColor="#1976D2"
+            android:background="#F0F7FF"
+            android:padding="10dp"
+            android:gravity="center"
+            android:layout_marginEnd="6dp"
+            android:visibility="gone"/>
+
+        <!-- 夸克网盘 -->
+        <TextView
+            android:id="@+id/btn_quark"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/update_quark_pan"
+            android:textSize="13sp"
+            android:textColor="#1976D2"
+            android:background="#F0F7FF"
+            android:padding="10dp"
+            android:gravity="center"
+            android:layout_marginStart="6dp"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <!-- 网盘提示 -->
+    <TextView
+        android:id="@+id/cloud_delay_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/update_cloud_delay_hint"
+        android:textSize="12sp"
+        android:textColor="#FF9800"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"/>
+
+    <!-- 底部按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <TextView
+            android:id="@+id/btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/not_update"
+            android:textSize="14sp"
+            android:textColor="#999999"
+            android:padding="8dp"/>
+    </LinearLayout>
+
+</LinearLayout>

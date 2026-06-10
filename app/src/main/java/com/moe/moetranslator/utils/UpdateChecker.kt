@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -68,11 +69,22 @@ class UpdateChecker(private val context: Context) {
                 Log.d(TAG, "Remote version: $versionName (code=$remoteVersionCode)")
 
                 if (remoteVersionCode > currentVersionCode) {
+                    // 从 assets 中解析 APK 下载链接
+                    val apkDownloadUrl = parseApkUrl(json)
+                    Log.d(TAG, "APK download URL: $apkDownloadUrl")
+
+                    // 从 body 中解析网盘链接
+                    val (baiduUrl, quarkUrl) = parseCloudUrls(releaseNotes)
+                    Log.d(TAG, "Baidu URL: $baiduUrl, Quark URL: $quarkUrl")
+
                     UpdateResult.UpdateAvailable(
                         versionCode = remoteVersionCode,
                         versionName = versionName,
                         versionDescription = releaseNotes,
-                        downloadUrl = htmlUrl
+                        downloadUrl = htmlUrl,
+                        apkDownloadUrl = apkDownloadUrl,
+                        baiduUrl = baiduUrl,
+                        quarkUrl = quarkUrl
                     )
                 } else {
                     UpdateResult.NoUpdate
@@ -85,6 +97,59 @@ class UpdateChecker(private val context: Context) {
             Log.e(TAG, "Error checking update: ${e.message}")
             UpdateResult.Error
         }
+    }
+
+    /**
+     * 从 Release assets 中解析 APK 下载链接
+     */
+    private fun parseApkUrl(json: JSONObject): String {
+        return try {
+            val assets = json.optJSONArray("assets") ?: return ""
+            for (i in 0 until assets.length()) {
+                val asset = assets.getJSONObject(i)
+                val name = asset.optString("name", "")
+                if (name.endsWith(".apk", ignoreCase = true)) {
+                    return asset.optString("browser_download_url", "")
+                }
+            }
+            ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse APK URL: ${e.message}")
+            ""
+        }
+    }
+
+    /**
+     * 从 Release body 中解析网盘链接
+     * 支持格式：
+     *   百度网盘：https://pan.baidu.com/s/xxx
+     *   夸克网盘：https://pan.quark.cn/s/xxx
+     */
+    private fun parseCloudUrls(body: String): Pair<String, String> {
+        var baiduUrl = ""
+        var quarkUrl = ""
+        try {
+            val lines = body.lines()
+            for (line in lines) {
+                val trimmed = line.trim()
+                when {
+                    trimmed.contains("百度网盘") && trimmed.contains("http") -> {
+                        baiduUrl = extractUrl(trimmed)
+                    }
+                    trimmed.contains("夸克网盘") && trimmed.contains("http") -> {
+                        quarkUrl = extractUrl(trimmed)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse cloud URLs: ${e.message}")
+        }
+        return Pair(baiduUrl, quarkUrl)
+    }
+
+    private fun extractUrl(text: String): String {
+        val urlPattern = Regex("""https?://\S+""")
+        return urlPattern.find(text)?.value ?: ""
     }
 
     private fun getCurrentVersion(): Long {
@@ -121,7 +186,10 @@ sealed class UpdateResult {
         val versionCode: Long,
         val versionName: String,
         val versionDescription: String,
-        val downloadUrl: String = ""
+        val downloadUrl: String = "",
+        val apkDownloadUrl: String = "",
+        val baiduUrl: String = "",
+        val quarkUrl: String = ""
     ) : UpdateResult()
     object Error : UpdateResult()
 }
