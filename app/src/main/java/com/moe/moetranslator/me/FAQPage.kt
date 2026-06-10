@@ -45,7 +45,10 @@ class FAQPage : Fragment() {
         val faqs = listOf(
             CustomCard(getText(R.string.faq_q1), getText(R.string.faq_a1)),
             CustomCard(getText(R.string.faq_q2), getText(R.string.faq_a2)),
-            CustomCard(getText(R.string.faq_q3), getText(R.string.faq_a3))
+            CustomCard(getText(R.string.faq_q3), getText(R.string.faq_a3)),
+            CustomCard(getText(R.string.faq_q4), getText(R.string.faq_a4)),
+            CustomCard(getText(R.string.faq_q5), getText(R.string.faq_a5)),
+            CustomCard(getText(R.string.faq_q6), getText(R.string.faq_a6))
         )
 
         adapter = CardAdapter(faqs)

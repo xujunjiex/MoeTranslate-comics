@@ -17,7 +17,6 @@
 
 package com.moe.moetranslator.me
 
-import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -25,6 +24,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextPaint
@@ -35,11 +36,13 @@ import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentAboutMeBinding
+import com.moe.moetranslator.manga.ModelDownloadManager
 import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.LogCollector
@@ -47,6 +50,7 @@ import com.moe.moetranslator.utils.ServiceUtils
 import com.moe.moetranslator.utils.UiUtils
 import com.moe.moetranslator.utils.UpdateChecker
 import com.moe.moetranslator.utils.UpdateResult
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 
@@ -246,21 +250,193 @@ class AboutMe : Fragment() {
         }
     }
 
+    private var downloadJob: Job? = null
+    private var isDownloadCancelled = false
+
     private fun showUpdateDialog(update: UpdateResult.UpdateAvailable) {
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_update, null)
+
+        val titleText = dialogView.findViewById<TextView>(R.id.update_title)
+        val descText = dialogView.findViewById<TextView>(R.id.update_description)
+        val btnDownloadInstall = dialogView.findViewById<View>(R.id.btn_download_install)
+        val btnGithubRelease = dialogView.findViewById<View>(R.id.btn_github_release)
+        val btnBaidu = dialogView.findViewById<TextView>(R.id.btn_baidu)
+        val btnQuark = dialogView.findViewById<TextView>(R.id.btn_quark)
+        val cloudSectionTitle = dialogView.findViewById<TextView>(R.id.cloud_section_title)
+        val cloudDelayHint = dialogView.findViewById<TextView>(R.id.cloud_delay_hint)
+        val btnCancel = dialogView.findViewById<TextView>(R.id.btn_cancel)
+
+        // 设置内容
+        titleText.text = "${getString(R.string.find_new_version)} v${update.versionName}"
+        descText.text = update.versionDescription
+
         val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(R.string.find_new_version)
-            .setMessage(getString(R.string.version_name)+ update.versionName+"\n${update.versionDescription}\n"+getString(R.string.update_prompt))
+            .setView(dialogView)
             .setCancelable(false)
-            .setPositiveButton(R.string.go_to_update) { _, _ ->
-                val url = update.downloadUrl.ifEmpty { "https://github.com/xujunjiex/StarFlow/releases" }
-                val intent = Intent(Intent.ACTION_VIEW)
-                intent.data = Uri.parse(url)
-                startActivity(intent)
-            }
-            .setNegativeButton(R.string.not_update, null)
             .create()
-        dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+
+        // 直接下载安装
+        btnDownloadInstall.setOnClickListener {
+            if (update.apkDownloadUrl.isEmpty()) {
+                UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, "No APK URL"), isShort = false)
+                return@setOnClickListener
+            }
+            startApkDownload(update.apkDownloadUrl, dialogView, dialog)
+        }
+
+        // GitHub Release 页面
+        btnGithubRelease.setOnClickListener {
+            val url = update.downloadUrl.ifEmpty { "https://github.com/xujunjiex/StarFlow/releases" }
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+
+        // 网盘按钮
+        var hasCloudLinks = false
+        if (update.baiduUrl.isNotEmpty()) {
+            btnBaidu.visibility = View.VISIBLE
+            btnBaidu.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.baiduUrl)))
+            }
+            hasCloudLinks = true
+        }
+        if (update.quarkUrl.isNotEmpty()) {
+            btnQuark.visibility = View.VISIBLE
+            btnQuark.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.quarkUrl)))
+            }
+            hasCloudLinks = true
+        }
+        if (hasCloudLinks) {
+            cloudSectionTitle.visibility = View.VISIBLE
+            cloudDelayHint.visibility = View.VISIBLE
+        }
+
+        // 暂不更新
+        btnCancel.setOnClickListener {
+            isDownloadCancelled = true
+            downloadJob?.cancel()
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun startApkDownload(
+        apkUrl: String,
+        dialogView: View,
+        dialog: AlertDialog
+    ) {
+        val downloadSubtitle = dialogView.findViewById<TextView>(R.id.download_subtitle)
+        val progressContainer = dialogView.findViewById<View>(R.id.download_progress_container)
+        val progressBar = dialogView.findViewById<ProgressBar>(R.id.download_progress)
+        val percentText = dialogView.findViewById<TextView>(R.id.download_percent)
+        val speedText = dialogView.findViewById<TextView>(R.id.download_speed)
+        val btnGithubRelease = dialogView.findViewById<View>(R.id.btn_github_release)
+        val btnBaidu = dialogView.findViewById<TextView>(R.id.btn_baidu)
+        val btnQuark = dialogView.findViewById<TextView>(R.id.btn_quark)
+        val cloudSectionTitle = dialogView.findViewById<TextView>(R.id.cloud_section_title)
+        val cloudDelayHint = dialogView.findViewById<TextView>(R.id.cloud_delay_hint)
+
+        // 切换到下载中状态
+        downloadSubtitle.text = getString(R.string.update_download_cancel)
+        progressContainer.visibility = View.VISIBLE
+        progressBar.progress = 0
+        percentText.text = getString(R.string.update_download_percent, 0)
+        speedText.text = getString(R.string.update_download_speed, 0f)
+        btnGithubRelease.isEnabled = false
+        btnGithubRelease.alpha = 0.5f
+        btnBaidu.isEnabled = false
+        btnBaidu.alpha = 0.5f
+        btnQuark.isEnabled = false
+        btnQuark.alpha = 0.5f
+        cloudSectionTitle.visibility = View.GONE
+        cloudDelayHint.visibility = View.GONE
+
+        isDownloadCancelled = false
+        val handler = Handler(Looper.getMainLooper())
+
+        // 下载到 app cache 目录
+        val destFile = java.io.File(requireContext().cacheDir, "update.apk")
+
+        downloadJob = viewLifecycleOwner.lifecycleScope.launch {
+            val result = ModelDownloadManager.downloadModel(
+                context = requireContext(),
+                url = apkUrl,
+                sha256Hash = "", // GitHub assets 可信，不校验
+                destFile = destFile,
+                onProgress = object : ModelDownloadManager.ProgressCallback {
+                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                        if (isDownloadCancelled) return
+                        val percent = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                        handler.post {
+                            progressBar.progress = percent
+                            percentText.text = getString(R.string.update_download_percent, percent)
+                            speedText.text = getString(R.string.update_download_speed, speed)
+                        }
+                    }
+                },
+                maxRetries = 3
+            )
+
+            if (isDownloadCancelled) return@launch
+
+            if (result.isSuccess) {
+                // 下载完成，安装
+                downloadSubtitle.text = getString(R.string.update_installing)
+                progressBar.progress = 100
+                percentText.text = getString(R.string.update_download_percent, 100)
+                speedText.text = ""
+
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(
+                            androidx.core.content.FileProvider.getUriForFile(
+                                requireContext(),
+                                "${requireContext().packageName}.fileprovider",
+                                destFile
+                            ),
+                            "application/vnd.android.package-archive"
+                        )
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    LogCollector.e("AboutMe", "Failed to install APK: ${e.message}")
+                    resetDownloadUI(dialogView)
+                    UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, e.message ?: ""), isShort = false)
+                }
+            } else {
+                LogCollector.e("AboutMe", "APK download failed: ${result.exceptionOrNull()?.message}")
+                resetDownloadUI(dialogView)
+                UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, result.exceptionOrNull()?.message ?: ""), isShort = false)
+            }
+        }
+    }
+
+    private fun resetDownloadUI(dialogView: View) {
+        val downloadSubtitle = dialogView.findViewById<TextView>(R.id.download_subtitle)
+        val progressContainer = dialogView.findViewById<View>(R.id.download_progress_container)
+        val btnGithubRelease = dialogView.findViewById<View>(R.id.btn_github_release)
+        val btnBaidu = dialogView.findViewById<TextView>(R.id.btn_baidu)
+        val btnQuark = dialogView.findViewById<TextView>(R.id.btn_quark)
+        val cloudSectionTitle = dialogView.findViewById<TextView>(R.id.cloud_section_title)
+        val cloudDelayHint = dialogView.findViewById<TextView>(R.id.cloud_delay_hint)
+
+        downloadSubtitle.text = getString(R.string.update_download_from_github)
+        progressContainer.visibility = View.GONE
+        btnGithubRelease.isEnabled = true
+        btnGithubRelease.alpha = 1f
+        btnBaidu.isEnabled = true
+        btnBaidu.alpha = 1f
+        btnQuark.isEnabled = true
+        btnQuark.alpha = 1f
+        if (btnBaidu.visibility == View.VISIBLE || btnQuark.visibility == View.VISIBLE) {
+            cloudSectionTitle.visibility = View.VISIBLE
+            cloudDelayHint.visibility = View.VISIBLE
+        }
     }
 
 }
