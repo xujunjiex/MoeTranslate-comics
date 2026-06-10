@@ -17,7 +17,7 @@
 
 截图 OCR 识别 + 翻译 API，支持两种模式：
 
-- **本地 OCR + 文本翻译：** ML Kit / PP-OCRv5 本地 OCR 识别（中文、日文、英文、韩文），然后调用翻译 API 获取结果。
+- **本地 OCR + 文本翻译：** ML Kit / PP-OCRv5 本地 OCR 识别（中文、日文、英文、韩文、俄文），然后调用翻译 API 获取结果。
 - **图片翻译：** 将截图直接上传给 API 翻译，适用于其他语言。
 
 **像素驱动自动翻译：**
@@ -28,18 +28,20 @@
 
 **调试浮窗：** 实时显示翻译状态、像素差异、耗时，可折叠日志面板。
 
-**OCR 引擎：** ML Kit、PP-OCRv5（默认）、manga-ocr，可在设置中切换。
+**OCR 引擎：** ML Kit、PP-OCRv5（默认，支持中/日/英/韩/俄）、manga-ocr，可在设置中切换。
 
-支持的翻译 API：ML Kit、NLLB、必应翻译、小牛翻译、OpenAI 兼容接口、火山引擎、Azure、DeepL、百度翻译、腾讯云、自定义 API。
+**翻译 API：** ML Kit、NLLB、必应翻译、小牛翻译、OpenAI 兼容接口（火山/智谱/DeepSeek/通义千问）、火山引擎、Azure、DeepL、百度翻译、腾讯云。
+
+**AI 上下文：** 开启后自动携带历史翻译对，提升翻译连贯性（仅 OpenAI 兼容 API）。
 
 ### 📖 漫画翻译
 
 漫画/游戏气泡文字检测 + OCR + 翻译 + 竖排渲染：
 
 - **检测引擎：** PP-OCRv5 det（默认）、CTD（Comic Text Detector）、RT-DETR-V2（气泡/文字检测）、ML Kit
-- **OCR 引擎：** PP-OCRv5 rec（中/日/英/韩，默认）、manga-ocr（竖排日文）、ML Kit
+- **OCR 引擎：** PP-OCRv5 rec（中/日/英/韩/俄，默认）、manga-ocr（竖排日文）、ML Kit
 - **普通/高级模式：** 普通模式固定搭配循环切换，高级模式自由搭配检测器+OCR
-- **翻译：** 复用游戏翻译的所有 API
+- **翻译：** 复用游戏翻译的所有 API，支持续写格式控制（火山/通义/DeepSeek/智谱）
 - **渲染：** 半透明背景 + 竖排/横排文字覆盖
 - **自动翻译：** pHash 相似度检测，翻页自动触发
 - **翻译缓存：** pHash 相似度匹配（阈值 0.92），5 分钟 TTL
@@ -60,6 +62,17 @@ echo sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk > local.properties
 ```
 
 环境要求：JDK 17、Android SDK（compileSdk 35）、NDK 25.2.9519653、CMake 3.22.1。
+
+## 下载
+
+- [GitHub Releases](https://github.com/xujunjiex/StarFlow/releases) — 最新版本下载
+- 百度网盘：https://pan.baidu.com/s/1AXbakx6apJcIthF4CenWdA?pwd=star
+
+## 检查更新
+
+app 内置检查更新功能，支持：
+- **直接下载**：从 GitHub Releases 直接下载 APK
+- **网盘下载**：百度网盘、夸克网盘
 
 ## 项目结构
 
