@@ -24,16 +24,16 @@ object PPOcrModelManager {
     // ModelScope 下载 URL
     private const val BASE_URL = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec"
 
-    private val DOWNLOAD_URLS = mapOf(
+    val DOWNLOAD_URLS = mapOf(
         "rec_en.onnx" to "$BASE_URL/en_PP-OCRv5_rec_mobile.onnx",
         "rec_ko.onnx" to "$BASE_URL/korean_PP-OCRv5_rec_mobile.onnx",
         "rec_ru.onnx" to "$BASE_URL/cyrillic_PP-OCRv5_rec_mobile.onnx"
     )
 
     /**
-     * 获取 filesDir 中的 ppocrv5 目录
+     * 获取外部存储中的 ppocrv5 目录
      */
-    fun getModelDir(context: Context): File = File(context.filesDir, MODEL_DIR)
+    fun getModelDir(context: Context): File = File(context.getExternalFilesDir(null), MODEL_DIR)
 
     // ========================================================================
     // 可选模型（rec_en / rec_ko / rec_ru）

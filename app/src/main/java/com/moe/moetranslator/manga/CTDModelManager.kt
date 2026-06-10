@@ -20,17 +20,17 @@ object CTDModelManager {
     const val MODEL_DIR = "ctd"
     const val MODEL_FILE = "comictextdetector.pt.onnx"
 
-    private const val DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx"
+    const val DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx"
 
     fun getModelDir(): String = MODEL_DIR
 
     fun getModelFileName(): String = MODEL_FILE
 
     /**
-     * 获取 filesDir 中的模型目录
+     * 获取外部存储中的模型目录
      */
     fun getFilesDirModelDir(context: Context): File {
-        return File(context.filesDir, MODEL_DIR)
+        return File(context.getExternalFilesDir(null), MODEL_DIR)
     }
 
     /**
@@ -48,7 +48,7 @@ object CTDModelManager {
     }
 
     /**
-     * 检查 filesDir 中是否有模型
+     * 检查外部存储中是否有模型
      */
     fun isModelInFilesDir(context: Context): Boolean {
         val modelFile = getFilesDirModelFile(context)

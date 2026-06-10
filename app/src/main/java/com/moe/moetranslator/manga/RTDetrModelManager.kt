@@ -20,17 +20,17 @@ object RTDetrModelManager {
     const val MODEL_DIR = "rt_detr"
     const val MODEL_FILE = "model.onnx"
 
-    private const val DOWNLOAD_URL = "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector-v4-s_int8.onnx"
+    const val DOWNLOAD_URL = "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector-v4-s_int8.onnx"
 
     fun getModelDir(): String = MODEL_DIR
 
     fun getModelFileName(): String = MODEL_FILE
 
     /**
-     * 获取 filesDir 中的模型目录
+     * 获取外部存储中的模型目录
      */
     fun getFilesDirModelDir(context: Context): File {
-        return File(context.filesDir, MODEL_DIR)
+        return File(context.getExternalFilesDir(null), MODEL_DIR)
     }
 
     /**
@@ -48,7 +48,7 @@ object RTDetrModelManager {
     }
 
     /**
-     * 检查 filesDir 中是否有模型
+     * 检查外部存储中是否有模型
      */
     fun isModelInFilesDir(context: Context): Boolean {
         val modelFile = getFilesDirModelFile(context)

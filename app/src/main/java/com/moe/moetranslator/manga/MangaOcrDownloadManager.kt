@@ -46,17 +46,17 @@ object MangaOcrDownloadManager {
     private const val PREFS_NAME = "manga_ocr_prefs"
 
     /**
-     * 获取下载的模型目录
+     * 获取下载的模型目录（外部存储）
      */
     fun getModelDir(context: Context): File {
-        return File(context.filesDir, MODEL_DIR)
+        return File(context.getExternalFilesDir(null), MODEL_DIR)
     }
 
     /**
-     * 获取指定版本的模型目录
+     * 获取指定版本的模型目录（外部存储）
      */
     fun getModelDir(context: Context, version: ModelVersion): File {
-        return File(File(context.filesDir, MODEL_DIR), version.name)
+        return File(File(context.getExternalFilesDir(null), MODEL_DIR), version.name)
     }
 
     /**
@@ -187,6 +187,10 @@ object MangaOcrDownloadManager {
                     LogCollector.e(TAG, "删除模型失败: ${modelDir.absolutePath}")
                     return Result.failure(Exception("Failed to delete model directory"))
                 }
+            }
+            // 如果删除的是当前使用版本，清除 activeVersion
+            if (getActiveVersion(context) == version) {
+                clearActiveVersion(context)
             }
             LogCollector.d(TAG, "${version.name} 版本已删除")
             Result.success(Unit)
@@ -321,5 +325,13 @@ object MangaOcrDownloadManager {
     fun setActiveVersion(context: Context, version: ModelVersion) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString("active_version", version.name).apply()
+    }
+
+    /**
+     * 清除当前使用的版本
+     */
+    fun clearActiveVersion(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove("active_version").apply()
     }
 }

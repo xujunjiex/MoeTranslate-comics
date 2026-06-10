@@ -17,6 +17,8 @@ import com.moe.moetranslator.manga.ModelDownloadManager
 import com.moe.moetranslator.manga.PPOcrModelManager
 import com.moe.moetranslator.manga.RTDetrModelManager
 import com.moe.moetranslator.utils.LogCollector
+import android.content.Intent
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -66,6 +68,44 @@ class ModelManagementFragment : Fragment() {
         updatePPOcrEnStatus()
         updatePPOcrKoStatus()
         updatePPOcrRuStatus()
+
+        // 浏览器下载按钮
+        setupBrowserDownloadButtons()
+
+        // 显示模型存储路径
+        val pathText = rootView.findViewById<TextView>(R.id.model_storage_path)
+        pathText.text = requireContext().getExternalFilesDir(null)?.absolutePath ?: "N/A"
+    }
+
+    private fun setupBrowserDownloadButtons() {
+        // RT-DETR-V2
+        rootView.findViewById<TextView>(R.id.rtdetr_browser_button)?.setOnClickListener {
+            openBrowser(RTDetrModelManager.DOWNLOAD_URL)
+        }
+        // CTD
+        rootView.findViewById<TextView>(R.id.ctd_browser_button)?.setOnClickListener {
+            openBrowser(CTDModelManager.DOWNLOAD_URL)
+        }
+        // PP-OCRv5 EN
+        rootView.findViewById<TextView>(R.id.ppocr_en_browser_button)?.setOnClickListener {
+            PPOcrModelManager.DOWNLOAD_URLS["rec_en.onnx"]?.let { url -> openBrowser(url) }
+        }
+        // PP-OCRv5 KO
+        rootView.findViewById<TextView>(R.id.ppocr_ko_browser_button)?.setOnClickListener {
+            PPOcrModelManager.DOWNLOAD_URLS["rec_ko.onnx"]?.let { url -> openBrowser(url) }
+        }
+        // PP-OCRv5 RU
+        rootView.findViewById<TextView>(R.id.ppocr_ru_browser_button)?.setOnClickListener {
+            PPOcrModelManager.DOWNLOAD_URLS["rec_ru.onnx"]?.let { url -> openBrowser(url) }
+        }
+    }
+
+    private fun openBrowser(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "无法打开浏览器", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun setButtonDeleteStyle(btn: TextView, isDelete: Boolean) {

@@ -544,4 +544,6 @@
     <string name="ru_need_download_model">Please download PP-OCRv5 Russian model from model management page</string>
     <string name="ko_need_download_model">Please download PP-OCRv5 Korean model from model management page</string>
     <string name="manga_ocr_non_ja_hint">manga-ocr model is optimized for Japanese, current source language may affect recognition, consider switching to PP-OCRv5</string>
+    <string name="model_download_in_browser">🔗 Browser</string>
+    <string name="model_storage_path_label">Model storage path:</string>
 </resources>
