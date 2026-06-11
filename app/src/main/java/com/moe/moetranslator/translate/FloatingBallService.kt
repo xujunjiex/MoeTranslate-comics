@@ -194,6 +194,9 @@ class FloatingBallService : LifecycleService() {
     // 翻译状态提示条
     private lateinit var statusOverlay: TranslationStatusOverlay
 
+    // 重新翻译用：记录最近一次翻译的原文
+    private var lastTranslatedSource: String? = null
+
     // SharedPreferences listener（防止被 GC 回收）
     private var prefChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
@@ -432,6 +435,7 @@ class FloatingBallService : LifecycleService() {
         }
         translationResultView = TranslationResultView(this, windowManager, resultViewParams!!)
         translationResultView.onClose = { removeResultView() }
+        translationResultView.onRetranslate = { retranslateCurrentText() }
 
         // 创建裁剪框视图
         cropView = CropView(this)
@@ -1090,14 +1094,33 @@ class FloatingBallService : LifecycleService() {
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         statusOverlay.showImmediate("缓存命中")
                                         translationResultView.setText(ocrDecision.cachedText)
+                                        translationResultView.showCacheIndicator()
                                         engine.markIdle()
                                         updateDebugStatus("【IDLE】等待像素变化")
                                         isTranslating.set(false)
                                     }
                                     is AutoTranslateEngine.Decision.Translate -> {
-                                        updateDebugStatus("【翻译中】", diffRatio = pixelDecision.diffRatio)
-                                        statusOverlay.showImmediate("翻译中...")
-                                        translateByText(ocrDecision.ocrText)
+                                        // LRU 未命中，查数据库缓存
+                                        val dbCache = cacheManager.findGameCache(
+                                            ocrDecision.ocrText,
+                                            prefs.getString("Source_Language", "ja"),
+                                            prefs.getString("Target_Language", "zh")
+                                        )
+                                        if (dbCache?.translatedText != null) {
+                                            val elapsed = System.currentTimeMillis() - translateStartTime
+                                            updateDebugStatus("【缓存】database", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
+                                            statusOverlay.showImmediate("缓存命中")
+                                            translationResultView.setText(dbCache.translatedText)
+                                            translationResultView.showCacheIndicator()
+                                            lastTranslatedSource = ocrDecision.ocrText
+                                            autoTranslateEngine?.onTranslationSuccess(ocrDecision.ocrText, dbCache.translatedText)
+                                            autoTranslateEngine?.markIdle()
+                                            isTranslating.set(false)
+                                        } else {
+                                            updateDebugStatus("【翻译中】", diffRatio = pixelDecision.diffRatio)
+                                            statusOverlay.showImmediate("翻译中...")
+                                            translateByText(ocrDecision.ocrText)
+                                        }
                                     }
                                     else -> {
                                         isTranslating.set(false)
@@ -1135,16 +1158,14 @@ class FloatingBallService : LifecycleService() {
                         val elapsed = System.currentTimeMillis() - translateStartTime
                         updateDebugStatus("【缓存】database", elapsedMs = elapsed)
                         statusOverlay.show("缓存命中")
-                        if (isGameDebugEnabled()) {
-                            translationResultView.setText(getString(R.string.cache_indicator) + dbCache.translatedText)
-                        } else {
-                            translationResultView.setText(dbCache.translatedText)
-                        }
+                        translationResultView.setText(dbCache.translatedText)
+                        translationResultView.showCacheIndicator()
+                        lastTranslatedSource = normalizedTxt
                         isTranslating.set(false)
                     } else {
                         updateDebugStatus("【翻译中】手动")
                         statusOverlay.show("翻译中...")
-                        translateByText(txt)
+                        translateByText(normalizedTxt)
                     }
                 }
             } else {
@@ -1192,6 +1213,8 @@ class FloatingBallService : LifecycleService() {
                             1 -> translationResultView.setText(str + "\n\n" + result.translatedText)
                             else -> translationResultView.setText(result.translatedText + "\n\n" + str)
                         }
+                        translationResultView.hideCacheIndicator()
+                        lastTranslatedSource = str
 
                         // 自动翻译中自动恢复显示
                         if (isAutoTranslating && !isResultViewShowing) {
@@ -1276,7 +1299,7 @@ class FloatingBallService : LifecycleService() {
     ) {
         lifecycleScope.launch {
             try {
-                cacheManager.saveToCache(CacheEntry(
+                val entry = CacheEntry(
                     type = TranslationCacheManager.MODE_GAME,
                     sourceText = sourceText,
                     translatedText = translatedText,
@@ -1286,11 +1309,33 @@ class FloatingBallService : LifecycleService() {
                     translatorName = translatorName,
                     pHash = 0L,
                     sessionId = sessionId
-                ))
+                )
+                // 先删除旧的同源记录，再保存新结果
+                cacheManager.refreshGameCache(sourceText, entry.sourceLang ?: "ja", entry.targetLang ?: "zh", entry)
             } catch (e: Exception) {
                 LogCollector.e("FloatingBallService", "保存缓存失败", e)
             }
         }
+    }
+
+    /**
+     * 重新翻译当前文本（从缓存标识旁的重新翻译按钮触发）
+     */
+    private fun retranslateCurrentText() {
+        val sourceText = lastTranslatedSource
+        if (sourceText.isNullOrBlank()) {
+            showToast("无可翻译内容", true)
+            return
+        }
+        if (isTranslating.get()) {
+            showToast(getString(R.string.is_translating), true)
+            return
+        }
+        isTranslating.set(true)
+        translateStartTime = System.currentTimeMillis()
+        LogCollector.d(TAG, "重新翻译: ${sourceText.take(50)}...")
+        statusOverlay.show("重新翻译中...")
+        translateByText(sourceText)
     }
 
     /**

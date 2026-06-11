@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -27,6 +28,8 @@ class TranslationResultView(
     private val textView: TextView
     private val closeButton: ImageButton
     private val lockButton: ImageButton
+    private val cacheIndicator: TextView
+    private val retranslateButton: ImageButton
     private var isLocked: Boolean = false
 
     // 拖动相关变量
@@ -37,6 +40,7 @@ class TranslationResultView(
 
     var onClose: (() -> Unit)? = null
     var onLockChanged: ((Boolean) -> Unit)? = null
+    var onRetranslate: (() -> Unit)? = null
 
     init {
         val btnSize = dpToPx(14)
@@ -53,8 +57,8 @@ class TranslationResultView(
             background = shape
             setTextColor(prefs.getInt("Custom_Result_Font_Color", -1516335))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, prefs.getFloat("Custom_Result_Font_Size", 16f))
-            // 上方和左侧留空间给按钮
-            setPadding(btnSpace, btnSpace, btnSpace, 15)
+            // 上方和左侧留空间给按钮，下方留空间给底部按钮
+            setPadding(btnSpace, btnSpace, btnSpace, btnSpace + dpToPx(4))
             gravity = Gravity.START
 
             val customFont = prefs.getString("Custom_Result_Font", "")
@@ -97,6 +101,26 @@ class TranslationResultView(
             setOnClickListener { onClose?.invoke() }
         }
 
+        // 缓存标识（左下角）
+        cacheIndicator = TextView(context).apply {
+            text = "⚡"
+            setTextColor(Color.argb(200, 255, 165, 0))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            visibility = View.GONE
+            setShadowLayer(2f, 1f, 1f, Color.BLACK)
+        }
+
+        // 重新翻译按钮（右下角）
+        retranslateButton = ImageButton(context).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setImageResource(android.R.drawable.ic_popup_sync)
+            setColorFilter(Color.argb(180, 80, 80, 80))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(0, 0, 0, 0)
+            visibility = View.GONE
+            setOnClickListener { onRetranslate?.invoke() }
+        }
+
         // 添加文字
         addView(textView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
 
@@ -111,6 +135,21 @@ class TranslationResultView(
             gravity = Gravity.END or Gravity.TOP
             marginEnd = btnMargin
             topMargin = btnMargin
+        })
+
+        // 缓存标识（左下角）
+        addView(cacheIndicator, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.START or Gravity.BOTTOM
+            marginStart = btnSpace
+            bottomMargin = btnMargin
+        })
+
+        // 重新翻译按钮（右下角）
+        val retranslateSize = dpToPx(16)
+        addView(retranslateButton, LayoutParams(retranslateSize, retranslateSize).apply {
+            gravity = Gravity.END or Gravity.BOTTOM
+            marginEnd = btnMargin
+            bottomMargin = btnMargin
         })
 
         // 设置触摸监听（拖动）
@@ -156,6 +195,18 @@ class TranslationResultView(
     }
 
     fun getText(): String = textView.text.toString()
+
+    /** 显示缓存标识 + 重新翻译按钮 */
+    fun showCacheIndicator() {
+        cacheIndicator.visibility = View.VISIBLE
+        retranslateButton.visibility = View.VISIBLE
+    }
+
+    /** 隐藏缓存标识 + 重新翻译按钮 */
+    fun hideCacheIndicator() {
+        cacheIndicator.visibility = View.GONE
+        retranslateButton.visibility = View.GONE
+    }
 
     fun setLocked(locked: Boolean) {
         isLocked = locked

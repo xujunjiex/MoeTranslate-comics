@@ -9,7 +9,6 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.animation.DecelerateInterpolator
-import android.widget.OverScroller
 import androidx.appcompat.widget.AppCompatImageView
 
 /**
@@ -64,11 +63,8 @@ class ZoomableImageView @JvmOverloads constructor(
         }
     })
 
-    private var scroller: OverScroller? = null
-
     init {
         scaleType = ScaleType.MATRIX
-        scroller = OverScroller(context, DecelerateInterpolator())
     }
 
     override fun setImageDrawable(drawable: Drawable?) {

@@ -20,13 +20,16 @@ class TranslationCacheManager(private val context: Context) {
         const val MODE_GAME = 0
         const val MODE_MANGA = 1
         private const val MAX_CACHE_PER_MODE = 100
-        private const val SIMILARITY_THRESHOLD_MANGA = 0.80f
+        private const val SIMILARITY_THRESHOLD_MANGA = 0.85f
         private const val THUMBNAIL_SIZE = 200
     }
 
     private val db = TranslationHistoryDatabase.getInstance(context)
     private val dao = db.historyDao()
     private val historyDir = File(context.filesDir, "history").also { it.mkdirs() }
+
+    // 漫画文本指纹 → historyId 内存缓存，避免每次翻译都扫描全部历史
+    private val textFingerprintCache = mutableMapOf<String, Long>()
 
     // ========== 缓存操作 ==========
 
@@ -95,6 +98,7 @@ class TranslationCacheManager(private val context: Context) {
      * 按 OCR 原文查找漫画翻译缓存。
      * 传入 OCR 识别的原文列表（纯文本，无编号），排序后拼接作为指纹。
      * 同一页不同框选范围，只要 OCR 识别到相同的文字，就能命中缓存。
+     * 使用内存缓存避免每次扫描全部历史。
      */
     suspend fun findMangaCacheByText(
         ocrTexts: List<String>,
@@ -103,17 +107,30 @@ class TranslationCacheManager(private val context: Context) {
     ): CacheResult? = withContext(Dispatchers.IO) {
         if (ocrTexts.isEmpty()) return@withContext null
 
-        // 当前 OCR 文本排序拼接作为查询指纹
         val queryFingerprint = ocrTexts.sorted().joinToString("\n")
 
-        // 查找所有漫画历史，逐条比较指纹（history 中的 sourceText 格式为 "[1] text\n[2] text..."）
+        // 1. 先查内存缓存
+        val cachedId = textFingerprintCache[queryFingerprint]
+        if (cachedId != null) {
+            val history = dao.getHistoryById(cachedId)
+            if (history != null) {
+                dao.updateLastAccessed(history.id, System.currentTimeMillis())
+                LogCollector.d(TAG, "findMangaCacheByText: 内存缓存命中, historyId=${history.id}")
+                return@withContext buildCacheResult(history)
+            }
+            // history 已被删除，清除失效缓存
+            textFingerprintCache.remove(queryFingerprint)
+        }
+
+        // 2. 内存未命中，扫描数据库
         val allHistory = dao.getHistoryByType(MODE_MANGA, limit = 200)
         for (history in allHistory) {
             if (history.sourceText.isNullOrBlank()) continue
             val storedFingerprint = extractTextFingerprint(history.sourceText)
             if (storedFingerprint == queryFingerprint) {
+                textFingerprintCache[storedFingerprint] = history.id
                 dao.updateLastAccessed(history.id, System.currentTimeMillis())
-                LogCollector.d(TAG, "findMangaCacheByText: 命中, historyId=${history.id}")
+                LogCollector.d(TAG, "findMangaCacheByText: 数据库命中, historyId=${history.id}")
                 return@withContext buildCacheResult(history)
             }
         }
@@ -135,8 +152,27 @@ class TranslationCacheManager(private val context: Context) {
 
     /**
      * 保存翻译结果到历史 + 缓存。自动执行 LRU 淘汰。
+     * 漫画模式：如果已有相同 pHash 的旧记录，先删除（避免重复）。
      */
     suspend fun saveToCache(entry: CacheEntry) = withContext(Dispatchers.IO) {
+        // 0. 漫画模式去重：删除旧的同 pHash 记录
+        if (entry.type == MODE_MANGA && entry.pHash != 0L) {
+            val oldCache = dao.findCacheByExactHash(entry.pHash, MODE_MANGA)
+            if (oldCache != null) {
+                val oldHistory = dao.getHistoryById(oldCache.historyId)
+                dao.deleteCacheById(oldCache.id)
+                if (oldHistory != null) {
+                    oldHistory.imagePath?.let { File(it).delete() }
+                    oldHistory.thumbnailPath?.let { File(it).delete() }
+                    if (!oldHistory.sourceText.isNullOrBlank()) {
+                        textFingerprintCache.remove(extractTextFingerprint(oldHistory.sourceText))
+                    }
+                    dao.deleteHistoryById(oldHistory.id.toInt())
+                    LogCollector.d(TAG, "saveToCache: 删除旧同 pHash 记录, historyId=${oldHistory.id}")
+                }
+            }
+        }
+
         // 1. 保存图片（漫画翻译）
         var imagePath: String? = null
         var thumbnailPath: String? = null
@@ -162,6 +198,13 @@ class TranslationCacheManager(private val context: Context) {
         )
         val historyId = dao.insertHistory(historyEntity)
         LogCollector.d(TAG, "saveToCache: 插入 history, id=$historyId")
+
+        // 更新内存指纹缓存（漫画模式）
+        if (entry.type == MODE_MANGA && !entry.sourceText.isNullOrBlank()) {
+            val fingerprint = extractTextFingerprint(entry.sourceText)
+            if (textFingerprintCache.size > 500) textFingerprintCache.clear()
+            textFingerprintCache[fingerprint] = historyId
+        }
 
         // 3. LRU 淘汰：检查缓存容量
         evictIfNeeded(entry.type)
@@ -193,6 +236,10 @@ class TranslationCacheManager(private val context: Context) {
             if (oldHistory != null) {
                 oldHistory.imagePath?.let { File(it).delete() }
                 oldHistory.thumbnailPath?.let { File(it).delete() }
+                // 清除内存指纹缓存
+                if (!oldHistory.sourceText.isNullOrBlank()) {
+                    textFingerprintCache.remove(extractTextFingerprint(oldHistory.sourceText))
+                }
                 dao.deleteHistoryById(oldHistory.id.toInt())
                 LogCollector.d(TAG, "refreshCache: 删除旧 history, id=${oldHistory.id}")
             }
@@ -201,6 +248,31 @@ class TranslationCacheManager(private val context: Context) {
         // 保存新结果
         saveToCache(newEntry)
         LogCollector.d(TAG, "refreshCache: 保存新结果")
+    }
+
+    /**
+     * 游戏模式重新翻译：先删除旧的同源 history + cache，再保存新结果。
+     */
+    suspend fun refreshGameCache(
+        sourceText: String,
+        sourceLang: String,
+        targetLang: String,
+        newEntry: CacheEntry
+    ) = withContext(Dispatchers.IO) {
+        // 查找旧的同源 history
+        val oldHistory = dao.findHistoryBySourceText(sourceText.trim(), sourceLang, targetLang)
+        if (oldHistory != null) {
+            // 删除关联的 cache 条目
+            dao.deleteCacheByHistoryId(oldHistory.id)
+            LogCollector.d(TAG, "refreshGameCache: 删除旧 cache by historyId=${oldHistory.id}")
+            // 删除旧 history
+            dao.deleteHistoryById(oldHistory.id.toInt())
+            LogCollector.d(TAG, "refreshGameCache: 删除旧 history, id=${oldHistory.id}")
+        }
+
+        // 保存新结果
+        saveToCache(newEntry)
+        LogCollector.d(TAG, "refreshGameCache: 保存新结果")
     }
 
     /**
@@ -313,6 +385,10 @@ class TranslationCacheManager(private val context: Context) {
         // 删除图片文件
         history.imagePath?.let { File(it).delete() }
         history.thumbnailPath?.let { File(it).delete() }
+        // 清除内存指纹缓存
+        if (!history.sourceText.isNullOrBlank()) {
+            textFingerprintCache.remove(extractTextFingerprint(history.sourceText))
+        }
         // 删除缓存条目
         dao.deleteCacheByHistoryId(id)
         // 删除历史记录
@@ -330,6 +406,10 @@ class TranslationCacheManager(private val context: Context) {
             entity.thumbnailPath?.let { File(it).delete() }
         }
         dao.deleteHistoryByType(type)
+        // 清除该类型的所有内存指纹缓存
+        if (type == MODE_MANGA) {
+            textFingerprintCache.clear()
+        }
         LogCollector.d(TAG, "clearHistory: type=$type, deleted ${entities.size} entries")
     }
 
@@ -341,7 +421,17 @@ class TranslationCacheManager(private val context: Context) {
             val oldest = dao.getOldestCache(mode)
             if (oldest != null) {
                 dao.deleteCacheById(oldest.id)
-                LogCollector.d(TAG, "evictIfNeeded: 淘汰 cache id=${oldest.id}, mode=$mode")
+                // 同时删除关联的 history 记录和图片文件，避免孤儿数据
+                val history = dao.getHistoryById(oldest.historyId)
+                if (history != null) {
+                    history.imagePath?.let { File(it).delete() }
+                    history.thumbnailPath?.let { File(it).delete() }
+                    if (!history.sourceText.isNullOrBlank()) {
+                        textFingerprintCache.remove(extractTextFingerprint(history.sourceText))
+                    }
+                    dao.deleteHistoryById(history.id.toInt())
+                }
+                LogCollector.d(TAG, "evictIfNeeded: 淘汰 cache id=${oldest.id}, historyId=${oldest.historyId}, mode=$mode")
             }
         }
     }
@@ -366,11 +456,12 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     private fun saveBitmap(bitmap: Bitmap, filename: String): String {
-        val file = File(historyDir, filename)
+        val jpgFilename = filename.replace(".png", ".jpg")
+        val file = File(historyDir, jpgFilename)
         FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
         }
-        LogCollector.d(TAG, "saveBitmap: ${bitmap.width}x${bitmap.height}, file=${file.length() / 1024}KB, path=$filename")
+        LogCollector.d(TAG, "saveBitmap: ${bitmap.width}x${bitmap.height}, file=${file.length() / 1024}KB, path=$jpgFilename")
         return file.absolutePath
     }
 
@@ -379,9 +470,10 @@ class TranslationCacheManager(private val context: Context) {
         val thumbW = (bitmap.width * scale).toInt().coerceAtLeast(1)
         val thumbH = (bitmap.height * scale).toInt().coerceAtLeast(1)
         val thumb = Bitmap.createScaledBitmap(bitmap, thumbW, thumbH, true)
-        val file = File(historyDir, filename)
+        val jpgFilename = filename.replace(".png", ".jpg")
+        val file = File(historyDir, jpgFilename)
         FileOutputStream(file).use { out ->
-            thumb.compress(Bitmap.CompressFormat.PNG, 90, out)
+            thumb.compress(Bitmap.CompressFormat.JPEG, 85, out)
         }
         if (thumb !== bitmap) thumb.recycle()
         return file.absolutePath
