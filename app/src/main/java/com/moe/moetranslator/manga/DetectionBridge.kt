@@ -77,6 +77,20 @@ data class RTDetrV2DebugResult(
     val finalRegions: List<Rect>                                // 最终提交给OCR的区域（压缩+去重后）
 )
 
+/**
+ * 检测+裁剪结果，用于分批 OCR 识别。
+ * @param croppedBitmap 裁剪后的图片（含 10px padding）
+ * @param rect 原图中的位置
+ * @param classId RT-DETR-V2 类别：0=bubble(红色), 1=text_bubble(绿色)
+ * @param confidence 检测置信度
+ */
+data class CroppedBubble(
+    val croppedBitmap: Bitmap,
+    val rect: Rect,
+    val classId: Int,
+    val confidence: Float
+)
+
 private const val DEBUG_TAG = "DetectionBridge"
 
 /**
@@ -1348,6 +1362,209 @@ object DetectionBridge {
             LogCollector.e(TAG, "RT-DETR-V2 检测失败", e)
             throw e
         }
+    }
+
+    /**
+     * RT-DETR-V2 检测+裁剪，不做 OCR 识别。
+     * 用于分批渲染场景：先检测所有气泡位置，再分批调用 OCR。
+     *
+     * @return 按 confidence 降序排列的裁剪结果列表
+     */
+    suspend fun detectAndCropRTDetrV2(
+        bitmap: Bitmap
+    ): List<CroppedBubble> = withContext(Dispatchers.IO) {
+        LogCollector.d(TAG, "detectAndCropRTDetrV2: 开始检测...")
+
+        // Step 1: RT-DETR-V2 检测
+        val allBubbles = ComicBubbleDetector.detectBubbles(bitmap)
+        if (allBubbles.isEmpty()) {
+            LogCollector.d(TAG, "detectAndCropRTDetrV2: 未检测到文字区域")
+            return@withContext emptyList()
+        }
+        LogCollector.d(TAG, "detectAndCropRTDetrV2: 原始检测到 ${allBubbles.size} 个区域")
+
+        // Step 2: 分类处理
+        val greenBubbles = allBubbles.filter { it.classId == 1 }
+        val redBubbles = allBubbles.filter { it.classId == 0 }.map { bubble ->
+            val cx = (bubble.rect.left + bubble.rect.right) / 2
+            val cy = (bubble.rect.top + bubble.rect.bottom) / 2
+            val halfW = (bubble.rect.right - bubble.rect.left) / 2 * 0.85f
+            val halfH = (bubble.rect.bottom - bubble.rect.top) / 2 * 0.85f
+            bubble.copy(rect = Rect(
+                (cx - halfW).toInt().coerceAtLeast(0),
+                (cy - halfH).toInt().coerceAtLeast(0),
+                (cx + halfW).toInt(),
+                (cy + halfH).toInt()
+            ))
+        }
+
+        // Step 3: 去重
+        val dedupedBubbles = greenBubbles.toMutableList()
+        for (red in redBubbles) {
+            val fullyContained = greenBubbles.any { green -> calcContainment(red.rect, green.rect) > 0.9f }
+            if (!fullyContained) {
+                dedupedBubbles.add(red)
+            }
+        }
+
+        // Step 4: 按 confidence 降序排序
+        val sortedBubbles = dedupedBubbles.sortedByDescending { it.confidence }
+        LogCollector.d(TAG, "detectAndCropRTDetrV2: 过滤后 ${sortedBubbles.size} 个区域")
+
+        // Step 5: 裁剪图片（10px padding）
+        val cropped = sortedBubbles.map { bubble ->
+            CroppedBubble(
+                croppedBitmap = cropBitmap(bitmap, bubble.rect),
+                rect = bubble.rect,
+                classId = bubble.classId,
+                confidence = bubble.confidence
+            )
+        }
+
+        LogCollector.d(TAG, "detectAndCropRTDetrV2: 完成，${cropped.size} 个裁剪区域")
+        cropped
+    }
+
+    /**
+     * 对裁剪好的气泡图片调用 OCR 识别。
+     * 识别完成后释放裁剪图片。
+     *
+     * @param croppedBubbles 裁剪结果列表
+     * @param ocrEngine OCR 引擎类型
+     * @param context Context（PP-OCRv5 需要）
+     * @param language 语言代码
+     * @return TextBlockInfo 列表
+     */
+    suspend fun recognizeCroppedBubbles(
+        croppedBubbles: List<CroppedBubble>,
+        ocrEngine: CTDOCREngine,
+        context: Context,
+        language: String
+    ): List<TextBlockInfo> = withContext(Dispatchers.IO) {
+        if (croppedBubbles.isEmpty()) return@withContext emptyList()
+
+        LogCollector.d(TAG, "recognizeCroppedBubbles: ${croppedBubbles.size} 个气泡, engine=$ocrEngine")
+
+        val croppedBitmaps = croppedBubbles.map { it.croppedBitmap }
+        val results = mutableListOf<TextBlockInfo>()
+
+        when (ocrEngine) {
+            CTDOCREngine.MangaOcr -> {
+                val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+                for (i in croppedBubbles.indices) {
+                    val text = texts[i].trim()
+                    if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                        val bubble = croppedBubbles[i]
+                        val isVertical = bubble.rect.height() > bubble.rect.width()
+                        results.add(TextBlockInfo(
+                            text = text,
+                            boundingBox = bubble.rect,
+                            cornerPoints = null,
+                            isVertical = isVertical
+                        ))
+                        LogCollector.d(TAG, "recognizeCroppedBubbles(MangaOcr) [$i]: rect=${bubble.rect}, text='$text', isVertical=$isVertical")
+                    }
+                }
+            }
+            CTDOCREngine.MLKit -> {
+                for (i in croppedBubbles.indices) {
+                    try {
+                        val text = OCRBridge.recognizeText(language, croppedBitmaps[i])
+                        if (text.isNotBlank()) {
+                            val bubble = croppedBubbles[i]
+                            val isVertical = bubble.rect.height() > bubble.rect.width()
+                            results.add(TextBlockInfo(
+                                text = text,
+                                boundingBox = bubble.rect,
+                                cornerPoints = null,
+                                isVertical = isVertical
+                            ))
+                        }
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "recognizeCroppedBubbles(MLKit) 失败[$i]", e)
+                    }
+                }
+            }
+            CTDOCREngine.PPOcrV5 -> {
+                val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
+                if (recLang != null) {
+                    val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
+                    for (i in croppedBubbles.indices) {
+                        val result = texts.getOrElse(i) { RecResult("", 0f) }
+                        if (result.text.isNotBlank() && result.score >= 0.5f) {
+                            val bubble = croppedBubbles[i]
+                            val isVertical = bubble.rect.height() > bubble.rect.width()
+                            results.add(TextBlockInfo(
+                                text = result.text,
+                                boundingBox = bubble.rect,
+                                cornerPoints = null,
+                                isVertical = isVertical
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 释放裁剪图片
+        for (cropped in croppedBubbles) {
+            cropped.croppedBitmap.recycle()
+        }
+
+        LogCollector.d(TAG, "recognizeCroppedBubbles: 完成，${results.size} 个文字块")
+        results
+    }
+
+    /**
+     * 流式识别裁剪气泡：decoder 每完成一个就返回结果，不等全部完成。
+     * 仅 MangaOcr 支持流式，其他引擎回退到批量识别。
+     *
+     * @return Channel<Pair<Int, TextBlockInfo>> (索引, 识别结果)
+     */
+    suspend fun recognizeCroppedBubblesStreaming(
+        croppedBubbles: List<CroppedBubble>,
+        ocrEngine: CTDOCREngine,
+        context: Context,
+        language: String
+    ): kotlinx.coroutines.channels.Channel<Pair<Int, TextBlockInfo>> {
+        val channel = kotlinx.coroutines.channels.Channel<Pair<Int, TextBlockInfo>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+        if (croppedBubbles.isEmpty()) {
+            channel.close()
+            return channel
+        }
+
+        LogCollector.d(TAG, "recognizeCroppedBubblesStreaming: ${croppedBubbles.size} 个气泡, engine=$ocrEngine")
+
+        if (ocrEngine == CTDOCREngine.MangaOcr) {
+            val croppedBitmaps = croppedBubbles.map { it.croppedBitmap }
+            val ocrChannel = MangaOcrRecognizer.recognizeStreaming(croppedBitmaps)
+
+            // 转换 OCR 结果为 TextBlockInfo
+            for ((i, text) in ocrChannel) {
+                val trimmed = text.trim()
+                if (trimmed.isNotBlank() && !isDotOnlyPattern(trimmed)) {
+                    val bubble = croppedBubbles[i]
+                    val isVertical = bubble.rect.height() > bubble.rect.width()
+                    channel.send(Pair(i, TextBlockInfo(
+                        text = trimmed,
+                        boundingBox = bubble.rect,
+                        cornerPoints = null,
+                        isVertical = isVertical
+                    )))
+                    LogCollector.d(TAG, "recognizeCroppedBubblesStreaming(MangaOcr) [$i]: rect=${bubble.rect}, text='$trimmed', isVertical=$isVertical")
+                }
+            }
+        } else {
+            // 非 MangaOcr 回退到批量识别
+            val results = recognizeCroppedBubbles(croppedBubbles, ocrEngine, context, language)
+            for ((i, result) in results.withIndex()) {
+                channel.send(Pair(i, result))
+            }
+        }
+
+        channel.close()
+        return channel
     }
 
     /**

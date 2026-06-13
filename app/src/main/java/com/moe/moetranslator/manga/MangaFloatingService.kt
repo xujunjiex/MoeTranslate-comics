@@ -68,6 +68,7 @@ import translationapi.nllbtranslation.NLLBTranslation
 import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.utils.PerceptualHash
+import java.util.LinkedList
 import kotlin.math.abs
 
 class MangaFloatingService : LifecycleService() {
@@ -90,6 +91,9 @@ class MangaFloatingService : LifecycleService() {
         const val REGION_IOU_THRESHOLD = 0.4f       // 区域重叠判定阈值
         const val MAX_CACHED_REGIONS = 50           // 最大缓存区域数
         const val REGION_TTL_MS = 300_000L          // 区域缓存有效期 5 分钟
+
+        // 分批渲染常量
+        const val INCREMENTAL_THRESHOLD = 6       // 触发分批的气泡数量阈值
 
         // 当前加载的 manga-ocr 版本，用于日志
         @Volatile
@@ -144,6 +148,11 @@ class MangaFloatingService : LifecycleService() {
     private val handler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { handleLongPress() }
     private var currentGesture: GestureType? = null
+
+    // AI 上下文（仅 OpenAI 兼容 API）
+    private var contextEnabled = false
+    private var contextMaxCount = 5
+    private val contextHistory = LinkedList<Pair<String, String>>()  // (原文, 译文) 对
 
     // Auto-translate — 基于图像哈希 + 区域级缓存的智能自动翻译
     private var isAutoTranslating = false
@@ -209,6 +218,12 @@ class MangaFloatingService : LifecycleService() {
         config = loadConfig()
         checkLanguageHints()
         initTranslator()
+
+        // 读取 AI 上下文设置
+        contextEnabled = prefs.getBoolean("game_context_enabled", false)
+        contextMaxCount = try {
+            prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
+        } catch (e: Exception) { 5 }
 
         // 监听源语言和引擎变化，实时检查语言/模型提示
         val watchedKeys = setOf("Source_Language", "Manga_Det_Model", "Manga_Rec_Model")
@@ -1589,6 +1604,209 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- Manga translation pipeline ----------
 
+    /**
+     * 按漫画阅读顺序排序裁剪结果：从上到下，从右到左。
+     */
+    private fun sortByMangaReadingOrder(bubbles: List<CroppedBubble>): List<CroppedBubble> {
+        return bubbles.sortedWith(
+            compareBy<CroppedBubble> { it.rect.top }
+                .thenByDescending { it.rect.left }
+        )
+    }
+
+    /**
+     * 将 TextBlockInfo 列表转换为 BubbleRegion 列表。
+     * 复用 processMangaScreenshot Step 2 中的转换逻辑。
+     */
+    private fun textBlocksToBubbleRegions(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
+        return textBlocks.filter { it.boundingBox != null }.map { block ->
+            val rect = block.boundingBox!!
+            val isVertical = block.isVertical ?: (rect.height() > rect.width())
+            BubbleRegion(
+                rect = rect,
+                texts = listOf(block.text),
+                fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
+                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+            )
+        }
+    }
+
+    /**
+     * 保存翻译缓存（不渲染 overlay）。
+     * 用于分批渲染场景：用户关闭 overlay 后仍保存完整缓存。
+     */
+    private suspend fun saveTranslationCache(original: Bitmap, allBubbles: List<TranslatedBubble>) {
+        try {
+            val translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
+            val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
+            val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+            LogCollector.d(TAG, "saveTranslationCache: ${allBubbles.size} 个气泡")
+            // 渲染完整 bitmap 用于缓存
+            val resultBitmap = withContext(Dispatchers.Default) {
+                OverlayRenderer.renderOverlay(
+                    original = original,
+                    regions = allBubbles,
+                    fontSize = config.fontSize,
+                    autoFit = config.autoFontSize,
+                    textColor = config.textColor,
+                    bgColor = config.bgColor
+                )
+            }
+            val entry = CacheEntry(
+                type = TranslationCacheManager.MODE_MANGA,
+                sourceText = ocrTexts.ifEmpty { null },
+                translatedText = transTexts.ifEmpty { null },
+                resultBitmap = resultBitmap.copy(resultBitmap.config ?: Bitmap.Config.ARGB_8888, false),
+                sourceLang = config.sourceLang,
+                targetLang = config.targetLang,
+                translatorName = translatorName,
+                pHash = currentPHash,
+                sessionId = sessionId
+            )
+            if (isForceRefreshActive) {
+                cacheManager.refreshCache(currentPHash, TranslationCacheManager.MODE_MANGA, entry)
+                isForceRefreshActive = false
+            } else {
+                cacheManager.saveToCache(entry)
+            }
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "saveTranslationCache 失败", e)
+        }
+    }
+
+    /**
+     * 分批渲染流程：检测+裁剪 → 分两批 OCR+翻译+渲染。
+     * 仅对 RT-DETR-V2 + MangaOcr 组合生效。
+     *
+     * @return true 如果执行了分批流程，false 如果不满足条件（应回退到原有流程）
+     */
+    private suspend fun incrementalTranslateFlow(bitmap: Bitmap): Boolean {
+        val isIncrementalEnabled = prefs.getBoolean("Incremental_Render", false)
+        if (!isIncrementalEnabled) return false
+
+        // 仅对 RT-DETR-V2 + MangaOcr 组合生效
+        if (config.detEngine != DetEngine.RT_DETR_V2 || config.ocrEngine != OcrEngine.MangaOcr) {
+            return false
+        }
+
+        // 确保模型已初始化
+        initRTDetrV2IfNeeded()
+        ensureMangaOcrInitialized()
+
+        // Step 1: 检测+裁剪
+        LogCollector.d(TAG, "incrementalTranslateFlow: 开始检测+裁剪")
+        val croppedBubbles = DetectionBridge.detectAndCropRTDetrV2(bitmap)
+        if (croppedBubbles.isEmpty()) {
+            LogCollector.d(TAG, "incrementalTranslateFlow: 未检测到气泡")
+            if (!isAutoTranslating) {
+                withContext(Dispatchers.Main) {
+                    showToast(getString(R.string.no_text_found), true)
+                }
+            }
+            return true
+        }
+
+        // 检查是否需要分批
+        if (croppedBubbles.size <= INCREMENTAL_THRESHOLD) {
+            LogCollector.d(TAG, "incrementalTranslateFlow: 气泡数量 ${croppedBubbles.size} <= $INCREMENTAL_THRESHOLD，不触发分批")
+            for (cropped in croppedBubbles) {
+                cropped.croppedBitmap.recycle()
+            }
+            return false
+        }
+
+        // 按漫画阅读顺序排序
+        val sorted = sortByMangaReadingOrder(croppedBubbles)
+        LogCollector.d(TAG, "incrementalTranslateFlow: ${sorted.size} 个气泡，按阅读顺序排序")
+
+        // 第一批取总数的 2/5
+        val firstBatchSize = sorted.size * 2 / 5
+        val firstBatch = sorted.take(firstBatchSize)
+        val secondBatch = sorted.drop(firstBatchSize)
+        LogCollector.d(TAG, "incrementalTranslateFlow: 第一批 ${firstBatch.size} 个，第二批 ${secondBatch.size} 个")
+
+        try {
+            // ===== 第一批 OCR =====
+            showProgressOverlay("识别中（1/2）...")
+
+            val firstTextBlocks = DetectionBridge.recognizeCroppedBubbles(
+                firstBatch, DetectionBridge.CTDOCREngine.MangaOcr, this@MangaFloatingService, config.sourceLang
+            )
+            LogCollector.d(TAG, "incrementalTranslateFlow: 第一批 OCR 完成，${firstTextBlocks.size} 个文字块")
+
+            // 第一批收齐 → 翻译 + 第二批 OCR 并行
+            val firstTranslated = if (firstTextBlocks.isEmpty()) {
+                LogCollector.d(TAG, "incrementalTranslateFlow: 第一批无有效文字，跳过渲染")
+                emptyList()
+            } else {
+                val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
+
+                withContext(Dispatchers.Main) {
+                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
+                }
+                LogCollector.d(TAG, "incrementalTranslateFlow: 第一批翻译 + 第二批 OCR 并行开始")
+
+                // 启动第二批 OCR（独立协程）
+                val ocrJob = kotlinx.coroutines.GlobalScope.async(Dispatchers.IO) {
+                    DetectionBridge.recognizeCroppedBubbles(
+                        secondBatch, DetectionBridge.CTDOCREngine.MangaOcr, this@MangaFloatingService, config.sourceLang
+                    )
+                }
+
+                // 翻译第一批
+                val result = translateBubbles(firstBubbleRegions, forceContext = true)
+                LogCollector.d(TAG, "incrementalTranslateFlow: 第一批翻译完成，${result.size} 个结果")
+
+                // 翻译完成立即渲染，不等 OCR
+                if (result.isNotEmpty()) {
+                    renderAndShowMergedOverlay(bitmap, result)
+                    LogCollector.d(TAG, "incrementalTranslateFlow: 第一批渲染完成")
+                }
+
+                // 等待第二批 OCR
+                val secondTextBlocks = ocrJob.await()
+                LogCollector.d(TAG, "incrementalTranslateFlow: 第二批 OCR 完成，${secondTextBlocks.size} 个文字块")
+
+                // 翻译第二批
+                if (secondTextBlocks.isNotEmpty()) {
+                    val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
+                    val secondTranslated = translateBubbles(secondBubbleRegions, forceContext = true)
+                    LogCollector.d(TAG, "incrementalTranslateFlow: 第二批翻译完成，${secondTranslated.size} 个结果")
+                    result + secondTranslated
+                } else {
+                    result
+                }
+            }
+
+            // 最终渲染
+            if (firstTranslated.isNotEmpty()) {
+                if (!isResultShowing) {
+                    LogCollector.d(TAG, "incrementalTranslateFlow: 用户已关闭 overlay，跳过最终渲染")
+                    saveTranslationCache(bitmap, firstTranslated)
+                } else {
+                    withContext(Dispatchers.Main) {
+                        showProgressOverlay("显示中...")
+                    }
+                    renderAndShowMergedOverlay(bitmap, firstTranslated)
+                    LogCollector.d(TAG, "incrementalTranslateFlow: 最终渲染完成，共 ${firstTranslated.size} 个气泡")
+                }
+            }
+
+            statusOverlay.showImmediate("翻译完成")
+            lastTranslatedHash = currentPHash
+
+            if (isAutoTranslating) {
+                scheduleNextDetection(DETECT_INTERVAL_MS)
+            }
+
+            return true
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "incrementalTranslateFlow: 分批渲染失败，回退到原有流程", e)
+            return false
+        }
+    }
+
     private suspend fun processMangaScreenshot(bitmap: Bitmap, precomputedPHash: Long? = null) {
         try {
             LogCollector.d(TAG, "processMangaScreenshot: START")
@@ -1619,6 +1837,13 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.d(TAG, "processMangaScreenshot: 强制刷新，跳过缓存")
                 forceRefresh = false
             }
+
+            // 分批渲染：在检测之前尝试分批流程
+            if (incrementalTranslateFlow(bitmap)) {
+                LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
+                return
+            }
+            LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
 
             // 调试模式：按当前选择的检测模型决定 debug 路径
             when (config.detEngine) {
@@ -2111,7 +2336,8 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private suspend fun translateBubbles(
-        bubbles: List<BubbleRegion>
+        bubbles: List<BubbleRegion>,
+        forceContext: Boolean = false
     ): List<TranslatedBubble> {
         LogCollector.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translatorText=${translatorText?.javaClass?.simpleName}")
         if (translatorText == null) {
@@ -2150,7 +2376,7 @@ class MangaFloatingService : LifecycleService() {
                 || translatorText?.javaClass?.simpleName?.contains("Custom") == true
 
         val translatedResults = if (isAI && preparedBubbles.size > 1) {
-            translateBubblesBatch(preparedBubbles)
+            translateBubblesBatch(preparedBubbles, forceContext)
         } else {
             translateBubblesSequential(preparedBubbles)
         }
@@ -2162,9 +2388,10 @@ class MangaFloatingService : LifecycleService() {
      * AI翻译：所有气泡合并为一次请求，用编号分隔
      */
     private suspend fun translateBubblesBatch(
-        bubbles: List<Pair<BubbleRegion, String>>
+        bubbles: List<Pair<BubbleRegion, String>>,
+        forceContext: Boolean = false
     ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
-        LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request")
+        LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request, forceContext=$forceContext")
 
         // 构建带编号的文本，格式说明由用户提示词中的模板提供
         val numberedText = bubbles.mapIndexed { index, (_, text) ->
@@ -2174,6 +2401,18 @@ class MangaFloatingService : LifecycleService() {
         val latch = java.util.concurrent.CountDownLatch(1)
         var resultText: String? = null
         var errorMsg: String? = null
+
+        // 分批渲染强制开启上下文；否则实时读取偏好设置
+        val currentContextEnabled = forceContext || prefs.getBoolean("game_context_enabled", false)
+        val currentContextMaxCount = try {
+            prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
+        } catch (e: Exception) { 5 }
+
+        // 更新 AI 上下文（仅 OpenAI 兼容 API）
+        (translatorText as? translationapi.openaitranslation.OpenAITranslation)?.updateContext(
+            if (currentContextEnabled) contextHistory.toList() else emptyList(),
+            currentContextEnabled
+        )
 
         // 直接调用翻译API，使用用户在设置页面配置的系统提示词和用户提示词
         // numberedText 会替换用户提示词中的 usesourcetext 占位符
@@ -2212,6 +2451,18 @@ class MangaFloatingService : LifecycleService() {
             parseNumberedTranslations(result, bubbles.size)
         }
         LogCollector.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
+
+        // 更新 AI 上下文历史（仅 OpenAI 兼容 API）
+        if (currentContextEnabled && translations.isNotEmpty()) {
+            val sourceText = bubbles.map { it.second }.joinToString("\n")
+            val translatedText = translations.joinToString("\n")
+            contextHistory.addLast(Pair(sourceText, translatedText))
+            while (contextHistory.size > currentContextMaxCount) {
+                contextHistory.removeFirst()
+            }
+            LogCollector.d(TAG, "上下文已更新: ${contextHistory.size}/$currentContextMaxCount 轮")
+        }
+
         // 输出翻译结果
         for (i in translations.indices) {
             val (bubble, original) = bubbles[i]

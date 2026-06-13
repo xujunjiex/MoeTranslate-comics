@@ -10,7 +10,9 @@ import ai.onnxruntime.OrtSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.util.Collections
@@ -204,6 +206,75 @@ object MangaOcrRecognizer {
             LogCollector.e(TAG, "批量识别失败，回退到逐个识别", e)
             return bitmaps.map { recognize(it) }
         }
+    }
+
+    /**
+     * 流式批量识别：encoder 一次推理，decoder 并行解码，每个完成立即返回。
+     * @return Channel<Pair<Int, String>> (索引, 文字)，按完成顺序返回
+     */
+    suspend fun recognizeStreaming(bitmaps: List<Bitmap>): Channel<Pair<Int, String>> {
+        if (!isInitialized) {
+            throw IllegalStateException("MangaOcrRecognizer 未初始化")
+        }
+        val channel = Channel<Pair<Int, String>>(Channel.UNLIMITED)
+
+        if (bitmaps.isEmpty()) {
+            channel.close()
+            return channel
+        }
+        if (bitmaps.size == 1) {
+            channel.send(Pair(0, recognize(bitmaps[0])))
+            channel.close()
+            return channel
+        }
+
+        val encSession = encoderSessions[0]
+        val tok = tokenizer!!
+
+        try {
+            // 1. Encoder 一次推理
+            val inputTensor = preprocessImages(bitmaps)
+            LogCollector.d(TAG, "Encoder batch 推理: ${bitmaps.size} 张图片")
+            val t0 = System.currentTimeMillis()
+            val encoderResults = encSession.run(Collections.singletonMap("pixel_values", inputTensor))
+            val encoderOutputs = encoderResults.get("last_hidden_state").get() as OnnxTensor
+            inputTensor.close()
+            LogCollector.d(TAG, "Encoder batch 完成: ${System.currentTimeMillis() - t0}ms")
+
+            // 2. Decoder 并行，每个完成立即发送到 channel
+            val t1 = System.currentTimeMillis()
+            val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
+            val totalCount = bitmaps.size
+            coroutineScope {
+                (0 until bitmaps.size).map { i ->
+                    launch(Dispatchers.Default) {
+                        try {
+                            val singleHidden = extractSingleBatch(encoderOutputs, i)
+                            val tokenIds = runDecoderWithSession(decoderSessions[i % decoderSessions.size], singleHidden)
+                            singleHidden.close()
+                            val text = tok.decode(tokenIds)
+                            channel.send(Pair(i, text))
+                            LogCollector.d(TAG, "Decoder [$i] 完成: ${System.currentTimeMillis() - t1}ms")
+                        } catch (e: Exception) {
+                            LogCollector.e(TAG, "Decoder [$i] 失败", e)
+                        } finally {
+                            // 最后一个完成的 decoder 关闭 channel
+                            if (completedCount.incrementAndGet() == totalCount) {
+                                channel.close()
+                                LogCollector.d(TAG, "Decoder 全部完成: ${System.currentTimeMillis() - t1}ms")
+                            }
+                        }
+                    }
+                }
+            }
+
+            encoderOutputs.close()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "流式识别失败", e)
+            channel.close()
+        }
+
+        return channel
     }
 
     /**
