@@ -45,7 +45,7 @@ class OpenAIText :Fragment() {
     private var providerIndex: Int = 0
     private var isNew = false
     private var selectedModelIndex: Int = 0
-    private val defaultSystemPrompt = "你是专业翻译引擎。将用户提供的文本翻译为目标语言。\n规则：\n1. 只输出译文，不输出解释、标注或附加内容\n2. 保持原文格式（换行、标点风格等）\n3. 翻译应自然流畅，符合目标语言的表达习惯\n4. 专有名词（人名、地名、作品名）保留原文或使用通用译名\n5. 如果文本已经是目标语言，原样返回"
+    private val defaultSystemPrompt = "你是专业翻译引擎。将用户提供的文本翻译为usetolang。\n规则：\n1. 只输出译文，不输出解释、标注或附加内容\n2. 保持原文格式（换行、标点风格等）\n3. 翻译应自然流畅，符合目标语言的表达习惯\n4. 专有名词（人名、地名、作品名）保留原文或使用通用译名\n5. 如果文本已经是目标语言，原样返回"
     private val defaultUserPrompt = "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     private var currentTab = 0  // 0=游戏模式, 1=漫画模式
@@ -55,7 +55,7 @@ class OpenAIText :Fragment() {
     private var defaultMangaUserPrompt: String = ""
 
     // 新建用户API时的漫画默认提示词
-    private val fallbackMangaSystemPrompt = "你是漫画翻译引擎。逐条翻译以下文本，保持每条的[N]编号格式不变。\n规则：\n1. 只输出译文，不输出解释、标注或附加内容\n2. 翻译应口语化、自然，符合漫画对话的语气\n3. 保持编号格式：[1] 译文\n4. 象声词、感叹词根据目标语言习惯调整\n5. 如果文本已经是目标语言，原样返回"
+    private val fallbackMangaSystemPrompt = "你是漫画翻译引擎。逐条翻译以下文本为usetolang，保持每条的[N]编号格式不变。\n规则：\n1. 只输出译文，不输出解释、标注或附加内容\n2. 翻译应口语化、自然，符合漫画对话的语气\n3. 保持编号格式：[1] 译文\n4. 象声词、感叹词根据目标语言习惯调整\n5. 如果文本已经是目标语言，原样返回"
     private val fallbackMangaUserPrompt = "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     override fun onCreate(savedInstanceState: Bundle?) {

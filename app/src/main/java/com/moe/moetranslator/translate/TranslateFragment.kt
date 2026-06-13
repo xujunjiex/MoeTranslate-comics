@@ -946,6 +946,12 @@ class TranslateFragment : Fragment() {
     }
 
     private fun showLanguageListDialog(type: Int) {
+        // 翻译服务运行中禁止切换语言，避免语言不一致导致翻译结果错误
+        if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) ||
+            ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)) {
+            UiUtils.showToast(requireContext(), "翻译运行中，请先停止翻译再切换语言", isShort = false)
+            return
+        }
         if (((prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id) && (prefs.getInt(
                 "Text_API",
                 Constants.TextApi.BING.id

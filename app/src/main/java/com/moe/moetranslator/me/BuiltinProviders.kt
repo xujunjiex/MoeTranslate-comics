@@ -9,7 +9,7 @@ package com.moe.moetranslator.me
 object BuiltinProviders {
 
     private const val DEFAULT_SYSTEM_PROMPT =
-        "你是专业翻译引擎。将用户提供的文本翻译为目标语言。\n" +
+        "你是专业翻译引擎。将用户提供的文本翻译为usetolang。\n" +
         "规则：\n" +
         "1. 只输出译文，不输出解释、标注或附加内容\n" +
         "2. 保持原文格式（换行、标点风格等）\n" +
@@ -22,7 +22,7 @@ object BuiltinProviders {
 
     // 漫画模式默认提示词
     private const val DEFAULT_MANGA_SYSTEM_PROMPT =
-        "你是漫画翻译引擎。逐条翻译以下文本，保持每条的[N]编号格式不变。\n" +
+        "你是漫画翻译引擎。逐条翻译以下文本为usetolang，保持每条的[N]编号格式不变。\n" +
         "规则：\n" +
         "1. 只输出译文，不输出解释、标注或附加内容\n" +
         "2. 翻译应口语化、自然，符合漫画对话的语气\n" +
@@ -35,7 +35,7 @@ object BuiltinProviders {
 
     // 漫画模式JSON格式提示词（智谱AI结构化输出用）
     private const val DEFAULT_MANGA_SYSTEM_PROMPT_JSON =
-        "你是漫画翻译引擎。将每条文本翻译后以JSON格式返回：{\"translations\":[\"译文1\",\"译文2\"]}。\n" +
+        "你是漫画翻译引擎。将每条文本翻译为usetolang后以JSON格式返回：{\"translations\":[\"译文1\",\"译文2\"]}。\n" +
         "规则：\n" +
         "1. 数组顺序与输入编号一致，只输出JSON\n" +
         "2. 翻译应口语化、自然，符合漫画对话的语气\n" +

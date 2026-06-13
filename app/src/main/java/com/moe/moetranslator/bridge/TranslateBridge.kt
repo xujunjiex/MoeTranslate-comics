@@ -24,7 +24,7 @@ object TranslateBridge {
     private var currentApi: TranslationTextAPI? = null
 
     private val defaultSystemPrompt =
-        "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本。\n" +
+        "你是一名专业翻译。你的任务是准确、自然地翻译给定的文本为usetolang。\n" +
         "具体规则如下： \n" +
         "1、根据用户的要求，将文本翻译成指定的目标语言；\n" +
         "2、保持原意和语气；\n" +

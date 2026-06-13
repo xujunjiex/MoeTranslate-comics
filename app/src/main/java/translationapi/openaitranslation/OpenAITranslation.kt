@@ -113,7 +113,8 @@ class OpenAITranslation(
         ensureActive()
 
         // 构建翻译提示词
-        val systemPrompt = buildSystemPrompt()
+        val toLang = CustomLocale.getInstance(to).getDisplayName()
+        val systemPrompt = buildSystemPrompt(toLang)
         val userPrompt = buildUserPrompt(text, from, to)
 
         // 构建请求体，始终发送 thinking:disabled 禁用思考模式
@@ -151,11 +152,12 @@ class OpenAITranslation(
         parseResponse(responseBody)
     }
 
-    private fun buildSystemPrompt(): String {
+    private fun buildSystemPrompt(toLang: String): String {
+        val prompt = systemPrompt.replace("usetolang", toLang)
         return if (currentContextEnabled && currentContextHistory.isNotEmpty()) {
-            "根据上下文剧情进行翻译，保持角色语气和用词一致。\n\n$systemPrompt"
+            "根据上下文剧情进行翻译，保持角色语气和用词一致。\n\n$prompt"
         } else {
-            systemPrompt
+            prompt
         }
     }
 

@@ -402,6 +402,9 @@ class AboutMe : Fragment() {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
+                    // 关闭对话框，让用户与系统安装器交互
+                    // 如果版本相同或更低，系统安装器会提示"安装失败"
+                    dialog.dismiss()
                     startActivity(intent)
                 } catch (e: Exception) {
                     LogCollector.e("AboutMe", "Failed to install APK: ${e.message}")
