@@ -34,6 +34,30 @@
             app:iconSpaceReserved="false"
             android:title="@string/floating_ball_press_title" />
 
+        <ListPreference
+            android:key="Ball_Gesture_Single_Click"
+            app:iconSpaceReserved="false"
+            android:defaultValue="0"
+            android:title="@string/ball_gesture_single_click"
+            android:entries="@array/ball_action_entries"
+            android:entryValues="@array/ball_action_values" />
+
+        <ListPreference
+            android:key="Ball_Gesture_Double_Click"
+            app:iconSpaceReserved="false"
+            android:defaultValue="2"
+            android:title="@string/ball_gesture_double_click"
+            android:entries="@array/ball_action_entries"
+            android:entryValues="@array/ball_action_values" />
+
+        <ListPreference
+            android:key="Ball_Gesture_Long_Press"
+            app:iconSpaceReserved="false"
+            android:defaultValue="1"
+            android:title="@string/ball_gesture_long_press"
+            android:entries="@array/ball_action_entries"
+            android:entryValues="@array/ball_action_values" />
+
     </PreferenceCategory>
 
     <PreferenceCategory

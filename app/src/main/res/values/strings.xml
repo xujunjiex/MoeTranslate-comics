@@ -211,6 +211,13 @@
     <string name="floating_ball_pic_title">Floating Ball Icon</string>
     <string name="floating_ball_press_title">Long press determine time</string>
     <string name="floating_ball_press_summary">Current judgment time：%s ms\nPress and hold the floating ball, and the judgment time of the menu will pop up, in milliseconds</string>
+    <string name="ball_gesture_single_click">Single click action</string>
+    <string name="ball_gesture_double_click">Double click action</string>
+    <string name="ball_gesture_long_press">Long press action</string>
+    <string name="ball_action_translate">Translate</string>
+    <string name="ball_action_menu">Open menu</string>
+    <string name="ball_action_auto_translate">Auto-translate toggle</string>
+    <string name="ball_gesture_summary">Current: %s</string>
     <string name="ball_setting">Floating ball icon</string>
     <string name="ball_icon_default">Restore default</string>
     <string name="pic_choose">Select picture（png/jpg）</string>
@@ -605,6 +612,7 @@
     <string name="update_install_permission_content">Installing updates requires "Allow installing from unknown sources" permission.\n\nTap "Authorize" to go to Settings. After granting permission, return to continue installation automatically.</string>
     <string name="update_go_authorize">Authorize</string>
     <string name="update_downloaded_ready">Update package downloaded. Please grant install permission to continue.</string>
+    <string name="update_install_now">Install Update</string>
 
     <!-- PP-OCRv5 models -->
     <string name="ppocr_det_desc">det text detection, built-in</string>

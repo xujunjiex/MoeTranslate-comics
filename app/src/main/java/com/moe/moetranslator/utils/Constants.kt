@@ -48,4 +48,15 @@ object Constants {
         TENCENT(1),
         CUSTOM_PIC(2)
     }
+
+    // 悬浮球手势动作
+    enum class BallAction(val value: Int) {
+        TRANSLATE(0),       // 翻译
+        MENU(1),            // 打开菜单
+        AUTO_TRANSLATE(2);  // 自动翻译开关
+
+        companion object {
+            fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: TRANSLATE
+        }
+    }
 }

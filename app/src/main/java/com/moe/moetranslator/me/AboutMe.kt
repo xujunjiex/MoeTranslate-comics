@@ -70,10 +70,10 @@ class AboutMe : Fragment() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        // 从权限设置页返回，检查是否已授权
+        // 从权限设置页返回，只提示结果，不自动安装
         if (canRequestPackageInstalls()) {
-            LogCollector.d("AboutMe", "权限授权成功，检查待安装 APK")
-            tryInstallPendingApk()
+            LogCollector.d("AboutMe", "权限授权成功")
+            UiUtils.showToast(requireContext(), getString(R.string.update_downloaded_ready), isShort = false)
         } else {
             LogCollector.d("AboutMe", "用户未授权安装权限")
             UiUtils.showToast(requireContext(), getString(R.string.update_downloaded_ready), isShort = false)
@@ -89,10 +89,7 @@ class AboutMe : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        // 从其他页面返回时，检查是否有待安装的 APK（仅在安装器未启动过时）
-        if (!installerLaunched) {
-            tryInstallPendingApk()
-        }
+        // 不再自动触发安装，仅用户点击安装按钮才会跳转
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -360,6 +357,15 @@ class AboutMe : Fragment() {
             cloudDelayHint.visibility = View.VISIBLE
         }
 
+        // 检查是否已有下载好的 APK
+        val existingApk = getPendingApk()
+        if (existingApk != null && canRequestPackageInstalls()) {
+            // 已下载且有权限，显示安装按钮
+            val downloadSubtitle = dialogView.findViewById<TextView>(R.id.download_subtitle)
+            downloadSubtitle.text = getString(R.string.update_downloaded_ready)
+            showInstallReadyUI(dialogView, existingApk)
+        }
+
         // 暂不更新
         btnCancel.setOnClickListener {
             isDownloadCancelled = true
@@ -418,16 +424,14 @@ class AboutMe : Fragment() {
     }
 
     /**
-     * 检查是否有待安装的 APK 且已授权，有则自动安装
+     * 下载完成后显示安装按钮，用户点击才安装
      */
-    private fun tryInstallPendingApk() {
-        val pendingApk = getPendingApk() ?: return
-        if (!canRequestPackageInstalls()) return
-
-        LogCollector.d("AboutMe", "发现待安装 APK 且已授权，自动安装: ${pendingApk.length()} bytes")
-        // 清除回调
-        pendingInstallCallback = null
-        installApk(pendingApk)
+    private fun showInstallReadyUI(dialogView: View, apkFile: java.io.File) {
+        val btnInstallNow = dialogView.findViewById<TextView>(R.id.btn_install_now)
+        btnInstallNow.visibility = View.VISIBLE
+        btnInstallNow.setOnClickListener {
+            installApk(apkFile)
+        }
     }
 
     /**
@@ -435,7 +439,7 @@ class AboutMe : Fragment() {
      */
     private fun installApk(apkFile: java.io.File) {
         try {
-            installerLaunched = true // 标记已启动，防止 onResume 重复触发
+            installerLaunched = true
             val uri = androidx.core.content.FileProvider.getUriForFile(
                 requireContext(),
                 "${requireContext().packageName}.fileprovider",
@@ -451,7 +455,7 @@ class AboutMe : Fragment() {
             LogCollector.d("AboutMe", "安装器已启动")
         } catch (e: Exception) {
             LogCollector.e("AboutMe", "Failed to install APK: ${e.message}", e)
-            installerLaunched = false // 启动失败，重置标记
+            installerLaunched = false
             UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, e.message ?: ""), isShort = false)
         }
     }
@@ -554,9 +558,11 @@ class AboutMe : Fragment() {
                     return@launch
                 }
 
-                // 有权限，直接安装
-                dialog.dismiss()
-                installApk(destFile)
+                // 有权限，提示用户点击安装
+                downloadSubtitle.text = getString(R.string.update_downloaded_ready)
+                btnCancelDownload.visibility = View.GONE
+                // 显示安装按钮，用户点击才安装
+                showInstallReadyUI(dialogView, destFile)
             } else {
                 LogCollector.e("AboutMe", "APK download failed: ${result.exceptionOrNull()?.message}")
                 resetDownloadUI(dialogView)

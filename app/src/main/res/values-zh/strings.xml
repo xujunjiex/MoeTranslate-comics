@@ -211,6 +211,13 @@
     <string name="floating_ball_pic_title">悬浮球图标</string>
     <string name="floating_ball_press_title">长按判定时间</string>
     <string name="floating_ball_press_summary">当前判定时间：%s ms\n长按悬浮球，弹出菜单的判定时间，单位为毫秒</string>
+    <string name="ball_gesture_single_click">单击动作</string>
+    <string name="ball_gesture_double_click">双击动作</string>
+    <string name="ball_gesture_long_press">长按动作</string>
+    <string name="ball_action_translate">翻译</string>
+    <string name="ball_action_menu">打开菜单</string>
+    <string name="ball_action_auto_translate">自动翻译开关</string>
+    <string name="ball_gesture_summary">当前：%s</string>
     <string name="ball_setting">悬浮球图标</string>
     <string name="ball_icon_default">恢复默认</string>
     <string name="pic_choose">选择图片（png/jpg）</string>
@@ -618,4 +625,5 @@
     <string name="update_install_permission_content">安装更新需要「允许安装未知来源应用」权限。\n\n点击「去授权」将跳转到设置页面，授权后返回即可自动继续安装。</string>
     <string name="update_go_authorize">去授权</string>
     <string name="update_downloaded_ready">更新包已下载完成，请授权安装权限后将自动安装。</string>
+    <string name="update_install_now">安装更新</string>
 </resources>

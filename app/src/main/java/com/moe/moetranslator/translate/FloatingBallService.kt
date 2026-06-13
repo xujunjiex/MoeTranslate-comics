@@ -125,6 +125,15 @@ class FloatingBallService : LifecycleService() {
     private var floatingBallConfig = FloatingBallConfig()
     private var cropViewConfig = CropViewConfig()
 
+    // 手势动作配置
+    private var singleClickAction = Constants.BallAction.TRANSLATE
+    private var doubleClickAction = Constants.BallAction.AUTO_TRANSLATE
+    private var longPressAction = Constants.BallAction.MENU
+
+    // 双击检测
+    private var lastClickTime = 0L
+    private val singleClickRunnable = Runnable { executeAction(singleClickAction) }
+
     // 悬浮球触摸相关变量
     private var floatingBallInitialX: Int = 0
     private var floatingBallInitialY: Int = 0
@@ -172,6 +181,7 @@ class FloatingBallService : LifecycleService() {
     companion object {
         private const val DEFAULT_PIXEL_CHECK_INTERVAL_MS = 300L
         private const val OCR_TIMEOUT_MS = 3000L
+        private const val DOUBLE_CLICK_DELAY = 300L
     }
 
     private fun getPixelCheckInterval(): Long {
@@ -244,6 +254,10 @@ class FloatingBallService : LifecycleService() {
         LogCollector.d(TAG, "FloatingBallService onCreate")
         prefs = CustomPreference.getInstance(this)
         statusOverlay = TranslationStatusOverlay(this)
+        // 读取手势动作配置
+        singleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Single_Click", "0").toIntOrNull() ?: 0)
+        doubleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Double_Click", "2").toIntOrNull() ?: 2)
+        longPressAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Long_Press", "1").toIntOrNull() ?: 1)
         // 读取 AI 上下文设置
         contextEnabled = prefs.getBoolean("game_context_enabled", false)
         contextMaxCount = try {
@@ -523,7 +537,19 @@ class FloatingBallService : LifecycleService() {
                         val totalMoveX = abs(event.rawX - floatingBallInitialTouchX)
                         val totalMoveY = abs(event.rawY - floatingBallInitialTouchY)
                         if (totalMoveX <= floatingBallConfig.CLICK_SLOP && totalMoveY <= floatingBallConfig.CLICK_SLOP) {
-                            handleClick()
+                            // 双击检测
+                            val now = System.currentTimeMillis()
+                            if (now - lastClickTime < DOUBLE_CLICK_DELAY) {
+                                // 双击：取消单击计时器，执行双击动作
+                                handler.removeCallbacks(singleClickRunnable)
+                                lastClickTime = 0L
+                                executeAction(doubleClickAction)
+                            } else {
+                                // 可能是单击，延迟等待第二次点击
+                                lastClickTime = now
+                                handler.removeCallbacks(singleClickRunnable)
+                                handler.postDelayed(singleClickRunnable, DOUBLE_CLICK_DELAY)
+                            }
                         }
                     }
 
@@ -551,9 +577,7 @@ class FloatingBallService : LifecycleService() {
                     .start()
             }
             .start()
-        lifecycleScope.launch {
-            showLongPressMenu()
-        }
+        executeAction(longPressAction)
     }
 
     private fun showLongPressMenu() {
@@ -973,7 +997,15 @@ class FloatingBallService : LifecycleService() {
         isResultViewShowing = false
     }
 
-    private fun handleClick() {
+    private fun executeAction(action: Constants.BallAction) {
+        when (action) {
+            Constants.BallAction.TRANSLATE -> doTranslate()
+            Constants.BallAction.MENU -> showLongPressMenu()
+            Constants.BallAction.AUTO_TRANSLATE -> toggleAutoTranslate()
+        }
+    }
+
+    private fun doTranslate() {
         // 点击脉冲动画
         floatingBallView.animate()
             .scaleX(0.85f).scaleY(0.85f)

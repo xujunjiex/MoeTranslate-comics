@@ -37,6 +37,7 @@ import com.moe.moetranslator.translate.CustomLocale
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.FloatingBallService
 import com.moe.moetranslator.manga.MangaFloatingService
+import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LanguageManager
 import com.moe.moetranslator.utils.ServiceUtils
@@ -61,6 +62,9 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     private lateinit var pixelCheckInterval: ListPreference
     private lateinit var mangaTextColor: ColorPreferenceCompat
     private lateinit var mangaBgColor: ColorPreferenceCompat
+    private lateinit var gestureSingleClick: ListPreference
+    private lateinit var gestureDoubleClick: ListPreference
+    private lateinit var gestureLongPress: ListPreference
 
     private lateinit var languagePreference: ListPreference
 
@@ -212,6 +216,14 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         mangaTextColor = findPreference("manga_text_color")!!
         mangaBgColor = findPreference("manga_bg_color")!!
 
+        // 悬浮球手势配置
+        gestureSingleClick = findPreference("Ball_Gesture_Single_Click")!!
+        gestureDoubleClick = findPreference("Ball_Gesture_Double_Click")!!
+        gestureLongPress = findPreference("Ball_Gesture_Long_Press")!!
+        setupGesturePreference(gestureSingleClick, "Ball_Gesture_Single_Click")
+        setupGesturePreference(gestureDoubleClick, "Ball_Gesture_Double_Click")
+        setupGesturePreference(gestureLongPress, "Ball_Gesture_Long_Press")
+
         mangaTextColor.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Manga_Text_Color", newValue as Int)
             true
@@ -317,6 +329,48 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
     private fun updateFontSizeSummary() {
         resultFontSize.summary = getString(R.string.font_size_summary, prefs.getFloat("Custom_Result_Font_Size", 16f).toString())
+    }
+
+    // 手势 key 列表，用于互换逻辑
+    private val gestureKeys = listOf("Ball_Gesture_Single_Click", "Ball_Gesture_Double_Click", "Ball_Gesture_Long_Press")
+    private val gesturePrefs = mutableListOf<ListPreference>()
+
+    private fun setupGesturePreference(pref: ListPreference, key: String) {
+        gesturePrefs.add(pref)
+        pref.setOnPreferenceChangeListener { _, newValue ->
+            if (isAnyTranslationServiceRunning()) {
+                UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
+                false
+            } else {
+                val newAction = newValue.toString().toInt()
+                val otherPrefs = gestureKeys.filter { it != key }
+                // 检查是否有冲突，有则互换
+                for (otherKey in otherPrefs) {
+                    val otherValue = try { prefs.getString(otherKey, "0").toInt() } catch (_: Exception) { 0 }
+                    if (otherValue == newAction) {
+                        val oldValue = try { prefs.getString(key, "0").toInt() } catch (_: Exception) { 0 }
+                        prefs.setString(otherKey, oldValue.toString())
+                        val otherPref = gesturePrefs.firstOrNull { it.key == otherKey }
+                        if (otherPref != null) updateGestureSummary(otherPref, oldValue)
+                        break
+                    }
+                }
+                prefs.setString(key, newAction.toString())
+                updateGestureSummary(pref, newAction)
+                true
+            }
+        }
+        val currentValue = try { prefs.getString(key, "0").toInt() } catch (_: Exception) { 0 }
+        updateGestureSummary(pref, currentValue)
+    }
+
+    private fun updateGestureSummary(pref: ListPreference, value: Int) {
+        val actionName = when (Constants.BallAction.fromValue(value)) {
+            Constants.BallAction.TRANSLATE -> getString(R.string.ball_action_translate)
+            Constants.BallAction.MENU -> getString(R.string.ball_action_menu)
+            Constants.BallAction.AUTO_TRANSLATE -> getString(R.string.ball_action_auto_translate)
+        }
+        pref.summary = getString(R.string.ball_gesture_summary, actionName)
     }
 
 

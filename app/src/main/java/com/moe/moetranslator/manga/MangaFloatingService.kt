@@ -79,6 +79,7 @@ class MangaFloatingService : LifecycleService() {
 
         private const val CLICK_SLOP = 5f
         private const val LONG_PRESS_SLOP = 10f
+        private const val DOUBLE_CLICK_DELAY = 300L
 
         // pHash 阈值常量
         const val PHASH_STABLE_THRESHOLD = 0.95f   // >= 此值认为画面没变
@@ -107,6 +108,15 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private var longPressDelay = 500L
+
+    // 手势动作配置
+    private var singleClickAction = Constants.BallAction.TRANSLATE
+    private var doubleClickAction = Constants.BallAction.AUTO_TRANSLATE
+    private var longPressAction = Constants.BallAction.MENU
+
+    // 双击检测
+    private var lastClickTime = 0L
+    private val singleClickRunnable = Runnable { executeAction(singleClickAction) }
 
     private lateinit var windowManager: WindowManager
     private lateinit var floatingBallView: View
@@ -192,6 +202,10 @@ class MangaFloatingService : LifecycleService() {
         prefs = CustomPreference.getInstance(this)
         statusOverlay = TranslationStatusOverlay(this)
         cacheManager = TranslationCacheManager(this)
+        // 读取手势动作配置
+        singleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Single_Click", "0").toIntOrNull() ?: 0)
+        doubleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Double_Click", "2").toIntOrNull() ?: 2)
+        longPressAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Long_Press", "1").toIntOrNull() ?: 1)
         config = loadConfig()
         checkLanguageHints()
         initTranslator()
@@ -682,7 +696,19 @@ class MangaFloatingService : LifecycleService() {
                         val totalMoveX = abs(event.rawX - ballInitialTouchX)
                         val totalMoveY = abs(event.rawY - ballInitialTouchY)
                         if (totalMoveX <= CLICK_SLOP && totalMoveY <= CLICK_SLOP) {
-                            onBallClicked()
+                            // 双击检测
+                            val now = System.currentTimeMillis()
+                            if (now - lastClickTime < DOUBLE_CLICK_DELAY) {
+                                // 双击：取消单击计时器，执行双击动作
+                                handler.removeCallbacks(singleClickRunnable)
+                                lastClickTime = 0L
+                                executeAction(doubleClickAction)
+                            } else {
+                                // 可能是单击，延迟等待第二次点击
+                                lastClickTime = now
+                                handler.removeCallbacks(singleClickRunnable)
+                                handler.postDelayed(singleClickRunnable, DOUBLE_CLICK_DELAY)
+                            }
                         }
                     }
 
@@ -711,7 +737,7 @@ class MangaFloatingService : LifecycleService() {
                     .start()
             }
             .start()
-        showMenu()
+        executeAction(longPressAction)
     }
 
     private fun showMenu() {
@@ -1435,7 +1461,15 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- Click handler ----------
 
-    private fun onBallClicked() {
+    private fun executeAction(action: Constants.BallAction) {
+        when (action) {
+            Constants.BallAction.TRANSLATE -> doTranslate()
+            Constants.BallAction.MENU -> showMenu()
+            Constants.BallAction.AUTO_TRANSLATE -> toggleAutoTranslate()
+        }
+    }
+
+    private fun doTranslate() {
         // 点击脉冲动画
         floatingBallView.animate()
             .scaleX(0.85f).scaleY(0.85f)

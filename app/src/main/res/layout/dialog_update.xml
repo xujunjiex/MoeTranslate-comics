@@ -110,6 +110,21 @@
                 android:padding="4dp"
                 android:layout_marginTop="4dp"
                 android:visibility="gone"/>
+
+            <!-- 安装按钮（下载完成后显示） -->
+            <TextView
+                android:id="@+id/btn_install_now"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/update_install_now"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:background="@drawable/btn_download"
+                android:padding="10dp"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:visibility="gone"/>
         </LinearLayout>
     </LinearLayout>
 

@@ -187,4 +187,17 @@
         <item>8</item>
         <item>10</item>
     </string-array>
+
+    <!-- Floating ball gesture actions -->
+    <string-array name="ball_action_entries">
+        <item>@string/ball_action_translate</item>
+        <item>@string/ball_action_menu</item>
+        <item>@string/ball_action_auto_translate</item>
+    </string-array>
+
+    <string-array name="ball_action_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
 </resources>
