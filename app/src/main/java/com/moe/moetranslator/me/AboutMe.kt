@@ -64,6 +64,7 @@ class AboutMe : Fragment() {
     private var downloadJob: Job? = null
     private var isDownloadCancelled = false
     private var isDownloading = false
+    private var installerLaunched = false // 标记安装器是否已启动，防止 onResume 重复触发
 
     // 权限设置页跳转回调
     private val permissionLauncher = registerForActivityResult(
@@ -88,8 +89,10 @@ class AboutMe : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        // 从其他页面返回时，检查是否有待安装的 APK
-        tryInstallPendingApk()
+        // 从其他页面返回时，检查是否有待安装的 APK（仅在安装器未启动过时）
+        if (!installerLaunched) {
+            tryInstallPendingApk()
+        }
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -324,6 +327,7 @@ class AboutMe : Fragment() {
                 return@setOnClickListener
             }
             isDownloading = true
+            installerLaunched = false
             btnDownloadInstall.isClickable = false
             btnDownloadInstall.alpha = 0.7f
             startApkDownload(update.apkDownloadUrl, dialogView, dialog)
@@ -431,6 +435,7 @@ class AboutMe : Fragment() {
      */
     private fun installApk(apkFile: java.io.File) {
         try {
+            installerLaunched = true // 标记已启动，防止 onResume 重复触发
             val uri = androidx.core.content.FileProvider.getUriForFile(
                 requireContext(),
                 "${requireContext().packageName}.fileprovider",
@@ -446,6 +451,7 @@ class AboutMe : Fragment() {
             LogCollector.d("AboutMe", "安装器已启动")
         } catch (e: Exception) {
             LogCollector.e("AboutMe", "Failed to install APK: ${e.message}", e)
+            installerLaunched = false // 启动失败，重置标记
             UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, e.message ?: ""), isShort = false)
         }
     }
