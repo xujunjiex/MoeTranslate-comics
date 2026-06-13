@@ -263,6 +263,14 @@ IDLE（跳过OCR）──像素变化──→ CHANGED ──稳定1帧──→
 
 **悬浮球长按延迟：** 默认 300ms（`FloatingBallConfig.LONG_PRESS_DELAY`）
 
+**悬浮球手势自定义：**
+三个手势（单击/双击/长按）分配不同动作，互斥配置（不能重复）。
+- `Constants.BallAction`：TRANSLATE(0)、MENU(1)、AUTO_TRANSLATE(2)
+- 存储：`SharedPreferences` String 类型（`Ball_Gesture_Single_Click` 等）
+- 读取：`prefs.getString(key, "0").toIntOrNull() ?: 0`
+- 配置 UI：`PersonalizationConfig` → 悬浮球分类下 3 个 ListPreference
+- 选择时自动互换冲突项（如单击=翻译改为菜单，原菜单的手势自动变为翻译）
+
 **自动翻译框选前置：** 启动自动翻译前必须先框选翻译区域（`mRectF != null`），未框选时提示"请先框选翻译区域"。
 
 ### 漫画翻译（自动翻页）
@@ -335,6 +343,11 @@ Get-Content "C:\Users\xjj20\Desktop\app_log.txt" | Select-String "关键词"
 - 翻译相关：`Select-String "MangaFloating|OpenAITrans|TranslateBridge|翻译配置|翻译结果|上下文"`
 - 错误：`Select-String "Error|Exception|FAILED|失败"`
 - 全部：直接 `Get-Content`
+
+## 安装规范（最高优先级）
+
+**绝对禁止未经用户确认就执行 `adb uninstall`！**
+安装失败时：只报告错误，询问用户是否需要卸载重装，等用户明确同意后才能执行。这条规则没有例外。
 
 ## 关键约束
 
