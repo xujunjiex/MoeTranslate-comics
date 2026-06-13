@@ -98,6 +98,18 @@
                     android:textSize="12sp"
                     android:textColor="#CCFFFFFF"/>
             </LinearLayout>
+
+            <!-- 取消下载按钮 -->
+            <TextView
+                android:id="@+id/btn_cancel_download"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/update_download_cancel"
+                android:textSize="12sp"
+                android:textColor="#CCFFFFFF"
+                android:padding="4dp"
+                android:layout_marginTop="4dp"
+                android:visibility="gone"/>
         </LinearLayout>
     </LinearLayout>
 

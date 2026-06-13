@@ -40,9 +40,11 @@ import android.widget.*
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.moetranslator.launch.FirstLaunchPage
 import com.moe.moetranslator.manga.MangaFloatingService
+import com.moe.moetranslator.me.AboutMe
 import com.moe.moetranslator.utils.UpdateChecker
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentTranslateBinding
@@ -921,10 +923,11 @@ class TranslateFragment : Fragment() {
                 prefs.setLong("Ignore_Version", update.versionCode)
             }
             .setPositiveButton(R.string.go_to_update) { _, _ ->
-                val url = update.downloadUrl.ifEmpty { "https://github.com/xujunjiex/StarFlow/releases" }
-                val intent = Intent(Intent.ACTION_VIEW)
-                intent.data = Uri.parse(url)
-                startActivity(intent)
+                // 跳转到"关于"页面并自动检查更新
+                val bundle = Bundle().apply {
+                    putBoolean(AboutMe.ARG_AUTO_CHECK_UPDATE, true)
+                }
+                findNavController().navigate(R.id.me_fragment, bundle)
             }
             .setNegativeButton(R.string.not_update, null)
             .create()

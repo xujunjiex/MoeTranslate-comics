@@ -614,4 +614,8 @@
     <string name="update_download_percent">%d%%</string>
     <string name="update_installing">安装中…</string>
     <string name="update_download_failed">下载失败：%s</string>
+    <string name="update_install_permission_title">需要安装权限</string>
+    <string name="update_install_permission_content">安装更新需要「允许安装未知来源应用」权限。\n\n点击「去授权」将跳转到设置页面，授权后返回即可自动继续安装。</string>
+    <string name="update_go_authorize">去授权</string>
+    <string name="update_downloaded_ready">更新包已下载完成，请授权安装权限后将自动安装。</string>
 </resources>

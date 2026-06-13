@@ -601,6 +601,10 @@
     <string name="update_download_percent">%d%%</string>
     <string name="update_installing">Installing…</string>
     <string name="update_download_failed">Download failed: %s</string>
+    <string name="update_install_permission_title">Install Permission Required</string>
+    <string name="update_install_permission_content">Installing updates requires "Allow installing from unknown sources" permission.\n\nTap "Authorize" to go to Settings. After granting permission, return to continue installation automatically.</string>
+    <string name="update_go_authorize">Authorize</string>
+    <string name="update_downloaded_ready">Update package downloaded. Please grant install permission to continue.</string>
 
     <!-- PP-OCRv5 models -->
     <string name="ppocr_det_desc">det text detection, built-in</string>

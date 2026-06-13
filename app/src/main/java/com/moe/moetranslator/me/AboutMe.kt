@@ -17,12 +17,14 @@
 
 package com.moe.moetranslator.me
 
+import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -38,6 +40,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
@@ -58,9 +61,35 @@ class AboutMe : Fragment() {
     private lateinit var binding: FragmentAboutMeBinding
     private lateinit var updateChecker: UpdateChecker
 
+    private var downloadJob: Job? = null
+    private var isDownloadCancelled = false
+    private var isDownloading = false
+
+    // 权限设置页跳转回调
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // 从权限设置页返回，检查是否已授权
+        if (canRequestPackageInstalls()) {
+            LogCollector.d("AboutMe", "权限授权成功，检查待安装 APK")
+            tryInstallPendingApk()
+        } else {
+            LogCollector.d("AboutMe", "用户未授权安装权限")
+            UiUtils.showToast(requireContext(), getString(R.string.update_downloaded_ready), isShort = false)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         updateChecker = UpdateChecker(requireContext())
+        // 启动时清理旧下载
+        cleanupOldDownloads()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 从其他页面返回时，检查是否有待安装的 APK
+        tryInstallPendingApk()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -72,6 +101,12 @@ class AboutMe : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         setupButton()
+
+        // 从其他页面跳转过来时自动检查更新
+        if (arguments?.getBoolean(ARG_AUTO_CHECK_UPDATE, false) == true) {
+            arguments?.remove(ARG_AUTO_CHECK_UPDATE) // 只触发一次
+            checkForUpdate()
+        }
     }
 
     private fun setupButton(){
@@ -250,9 +285,6 @@ class AboutMe : Fragment() {
         }
     }
 
-    private var downloadJob: Job? = null
-    private var isDownloadCancelled = false
-
     private fun showUpdateDialog(update: UpdateResult.UpdateAvailable) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_update, null)
 
@@ -276,12 +308,24 @@ class AboutMe : Fragment() {
             .create()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
 
-        // 直接下载安装
+        // 直接下载安装（先检查权限）
         btnDownloadInstall.setOnClickListener {
+            if (isDownloading) return@setOnClickListener
             if (update.apkDownloadUrl.isEmpty()) {
                 UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, "No APK URL"), isShort = false)
                 return@setOnClickListener
             }
+            // 先检查安装权限
+            if (!canRequestPackageInstalls()) {
+                showInstallPermissionDialog {
+                    // 用户授权后，开始下载
+                    startApkDownload(update.apkDownloadUrl, dialogView, dialog)
+                }
+                return@setOnClickListener
+            }
+            isDownloading = true
+            btnDownloadInstall.isClickable = false
+            btnDownloadInstall.alpha = 0.7f
             startApkDownload(update.apkDownloadUrl, dialogView, dialog)
         }
 
@@ -315,11 +359,95 @@ class AboutMe : Fragment() {
         // 暂不更新
         btnCancel.setOnClickListener {
             isDownloadCancelled = true
+            isDownloading = false
             downloadJob?.cancel()
             dialog.dismiss()
         }
 
         dialog.show()
+    }
+
+    /**
+     * 检查是否有安装未知来源应用的权限
+     */
+    private fun canRequestPackageInstalls(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            requireContext().packageManager.canRequestPackageInstalls()
+        } else {
+            true // Android 8 以下不需要此权限
+        }
+    }
+
+    /**
+     * 显示安装权限说明弹窗
+     * @param onAuthorized 用户授权后的回调（用于继续下载或安装）
+     */
+    private fun showInstallPermissionDialog(onAuthorized: (() -> Unit)? = null) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.update_install_permission_title)
+            .setMessage(R.string.update_install_permission_content)
+            .setCancelable(true)
+            .setPositiveButton(R.string.update_go_authorize) { _, _ ->
+                // 跳转到权限设置页
+                val settingsIntent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${requireContext().packageName}")
+                )
+                // 保存回调，onResume 时检查权限并继续
+                pendingInstallCallback = onAuthorized
+                permissionLauncher.launch(settingsIntent)
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    // 待执行的安装回调（权限授权后继续）
+    private var pendingInstallCallback: (() -> Unit)? = null
+
+    /**
+     * 获取待安装的 APK 文件（如果存在且合法）
+     */
+    private fun getPendingApk(): java.io.File? {
+        val downloadDir = java.io.File(requireContext().getExternalFilesDir(null), "downloads")
+        val apkFile = java.io.File(downloadDir, "update.apk")
+        return if (apkFile.exists() && apkFile.length() > 0) apkFile else null
+    }
+
+    /**
+     * 检查是否有待安装的 APK 且已授权，有则自动安装
+     */
+    private fun tryInstallPendingApk() {
+        val pendingApk = getPendingApk() ?: return
+        if (!canRequestPackageInstalls()) return
+
+        LogCollector.d("AboutMe", "发现待安装 APK 且已授权，自动安装: ${pendingApk.length()} bytes")
+        // 清除回调
+        pendingInstallCallback = null
+        installApk(pendingApk)
+    }
+
+    /**
+     * 启动系统安装器安装 APK
+     */
+    private fun installApk(apkFile: java.io.File) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                apkFile
+            )
+            LogCollector.d("AboutMe", "FileProvider URI: $uri")
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            LogCollector.d("AboutMe", "安装器已启动")
+        } catch (e: Exception) {
+            LogCollector.e("AboutMe", "Failed to install APK: ${e.message}", e)
+            UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, e.message ?: ""), isShort = false)
+        }
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -333,6 +461,7 @@ class AboutMe : Fragment() {
         val progressBar = dialogView.findViewById<ProgressBar>(R.id.download_progress)
         val percentText = dialogView.findViewById<TextView>(R.id.download_percent)
         val speedText = dialogView.findViewById<TextView>(R.id.download_speed)
+        val btnCancelDownload = dialogView.findViewById<TextView>(R.id.btn_cancel_download)
         val btnGithubRelease = dialogView.findViewById<View>(R.id.btn_github_release)
         val btnBaidu = dialogView.findViewById<TextView>(R.id.btn_baidu)
         val btnQuark = dialogView.findViewById<TextView>(R.id.btn_quark)
@@ -340,8 +469,9 @@ class AboutMe : Fragment() {
         val cloudDelayHint = dialogView.findViewById<TextView>(R.id.cloud_delay_hint)
 
         // 切换到下载中状态
-        downloadSubtitle.text = getString(R.string.update_download_cancel)
+        downloadSubtitle.text = getString(R.string.update_download_from_github)
         progressContainer.visibility = View.VISIBLE
+        btnCancelDownload.visibility = View.VISIBLE
         progressBar.progress = 0
         percentText.text = getString(R.string.update_download_percent, 0)
         speedText.text = getString(R.string.update_download_speed, 0f)
@@ -357,10 +487,23 @@ class AboutMe : Fragment() {
         isDownloadCancelled = false
         val handler = Handler(Looper.getMainLooper())
 
-        // 下载到 app cache 目录
-        val destFile = java.io.File(requireContext().cacheDir, "update.apk")
+        // 下载到外部文件目录（不会被系统自动清理）
+        val downloadDir = java.io.File(requireContext().getExternalFilesDir(null), "downloads")
+        if (!downloadDir.exists()) downloadDir.mkdirs()
+        val destFile = java.io.File(downloadDir, "update.apk")
+
+        // 取消下载按钮
+        btnCancelDownload.setOnClickListener {
+            LogCollector.d("AboutMe", "用户取消下载")
+            isDownloadCancelled = true
+            downloadJob?.cancel()
+            destFile.delete()
+            resetDownloadUI(dialogView)
+            btnCancelDownload.visibility = View.GONE
+        }
 
         downloadJob = viewLifecycleOwner.lifecycleScope.launch {
+            LogCollector.d("AboutMe", "开始下载 APK: $apkUrl -> ${destFile.absolutePath}")
             val result = ModelDownloadManager.downloadModel(
                 context = requireContext(),
                 url = apkUrl,
@@ -381,39 +524,37 @@ class AboutMe : Fragment() {
             )
 
             if (isDownloadCancelled) return@launch
+            isDownloading = false
 
             if (result.isSuccess) {
-                // 下载完成，安装
+                LogCollector.d("AboutMe", "APK 下载成功: ${destFile.length()} bytes")
+
+                // 写入元数据文件（记录下载时间和版本）
+                val metaFile = java.io.File(downloadDir, "update.meta")
+                metaFile.writeText("${System.currentTimeMillis()}\n0") // 版本号在安装后通过版本对比判断
+
+                // 下载完成，检查安装权限
                 downloadSubtitle.text = getString(R.string.update_installing)
                 progressBar.progress = 100
                 percentText.text = getString(R.string.update_download_percent, 100)
                 speedText.text = ""
+                btnCancelDownload.visibility = View.GONE
 
-                try {
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(
-                            androidx.core.content.FileProvider.getUriForFile(
-                                requireContext(),
-                                "${requireContext().packageName}.fileprovider",
-                                destFile
-                            ),
-                            "application/vnd.android.package-archive"
-                        )
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    // 关闭对话框，让用户与系统安装器交互
-                    // 如果版本相同或更低，系统安装器会提示"安装失败"
-                    dialog.dismiss()
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    LogCollector.e("AboutMe", "Failed to install APK: ${e.message}")
-                    resetDownloadUI(dialogView)
-                    UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, e.message ?: ""), isShort = false)
+                if (!canRequestPackageInstalls()) {
+                    // 没有安装权限，提示用户授权
+                    LogCollector.d("AboutMe", "下载完成但缺少安装权限，等待用户授权")
+                    downloadSubtitle.text = getString(R.string.update_downloaded_ready)
+                    showInstallPermissionDialog()
+                    return@launch
                 }
+
+                // 有权限，直接安装
+                dialog.dismiss()
+                installApk(destFile)
             } else {
                 LogCollector.e("AboutMe", "APK download failed: ${result.exceptionOrNull()?.message}")
                 resetDownloadUI(dialogView)
+                btnCancelDownload.visibility = View.GONE
                 UiUtils.showToast(requireContext(), getString(R.string.update_download_failed, result.exceptionOrNull()?.message ?: ""), isShort = false)
             }
         }
@@ -427,9 +568,15 @@ class AboutMe : Fragment() {
         val btnQuark = dialogView.findViewById<TextView>(R.id.btn_quark)
         val cloudSectionTitle = dialogView.findViewById<TextView>(R.id.cloud_section_title)
         val cloudDelayHint = dialogView.findViewById<TextView>(R.id.cloud_delay_hint)
+        val btnDownloadInstall = dialogView.findViewById<View>(R.id.btn_download_install)
+        val btnCancelDownload = dialogView.findViewById<TextView>(R.id.btn_cancel_download)
 
+        isDownloading = false
+        btnDownloadInstall.isClickable = true
+        btnDownloadInstall.alpha = 1f
         downloadSubtitle.text = getString(R.string.update_download_from_github)
         progressContainer.visibility = View.GONE
+        btnCancelDownload.visibility = View.GONE
         btnGithubRelease.isEnabled = true
         btnGithubRelease.alpha = 1f
         btnBaidu.isEnabled = true
@@ -439,6 +586,55 @@ class AboutMe : Fragment() {
         if (btnBaidu.visibility == View.VISIBLE || btnQuark.visibility == View.VISIBLE) {
             cloudSectionTitle.visibility = View.VISIBLE
             cloudDelayHint.visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * 清理超过 24 小时的旧下载文件
+     */
+    private fun cleanupOldDownloads() {
+        try {
+            val downloadDir = java.io.File(requireContext().getExternalFilesDir(null), "downloads")
+            if (!downloadDir.exists()) return
+
+            val metaFile = java.io.File(downloadDir, "update.meta")
+            if (metaFile.exists()) {
+                val lines = metaFile.readText().lines()
+                val downloadTime = lines.getOrNull(0)?.toLongOrNull() ?: 0
+                val ageHours = (System.currentTimeMillis() - downloadTime) / (1000 * 60 * 60)
+
+                if (ageHours > 24) {
+                    downloadDir.listFiles()?.forEach { it.delete() }
+                    LogCollector.d("AboutMe", "清理超过 ${ageHours}h 的旧更新包")
+                }
+            } else {
+                // 没有 meta 文件但有残留文件，清理
+                if (downloadDir.listFiles()?.isNotEmpty() == true) {
+                    downloadDir.listFiles()?.forEach { it.delete() }
+                    LogCollector.d("AboutMe", "清理无 meta 的残留下载文件")
+                }
+            }
+        } catch (e: Exception) {
+            LogCollector.e("AboutMe", "清理旧下载失败: ${e.message}")
+        }
+    }
+
+    companion object {
+        const val ARG_AUTO_CHECK_UPDATE = "auto_check_update"
+
+        /**
+         * 清理下载目录（安装成功后调用）
+         */
+        fun cleanupDownloads(context: Context) {
+            try {
+                val downloadDir = java.io.File(context.getExternalFilesDir(null), "downloads")
+                if (downloadDir.exists()) {
+                    downloadDir.listFiles()?.forEach { it.delete() }
+                    LogCollector.d("AboutMe", "安装完成，清理下载目录")
+                }
+            } catch (e: Exception) {
+                LogCollector.e("AboutMe", "清理下载目录失败: ${e.message}")
+            }
         }
     }
 
