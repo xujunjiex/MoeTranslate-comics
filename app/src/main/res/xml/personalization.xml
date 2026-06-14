@@ -138,6 +138,13 @@
             android:defaultValue="false"
             app:iconSpaceReserved="false" />
 
+        <SwitchPreference
+            android:key="Manga_Keep_Text_Free"
+            app:iconSpaceReserved="false"
+            android:defaultValue="false"
+            android:title="@string/manga_keep_text_free_title"
+            android:summary="@string/manga_keep_text_free_summary" />
+
     </PreferenceCategory>
 
     <PreferenceCategory

@@ -593,7 +593,8 @@ class MangaFloatingService : LifecycleService() {
             textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
             bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
             ocrEngine = OcrEngine.fromValue(prefs.getInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)),
-            detEngine = detEngine
+            detEngine = detEngine,
+            keepTextFree = prefs.getBoolean("Manga_Keep_Text_Free", false)
         )
     }
 
@@ -735,6 +736,23 @@ class MangaFloatingService : LifecycleService() {
                                 // 双击：取消单击计时器，执行双击动作
                                 handler.removeCallbacks(singleClickRunnable)
                                 lastClickTime = 0L
+                                // 双击反馈动画（快速双脉冲）
+                                floatingBallView.animate()
+                                    .scaleX(0.85f).scaleY(0.85f)
+                                    .setDuration(60)
+                                    .withEndAction {
+                                        floatingBallView.animate()
+                                            .scaleX(1.1f).scaleY(1.1f)
+                                            .setDuration(60)
+                                            .withEndAction {
+                                                floatingBallView.animate()
+                                                    .scaleX(1f).scaleY(1f)
+                                                    .setDuration(60)
+                                                    .start()
+                                            }
+                                            .start()
+                                    }
+                                    .start()
                                 executeAction(doubleClickAction)
                             } else {
                                 // 可能是单击，延迟等待第二次点击
@@ -2078,7 +2096,7 @@ class MangaFloatingService : LifecycleService() {
                         }
                         LogCollector.d(TAG, "使用 RT-DETR-V2(检测) + ${rtdetrOcrEngine.name}(识别), lang=${config.sourceLang}" +
                             if (rtdetrOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
-                        DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService)
+                        DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService, config.keepTextFree)
                     }
                     DetEngine.PP_OCR_V5 -> {
                         LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")

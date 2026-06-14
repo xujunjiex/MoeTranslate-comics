@@ -559,6 +559,23 @@ class FloatingBallService : LifecycleService() {
                                 // 双击：取消单击计时器，执行双击动作
                                 handler.removeCallbacks(singleClickRunnable)
                                 lastClickTime = 0L
+                                // 双击反馈动画（快速双脉冲）
+                                floatingBallView.animate()
+                                    .scaleX(0.85f).scaleY(0.85f)
+                                    .setDuration(60)
+                                    .withEndAction {
+                                        floatingBallView.animate()
+                                            .scaleX(1.1f).scaleY(1.1f)
+                                            .setDuration(60)
+                                            .withEndAction {
+                                                floatingBallView.animate()
+                                                    .scaleX(1f).scaleY(1f)
+                                                    .setDuration(60)
+                                                    .start()
+                                            }
+                                            .start()
+                                    }
+                                    .start()
                                 executeAction(doubleClickAction)
                             } else {
                                 // 可能是单击，延迟等待第二次点击

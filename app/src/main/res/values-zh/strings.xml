@@ -449,6 +449,8 @@
     <string name="manga_bg_color_summary">当前漫画翻译结果的背景颜色</string>
     <string name="incremental_render_title">分批渲染</string>
     <string name="incremental_render_summary">气泡超过6个时分两批翻译，提前显示首批结果，但可能造成总翻译时长略微增加。仅对PP-OCRv5独立模式和RT-DETR-V2+MangaOcr组合生效。</string>
+    <string name="manga_keep_text_free_title">识别自由文字</string>
+    <string name="manga_keep_text_free_summary">开启后，RT-DETR-V2 检测到的自由文字（如旁白、音效）也会被识别和翻译</string>
     <string name="auto_translate_dismiss_delay">翻译结果消失后重新检测延迟（漫画翻译专用）</string>
     <string name="auto_translate_dismiss_delay_summary">当前延迟：%s ms\n漫画翻译自动翻译模式下，点击消除翻译结果后等待该时间再重新开始检测翻译</string>
     <string name="set_dismiss_delay">设置漫画翻译消除翻译结果后的重新检测延迟</string>

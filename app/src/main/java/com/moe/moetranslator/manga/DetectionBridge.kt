@@ -1247,7 +1247,8 @@ object DetectionBridge {
         bitmap: Bitmap,
         language: String,
         ocrEngine: CTDOCREngine,
-        context: Context
+        context: Context,
+        keepTextFree: Boolean = false
     ): List<TextBlockInfo> {
         try {
             LogCollector.d(TAG, "使用 RT-DETR-V2 + ${ocrEngine.name} 检测文字区域...")
@@ -1262,9 +1263,9 @@ object DetectionBridge {
 
             // Step 2: 分类处理
             // - text_bubble(绿色, classId=1): 直接保留
-            // - text_free(蓝色, classId=2): 丢弃
-            // - bubble(红色, classId=0): 压缩50%后保留（减轻OCR压力）
-            val greenBubbles = allBubbles.filter { it.classId == 1 }
+            // - text_free(蓝色, classId=2): keepTextFree 时保留，否则丢弃
+            // - bubble(红色, classId=0): 压缩15%后保留（减轻OCR压力）
+            val greenBubbles = allBubbles.filter { it.classId == 1 || (keepTextFree && it.classId == 2) }
             val redBubbles = allBubbles.filter { it.classId == 0 }.map { bubble ->
                 // 压缩15%，去除气泡外框多余的边距
                 val cx = (bubble.rect.left + bubble.rect.right) / 2
@@ -1292,7 +1293,7 @@ object DetectionBridge {
             // Step 4: 按 confidence 降序排序
             val sortedBubbles = dedupedBubbles.sortedByDescending { it.confidence }
 
-            LogCollector.d(TAG, "RT-DETR-V2 过滤后 ${sortedBubbles.size} 个区域 (绿色=${greenBubbles.size}, 红色保留=${dedupedBubbles.size - greenBubbles.size})")
+            LogCollector.d(TAG, "RT-DETR-V2 过滤后 ${sortedBubbles.size} 个区域 (text_bubble=${allBubbles.count { it.classId == 1 }}, text_free=${if (keepTextFree) "保留(${allBubbles.count { it.classId == 2 }})" else "丢弃"}, bubble保留=${dedupedBubbles.size - greenBubbles.size})")
 
             // Step 5: 裁剪图片（10px padding）
             val croppedBitmaps = sortedBubbles.map { bubble -> cropBitmap(bitmap, bubble.rect) }
