@@ -19,7 +19,7 @@ package com.moe.moetranslator.utils
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.util.Log
+import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -43,7 +43,7 @@ class UpdateChecker(private val context: Context) {
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
         try {
             val currentVersionCode = getCurrentVersion()
-            Log.d(TAG, "Current versionCode: $currentVersionCode")
+            LogCollector.d(TAG, "Current versionCode: $currentVersionCode")
 
             val request = Request.Builder()
                 .url(RELEASES_API)
@@ -52,7 +52,7 @@ class UpdateChecker(private val context: Context) {
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "GitHub API error: ${response.code}")
+                    LogCollector.e(TAG, "GitHub API error: ${response.code}")
                     return@withContext UpdateResult.Error
                 }
 
@@ -66,16 +66,16 @@ class UpdateChecker(private val context: Context) {
 
                 // 从 tag 解析 versionCode（取最后一段数字，如 v0.0.2 → 2）
                 val remoteVersionCode = parseVersionCode(versionName)
-                Log.d(TAG, "Remote version: $versionName (code=$remoteVersionCode)")
+                LogCollector.d(TAG, "Remote version: $versionName (code=$remoteVersionCode)")
 
                 if (remoteVersionCode > currentVersionCode) {
                     // 从 assets 中解析 APK 下载链接
                     val apkDownloadUrl = parseApkUrl(json)
-                    Log.d(TAG, "APK download URL: $apkDownloadUrl")
+                    LogCollector.d(TAG, "APK download URL: $apkDownloadUrl")
 
                     // 从 body 中解析网盘链接
                     val (baiduUrl, quarkUrl) = parseCloudUrls(releaseNotes)
-                    Log.d(TAG, "Baidu URL: $baiduUrl, Quark URL: $quarkUrl")
+                    LogCollector.d(TAG, "Baidu URL: $baiduUrl, Quark URL: $quarkUrl")
 
                     UpdateResult.UpdateAvailable(
                         versionCode = remoteVersionCode,
@@ -91,10 +91,10 @@ class UpdateChecker(private val context: Context) {
                 }
             }
         } catch (e: IOException) {
-            Log.e(TAG, "Network error: ${e.message}")
+            LogCollector.e(TAG, "Network error: ${e.message}")
             UpdateResult.Error
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking update: ${e.message}")
+            LogCollector.e(TAG, "Error checking update: ${e.message}")
             UpdateResult.Error
         }
     }
@@ -114,7 +114,7 @@ class UpdateChecker(private val context: Context) {
             }
             ""
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse APK URL: ${e.message}")
+            LogCollector.e(TAG, "Failed to parse APK URL: ${e.message}")
             ""
         }
     }
@@ -130,19 +130,48 @@ class UpdateChecker(private val context: Context) {
         var quarkUrl = ""
         try {
             val lines = body.lines()
+            var pendingLinkType: String? = null // 记录上一行的链接类型，等待下一行的 URL
+
             for (line in lines) {
                 val trimmed = line.trim()
-                when {
-                    trimmed.contains("百度网盘") && trimmed.contains("http") -> {
-                        baiduUrl = extractUrl(trimmed)
+                if (trimmed.isEmpty()) continue
+
+                // 1. 检查当前行是否有待处理的 URL（上一行是链接类型，本行是 URL）
+                if (pendingLinkType != null) {
+                    val url = extractUrl(trimmed)
+                    if (url.isNotEmpty()) {
+                        when (pendingLinkType) {
+                            "baidu" -> baiduUrl = url
+                            "quark" -> quarkUrl = url
+                        }
+                        pendingLinkType = null
+                        continue
                     }
-                    trimmed.contains("夸克网盘") && trimmed.contains("http") -> {
-                        quarkUrl = extractUrl(trimmed)
+                    pendingLinkType = null // 上一行没找到 URL，重置
+                }
+
+                // 2. 检查链接类型关键词（同行有 URL 则直接提取，否则记录等待下一行）
+                when {
+                    trimmed.contains("百度网盘") -> {
+                        val url = extractUrl(trimmed)
+                        if (url.isNotEmpty()) {
+                            baiduUrl = url
+                        } else {
+                            pendingLinkType = "baidu"
+                        }
+                    }
+                    trimmed.contains("夸克网盘") -> {
+                        val url = extractUrl(trimmed)
+                        if (url.isNotEmpty()) {
+                            quarkUrl = url
+                        } else {
+                            pendingLinkType = "quark"
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse cloud URLs: ${e.message}")
+            LogCollector.e(TAG, "Failed to parse cloud URLs: ${e.message}")
         }
         return Pair(baiduUrl, quarkUrl)
     }
@@ -157,7 +186,7 @@ class UpdateChecker(private val context: Context) {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             packageInfo.longVersionCode
         } catch (e: PackageManager.NameNotFoundException) {
-            Log.e(TAG, "Error getting current version: ${e.message}")
+            LogCollector.e(TAG, "Error getting current version: ${e.message}")
             0
         }
     }

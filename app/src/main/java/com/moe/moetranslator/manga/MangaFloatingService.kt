@@ -301,7 +301,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 发送广播通知 UI 更新按钮状态
-        val stopIntent = Intent("action_manga_floating_service_stopped")
+        val stopIntent = Intent(com.moe.moetranslator.translate.BroadcastAction.ACTION_MANGA_SERVICE_STOPPED)
         androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).sendBroadcast(stopIntent)
         LogCollector.d(TAG, "MangaFloatingService destroyed")
     }

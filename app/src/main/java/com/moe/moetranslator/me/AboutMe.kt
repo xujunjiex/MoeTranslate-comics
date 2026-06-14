@@ -103,8 +103,9 @@ class AboutMe : Fragment() {
         setupButton()
 
         // 从其他页面跳转过来时自动检查更新
-        if (arguments?.getBoolean(ARG_AUTO_CHECK_UPDATE, false) == true) {
-            arguments?.remove(ARG_AUTO_CHECK_UPDATE) // 只触发一次
+        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        if (prefs.getBoolean(ARG_AUTO_CHECK_UPDATE, false)) {
+            prefs.setBoolean(ARG_AUTO_CHECK_UPDATE, false) // 只触发一次
             checkForUpdate()
         }
     }
@@ -319,7 +320,7 @@ class AboutMe : Fragment() {
             if (!canRequestPackageInstalls()) {
                 showInstallPermissionDialog {
                     // 用户授权后，开始下载
-                    startApkDownload(update.apkDownloadUrl, dialogView, dialog)
+                    startApkDownload(update.apkDownloadUrl, dialogView, dialog, update.versionCode)
                 }
                 return@setOnClickListener
             }
@@ -327,7 +328,7 @@ class AboutMe : Fragment() {
             installerLaunched = false
             btnDownloadInstall.isClickable = false
             btnDownloadInstall.alpha = 0.7f
-            startApkDownload(update.apkDownloadUrl, dialogView, dialog)
+            startApkDownload(update.apkDownloadUrl, dialogView, dialog, update.versionCode)
         }
 
         // GitHub Release 页面
@@ -357,8 +358,8 @@ class AboutMe : Fragment() {
             cloudDelayHint.visibility = View.VISIBLE
         }
 
-        // 检查是否已有下载好的 APK
-        val existingApk = getPendingApk()
+        // 检查是否已有下载好的 APK（必须版本匹配）
+        val existingApk = getPendingApk(update.versionCode)
         if (existingApk != null && canRequestPackageInstalls()) {
             // 已下载且有权限，显示安装按钮
             val downloadSubtitle = dialogView.findViewById<TextView>(R.id.download_subtitle)
@@ -415,12 +416,38 @@ class AboutMe : Fragment() {
     private var pendingInstallCallback: (() -> Unit)? = null
 
     /**
-     * 获取待安装的 APK 文件（如果存在且合法）
+     * 获取待安装的 APK 文件（如果存在、合法且版本匹配）
      */
-    private fun getPendingApk(): java.io.File? {
+    private fun getPendingApk(expectedVersionCode: Long): java.io.File? {
         val downloadDir = java.io.File(requireContext().getExternalFilesDir(null), "downloads")
         val apkFile = java.io.File(downloadDir, "update.apk")
-        return if (apkFile.exists() && apkFile.length() > 0) apkFile else null
+        if (!apkFile.exists() || apkFile.length() == 0L) return null
+        // 检查 meta 文件中的版本号是否匹配
+        val metaFile = java.io.File(downloadDir, "update.meta")
+        if (metaFile.exists()) {
+            try {
+                val lines = metaFile.readText().lines()
+                if (lines.size >= 2) {
+                    val savedVersion = lines[1].trim().toLongOrNull() ?: 0L
+                    if (savedVersion != expectedVersionCode) {
+                        // 版本不匹配，删除旧文件
+                        apkFile.delete()
+                        metaFile.delete()
+                        return null
+                    }
+                }
+            } catch (_: Exception) {
+                // meta 解析失败，无法验证版本，删除不安全的 APK
+                apkFile.delete()
+                metaFile.delete()
+                return null
+            }
+        } else {
+            // meta 文件缺失（可能下载过程中崩溃），无法验证版本
+            apkFile.delete()
+            return null
+        }
+        return apkFile
     }
 
     /**
@@ -464,7 +491,8 @@ class AboutMe : Fragment() {
     private fun startApkDownload(
         apkUrl: String,
         dialogView: View,
-        dialog: AlertDialog
+        dialog: AlertDialog,
+        versionCode: Long
     ) {
         val downloadSubtitle = dialogView.findViewById<TextView>(R.id.download_subtitle)
         val progressContainer = dialogView.findViewById<View>(R.id.download_progress_container)
@@ -500,7 +528,11 @@ class AboutMe : Fragment() {
         // 下载到外部文件目录（不会被系统自动清理）
         val downloadDir = java.io.File(requireContext().getExternalFilesDir(null), "downloads")
         if (!downloadDir.exists()) downloadDir.mkdirs()
+        // 删除旧的下载文件，避免安装旧版本
         val destFile = java.io.File(downloadDir, "update.apk")
+        if (destFile.exists()) destFile.delete()
+        val oldMeta = java.io.File(downloadDir, "update.meta")
+        if (oldMeta.exists()) oldMeta.delete()
 
         // 取消下载按钮
         btnCancelDownload.setOnClickListener {
@@ -539,9 +571,9 @@ class AboutMe : Fragment() {
             if (result.isSuccess) {
                 LogCollector.d("AboutMe", "APK 下载成功: ${destFile.length()} bytes")
 
-                // 写入元数据文件（记录下载时间和版本）
+                // 写入元数据文件（记录下载时间和目标版本号）
                 val metaFile = java.io.File(downloadDir, "update.meta")
-                metaFile.writeText("${System.currentTimeMillis()}\n0") // 版本号在安装后通过版本对比判断
+                metaFile.writeText("${System.currentTimeMillis()}\n$versionCode")
 
                 // 下载完成，检查安装权限
                 downloadSubtitle.text = getString(R.string.update_installing)

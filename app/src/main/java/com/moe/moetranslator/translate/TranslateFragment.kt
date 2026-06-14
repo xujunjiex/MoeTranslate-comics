@@ -31,7 +31,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.util.Log
+import com.moe.moetranslator.utils.LogCollector
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -84,7 +84,7 @@ class TranslateFragment : Fragment() {
 
         mangaServiceStopReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == "action_manga_floating_service_stopped") {
+                if (intent?.action == BroadcastAction.ACTION_MANGA_SERVICE_STOPPED) {
                     setMangaButtonState(false)
                 }
             }
@@ -104,7 +104,7 @@ class TranslateFragment : Fragment() {
     override fun onStart() {
         super.onStart()
 
-        Log.d(TAG, "onStart")
+        LogCollector.d(TAG, "onStart")
 
         // 注册广播接收器
         LocalBroadcastManager.getInstance(requireContext()).registerReceiver(
@@ -113,7 +113,7 @@ class TranslateFragment : Fragment() {
         )
         LocalBroadcastManager.getInstance(requireContext()).registerReceiver(
             mangaServiceStopReceiver,
-            IntentFilter("action_manga_floating_service_stopped")
+            IntentFilter(BroadcastAction.ACTION_MANGA_SERVICE_STOPPED)
         )
     }
 
@@ -222,7 +222,7 @@ class TranslateFragment : Fragment() {
                 }
 
                 else -> {
-                    Log.e(TAG, "No update or Internet error")
+                    LogCollector.e(TAG, "No update or Internet error")
                 }
             }
         }
@@ -262,7 +262,7 @@ class TranslateFragment : Fragment() {
         val customTextApi = prefs.getInt("Custom_Text_API", 0)
         val customPicApi = prefs.getInt("Custom_Pic_API", 0)
 
-        Log.d(
+        LogCollector.d(
             TAG,
             "translatemode$translateMode，textapi:$textApi，textAI:$textAi，picapi:$picApi，customtextapi:$customTextApi，custompicapi:$customPicApi"
         )
@@ -426,7 +426,7 @@ class TranslateFragment : Fragment() {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
                     if ((textAi == Constants.TextAI.MLKIT.id) && (!(prefs.getBoolean("Download_MLKit", false)))) {
-                        Log.d(
+                        LogCollector.d(
                             TAG,
                             "Download_MLKit" + prefs.getBoolean("Download_MLKit", false).toString()
                         )
@@ -450,7 +450,7 @@ class TranslateFragment : Fragment() {
                         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
                         false
                     } else if ((textAi == Constants.TextAI.NLLB.id) && (!(prefs.getBoolean("Download_NLLB", false)))) {
-                        Log.d(
+                        LogCollector.d(
                             TAG,
                             "Download_NLLB" + prefs.getBoolean("Download_NLLB", false).toString()
                         )
@@ -923,11 +923,9 @@ class TranslateFragment : Fragment() {
                 prefs.setLong("Ignore_Version", update.versionCode)
             }
             .setPositiveButton(R.string.go_to_update) { _, _ ->
-                // 跳转到"关于"页面并自动检查更新
-                val bundle = Bundle().apply {
-                    putBoolean(AboutMe.ARG_AUTO_CHECK_UPDATE, true)
-                }
-                findNavController().navigate(R.id.me_fragment, bundle)
+                // 通过底部导航切换到"关于"页面，并标记自动检查更新
+                prefs.setBoolean(AboutMe.ARG_AUTO_CHECK_UPDATE, true)
+                requireActivity().findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigation).selectedItemId = R.id.me_fragment
             }
             .setNegativeButton(R.string.not_update, null)
             .create()
@@ -972,20 +970,20 @@ class TranslateFragment : Fragment() {
             dialog.show()
             dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         } else {
-            Log.d(TAG, TranslateTools.getLanguagesList(requireContext(), type)!!.toString())
+            LogCollector.d(TAG, TranslateTools.getLanguagesList(requireContext(), type)!!.toString())
             LanguageSelectionDialog(
                 requireContext(),
                 type,
                 TranslateTools.getLanguagesList(requireContext(), type)!!
             ) { selectedLocale ->
                 if (type == 1) {
-                    Log.d(TAG, "Source_Language：" + selectedLocale.getOriCode())
+                    LogCollector.d(TAG, "Source_Language：" + selectedLocale.getOriCode())
                     prefs.setString("Source_Language", selectedLocale.getOriCode())
                     binding.SourceLanguageName.text =
                         CustomLocale.getInstance(prefs.getString("Source_Language", "ja"))
                             .getDisplayName()
                 } else {
-                    Log.d(TAG, "Target_Language：" + selectedLocale.getOriCode())
+                    LogCollector.d(TAG, "Target_Language：" + selectedLocale.getOriCode())
                     prefs.setString("Target_Language", selectedLocale.getOriCode())
                     binding.TargetLanguageName.text =
                         CustomLocale.getInstance(prefs.getString("Target_Language", "zh"))
@@ -1002,7 +1000,7 @@ class TranslateFragment : Fragment() {
     override fun onStop() {
         super.onStop()
 
-        Log.d(TAG, "onStop")
+        LogCollector.d(TAG, "onStop")
 
         // 注销广播接收器
         LocalBroadcastManager.getInstance(requireContext())
@@ -1014,10 +1012,11 @@ class TranslateFragment : Fragment() {
     override fun onResume() {
         super.onResume()
 
-        Log.d(TAG, "onResume")
+        LogCollector.d(TAG, "onResume")
 
         showAPIName()
         setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))
+        setMangaButtonState(ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
     }
 
     // 实际启动服务的方法

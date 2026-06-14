@@ -77,6 +77,7 @@ import kotlin.math.abs
 // 发送服务停止广播
 object BroadcastAction {
     const val ACTION_FLOATING_BALL_SERVICE_STOPPED = "action_floating_ball_service_stopped"
+    const val ACTION_MANGA_SERVICE_STOPPED = "action_manga_floating_service_stopped"
 }
 
 // 悬浮球配置
