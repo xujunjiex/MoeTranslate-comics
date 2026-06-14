@@ -225,14 +225,26 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 
 **Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
 
+**屏幕尺寸获取（`getScreenSize()`）：**
+- `MangaFloatingService` 和 `FloatingBallService` 都有 `getScreenSize()` 方法
+- 使用 `Display.getRealSize()` 获取真实物理像素尺寸（包含系统栏区域）
+- `resources.displayMetrics` 在 Service 上下文中可能返回竖屏尺寸，不能用于横屏
+- `currentWindowMetrics.bounds` 返回窗口内容区域（不含系统栏），也不能用
+- overlay 窗口参数用 `getScreenSize()` 的值 + `FLAG_LAYOUT_IN_SCREEN` + `FLAG_LAYOUT_NO_LIMITS`
+
 **全屏/调试 overlay 定位：**
-- 全屏和调试模式不能用 `MATCH_PARENT`，用 `resources.displayMetrics.widthPixels/heightPixels` 获取真实尺寸
+- 全屏和调试模式不能用 `MATCH_PARENT`，用 `getScreenSize()` 获取真实尺寸
 - 配合 `FIT_XY` + `FLAG_LAYOUT_NO_LIMITS`
+
+**受限区域截图检测：**
+- 系统 `takeScreenshot()` API 对受限区域（DRM/安全应用）返回 `onSuccess` + 全黑 bitmap，不会调用 `onFailure`
+- `isRestrictedScreenshot()` 在截图收集阶段检测：全黑（95%+ 像素亮度 < 16）或低方差（纯色覆盖层，方差 < 50）
+- 检测到后提示用户"该区域无法截图，可能是受限内容"
 
 **统一框选确认按钮：**
 - 游戏翻译和漫画翻译共用 `CropView` 内置确认按钮
 - 按钮绘制在框选框底部，跟随框选区域实时移动
-- 框选初始位置：屏幕中央长方形（游戏 90%×35%，漫画 80%×60%）
+- 框选初始位置：`CropView.setRectCentered()` 延迟到布局完成后用 view 自身尺寸计算居中（游戏 90%×35%，漫画 80%×60%）
 - 框选触点响应区域：50px 半径（`POINT_RADIUS = 2500`）
 
 ## 自动翻译
