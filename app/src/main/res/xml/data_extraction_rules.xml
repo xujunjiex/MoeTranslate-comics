@@ -3,8 +3,11 @@
     <cloud-backup>
         <!-- 排除 SharedPreferences，防止 API Key 被云端备份 -->
         <exclude domain="sharedpref" path="." />
+        <!-- 排除 Room 数据库，防止翻译历史被云端备份 -->
+        <exclude domain="database" path="." />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
     </device-transfer>
 </data-extraction-rules>

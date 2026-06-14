@@ -2,4 +2,6 @@
 <full-backup-content>
     <!-- 排除 SharedPreferences，防止 API Key 被备份提取 -->
     <exclude domain="sharedpref" path="." />
+    <!-- 排除 Room 数据库，防止翻译历史被备份提取 -->
+    <exclude domain="database" path="." />
 </full-backup-content>
