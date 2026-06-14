@@ -656,14 +656,32 @@ class MangaFloatingService : LifecycleService() {
         // Progress overlay (initially not added)
         // Crop view (initially not added)
         cropView = CropView(this)
+        // 必须用屏幕真实尺寸，MATCH_PARENT 会被系统栏截断
+        val cropScreenSize = getScreenSize()
         cropViewParams = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            width = WindowManager.LayoutParams.MATCH_PARENT
-            height = WindowManager.LayoutParams.MATCH_PARENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = cropScreenSize.width
+            height = cropScreenSize.height
             gravity = Gravity.START or Gravity.TOP
+            x = 0
+            y = 0
         }
+    }
+
+    /**
+     * 获取屏幕真实物理像素尺寸（横屏/竖屏都正确，包含系统栏区域）
+     * resources.displayMetrics 在 Service 上下文中可能返回竖屏尺寸
+     */
+    @Suppress("DEPRECATION")
+    private fun getScreenSize(): android.util.Size {
+        val defaultDisplay = windowManager.defaultDisplay
+        val realSize = android.graphics.Point()
+        defaultDisplay.getRealSize(realSize)
+        return android.util.Size(realSize.x, realSize.y)
     }
 
     // ---------- Touch handling (matches original FloatingBallService pattern) ----------
@@ -853,8 +871,9 @@ class MangaFloatingService : LifecycleService() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         // 横屏时缩小菜单，竖屏保持原样
         if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            val maxW = (resources.displayMetrics.widthPixels * 0.4).toInt()
-            val maxH = (resources.displayMetrics.heightPixels * 0.7).toInt()
+            val screenSize = getScreenSize()
+            val maxW = (screenSize.width * 0.4).toInt()
+            val maxH = (screenSize.height * 0.7).toInt()
             dialog.window?.setLayout(maxW, maxH)
         } else {
             dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -943,8 +962,9 @@ class MangaFloatingService : LifecycleService() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         // 横屏时缩小菜单，竖屏保持原样
         if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            val maxW = (resources.displayMetrics.widthPixels * 0.4).toInt()
-            val maxH = (resources.displayMetrics.heightPixels * 0.7).toInt()
+            val screenSize = getScreenSize()
+            val maxW = (screenSize.width * 0.4).toInt()
+            val maxH = (screenSize.height * 0.7).toInt()
             dialog.window?.setLayout(maxW, maxH)
         } else {
             dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -1422,22 +1442,23 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.d(TAG, "框选模式：暂停自动翻译")
         }
 
-        val dm = resources.displayMetrics
-        val screenWidth = dm.widthPixels
-        val screenHeight = dm.heightPixels
+        val screenSize = getScreenSize()
 
         if (cropRect != null && resources.configuration.orientation == 1) {
             cropView.setRect(cropRect!!)
         } else {
-            // 屏幕中央长方形：宽 80%，高 60%
-            val rectWidth = (screenWidth * 0.8).toInt()
-            val rectHeight = (screenHeight * 0.6).toInt()
-            val left = (screenWidth - rectWidth) / 2f
-            val top = (screenHeight - rectHeight) / 2f
-            cropView.setRect(RectF(left, top, left + rectWidth, top + rectHeight))
+            // 等布局完成后用 view 自身尺寸计算居中框选区域
+            cropView.setRectCentered(0.8f, 0.6f)
         }
 
         cropView.onConfirmCrop = { confirmCrop() }
+        // 每次显示时更新 overlay 尺寸，防止旋转后过期
+        cropViewParams?.apply {
+            width = screenSize.width
+            height = screenSize.height
+            x = 0
+            y = 0
+        }
         windowManager.addView(cropView, cropViewParams)
         isCropActive = true
 
@@ -1556,6 +1577,16 @@ class MangaFloatingService : LifecycleService() {
             ScreenshotManager.screenshotFlow.collect { bitmap ->
                 LogCollector.d(TAG, "Screenshot collector: BITMAP RECEIVED! ${bitmap.width}x${bitmap.height}")
                 try {
+                    // 检测受限区域截图（全黑/几乎全黑）
+                    if (isRestrictedScreenshot(bitmap)) {
+                        LogCollector.d(TAG, "Screenshot collector: 检测到受限区域截图，跳过翻译")
+                        bitmap.recycle()
+                        isProcessing = false
+                        statusOverlay.showError("该区域无法截图，可能是受限内容（安全应用/DRM保护）")
+                        if (isAutoTranslating) scheduleNextDetection(DETECT_INTERVAL_MS)
+                        return@collect
+                    }
+
                     // 自动翻译模式：pHash 门控（手动翻译时跳过）
                     if (isAutoTranslating && !isManualTranslating) {
                         val pHash = PerceptualHash.compute(bitmap)
@@ -2262,6 +2293,66 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
+     * 检测截图是否来自受限区域（全黑、纯色覆盖、DRM保护等）。
+     * 两种检测：
+     * 1. 全黑检测：95%+ 像素亮度极低
+     * 2. 低方差检测：像素颜色几乎一致（纯色覆盖层）
+     */
+    private fun isRestrictedScreenshot(bitmap: Bitmap): Boolean {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w == 0 || h == 0) return true
+
+        // 采样 10x10 网格
+        val stepX = (w / 10).coerceAtLeast(1)
+        val stepY = (h / 10).coerceAtLeast(1)
+        val pixels = mutableListOf<Triple<Int, Int, Int>>()
+        var blackCount = 0
+
+        for (iy in 0 until 10) {
+            for (ix in 0 until 10) {
+                val px = (ix * stepX + stepX / 2).coerceIn(0, w - 1)
+                val py = (iy * stepY + stepY / 2).coerceIn(0, h - 1)
+                val pixel = bitmap.getPixel(px, py)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                pixels.add(Triple(r, g, b))
+                // 亮度阈值：RGB 均 < 16 视为黑色
+                if (r < 16 && g < 16 && b < 16) {
+                    blackCount++
+                }
+            }
+        }
+
+        // 检测1：全黑
+        val blackRatio = blackCount.toFloat() / pixels.size
+        if (blackRatio > 0.95f) {
+            LogCollector.d(TAG, "isRestrictedScreenshot: 全黑 (${(blackRatio * 100).toInt()}%)")
+            return true
+        }
+
+        // 检测2：低方差（纯色覆盖层，如DRM保护、安全应用遮罩）
+        // 计算 RGB 各通道的方差
+        val avgR = pixels.sumOf { it.first } / pixels.size
+        val avgG = pixels.sumOf { it.second } / pixels.size
+        val avgB = pixels.sumOf { it.third } / pixels.size
+        var varianceSum = 0.0
+        for ((r, g, b) in pixels) {
+            varianceSum += (r - avgR) * (r - avgR) + (g - avgG) * (g - avgG) + (b - avgB) * (b - avgB)
+        }
+        val avgVariance = varianceSum / pixels.size
+        // 方差极低（<50）说明像素几乎一致
+        if (avgVariance < 50.0) {
+            LogCollector.d(TAG, "isRestrictedScreenshot: 低方差覆盖层 (variance=${String.format("%.1f", avgVariance)}, avgRGB=($avgR,$avgG,$avgB))")
+            return true
+        }
+
+        LogCollector.d(TAG, "isRestrictedScreenshot: 正常截图 (black=${(blackRatio * 100).toInt()}%, variance=${String.format("%.1f", avgVariance)})")
+        return false
+    }
+
+    /**
      * 清除过期的缓存区域（超过 TTL）。
      */
     private fun evictExpiredRegions() {
@@ -2755,8 +2846,9 @@ class MangaFloatingService : LifecycleService() {
             windowManager.addView(resultOverlayView, params)
         } else {
             // 全屏模式：获取屏幕真实像素尺寸，overlay 精确覆盖全屏
-            val screenW = resources.displayMetrics.widthPixels
-            val screenH = resources.displayMetrics.heightPixels
+            val screenSize = getScreenSize()
+            val screenW = screenSize.width
+            val screenH = screenSize.height
             LogCollector.d(TAG, "showResultOverlay: bitmap=${bitmap.width}x${bitmap.height}, screen=${screenW}x${screenH}")
             val params = WindowManager.LayoutParams().apply {
                 type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -2814,8 +2906,9 @@ class MangaFloatingService : LifecycleService() {
     private fun showCacheOverlay(bitmap: Bitmap) {
         dismissProgressOverlay()
 
-        val screenW = resources.displayMetrics.widthPixels
-        val screenH = resources.displayMetrics.heightPixels
+        val screenSize = getScreenSize()
+        val screenW = screenSize.width
+        val screenH = screenSize.height
 
         val container = android.widget.FrameLayout(this).apply {
             setBackgroundColor(Color.argb(180, 0, 0, 0))
@@ -3096,8 +3189,9 @@ class MangaFloatingService : LifecycleService() {
             }
             windowManager.addView(resultOverlayView, params)
         } else {
-            val screenW = resources.displayMetrics.widthPixels
-            val screenH = resources.displayMetrics.heightPixels
+            val screenSize = getScreenSize()
+            val screenW = screenSize.width
+            val screenH = screenSize.height
             val params = WindowManager.LayoutParams().apply {
                 type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 format = PixelFormat.RGBA_8888
@@ -3239,8 +3333,9 @@ class MangaFloatingService : LifecycleService() {
             }
             windowManager.addView(resultOverlayView, params)
         } else {
-            val screenW = resources.displayMetrics.widthPixels
-            val screenH = resources.displayMetrics.heightPixels
+            val screenSize = getScreenSize()
+            val screenW = screenSize.width
+            val screenH = screenSize.height
             val params = WindowManager.LayoutParams().apply {
                 type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 format = PixelFormat.RGBA_8888
@@ -3533,8 +3628,9 @@ class MangaFloatingService : LifecycleService() {
                     y = crop.top.toInt() + cropView.absolutePointOffset.y
                 }
             } else {
-                val screenW = resources.displayMetrics.widthPixels
-                val screenH = resources.displayMetrics.heightPixels
+                val screenSize = getScreenSize()
+                val screenW = screenSize.width
+                val screenH = screenSize.height
                 android.view.WindowManager.LayoutParams(
                     screenW,
                     screenH,
@@ -3642,8 +3738,9 @@ class MangaFloatingService : LifecycleService() {
                     y = crop.top.toInt() + cropView.absolutePointOffset.y
                 }
             } else {
-                val screenW = resources.displayMetrics.widthPixels
-                val screenH = resources.displayMetrics.heightPixels
+                val screenSize = getScreenSize()
+                val screenW = screenSize.width
+                val screenH = screenSize.height
                 android.view.WindowManager.LayoutParams(
                     screenW,
                     screenH,

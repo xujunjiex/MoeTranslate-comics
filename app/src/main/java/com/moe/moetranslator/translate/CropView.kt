@@ -71,6 +71,30 @@ class CropView(ctx:Context) : View(ctx) {
         })
     }
 
+    /**
+     * 等待布局完成后，用 view 自身尺寸设置居中初始框选区域
+     * @param widthRatio 框选宽度占 view 宽度的比例
+     * @param heightRatio 框选高度占 view 高度的比例
+     */
+    fun setRectCentered(widthRatio: Float, heightRatio: Float) {
+        viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                absolutePointOffset.x = getViewOffset().x
+                absolutePointOffset.y = getViewOffset().y
+
+                val rectWidth = (width * widthRatio).toInt()
+                val rectHeight = (height * heightRatio).toInt()
+                val left = (width - rectWidth) / 2f
+                val top = (height - rectHeight) / 2f
+                mRect = RectF(left, top, left + rectWidth, top + rectHeight)
+                mInitRect = RectF(mRect)
+                invalidate()
+
+                viewTreeObserver.removeOnGlobalLayoutListener(this)
+            }
+        })
+    }
+
     @SuppressLint("DrawAllocation")
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)

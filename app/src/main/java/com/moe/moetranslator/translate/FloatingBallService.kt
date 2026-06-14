@@ -189,6 +189,18 @@ class FloatingBallService : LifecycleService() {
         return prefs.getInt("Game_Pixel_Check_Interval", 300).toLong().coerceAtLeast(300L)
     }
 
+    /**
+     * 获取屏幕真实物理像素尺寸（横屏/竖屏都正确，包含系统栏区域）
+     * currentWindowMetrics.bounds 返回的是窗口内容区域（减去系统栏），不是真实屏幕尺寸
+     */
+    @Suppress("DEPRECATION")
+    private fun getScreenSize(): android.util.Size {
+        val defaultDisplay = windowManager.defaultDisplay
+        val realSize = android.graphics.Point()
+        defaultDisplay.getRealSize(realSize)
+        return android.util.Size(realSize.x, realSize.y)
+    }
+
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
 
@@ -422,16 +434,19 @@ class FloatingBallService : LifecycleService() {
             y = floatingBallConfig.floatingBallInitialY
         }
 
-        // 设置裁剪框视图参数
+        // 设置裁剪框视图参数（必须用屏幕真实尺寸，MATCH_PARENT 会被系统栏截断）
+        val cropScreenSize = getScreenSize()
         cropViewParams = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            width = WindowManager.LayoutParams.MATCH_PARENT
-            height = WindowManager.LayoutParams.MATCH_PARENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = cropScreenSize.width
+            height = cropScreenSize.height
             gravity = Gravity.START or Gravity.TOP
-            x = cropViewConfig.cropViewInitialX
-            y = cropViewConfig.cropViewInitialY
+            x = 0
+            y = 0
         }
 
         // 创建悬浮球视图
@@ -649,8 +664,9 @@ class FloatingBallService : LifecycleService() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         // 横屏时缩小菜单，竖屏保持原样
         if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            val maxW = (resources.displayMetrics.widthPixels * 0.4).toInt()
-            val maxH = (resources.displayMetrics.heightPixels * 0.7).toInt()
+            val screenSize = getScreenSize()
+            val maxW = (screenSize.width * 0.4).toInt()
+            val maxH = (screenSize.height * 0.7).toInt()
             dialog.window?.setLayout(maxW, maxH)
         } else {
             dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -935,23 +951,24 @@ class FloatingBallService : LifecycleService() {
             LogCollector.d(TAG, "框选模式：暂停自动翻译")
         }
 
-        val dm = resources.displayMetrics
-        val screenWidth = dm.widthPixels
-        val screenHeight = dm.heightPixels
+        val screenSize = getScreenSize()
 
         // 若有保存的裁剪框，则直接应用
         if ((orientation == this.resources.configuration.orientation) && (mRectF != null)){
             cropView.setRect(mRectF!!)
         }else{
-            // 屏幕中央扁长方形：宽 90%，高 35%
-            val rectWidth = (screenWidth * 0.9).toInt()
-            val rectHeight = (screenHeight * 0.35).toInt()
-            val left = (screenWidth - rectWidth) / 2f
-            val top = (screenHeight - rectHeight) / 2f
-            cropView.setRect(RectF(left, top, left + rectWidth, top + rectHeight))
+            // 等布局完成后用 view 自身尺寸计算居中框选区域
+            cropView.setRectCentered(0.9f, 0.35f)
         }
 
         cropView.onConfirmCrop = { confirmCrop() }
+        // 每次显示时更新 overlay 尺寸，防止旋转后过期
+        cropViewParams?.apply {
+            width = screenSize.width
+            height = screenSize.height
+            x = 0
+            y = 0
+        }
         windowManager.addView(cropView, cropViewParams)
 
         // 存储屏幕方向
