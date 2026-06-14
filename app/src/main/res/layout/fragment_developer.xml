@@ -226,41 +226,6 @@
                         android:layout_centerVertical="true" />
                 </RelativeLayout>
 
-                <!-- 分批渲染开关 -->
-                <RelativeLayout
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:id="@+id/incrementalRender"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/incrementalRenderIcon"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:layout_centerVertical="true"
-                        android:src="@drawable/speed_star" />
-
-                    <TextView
-                        android:id="@+id/incrementalRenderTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/incrementalRenderIcon"
-                        android:text="分批渲染（实验）"
-                        android:textColor="#6A6464"
-                        android:textSize="20sp" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/incrementalRenderSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_alignParentEnd="true"
-                        android:layout_centerVertical="true" />
-                </RelativeLayout>
-
                 <!-- 调试模式一级标题 -->
                 <RelativeLayout
                     android:layout_width="match_parent"

@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
 import android.graphics.PointF
+import android.graphics.Rect
 import com.moe.moetranslator.R
 import com.moe.moetranslator.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
@@ -1475,6 +1476,122 @@ object PPOcrV5Engine {
             elapseList = elapseList
         )
     }
+
+    /**
+     * 批量识别（含 cls 方向分类）。
+     * 用于增量渲染场景：对已裁剪图片执行 cls + rec。
+     *
+     * @param context Context
+     * @param imgList 已裁剪图片列表
+     * @param recLang 识别语言
+     * @return 识别结果列表
+     */
+    fun recognizeBatchWithCls(context: Context, imgList: List<Bitmap>, lang: RecLang): List<RecResult> {
+        if (imgList.isEmpty()) return emptyList()
+
+        val dict = dictionary[lang] ?: return imgList.map { RecResult("", 0f) }
+        val session = getRecSession(context, lang) ?: return imgList.map { RecResult("", 0f) }
+
+        val t0 = System.currentTimeMillis()
+
+        // 1. Cls 方向分类
+        val clsResults = clsAndRotate(imgList)
+        val processedImgs = imgList.mapIndexed { i, bmp ->
+            if (i < clsResults.size && clsResults[i].label == "180" && clsResults[i].score > CLS_THRESH) {
+                val matrix = android.graphics.Matrix().apply { setRotate(180f) }
+                val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                rotated
+            } else {
+                bmp
+            }
+        }
+
+        // 2. Rec 批量识别
+        val allResults = mutableListOf<RecResult>()
+        var i = 0
+        while (i < processedImgs.size) {
+            val batchEnd = min(i + REC_BATCH_NUM, processedImgs.size)
+            val batch = processedImgs.subList(i, batchEnd)
+
+            var maxWhRatio = 0f
+            for (img in batch) {
+                val r = img.width.toFloat() / img.height
+                if (r > maxWhRatio) maxWhRatio = r
+            }
+
+            val preprocessed = batch.map { recResizeNormImg(it, maxWhRatio) }
+            val batchSize = preprocessed.size
+            val recImgW = (REC_IMG_HEIGHT * maxWhRatio).roundToInt().coerceAtLeast(1)
+            val channelSize = REC_IMG_HEIGHT * recImgW
+            val totalSize = batchSize * REC_IMG_CHANNELS * channelSize
+
+            val buffer = FloatBuffer.allocate(totalSize)
+            for (arr in preprocessed) { buffer.put(arr) }
+            buffer.rewind()
+
+            val inputTensor = OnnxTensor.createTensor(
+                ortEnv!!, buffer,
+                longArrayOf(batchSize.toLong(), REC_IMG_CHANNELS.toLong(), REC_IMG_HEIGHT.toLong(), recImgW.toLong())
+            )
+
+            val results = session.run(mapOf("x" to inputTensor))
+            inputTensor.close()
+
+            var outputData: FloatArray
+            var seqLen: Int
+            var numClasses: Int
+            try {
+                var batchOutputTensor: OnnxTensor? = null
+                for (name in session.outputNames) {
+                    val value = results.get(name)
+                    if (value.isPresent && value.get() is OnnxTensor) {
+                        batchOutputTensor = value.get() as OnnxTensor
+                        break
+                    }
+                }
+                outputData = batchOutputTensor!!.floatBuffer.array()
+                val outputShape = batchOutputTensor.info.shape
+                batchOutputTensor.close()
+                seqLen = outputShape[1].toInt()
+                numClasses = outputShape[2].toInt()
+            } finally {
+                results.close()
+            }
+
+            for (j in 0 until batchSize) {
+                val start = j * seqLen * numClasses
+                val preds = outputData.sliceArray(start until start + seqLen * numClasses)
+                val (text, score) = ctcLabelDecode(preds, seqLen, numClasses, dict)
+                allResults.add(RecResult(text, score))
+            }
+
+            i = batchEnd
+        }
+
+        // 释放旋转产生的额外 Bitmap（非原始输入的）
+        for ((idx, img) in processedImgs.withIndex()) {
+            if (img !== imgList[idx]) img.recycle()
+        }
+
+        LogCollector.d(TAG, "recognizeBatchWithCls: ${imgList.size} 张, lang=${lang.code}, 耗时 ${System.currentTimeMillis() - t0}ms")
+        return allResults
+    }
+
+    /**
+     * 公开检测方法：返回原始坐标系的 box 数组。
+     * 用于增量渲染场景的 det 阶段。
+     */
+    fun runDetForBoxes(bitmap: Bitmap): List<FloatArray> {
+        if (!isInitialized) throw IllegalStateException("PPOcrV5Engine 未初始化")
+        val boxes = runDet(bitmap)
+        LogCollector.d(TAG, "runDetForBoxes: ${boxes.size} 个文字行")
+        return boxes
+    }
+
+    /**
+     * 公开 boxToQuadPoints：将 8 元素 box 数组转为 4 点。
+     */
+    fun boxToQuadPointsPublic(box: FloatArray): Array<PointF> = boxToQuadPoints(box)
 
     /**
      * 运行检测，返回原始坐标系的 box 数组。

@@ -116,7 +116,9 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 
 **内容安全审查：** 各 API 平台可能拦截敏感内容翻译（错误码 `data_inspection_failed`，HTTP 400）。不同平台审查阈值不同，被拦截时换平台或换模型。
 
-**AI 上下文（游戏模式）：** `FloatingBallService` 维护 `LinkedList<Pair<String, String>>` 存储历史翻译对（原文, 译文）。开启后系统提示词追加"根据上下文剧情进行翻译"，messages 中插入历史 user/assistant 对。用户可配置轮数（1-10，默认 5）。仅 OpenAI 兼容 API 生效，漫画模式不支持。设置项：`game_context_enabled`（开关）、`game_context_count`（轮数，存为 String）。
+**AI 上下文（游戏模式）：** `FloatingBallService` 维护 `LinkedList<Pair<String, String>>` 存储历史翻译对（原文, 译文）。开启后系统提示词追加"根据上下文剧情进行翻译"，messages 中插入历史 user/assistant 对。用户可配置轮数（1-10，默认 5）。仅 OpenAI 兼容 API 生效。设置项：`game_context_enabled`（开关）、`game_context_count`（轮数，存为 String）。
+
+**AI 上下文（漫画模式）：** 正常漫画翻译不使用上下文。仅增量渲染的两批之间使用上下文（`forceContext=true`），翻译完后回滚，不污染后续页面的上下文历史。
 
 **配置存储：** `CustomPreference` 单例封装 `SharedPreferences`。API 密钥通过 `KeystoreManager` 加密存储。
 
@@ -212,6 +214,15 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 
 **翻译流程：** 截图 → 检测 → OCR → 气泡合并（按需）→ 翻译（每气泡并行）→ 覆盖渲染
 
+**增量渲染（分批 OCR+翻译）：**
+超过 6 个气泡时自动分批处理，首批翻译完立即渲染，减少用户等待时间。
+- 触发条件：`Incremental_Render` 开启 + 气泡数 > 6
+- 支持组合：RT-DETR-V2/MangaOcr、CTD/MangaOcr、PP-OCRv5 独立模式
+- 流程：检测 → 分批(2/5+3/5) → OCR第一批 → 翻译第一批+OCR第二批并行 → 渲染第一批 → 翻译第二批 → 最终渲染
+- 上下文仅批次间使用：`forceContext=true` 强制开启，第二批能看到第一批译文；两批翻译完后回滚 contextHistory，不污染后续页面
+- 正常漫画翻译不使用上下文（`forceContext=false` 时直接关闭）
+- MangaOcr encoder 是批处理瓶颈（~3s），分批可提前显示部分结果
+
 **Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
 
 **全屏/调试 overlay 定位：**
@@ -260,6 +271,7 @@ IDLE（跳过OCR）──像素变化──→ CHANGED ──稳定1帧──→
 - 关闭后再次点击悬浮球：有缓存显示缓存，无缓存触发新翻译
 - 自动翻译中临时关闭后，下次翻译自动恢复显示
 - 自动翻译时不能关闭悬浮球
+- 可穿透性：通过 `alpha` 控制（开启=0.5 半透明，关闭=1.0 不透明），非窗口标志
 
 **悬浮球长按延迟：** 默认 300ms（`FloatingBallConfig.LONG_PRESS_DELAY`）
 

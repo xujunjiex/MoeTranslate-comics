@@ -234,9 +234,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 提示文本
-        findPreference<SwitchPreference>("adjust_tip")?.setOnPreferenceChangeListener { preference, newValue ->
-            prefs.setBoolean("Custom_Adjust_Not_Text", newValue as Boolean)
+        // 分批渲染开关（增量渲染模式内部强制开启AI上下文，无需手动开启）
+        findPreference<SwitchPreference>("Incremental_Render")?.setOnPreferenceChangeListener { _, _ ->
             true
         }
 
@@ -315,7 +314,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     }
 
     private fun updatePressSummary() {
-        ballPress.summary = getString(R.string.floating_ball_press_summary, prefs.getLong("Custom_Long_Press_Delay", 500L).toString())
+        ballPress.summary = getString(R.string.floating_ball_press_summary, prefs.getLong("Custom_Long_Press_Delay", 300L).toString())
     }
 
     private fun updateFontSummary() {
@@ -391,7 +390,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
     private fun showPressDialog() {
 //        val input = EditText(requireContext()).apply {
-//            hint = getString(R.string.current_judgment_time, prefs.getLong("Custom_Long_Press_Delay", 500L).toString())
+//            hint = getString(R.string.current_judgment_time, prefs.getLong("Custom_Long_Press_Delay", 300L).toString())
 //            inputType = android.text.InputType.TYPE_CLASS_NUMBER
 //
 //            // 设置padding
@@ -409,7 +408,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             text = getString(R.string.int_only)
         }
         val input = customView.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
-            hint = getString(R.string.current_judgment_time, prefs.getLong("Custom_Long_Press_Delay", 500L).toString())
+            hint = getString(R.string.current_judgment_time, prefs.getLong("Custom_Long_Press_Delay", 300L).toString())
         }
 
         val dialog = AlertDialog.Builder(requireContext())

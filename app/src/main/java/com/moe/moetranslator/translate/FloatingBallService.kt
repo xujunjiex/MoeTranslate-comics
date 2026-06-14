@@ -982,6 +982,9 @@ class FloatingBallService : LifecycleService() {
 
     private fun showResultView() {
         if (!isViewAdded(translationResultView)) {
+            // 应用可穿透性设置：开启时降低透明度
+            val penetrable = prefs.getBoolean("Custom_Result_Penetrability", true)
+            translationResultView.alpha = if (penetrable) 0.5f else 1.0f
             windowManager.addView(translationResultView, resultViewParams)
             // 保持悬浮球在最上层
             windowManager.removeView(floatingBallView)

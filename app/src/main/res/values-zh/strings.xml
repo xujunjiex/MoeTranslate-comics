@@ -186,12 +186,11 @@
     <string name="result_background_color">背景颜色</string>
     <string name="result_background_color_summary">选择一个你喜欢的背景颜色吧</string>
     <string name="penetrability">可穿透性</string>
-    <string name="penetrability_summary">开启后翻译结果框将可穿透，但透明度会增加</string>
+    <string name="penetrability_summary">开启后翻译结果框透明度增加</string>
     <string name="translate_result_box">翻译结果框</string>
-    <string name="translate_result_box_with_hint">翻译结果框（不适用于漫画翻译）</string>
-    <string name="ocr_category_with_hint">OCR（不适用于漫画翻译）</string>
+    <string name="translate_result_box_with_hint">游戏/视频翻译结果设置</string>
     <string name="show_source_text_title">同时显示原文</string>
-    <string name="show_source_text_summary">当前模式：%s\n（仅对OCR模式生效）在显示翻译结果的同时，也显示OCR后的原文</string>
+    <string name="show_source_text_summary">当前模式：%s\n在显示翻译结果的同时，也显示原文</string>
     <string name="volcapi_name">火山引擎</string>
     <string name="volcapi_description">火山引擎的API，点击下方的"管理火山引擎API"即可设置API，还可以在其中查看API的申请教程（每月有200万字符的免费调用额度）。</string>
     <string name="manage_volc_api">管理火山引擎API</string>
@@ -277,8 +276,6 @@
     <string name="manage_azure_api">管理Azure API</string>
     <string name="azure_hint_secret_key">密钥（1或2均可）</string>
     <string name="other_setting">其他</string>
-    <string name="adjust_not_tip">不显示调整完成提示</string>
-    <string name="adjust_not_tip_summary">打开后，当框选完成翻译区域或调整完成翻译结果位置时，将不会弹出提示文本</string>
     <string name="init_error">初始化失败：%s</string>
     <string name="loading">加载中...</string>
     <string name="loading_model">加载模型</string>
@@ -450,6 +447,8 @@
     <string name="manga_bg_color">漫画翻译背景颜色</string>
     <string name="manga_text_color_summary">当前漫画翻译结果的文字颜色</string>
     <string name="manga_bg_color_summary">当前漫画翻译结果的背景颜色</string>
+    <string name="incremental_render_title">分批渲染</string>
+    <string name="incremental_render_summary">气泡超过6个时分两批翻译，提前显示首批结果，但可能造成总翻译时长略微增加。仅对PP-OCRv5独立模式和RT-DETR-V2+MangaOcr组合生效。</string>
     <string name="auto_translate_dismiss_delay">翻译结果消失后重新检测延迟（漫画翻译专用）</string>
     <string name="auto_translate_dismiss_delay_summary">当前延迟：%s ms\n漫画翻译自动翻译模式下，点击消除翻译结果后等待该时间再重新开始检测翻译</string>
     <string name="set_dismiss_delay">设置漫画翻译消除翻译结果后的重新检测延迟</string>

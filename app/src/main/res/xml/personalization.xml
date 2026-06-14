@@ -99,6 +99,14 @@
             android:summary="@string/penetrability_summary"
             android:defaultValue="true"/>
 
+        <ListPreference
+            android:key="show_source_text"
+            app:iconSpaceReserved="false"
+            android:defaultValue="0"
+            android:title="@string/show_source_text_title"
+            android:entries="@array/show_source_text_entries"
+            android:entryValues="@array/show_source_text_values"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -123,19 +131,12 @@
             android:summary="@string/manga_bg_color_summary"
             app:cpv_showAlphaSlider="true" />
 
-    </PreferenceCategory>
-
-    <PreferenceCategory
-        android:title="@string/ocr_category_with_hint"
-        app:iconSpaceReserved="false">
-
-        <ListPreference
-            android:key="show_source_text"
-            app:iconSpaceReserved="false"
-            android:defaultValue="0"
-            android:title="@string/show_source_text_title"
-            android:entries="@array/show_source_text_entries"
-            android:entryValues="@array/show_source_text_values"/>
+        <SwitchPreference
+            android:key="Incremental_Render"
+            android:title="@string/incremental_render_title"
+            android:summary="@string/incremental_render_summary"
+            android:defaultValue="false"
+            app:iconSpaceReserved="false" />
 
     </PreferenceCategory>
 
@@ -224,13 +225,6 @@
     <PreferenceCategory
         android:title="@string/other_setting"
         app:iconSpaceReserved="false">
-
-        <SwitchPreference
-            app:iconSpaceReserved="false"
-            android:key="adjust_tip"
-            android:title="@string/adjust_not_tip"
-            android:summary="@string/adjust_not_tip_summary"
-            android:defaultValue="false"/>
 
         <ListPreference
             android:key="app_language"

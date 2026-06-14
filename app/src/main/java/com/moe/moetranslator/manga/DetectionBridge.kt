@@ -91,6 +91,17 @@ data class CroppedBubble(
     val confidence: Float
 )
 
+/**
+ * 气泡及其裁剪图片，用于 PP-OCRv5 增量渲染。
+ * 一个气泡可能包含多个文字行裁剪（det 输出行级，后合并成气泡级）。
+ * @param rect 气泡在原图中的 AABB
+ * @param crops 气泡内各文字行的裁剪图片列表
+ */
+data class BubbleWithCrops(
+    val rect: Rect,
+    val crops: List<Bitmap>
+)
+
 private const val DEBUG_TAG = "DetectionBridge"
 
 /**
@@ -1614,6 +1625,99 @@ object DetectionBridge {
             emptyBubbles = allBubbles.filter { it.classId == 0 },
             finalRegions = finalRegions
         )
+    }
+
+    /**
+     * PP-OCRv5 增量渲染：det 检测全部文字行 → 合并成气泡 → 返回气泡及其裁剪图片。
+     * 不做 cls/rec，后续分批识别。
+     *
+     * @return 按漫画阅读顺序排列的气泡列表
+     */
+    suspend fun detectBubbleGroupsWithPPOcrV5(
+        bitmap: Bitmap
+    ): List<BubbleWithCrops> = withContext(Dispatchers.IO) {
+        LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: 开始检测")
+
+        // Step 1: det 检测全部文字行框
+        val boxes = PPOcrV5Engine.runDetForBoxes(bitmap)
+        if (boxes.isEmpty()) {
+            LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: 未检测到文字区域")
+            return@withContext emptyList()
+        }
+        LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: 检测到 ${boxes.size} 个文字行")
+
+        // Step 2: AABB + 合并成气泡
+        val aabbs = boxes.map { box ->
+            var xMin = Float.MAX_VALUE; var yMin = Float.MAX_VALUE
+            var xMax = Float.MIN_VALUE; var yMax = Float.MIN_VALUE
+            for (k in box.indices step 2) {
+                if (box[k] < xMin) xMin = box[k]
+                if (box[k] > xMax) xMax = box[k]
+            }
+            for (k in 1 until box.size step 2) {
+                if (box[k] < yMin) yMin = box[k]
+                if (box[k] > yMax) yMax = box[k]
+            }
+            Rect(
+                xMin.toInt().coerceAtLeast(0),
+                yMin.toInt().coerceAtLeast(0),
+                xMax.toInt().coerceAtMost(bitmap.width - 1),
+                yMax.toInt().coerceAtMost(bitmap.height - 1)
+            )
+        }
+
+        // 按空间邻近度合并（简单贪心：gap < 20px 合并）
+        val mergeGap = 20
+        val groupOf = IntArray(aabbs.size) { it }
+        for (i in aabbs.indices) {
+            for (j in i + 1 until aabbs.size) {
+                if (groupOf[i] == groupOf[j]) continue
+                val gap = maxOf(
+                    0,
+                    maxOf(aabbs[i].left, aabbs[j].left) - minOf(aabbs[i].right, aabbs[j].right),
+                    maxOf(aabbs[i].top, aabbs[j].top) - minOf(aabbs[i].bottom, aabbs[j].bottom)
+                )
+                if (gap < mergeGap) {
+                    val oldGroup = groupOf[j]
+                    val newGroup = groupOf[i]
+                    for (k in groupOf.indices) {
+                        if (groupOf[k] == oldGroup) groupOf[k] = newGroup
+                    }
+                }
+            }
+        }
+
+        // 按组收集
+        val groups = mutableMapOf<Int, MutableList<Int>>()
+        for (i in aabbs.indices) {
+            groups.getOrPut(groupOf[i]) { mutableListOf() }.add(i)
+        }
+
+        // Step 3: 为每组生成 BubbleWithCrops（气泡 AABB + 各行裁剪）
+        val PADDING = 10
+        val result = groups.values.map { indices ->
+            val unionRect = Rect(
+                indices.minOf { aabbs[it].left },
+                indices.minOf { aabbs[it].top },
+                indices.maxOf { aabbs[it].right },
+                indices.maxOf { aabbs[it].bottom }
+            )
+            val crops = indices.map { i ->
+                val box = boxes[i]
+                val pts = PPOcrV5Engine.boxToQuadPointsPublic(box)
+                PPOcrV5Engine.getRotateCropImage(bitmap, pts)
+            }
+            BubbleWithCrops(unionRect, crops)
+        }
+
+        // 按漫画阅读顺序排序（从上到下，从右到左）
+        val sorted = result.sortedWith(
+            compareBy<BubbleWithCrops> { it.rect.top }
+                .thenByDescending { it.rect.left }
+        )
+
+        LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: ${boxes.size} 行 → ${sorted.size} 个气泡")
+        sorted
     }
 
     /**

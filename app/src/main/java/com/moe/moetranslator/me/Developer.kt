@@ -117,20 +117,6 @@ class Developer : Fragment() {
             }
         }
 
-        // 分批渲染开关（实验功能）
-        val incrementalRenderEnabled = prefs.getBoolean("Incremental_Render", false)
-        binding.incrementalRenderSwitch.isChecked = incrementalRenderEnabled
-        binding.incrementalRenderSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setBoolean("Incremental_Render", isChecked)
-            if (isChecked) {
-                // 自动开启 AI 上下文（仅 OpenAI 兼容 API 生效）
-                prefs.setBoolean("game_context_enabled", true)
-                UiUtils.showToast(requireContext(),"分批渲染已开启\n• 气泡超6个时先显示一半\n• AI上下文已自动开启\n• 翻译期间请勿点击屏幕")
-            } else {
-                UiUtils.showToast(requireContext(),"分批渲染已关闭")
-            }
-        }
-
         // CTD 调试开关
         val ctdDebugEnabled = prefs.getBoolean("CTD_Debug_View", false)
         binding.ctdDebugSwitch.isChecked = ctdDebugEnabled
