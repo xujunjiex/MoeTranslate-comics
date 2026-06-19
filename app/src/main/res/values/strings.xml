@@ -216,6 +216,7 @@
     <string name="ball_action_translate">Translate</string>
     <string name="ball_action_menu">Open menu</string>
     <string name="ball_action_auto_translate">Auto-translate toggle</string>
+    <string name="ball_action_close">Close floating window</string>
     <string name="ball_gesture_summary">Current: %s</string>
     <string name="ball_setting">Floating ball icon</string>
     <string name="ball_icon_default">Restore default</string>

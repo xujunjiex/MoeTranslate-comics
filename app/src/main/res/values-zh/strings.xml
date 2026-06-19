@@ -216,6 +216,7 @@
     <string name="ball_action_translate">翻译</string>
     <string name="ball_action_menu">打开菜单</string>
     <string name="ball_action_auto_translate">自动翻译开关</string>
+    <string name="ball_action_close">关闭悬浮窗</string>
     <string name="ball_gesture_summary">当前：%s</string>
     <string name="ball_setting">悬浮球图标</string>
     <string name="ball_icon_default">恢复默认</string>

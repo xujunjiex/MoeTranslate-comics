@@ -1040,6 +1040,7 @@ class FloatingBallService : LifecycleService() {
             Constants.BallAction.TRANSLATE -> doTranslate()
             Constants.BallAction.MENU -> showLongPressMenu()
             Constants.BallAction.AUTO_TRANSLATE -> toggleAutoTranslate()
+            Constants.BallAction.CLOSE_FLOATING -> stopServiceAndRemoveViews()
         }
     }
 

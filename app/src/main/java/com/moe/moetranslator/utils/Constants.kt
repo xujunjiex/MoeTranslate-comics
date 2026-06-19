@@ -53,7 +53,8 @@ object Constants {
     enum class BallAction(val value: Int) {
         TRANSLATE(0),       // 翻译
         MENU(1),            // 打开菜单
-        AUTO_TRANSLATE(2);  // 自动翻译开关
+        AUTO_TRANSLATE(2),  // 自动翻译开关
+        CLOSE_FLOATING(3);  // 关闭悬浮窗
 
         companion object {
             fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: TRANSLATE

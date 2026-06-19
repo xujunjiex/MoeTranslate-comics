@@ -368,6 +368,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             Constants.BallAction.TRANSLATE -> getString(R.string.ball_action_translate)
             Constants.BallAction.MENU -> getString(R.string.ball_action_menu)
             Constants.BallAction.AUTO_TRANSLATE -> getString(R.string.ball_action_auto_translate)
+            Constants.BallAction.CLOSE_FLOATING -> getString(R.string.ball_action_close)
         }
         pref.summary = getString(R.string.ball_gesture_summary, actionName)
     }

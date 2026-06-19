@@ -1383,9 +1383,10 @@ object DetectionBridge {
      * @return 按 confidence 降序排列的裁剪结果列表
      */
     suspend fun detectAndCropRTDetrV2(
-        bitmap: Bitmap
+        bitmap: Bitmap,
+        keepTextFree: Boolean = false
     ): List<CroppedBubble> = withContext(Dispatchers.IO) {
-        LogCollector.d(TAG, "detectAndCropRTDetrV2: 开始检测...")
+        LogCollector.d(TAG, "detectAndCropRTDetrV2: 开始检测, keepTextFree=$keepTextFree...")
 
         // Step 1: RT-DETR-V2 检测
         val allBubbles = ComicBubbleDetector.detectBubbles(bitmap)
@@ -1396,7 +1397,10 @@ object DetectionBridge {
         LogCollector.d(TAG, "detectAndCropRTDetrV2: 原始检测到 ${allBubbles.size} 个区域")
 
         // Step 2: 分类处理
-        val greenBubbles = allBubbles.filter { it.classId == 1 }
+        // - text_bubble(classId=1): 始终保留
+        // - text_free(classId=2): keepTextFree 时保留，否则丢弃
+        // - bubble(classId=0): 压缩 15% 后保留
+        val greenBubbles = allBubbles.filter { it.classId == 1 || (keepTextFree && it.classId == 2) }
         val redBubbles = allBubbles.filter { it.classId == 0 }.map { bubble ->
             val cx = (bubble.rect.left + bubble.rect.right) / 2
             val cy = (bubble.rect.top + bubble.rect.bottom) / 2
@@ -1421,7 +1425,7 @@ object DetectionBridge {
 
         // Step 4: 按 confidence 降序排序
         val sortedBubbles = dedupedBubbles.sortedByDescending { it.confidence }
-        LogCollector.d(TAG, "detectAndCropRTDetrV2: 过滤后 ${sortedBubbles.size} 个区域")
+        LogCollector.d(TAG, "detectAndCropRTDetrV2: 过滤后 ${sortedBubbles.size} 个区域 (text_bubble=${allBubbles.count { it.classId == 1 }}, text_free=${if (keepTextFree) "保留(${allBubbles.count { it.classId == 2 }})" else "丢弃"}, bubble保留=${dedupedBubbles.size - greenBubbles.size})")
 
         // Step 5: 裁剪图片（10px padding）
         val cropped = sortedBubbles.map { bubble ->

@@ -198,6 +198,10 @@ class MangaFloatingService : LifecycleService() {
     private var currentPHash = 0L
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
 
+    // 调试详情面板（固定在屏幕底部）
+    private var debugInfoPanelView: android.view.View? = null
+    private var debugInfoPanelAdded = false
+
     private sealed class GestureType {
         object Click : GestureType()
         object LongPress : GestureType()
@@ -1520,6 +1524,7 @@ class MangaFloatingService : LifecycleService() {
             Constants.BallAction.TRANSLATE -> doTranslate()
             Constants.BallAction.MENU -> showMenu()
             Constants.BallAction.AUTO_TRANSLATE -> toggleAutoTranslate()
+            Constants.BallAction.CLOSE_FLOATING -> stop(this)
         }
     }
 
@@ -1752,8 +1757,8 @@ class MangaFloatingService : LifecycleService() {
         initRTDetrV2IfNeeded()
         ensureMangaOcrInitialized()
 
-        LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 开始检测+裁剪")
-        val croppedBubbles = DetectionBridge.detectAndCropRTDetrV2(bitmap)
+        LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 开始检测+裁剪, keepTextFree=${config.keepTextFree}")
+        val croppedBubbles = DetectionBridge.detectAndCropRTDetrV2(bitmap, config.keepTextFree)
         if (croppedBubbles.isEmpty()) {
             LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 未检测到气泡")
             if (!isAutoTranslating) {
@@ -1968,14 +1973,7 @@ class MangaFloatingService : LifecycleService() {
                 forceRefresh = false
             }
 
-            // 分批渲染：在检测之前尝试分批流程
-            if (incrementalTranslateFlow(bitmap)) {
-                LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
-                return
-            }
-            LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
-
-            // 调试模式：按当前选择的检测模型决定 debug 路径
+            // 调试模式：最高优先级，按当前选择的检测模型决定 debug 路径
             when (config.detEngine) {
                 DetEngine.CTD -> {
                     if (prefs.getBoolean("CTD_Debug_View", false)) {
@@ -2033,6 +2031,13 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
             }
+
+            // 分批渲染：在检测之前尝试分批流程
+            if (incrementalTranslateFlow(bitmap)) {
+                LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
+                return
+            }
+            LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
 
             // 确保选中的模型已初始化
             when (config.detEngine) {
@@ -2897,8 +2902,11 @@ class MangaFloatingService : LifecycleService() {
             dismissCacheOverlay()
             return
         }
+        dismissDebugInfoPanel()
         if (isResultShowing) {
             try {
+                // 回收 debug bitmap（避免内存泄漏）
+                (resultOverlayView.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap?.recycle()
                 resultOverlayView.setImageBitmap(null)
                 resultOverlayView.setOnTouchListener(null)
                 windowManager.removeView(resultOverlayView)
@@ -3163,17 +3171,6 @@ class MangaFloatingService : LifecycleService() {
             canvas.drawText(label, left.toFloat() + 4, labelY, textPaint)
         }
 
-        // 绘制图例
-        val legendY = bitmap.height - 60f
-        textPaint.color = android.graphics.Color.GREEN
-        canvas.drawText("绿色=原始 (${debugResult.rawBoxes.size})", 20f, legendY, textPaint)
-        textPaint.color = android.graphics.Color.BLUE
-        canvas.drawText("蓝色=合并 (${debugResult.mergedGroups.size}组)", 20f, legendY - 35f, textPaint)
-        textPaint.color = android.graphics.Color.RED
-        canvas.drawText("红色=丢弃 (${debugResult.discardedBoxes.size})", 20f, legendY - 70f, textPaint)
-        textPaint.color = android.graphics.Color.WHITE
-        canvas.drawText("点击任意位置关闭", 20f, legendY - 105f, textPaint)
-
         return result
     }
 
@@ -3226,7 +3223,11 @@ class MangaFloatingService : LifecycleService() {
         isResultShowing = true
 
         val mergedCount = debugResult.mergedGroups.count { it.size > 1 }
-        showToast("CTD Debug: ${debugResult.rawBoxes.size} 个原始框, ${debugResult.mergedGroups.size} 个组合, $mergedCount 个实际合并, ${debugResult.discardedBoxes.size} 个丢弃")
+        showDebugInfoPanel(listOf(
+            "🟢 绿色 = 原始框（${debugResult.rawBoxes.size}）",
+            "🔵 蓝色 = 合并（${debugResult.mergedGroups.size}组，$mergedCount 个实际合并）",
+            "🔴 红色 = 丢弃（${debugResult.discardedBoxes.size}）"
+        ))
 
         // Keep floating ball on top
         if (isViewAdded(floatingBallView)) {
@@ -3306,18 +3307,6 @@ class MangaFloatingService : LifecycleService() {
             canvas.drawText("OCR[$idx]", rect.left.toFloat() + 4, rect.bottom.toFloat() - 8, textPaint)
         }
 
-        // 图例
-        val legendY = bitmap.height - 40f
-        textPaint.textSize = 24f
-        textPaint.color = android.graphics.Color.GREEN
-        canvas.drawText("绿色=text_bubble(${debugResult.textBubbles.size})", 20f, legendY - 100f, textPaint)
-        textPaint.color = android.graphics.Color.CYAN
-        canvas.drawText("蓝色=text_free(${debugResult.textFree.size}) 丢弃", 20f, legendY - 70f, textPaint)
-        textPaint.color = android.graphics.Color.RED
-        canvas.drawText("红色=bubble(${debugResult.emptyBubbles.size}) 压缩15%", 20f, legendY - 40f, textPaint)
-        textPaint.color = android.graphics.Color.YELLOW
-        canvas.drawText("黄色=最终提交(${debugResult.finalRegions.size})", 20f, legendY - 10f, textPaint)
-
         return result
     }
 
@@ -3369,7 +3358,12 @@ class MangaFloatingService : LifecycleService() {
         }
         isResultShowing = true
 
-        showToast("RT-DETR-V2 Debug: green=${debugResult.textBubbles.size}, blue=${debugResult.textFree.size}(丢弃), red=${debugResult.emptyBubbles.size}(压缩), 最终提交=${debugResult.finalRegions.size}")
+        showDebugInfoPanel(listOf(
+            "🟢 绿色 = text_bubble（${debugResult.textBubbles.size}）",
+            "🔵 蓝色 = text_free（${debugResult.textFree.size}）丢弃",
+            "🔴 红色 = bubble（${debugResult.emptyBubbles.size}）压缩15%",
+            "🟡 黄色 = 最终提交OCR（${debugResult.finalRegions.size}）"
+        ))
 
         // Keep floating ball on top
         if (isViewAdded(floatingBallView)) {
@@ -3385,6 +3379,66 @@ class MangaFloatingService : LifecycleService() {
 
     private fun dismissProgressOverlay() {
         statusOverlay.dismiss()
+    }
+
+    /**
+     * 显示调试详情面板：固定在屏幕底部的半透明信息面板。
+     * 与 debug bitmap 分离，不随框选区域移动。
+     * @param maxHeight 最大高度（px），0 表示不限制（WRAP_CONTENT）
+     */
+    @SuppressLint("SetTextI18n")
+    private fun showDebugInfoPanel(lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0) {
+        dismissDebugInfoPanel()
+        val tv = android.widget.TextView(this).apply {
+            text = lines.joinToString("\n")
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = if (scrollable) 11f else 13f
+            setPadding(24, 16, 24, 16)
+            setBackgroundColor(android.graphics.Color.argb(200, 0, 0, 0))
+        }
+
+        val contentView: android.view.View
+        val layoutParamsHeight: Int
+
+        if (scrollable) {
+            val scrollView = android.widget.ScrollView(this).apply {
+                addView(tv)
+            }
+            contentView = scrollView
+            layoutParamsHeight = if (maxHeight > 0) maxHeight else 800
+        } else {
+            contentView = tv
+            layoutParamsHeight = WindowManager.LayoutParams.WRAP_CONTENT
+        }
+
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.RGBA_8888
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = layoutParamsHeight
+            gravity = Gravity.BOTTOM or Gravity.START
+            x = 0; y = 0
+        }
+        windowManager.addView(contentView, params)
+        debugInfoPanelView = contentView
+        debugInfoPanelAdded = true
+    }
+
+    /**
+     * 移除调试详情面板。
+     */
+    private fun dismissDebugInfoPanel() {
+        if (debugInfoPanelAdded) {
+            try {
+                windowManager.removeView(debugInfoPanelView)
+            } catch (_: Exception) {}
+            debugInfoPanelView = null
+            debugInfoPanelAdded = false
+        }
     }
 
     // ---------- Helpers ----------
@@ -3575,60 +3629,13 @@ class MangaFloatingService : LifecycleService() {
             }
             dismissProgressOverlay()
 
-            val overlayView = android.widget.FrameLayout(this@MangaFloatingService)
-            val imageView = android.widget.ImageView(this@MangaFloatingService).apply {
-                setImageBitmap(debugBitmap)
-                scaleType = android.widget.ImageView.ScaleType.FIT_XY
-                adjustViewBounds = true
-            }
-
-            // 底部信息栏
-            val infoText = android.widget.TextView(this@MangaFloatingService).apply {
-                text = buildString {
-                    appendLine("ML Kit 调试模式")
-                    appendLine("块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements}")
-                    appendLine("语言: ${result.detectedLanguage ?: "未知"}")
-                    appendLine("绿=块  黄=行  红=元素")
-                    appendLine("")
-                    for ((i, block) in result.textBlocks.withIndex()) {
-                        val bRect = block.blockRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
-                        appendLine("B${i} $bRect \"${block.blockText.take(25)}\" ${block.language ?: ""}")
-                        for ((j, line) in block.lines.withIndex()) {
-                            val lRect = line.lineRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
-                            appendLine("  L${j} $lRect ${String.format("%.1f", line.angle)}° ${line.elements.size}elem \"${line.lineText.take(20)}\"")
-                            for (element in line.elements) {
-                                val eRect = element.elementRect?.let { "[${it.left},${it.top}]" } ?: ""
-                                appendLine("    $eRect \"${element.elementText}\"")
-                            }
-                        }
-                    }
+            resultOverlayView.setImageBitmap(debugBitmap)
+            resultOverlayView.scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            resultOverlayView.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_UP) {
+                    dismissResultOverlay()
                 }
-                textSize = 11f
-                setTextColor(android.graphics.Color.WHITE)
-                setBackgroundColor(android.graphics.Color.argb(220, 0, 0, 0))
-                setPadding(16, 16, 16, 16)
-            }
-
-            val scrollView = android.widget.ScrollView(this@MangaFloatingService).apply {
-                addView(infoText)
-            }
-
-            overlayView.addView(imageView, android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-            ))
-            overlayView.addView(scrollView, android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                600
-            ).apply { gravity = android.view.Gravity.BOTTOM })
-
-            overlayView.setOnClickListener {
-                try {
-                    windowManager.removeView(overlayView)
-                    isResultShowing = false
-                    // 延迟 recycle，等 View 绘制完成后再回收
-                    overlayView.post { debugBitmap.recycle() }
-                } catch (e: Exception) { }
+                true
             }
 
             val params = if (cropRect != null) {
@@ -3664,10 +3671,36 @@ class MangaFloatingService : LifecycleService() {
             }
 
             try {
-                windowManager.addView(overlayView, params)
+                windowManager.addView(resultOverlayView, params)
                 isResultShowing = true
             } catch (e: Exception) {
                 LogCollector.e(TAG, "ML Kit Debug: 显示失败", e)
+            }
+
+            // 底部信息面板（独立窗口，不随框选移动）
+            val infoLines = buildList {
+                add("ML Kit 调试模式 | 块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements} | 语言: ${result.detectedLanguage ?: "未知"}")
+                add("绿=块  黄=行  红=元素")
+                add("")
+                for ((i, block) in result.textBlocks.withIndex()) {
+                    val bRect = block.blockRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
+                    add("B${i} $bRect \"${block.blockText.take(25)}\" ${block.language ?: ""}")
+                    for ((j, line) in block.lines.withIndex()) {
+                        val lRect = line.lineRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
+                        add("  L${j} $lRect ${String.format("%.1f", line.angle)}° ${line.elements.size}elem \"${line.lineText.take(20)}\"")
+                        for (element in line.elements) {
+                            val eRect = element.elementRect?.let { "[${it.left},${it.top}]" } ?: ""
+                            add("    $eRect \"${element.elementText}\"")
+                        }
+                    }
+                }
+            }
+            showDebugInfoPanel(infoLines, scrollable = true)
+
+            // Keep floating ball on top
+            if (isViewAdded(floatingBallView)) {
+                windowManager.removeView(floatingBallView)
+                windowManager.addView(floatingBallView, floatingBallParams)
             }
         }
     }
@@ -3687,58 +3720,13 @@ class MangaFloatingService : LifecycleService() {
             }
             dismissProgressOverlay()
 
-            val overlayView = android.widget.FrameLayout(this@MangaFloatingService)
-            val imageView = android.widget.ImageView(this@MangaFloatingService).apply {
-                setImageBitmap(debugBitmap)
-                scaleType = android.widget.ImageView.ScaleType.FIT_XY
-                adjustViewBounds = true
-            }
-
-            // 底部信息栏
-            val infoText = android.widget.TextView(this@MangaFloatingService).apply {
-                text = buildString {
-                    appendLine("PP-OCRv5 调试模式")
-                    appendLine("检测框: ${ocrResult.boxes.size}  识别结果: ${ocrResult.texts.size}")
-                    appendLine("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
-                        "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
-                        "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
-                        "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
-                    appendLine("")
-                    for (i in ocrResult.texts.indices) {
-                        val text = ocrResult.texts[i]
-                        val score = ocrResult.scores.getOrElse(i) { 0f }
-                        val box = ocrResult.boxes.getOrNull(i)
-                        val boxStr = if (box != null && box.size >= 8) {
-                            "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
-                        } else ""
-                        appendLine("[$i] ${String.format("%.2f", score)} $boxStr \"$text\"")
-                    }
+            resultOverlayView.setImageBitmap(debugBitmap)
+            resultOverlayView.scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            resultOverlayView.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_UP) {
+                    dismissResultOverlay()
                 }
-                textSize = 11f
-                setTextColor(android.graphics.Color.WHITE)
-                setBackgroundColor(android.graphics.Color.argb(220, 0, 0, 0))
-                setPadding(16, 16, 16, 16)
-            }
-
-            val scrollView = android.widget.ScrollView(this@MangaFloatingService).apply {
-                addView(infoText)
-            }
-
-            overlayView.addView(imageView, android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-            ))
-            overlayView.addView(scrollView, android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                600
-            ).apply { gravity = android.view.Gravity.BOTTOM })
-
-            overlayView.setOnClickListener {
-                try {
-                    windowManager.removeView(overlayView)
-                    isResultShowing = false
-                    overlayView.post { debugBitmap.recycle() }
-                } catch (e: Exception) { }
+                true
             }
 
             val params = if (cropRect != null) {
@@ -3774,10 +3762,36 @@ class MangaFloatingService : LifecycleService() {
             }
 
             try {
-                windowManager.addView(overlayView, params)
+                windowManager.addView(resultOverlayView, params)
                 isResultShowing = true
             } catch (e: Exception) {
                 LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
+            }
+
+            // 底部信息面板（独立窗口，不随框选移动）
+            val infoLines = buildList {
+                add("PP-OCRv5 调试模式 | 检测框: ${ocrResult.boxes.size}  识别: ${ocrResult.texts.size}")
+                add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
+                    "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
+                    "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
+                    "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
+                add("")
+                for (i in ocrResult.texts.indices) {
+                    val text = ocrResult.texts[i]
+                    val score = ocrResult.scores.getOrElse(i) { 0f }
+                    val box = ocrResult.boxes.getOrNull(i)
+                    val boxStr = if (box != null && box.size >= 8) {
+                        "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
+                    } else ""
+                    add("[$i] ${String.format("%.2f", score)} $boxStr \"$text\"")
+                }
+            }
+            showDebugInfoPanel(infoLines, scrollable = true)
+
+            // Keep floating ball on top
+            if (isViewAdded(floatingBallView)) {
+                windowManager.removeView(floatingBallView)
+                windowManager.addView(floatingBallView, floatingBallParams)
             }
         }
     }
