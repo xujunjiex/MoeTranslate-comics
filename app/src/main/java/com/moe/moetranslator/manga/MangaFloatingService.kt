@@ -1484,11 +1484,7 @@ class MangaFloatingService : LifecycleService() {
         windowManager.addView(cropView, cropViewParams)
         isCropActive = true
 
-        // Keep floating ball on top
-        if (isViewAdded(floatingBallView)) {
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-        }
+        bringFloatingBallToFront()
     }
 
     private fun confirmCrop() {
@@ -1501,11 +1497,7 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.e(TAG, "Error removing crop view", e)
         }
 
-        // Keep floating ball on top
-        if (isViewAdded(floatingBallView)) {
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-        }
+        bringFloatingBallToFront()
 
         showToast(getString(R.string.manga_crop_confirm), true)
 
@@ -1991,7 +1983,7 @@ class MangaFloatingService : LifecycleService() {
                         LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: 开始检测")
                         initRTDetrV2IfNeeded()
                         val debugResult = withContext(Dispatchers.IO) {
-                            DetectionBridge.detectWithRTDetrV2Debug(bitmap)
+                            DetectionBridge.detectWithRTDetrV2Debug(bitmap, config.keepTextFree)
                         }
                         LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
                         showRTDetrV2DebugView(bitmap, debugResult)
@@ -2890,11 +2882,7 @@ class MangaFloatingService : LifecycleService() {
         }
         isResultShowing = true
 
-        // Keep floating ball on top
-        if (isViewAdded(floatingBallView)) {
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-        }
+        bringFloatingBallToFront()
     }
 
     private fun dismissResultOverlay() {
@@ -2905,9 +2893,10 @@ class MangaFloatingService : LifecycleService() {
         dismissDebugInfoPanel()
         if (isResultShowing) {
             try {
-                // 回收 debug bitmap（避免内存泄漏）
-                (resultOverlayView.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap?.recycle()
+                // 先清除引用再回收，避免 Choreographer 待处理帧使用已回收的 bitmap
+                val oldBitmap = (resultOverlayView.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                 resultOverlayView.setImageBitmap(null)
+                oldBitmap?.recycle()
                 resultOverlayView.setOnTouchListener(null)
                 windowManager.removeView(resultOverlayView)
             } catch (e: Exception) {
@@ -3036,11 +3025,7 @@ class MangaFloatingService : LifecycleService() {
         cacheOverlayContainer = container
         isResultShowing = true
 
-        // Keep floating ball on top
-        if (isViewAdded(floatingBallView)) {
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-        }
+        bringFloatingBallToFront()
     }
 
     /**
@@ -3229,11 +3214,7 @@ class MangaFloatingService : LifecycleService() {
             "🔴 红色 = 丢弃（${debugResult.discardedBoxes.size}）"
         ))
 
-        // Keep floating ball on top
-        if (isViewAdded(floatingBallView)) {
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-        }
+        bringFloatingBallToFront()
     }
 
     /**
@@ -3360,16 +3341,12 @@ class MangaFloatingService : LifecycleService() {
 
         showDebugInfoPanel(listOf(
             "🟢 绿色 = text_bubble（${debugResult.textBubbles.size}）",
-            "🔵 蓝色 = text_free（${debugResult.textFree.size}）丢弃",
+            "🔵 蓝色 = text_free（${debugResult.textFree.size}）${if (config.keepTextFree) "保留" else "丢弃"}",
             "🔴 红色 = bubble（${debugResult.emptyBubbles.size}）压缩15%",
             "🟡 黄色 = 最终提交OCR（${debugResult.finalRegions.size}）"
         ))
 
-        // Keep floating ball on top
-        if (isViewAdded(floatingBallView)) {
-            windowManager.removeView(floatingBallView)
-            windowManager.addView(floatingBallView, floatingBallParams)
-        }
+        bringFloatingBallToFront()
     }
 
     private fun showProgressOverlay(text: String = getString(R.string.manga_translating)) {
@@ -3405,7 +3382,10 @@ class MangaFloatingService : LifecycleService() {
                 addView(tv)
             }
             contentView = scrollView
-            layoutParamsHeight = if (maxHeight > 0) maxHeight else 800
+            layoutParamsHeight = if (maxHeight > 0) maxHeight
+                else android.util.TypedValue.applyDimension(
+                    android.util.TypedValue.COMPLEX_UNIT_DIP, 400f, resources.displayMetrics
+                ).toInt()
         } else {
             contentView = tv
             layoutParamsHeight = WindowManager.LayoutParams.WRAP_CONTENT
@@ -3435,7 +3415,9 @@ class MangaFloatingService : LifecycleService() {
         if (debugInfoPanelAdded) {
             try {
                 windowManager.removeView(debugInfoPanelView)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                LogCollector.w(TAG, "dismissDebugInfoPanel: ${e.message}")
+            }
             debugInfoPanelView = null
             debugInfoPanelAdded = false
         }
@@ -3452,6 +3434,14 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
+    /** 将悬浮球重新添加到窗口栈顶，确保不被其他 overlay 遮挡 */
+    private fun bringFloatingBallToFront() {
+        if (isViewAdded(floatingBallView)) {
+            windowManager.removeView(floatingBallView)
+            windowManager.addView(floatingBallView, floatingBallParams)
+        }
+    }
+
     private fun removeAllViews() {
         try {
             if (isViewAdded(floatingBallView)) {
@@ -3461,6 +3451,7 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.e(TAG, "Error removing floating ball", e)
         }
         dismissCacheOverlay()
+        dismissDebugInfoPanel()
         dismissResultOverlay()
         dismissProgressOverlay()
         dismissToastOverlay()
@@ -3696,12 +3687,7 @@ class MangaFloatingService : LifecycleService() {
                 }
             }
             showDebugInfoPanel(infoLines, scrollable = true)
-
-            // Keep floating ball on top
-            if (isViewAdded(floatingBallView)) {
-                windowManager.removeView(floatingBallView)
-                windowManager.addView(floatingBallView, floatingBallParams)
-            }
+            bringFloatingBallToFront()
         }
     }
 
@@ -3787,12 +3773,7 @@ class MangaFloatingService : LifecycleService() {
                 }
             }
             showDebugInfoPanel(infoLines, scrollable = true)
-
-            // Keep floating ball on top
-            if (isViewAdded(floatingBallView)) {
-                windowManager.removeView(floatingBallView)
-                windowManager.addView(floatingBallView, floatingBallParams)
-            }
+            bringFloatingBallToFront()
         }
     }
 }

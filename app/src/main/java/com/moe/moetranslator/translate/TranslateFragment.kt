@@ -129,12 +129,7 @@ class TranslateFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         // 显示版本号
-        try {
-            val pInfo = requireContext().packageManager.getPackageInfo(requireContext().packageName, 0)
-            binding.versionText.text = "v${pInfo.versionName}"
-        } catch (e: Exception) {
-            binding.versionText.text = "v0.6.5"
-        }
+        binding.versionText.text = "v${com.moe.moetranslator.BuildConfig.VERSION_NAME}"
 
         checkForUpdate()
         checkNotification()

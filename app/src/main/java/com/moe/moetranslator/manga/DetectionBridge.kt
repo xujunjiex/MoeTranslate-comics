@@ -1586,7 +1586,7 @@ object DetectionBridge {
     /**
      * RT-DETR-V2 调试模式：只检测，不翻译，显示所有类别的检测框。
      */
-    fun detectWithRTDetrV2Debug(bitmap: Bitmap): RTDetrV2DebugResult {
+    fun detectWithRTDetrV2Debug(bitmap: Bitmap, keepTextFree: Boolean = false): RTDetrV2DebugResult {
         val allBubbles = ComicBubbleDetector.detectBubblesAllClasses(bitmap)
         LogCollector.d(TAG, "RT-DETR-V2 Debug: 检测到 ${allBubbles.size} 个区域")
 
@@ -1601,7 +1601,7 @@ object DetectionBridge {
         }
 
         // 计算最终提交区域（与 detectWithRTDetrV2 一致的逻辑）
-        val greenBubbles = allBubbles.filter { it.classId == 1 }
+        val greenBubbles = allBubbles.filter { it.classId == 1 || (keepTextFree && it.classId == 2) }
         val redBubbles = allBubbles.filter { it.classId == 0 }.map { bubble ->
             // 压缩15%，去除气泡外框多余的边距
             val cx = (bubble.rect.left + bubble.rect.right) / 2
