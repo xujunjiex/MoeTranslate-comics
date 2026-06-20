@@ -92,18 +92,6 @@ data class CroppedBubble(
 )
 
 /**
- * 气泡及其裁剪图片，用于 PP-OCRv5 增量渲染。
- * 一个气泡可能包含多个文字行裁剪（det 输出行级，后合并成气泡级）。
- * @param rect 气泡在原图中的 AABB
- * @param crops 气泡内各文字行的裁剪图片列表
- */
-data class BubbleWithCrops(
-    val rect: Rect,
-    val crops: List<Bitmap>,
-    val originalRects: List<Rect> = emptyList() // 各 crop 在原图中的位置（用于 TextLineMerger）
-)
-
-/**
  * 裁剪后的单行文字，用于 PP-OCRv5 增量渲染的分批 OCR。
  * @param croppedBitmap 透视裁剪后的图片
  * @param rect 在原图中的位置

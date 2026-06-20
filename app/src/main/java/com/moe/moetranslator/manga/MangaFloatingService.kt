@@ -1890,6 +1890,7 @@ class MangaFloatingService : LifecycleService() {
             }.filter { it.text.isNotBlank() }
         }
 
+        var ocrJob: kotlinx.coroutines.Deferred<List<TextBlockInfo>>? = null
         try {
             showProgressOverlay("识别中（1/2）...")
             val firstTextBlocks = recognizeBatch(firstBatch)
@@ -1904,14 +1905,15 @@ class MangaFloatingService : LifecycleService() {
                 val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
                 withContext(Dispatchers.Main) { showProgressOverlay("翻译进行中，请勿点击屏幕...") }
 
-                val ocrJob = kotlinx.coroutines.GlobalScope.async(Dispatchers.IO) {
+                ocrJob = kotlinx.coroutines.GlobalScope.async(Dispatchers.IO) {
                     recognizeBatch(secondBatch)
                 }
 
                 val result = translateBubbles(firstBubbleRegions, forceContext = true)
                 if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result)
 
-                val secondTextBlocks = ocrJob.await()
+                val secondTextBlocks = ocrJob!!.await()
+                ocrJob = null // 已完成，不再需要取消
                 LogCollector.d(TAG, "incrementalPPOcrV5: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
                     val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
@@ -1928,8 +1930,9 @@ class MangaFloatingService : LifecycleService() {
             return true
         } catch (e: Exception) {
             LogCollector.e(TAG, "incrementalPPOcrV5: 失败", e)
-            // 回收未处理的裁剪图片
-            firstBatch.forEach { if (!it.croppedBitmap.isRecycled) it.croppedBitmap.recycle() }
+            // 取消正在运行的 OCR 任务，避免 use-after-recycle
+            ocrJob?.cancel()
+            // 回收未处理的裁剪图片（firstBatch 已在 recognizeBatch 内部回收，跳过）
             secondBatch.forEach { if (!it.croppedBitmap.isRecycled) it.croppedBitmap.recycle() }
             return false
         }
@@ -3966,6 +3969,7 @@ class MangaFloatingService : LifecycleService() {
             if (text.isEmpty()) continue
             val score = ocrResult.scores.getOrElse(i) { 0f }
             val box = ocrResult.boxes.getOrNull(i) ?: continue
+            if (box.size < 8) continue
             val tlx = box[0].toInt(); val tly = box[1].toInt()
             val trx = box[2].toInt(); val try_ = box[3].toInt()
             val brx = box[4].toInt(); val bry = box[5].toInt()
@@ -3973,10 +3977,8 @@ class MangaFloatingService : LifecycleService() {
             val xs = intArrayOf(tlx, trx, brx, blx)
             val ys = intArrayOf(tly, try_, bry, bly)
             val rect = Rect(xs.min(), ys.min(), xs.max(), ys.max())
-            val w = rect.width().toFloat()
-            val h = rect.height().toFloat()
-            val isVert = h > w * 1.5f
-            val fontSize = if (isVert) w else h
+            val isVert = rect.height() > rect.width()
+            val fontSize = minOf(rect.width(), rect.height()).toFloat()
             mergedInput.add(TextLineMerger.TextLine(rect, text, fontSize, isVert, score))
         }
         return TextLineMerger.merge(mergedInput)

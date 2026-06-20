@@ -311,7 +311,7 @@ object TextLineMerger {
         val shouldKeep = (maxEdge.weight <= distancesMean + distancesStd * sigma
                 || maxEdge.weight <= fontSize * (1 + gamma))
                 && (distancesStd < stdThreshold
-                || (maxPolyDist == 0f && maxCentroidAlignment < 5f))
+                || (maxPolyDist < 0.01f && maxCentroidAlignment < 5f))
 
         LogCollector.d(TAG, "splitTextRegion[${indices.size}]: " +
             "maxEdge=${String.format("%.1f", maxEdge.weight)} " +
