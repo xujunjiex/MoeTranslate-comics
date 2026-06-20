@@ -359,7 +359,7 @@ object BubbleDetector {
             }
             val isVertical = block.isVertical
                 ?: (config.textDirection == TextDirection.VERTICAL_RL || config.textDirection == TextDirection.VERTICAL_LR)
-            val fontSize = if (isVertical) rect.width() / 1.2f else rect.height() / 1.4f
+            val fontSize = min(rect.width(), rect.height()).toFloat()
             TextLine(rect = rect, fontSize = fontSize, isVertical = isVertical, text = block.text)
         }
 
@@ -384,7 +384,7 @@ object BubbleDetector {
                 RectF(0f, 0f, 0f, 0f)
             }
             val isVertical = block.isVertical ?: (rect.height() > rect.width())
-            val fontSize = if (isVertical) rect.width() / 1.2f else rect.height() / 1.4f
+            val fontSize = min(rect.width(), rect.height()).toFloat()
             TextLine(rect = rect, fontSize = fontSize, isVertical = isVertical, text = block.text)
         }
 

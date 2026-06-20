@@ -13,6 +13,7 @@ import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
@@ -1823,7 +1824,7 @@ class MangaFloatingService : LifecycleService() {
 
     /**
      * PP-OCRv5 独立增量渲染。
-     * det 检测全部文字行 → 合并成气泡 → 分批 cls+rec → 翻译+渲染。
+     * det 检测全部文字行 → 逐行裁剪 → 分批 OCR + TextLineMerger 合并 → 翻译+渲染。
      */
     private suspend fun incrementalPPOcrV5(bitmap: Bitmap): Boolean {
         initPPOcrV5IfNeeded()
@@ -1832,54 +1833,66 @@ class MangaFloatingService : LifecycleService() {
         if (hint != null) withContext(Dispatchers.Main) { showToast(hint, true) }
         if (ppRecLang == null) return false
 
-        LogCollector.d(TAG, "incrementalPPOcrV5: 开始检测+合并")
-        val bubbles = DetectionBridge.detectBubbleGroupsWithPPOcrV5(bitmap)
-        if (bubbles.isEmpty()) {
-            LogCollector.d(TAG, "incrementalPPOcrV5: 未检测到气泡")
+        LogCollector.d(TAG, "incrementalPPOcrV5: 开始检测")
+        val textLines = DetectionBridge.detectAndCropPPOcrV5Lines(bitmap)
+        if (textLines.isEmpty()) {
+            LogCollector.d(TAG, "incrementalPPOcrV5: 未检测到文字")
             if (!isAutoTranslating) {
                 withContext(Dispatchers.Main) { showToast(getString(R.string.no_text_found), true) }
             }
             return true
         }
 
-        if (bubbles.size <= INCREMENTAL_THRESHOLD) {
-            LogCollector.d(TAG, "incrementalPPOcrV5: ${bubbles.size} <= $INCREMENTAL_THRESHOLD，不触发")
-            bubbles.forEach { it.crops.forEach { c -> c.recycle() } }
+        if (textLines.size <= INCREMENTAL_THRESHOLD) {
+            LogCollector.d(TAG, "incrementalPPOcrV5: ${textLines.size} <= $INCREMENTAL_THRESHOLD，不触发")
+            textLines.forEach { it.croppedBitmap.recycle() }
             return false
         }
 
-        val firstBatchSize = bubbles.size * 2 / 5
-        val firstBatch = bubbles.take(firstBatchSize)
-        val secondBatch = bubbles.drop(firstBatchSize)
-        LogCollector.d(TAG, "incrementalPPOcrV5: 第一批 ${firstBatch.size} 个气泡，第二批 ${secondBatch.size} 个气泡")
+        val firstBatchSize = textLines.size * 2 / 5
+        val firstBatch = textLines.take(firstBatchSize)
+        val secondBatch = textLines.drop(firstBatchSize)
+        LogCollector.d(TAG, "incrementalPPOcrV5: 第一批 ${firstBatch.size} 行，第二批 ${secondBatch.size} 行")
 
-        // 识别单批气泡：展开所有 crop → cls+rec → 按气泡拼接文字
-        suspend fun recognizeBubbleBatch(batch: List<BubbleWithCrops>): List<TextBlockInfo> {
-            val allCrops = batch.flatMap { it.crops }
-            val bubbleIndices = batch.flatMapIndexed { bi, b -> List(b.crops.size) { bi } }
+        // 识别单批：OCR → TextLineMerger 合并 → TextBlockInfo
+        suspend fun recognizeBatch(batch: List<CroppedTextLine>): List<TextBlockInfo> {
+            val crops = batch.map { it.croppedBitmap }
+            val rects = batch.map { it.rect }
             val recResults = withContext(Dispatchers.IO) {
-                PPOcrV5Engine.recognizeBatchWithCls(this@MangaFloatingService, allCrops, ppRecLang)
+                PPOcrV5Engine.recognizeBatchWithCls(this@MangaFloatingService, crops, ppRecLang)
             }
-            // 按气泡拼接文字
-            val bubbleTexts = Array(batch.size) { StringBuilder() }
-            for (i in allCrops.indices) {
-                val r = recResults.getOrElse(i) { RecResult("", 0f) }
-                if (r.text.isNotBlank()) {
-                    val bi = bubbleIndices[i]
-                    if (bubbleTexts[bi].isNotEmpty()) bubbleTexts[bi].append("\n")
-                    bubbleTexts[bi].append(r.text)
+            // 释放裁剪图片
+            crops.forEach { it.recycle() }
+            // 构建 TextLineMerger.TextLine
+            val mergedInput = mutableListOf<TextLineMerger.TextLine>()
+            for (i in recResults.indices) {
+                val r = recResults[i]
+                if (r.text.isNotBlank() && r.score >= 0.5f && i < rects.size) {
+                    val rect = rects[i]
+                    val isVertical = rect.height() > rect.width()
+                    val fontSize = minOf(rect.width(), rect.height()).toFloat()
+                    mergedInput.add(TextLineMerger.TextLine(
+                        rect = rect, text = r.text, fontSize = fontSize,
+                        isVertical = isVertical, score = r.score
+                    ))
                 }
             }
-            return batch.mapIndexed { i, bubble ->
-                val text = bubbleTexts[i].toString()
-                val isVertical = bubble.rect.height() > bubble.rect.width()
-                TextBlockInfo(text = text, boundingBox = bubble.rect, cornerPoints = null, isVertical = isVertical)
+            // TextLineMerger 识别后合并
+            val mergedRegions = TextLineMerger.merge(mergedInput)
+            LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${mergedRegions.size} 个文本区域")
+            return mergedRegions.map { region ->
+                TextBlockInfo(
+                    text = region.texts.joinToString("\n"),
+                    boundingBox = region.rect,
+                    cornerPoints = null,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL
+                )
             }.filter { it.text.isNotBlank() }
         }
 
         try {
             showProgressOverlay("识别中（1/2）...")
-            val firstTextBlocks = recognizeBubbleBatch(firstBatch)
+            val firstTextBlocks = recognizeBatch(firstBatch)
             LogCollector.d(TAG, "incrementalPPOcrV5: 第一批 OCR ${firstTextBlocks.size} 个文字块")
 
             // 保存上下文历史大小，分批翻译完后回滚，避免污染后续页面的上下文
@@ -1892,7 +1905,7 @@ class MangaFloatingService : LifecycleService() {
                 withContext(Dispatchers.Main) { showProgressOverlay("翻译进行中，请勿点击屏幕...") }
 
                 val ocrJob = kotlinx.coroutines.GlobalScope.async(Dispatchers.IO) {
-                    recognizeBubbleBatch(secondBatch)
+                    recognizeBatch(secondBatch)
                 }
 
                 val result = translateBubbles(firstBubbleRegions, forceContext = true)
@@ -1915,6 +1928,9 @@ class MangaFloatingService : LifecycleService() {
             return true
         } catch (e: Exception) {
             LogCollector.e(TAG, "incrementalPPOcrV5: 失败", e)
+            // 回收未处理的裁剪图片
+            firstBatch.forEach { if (!it.croppedBitmap.isRecycled) it.croppedBitmap.recycle() }
+            secondBatch.forEach { if (!it.croppedBitmap.isRecycled) it.croppedBitmap.recycle() }
             return false
         }
     }
@@ -2000,7 +2016,27 @@ class MangaFloatingService : LifecycleService() {
                                 PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = false)
                             }
                             LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}")
-                            showPPOcrV5DebugView(bitmap, ocrResult)
+                            // 原始识别详情
+                            for (i in ocrResult.texts.indices) {
+                                val text = ocrResult.texts[i]
+                                val score = ocrResult.scores.getOrElse(i) { 0f }
+                                val box = ocrResult.boxes.getOrNull(i)
+                                val boxStr = if (box != null && box.size >= 8) {
+                                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
+                                } else ""
+                                LogCollector.d(TAG, "PP-OCRv5 RAW[$i]: ${String.format("%.2f", score)} $boxStr \"$text\"")
+                            }
+                            // 运行 TextLineMerger 合并
+                            val mergedRegions = runTextLineMerge(ocrResult)
+                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${mergedRegions.size} regions")
+                            // 合并区域详情
+                            for ((idx, region) in mergedRegions.withIndex()) {
+                                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
+                                val r = region.rect
+                                val merged = region.texts.joinToString("｜")
+                                LogCollector.d(TAG, "PP-OCRv5 MERGED[$idx]: $dirLabel ×${region.texts.size} [${r.left},${r.top},${r.right},${r.bottom}] \"$merged\"")
+                            }
+                            showPPOcrV5DebugView(bitmap, ocrResult, mergedRegions)
                         } else {
                             LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
                             showToast("PP-OCRv5 不支持语言: ${config.sourceLang}", true)
@@ -2118,8 +2154,9 @@ class MangaFloatingService : LifecycleService() {
 
             // Step 2: 气泡合并（自动/手动共用）
             // CTD 已用 BoxMerger 分组，RT-DETR-V2 检测器直接输出气泡级结果，跳过后合并
-            // MLKit / PP-OCRv5 独立模式需要 BubbleDetector 把行级结果合并成气泡
-            val needsPostMerge = config.detEngine == DetEngine.MLKIT || config.detEngine == DetEngine.PP_OCR_V5
+            // PP-OCRv5 已在 detectWithPPOcrV5 内部用 TextLineMerger 合并，跳过后合并
+            // MLKit 需要 BubbleDetector 把行级结果合并成气泡
+            val needsPostMerge = config.detEngine == DetEngine.MLKIT
             val allBubbles = if (needsPostMerge) {
                 LogCollector.d(TAG, "processMangaScreenshot: Step 2 - BubbleDetector 后合并")
                 BubbleDetector.detectBubbles(textBlocks, config)
@@ -3606,7 +3643,11 @@ class MangaFloatingService : LifecycleService() {
         }
 
         return if (scrollable) {
-            android.widget.ScrollView(this).apply { addView(tv) }
+            val limit = if (maxHeight > 0) maxHeight else (getScreenSize().height / 2)
+            MaxHeightScrollView(this, limit).apply {
+                addView(tv)
+                isVerticalScrollBarEnabled = true
+            }
         } else {
             tv
         }
@@ -3916,14 +3957,104 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * PP-OCRv5 调试模式：使用 visRes 渲染检测+识别结果并显示
+     * 从 OcrResult 构建 TextLineMerger 输入并执行合并
      */
-    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult) {
-        val debugBitmap = PPOcrV5Engine.visRes(bitmap, ocrResult)
-        showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult)
+    private fun runTextLineMerge(ocrResult: OcrResult): List<TextLineMerger.MergedRegion> {
+        val mergedInput = mutableListOf<TextLineMerger.TextLine>()
+        for (i in ocrResult.texts.indices) {
+            val text = ocrResult.texts[i].trim()
+            if (text.isEmpty()) continue
+            val score = ocrResult.scores.getOrElse(i) { 0f }
+            val box = ocrResult.boxes.getOrNull(i) ?: continue
+            val tlx = box[0].toInt(); val tly = box[1].toInt()
+            val trx = box[2].toInt(); val try_ = box[3].toInt()
+            val brx = box[4].toInt(); val bry = box[5].toInt()
+            val blx = box[6].toInt(); val bly = box[7].toInt()
+            val xs = intArrayOf(tlx, trx, brx, blx)
+            val ys = intArrayOf(tly, try_, bry, bly)
+            val rect = Rect(xs.min(), ys.min(), xs.max(), ys.max())
+            val w = rect.width().toFloat()
+            val h = rect.height().toFloat()
+            val isVert = h > w * 1.5f
+            val fontSize = if (isVert) w else h
+            mergedInput.add(TextLineMerger.TextLine(rect, text, fontSize, isVert, score))
+        }
+        return TextLineMerger.merge(mergedInput)
     }
 
-    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult) {
+    /**
+     * PP-OCRv5 调试模式：渲染检测+识别+合并结果并显示
+     */
+    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion>) {
+        val debugBitmap = renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions)
+        showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult, mergedRegions)
+    }
+
+    /**
+     * 渲染 PP-OCRv5 调试图：原始检测框 + 合并区域框
+     */
+    private fun renderPPOcrV5DebugWithMerge(
+        bitmap: Bitmap,
+        ocrResult: OcrResult,
+        mergedRegions: List<TextLineMerger.MergedRegion>
+    ): Bitmap {
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(output)
+
+        // 原始检测框（绿色，细线）
+        val rawPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GREEN
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 2f
+            isAntiAlias = true
+        }
+
+        // 合并区域框（青色，粗线）
+        val mergedPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.CYAN
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 4f
+            isAntiAlias = true
+        }
+
+        // 合并区域半透明填充
+        val mergedFillPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(30, 0, 255, 255)
+            style = android.graphics.Paint.Style.FILL
+        }
+
+        // 文字标签画笔
+        val labelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            isAntiAlias = true
+            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+
+        // ① 绘制原始检测框（绿色）
+        for (box in ocrResult.boxes) {
+            canvas.drawLine(box[0], box[1], box[2], box[3], rawPaint)
+            canvas.drawLine(box[2], box[3], box[4], box[5], rawPaint)
+            canvas.drawLine(box[4], box[5], box[6], box[7], rawPaint)
+            canvas.drawLine(box[6], box[7], box[0], box[1], rawPaint)
+        }
+
+        // ② 绘制合并区域框（青色）+ 标签
+        for ((idx, region) in mergedRegions.withIndex()) {
+            val r = region.rect
+            canvas.drawRect(r, mergedFillPaint)
+            canvas.drawRect(r, mergedPaint)
+
+            // 标签：序号 + 方向 + 文字数
+            val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "V" else "H"
+            val label = "[$idx]$dirLabel ×${region.texts.size}"
+            canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)
+        }
+
+        return output
+    }
+
+    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion> = emptyList()) {
         if (isResultShowing) {
             dismissResultOverlay()
         }
@@ -3944,12 +4075,22 @@ class MangaFloatingService : LifecycleService() {
 
         // 添加底部 info panel 到容器中
         val infoLines = buildList {
-            add("PP-OCRv5 调试模式 | 检测框: ${ocrResult.boxes.size}  识别: ${ocrResult.texts.size}")
+            add("PP-OCRv5 调试模式 | 检测框: ${ocrResult.boxes.size}  识别: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
             add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
                 "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
                 "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
                 "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
+            add("━━━ 合并结果 ━━━")
+            for ((idx, region) in mergedRegions.withIndex()) {
+                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
+                val srcCount = region.texts.size
+                val merged = region.texts.joinToString("｜")
+                val r = region.rect
+                add("【$idx】$dirLabel ×$srcCount [${r.left},${r.top},${r.right},${r.bottom}]")
+                add("    $merged")
+            }
             add("")
+            add("━━━ 原始识别 ━━━")
             for (i in ocrResult.texts.indices) {
                 val text = ocrResult.texts[i]
                 val score = ocrResult.scores.getOrElse(i) { 0f }
@@ -4018,5 +4159,14 @@ class MangaFloatingService : LifecycleService() {
         }
 
         bringFloatingBallToFront()
+    }
+
+    /** 限制最大高度的 ScrollView，用于调试面板半屏约束 */
+    private class MaxHeightScrollView(context: android.content.Context, private val maxHeightPx: Int) :
+        android.widget.ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val limitSpec = android.view.View.MeasureSpec.makeMeasureSpec(maxHeightPx, android.view.View.MeasureSpec.AT_MOST)
+            super.onMeasure(widthMeasureSpec, limitSpec)
+        }
     }
 }

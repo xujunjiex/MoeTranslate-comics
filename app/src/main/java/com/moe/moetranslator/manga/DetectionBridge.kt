@@ -99,7 +99,18 @@ data class CroppedBubble(
  */
 data class BubbleWithCrops(
     val rect: Rect,
-    val crops: List<Bitmap>
+    val crops: List<Bitmap>,
+    val originalRects: List<Rect> = emptyList() // 各 crop 在原图中的位置（用于 TextLineMerger）
+)
+
+/**
+ * 裁剪后的单行文字，用于 PP-OCRv5 增量渲染的分批 OCR。
+ * @param croppedBitmap 透视裁剪后的图片
+ * @param rect 在原图中的位置
+ */
+data class CroppedTextLine(
+    val croppedBitmap: Bitmap,
+    val rect: Rect
 )
 
 private const val DEBUG_TAG = "DetectionBridge"
@@ -1633,26 +1644,26 @@ object DetectionBridge {
     }
 
     /**
-     * PP-OCRv5 增量渲染：det 检测全部文字行 → 合并成气泡 → 返回气泡及其裁剪图片。
-     * 不做 cls/rec，后续分批识别。
+     * PP-OCRv5 增量渲染：det 检测全部文字行 → 逐行裁剪。
+     * 不做 cls/rec/分组，后续分批识别 + TextLineMerger 合并。
      *
-     * @return 按漫画阅读顺序排列的气泡列表
+     * @return 按漫画阅读顺序排列的裁剪文字行列表
      */
-    suspend fun detectBubbleGroupsWithPPOcrV5(
+    suspend fun detectAndCropPPOcrV5Lines(
         bitmap: Bitmap
-    ): List<BubbleWithCrops> = withContext(Dispatchers.IO) {
-        LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: 开始检测")
+    ): List<CroppedTextLine> = withContext(Dispatchers.IO) {
+        LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: 开始检测")
 
-        // Step 1: det 检测全部文字行框
+        // det 检测全部文字行框
         val boxes = PPOcrV5Engine.runDetForBoxes(bitmap)
         if (boxes.isEmpty()) {
-            LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: 未检测到文字区域")
+            LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: 未检测到文字区域")
             return@withContext emptyList()
         }
-        LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: 检测到 ${boxes.size} 个文字行")
+        LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: 检测到 ${boxes.size} 个文字行")
 
-        // Step 2: AABB + 合并成气泡
-        val aabbs = boxes.map { box ->
+        // 逐行裁剪（透视校正）
+        val result = boxes.map { box ->
             var xMin = Float.MAX_VALUE; var yMin = Float.MAX_VALUE
             var xMax = Float.MIN_VALUE; var yMax = Float.MIN_VALUE
             for (k in box.indices step 2) {
@@ -1663,65 +1674,24 @@ object DetectionBridge {
                 if (box[k] < yMin) yMin = box[k]
                 if (box[k] > yMax) yMax = box[k]
             }
-            Rect(
+            val rect = Rect(
                 xMin.toInt().coerceAtLeast(0),
                 yMin.toInt().coerceAtLeast(0),
                 xMax.toInt().coerceAtMost(bitmap.width - 1),
                 yMax.toInt().coerceAtMost(bitmap.height - 1)
             )
-        }
-
-        // 按空间邻近度合并（简单贪心：gap < 20px 合并）
-        val mergeGap = 20
-        val groupOf = IntArray(aabbs.size) { it }
-        for (i in aabbs.indices) {
-            for (j in i + 1 until aabbs.size) {
-                if (groupOf[i] == groupOf[j]) continue
-                val gap = maxOf(
-                    0,
-                    maxOf(aabbs[i].left, aabbs[j].left) - minOf(aabbs[i].right, aabbs[j].right),
-                    maxOf(aabbs[i].top, aabbs[j].top) - minOf(aabbs[i].bottom, aabbs[j].bottom)
-                )
-                if (gap < mergeGap) {
-                    val oldGroup = groupOf[j]
-                    val newGroup = groupOf[i]
-                    for (k in groupOf.indices) {
-                        if (groupOf[k] == oldGroup) groupOf[k] = newGroup
-                    }
-                }
-            }
-        }
-
-        // 按组收集
-        val groups = mutableMapOf<Int, MutableList<Int>>()
-        for (i in aabbs.indices) {
-            groups.getOrPut(groupOf[i]) { mutableListOf() }.add(i)
-        }
-
-        // Step 3: 为每组生成 BubbleWithCrops（气泡 AABB + 各行裁剪）
-        val PADDING = 10
-        val result = groups.values.map { indices ->
-            val unionRect = Rect(
-                indices.minOf { aabbs[it].left },
-                indices.minOf { aabbs[it].top },
-                indices.maxOf { aabbs[it].right },
-                indices.maxOf { aabbs[it].bottom }
-            )
-            val crops = indices.map { i ->
-                val box = boxes[i]
-                val pts = PPOcrV5Engine.boxToQuadPointsPublic(box)
-                PPOcrV5Engine.getRotateCropImage(bitmap, pts)
-            }
-            BubbleWithCrops(unionRect, crops)
+            val pts = PPOcrV5Engine.boxToQuadPointsPublic(box)
+            val crop = PPOcrV5Engine.getRotateCropImage(bitmap, pts)
+            CroppedTextLine(crop, rect)
         }
 
         // 按漫画阅读顺序排序（从上到下，从右到左）
         val sorted = result.sortedWith(
-            compareBy<BubbleWithCrops> { it.rect.top }
+            compareBy<CroppedTextLine> { it.rect.top }
                 .thenByDescending { it.rect.left }
         )
 
-        LogCollector.d(TAG, "detectBubbleGroupsWithPPOcrV5: ${boxes.size} 行 → ${sorted.size} 个气泡")
+        LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: ${boxes.size} 行裁剪完成")
         sorted
     }
 
@@ -1750,11 +1720,11 @@ object DetectionBridge {
                 PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = false)
             }
 
-            val textBlocks = result.texts.indices.mapNotNull { i ->
+            // 转换为 TextLineMerger.TextLine（识别后的文字行）
+            val textLines = result.texts.indices.mapNotNull { i ->
                 val text = result.texts[i]
                 if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
 
-                // 从 boxes 获取检测框 (FloatArray: x0,y0,x1,y1,x2,y2,x3,y3)
                 val box = result.boxes.getOrNull(i) ?: return@mapNotNull null
                 var xMin = Float.MAX_VALUE
                 var yMin = Float.MAX_VALUE
@@ -1775,11 +1745,29 @@ object DetectionBridge {
                     yMax.toInt().coerceAtMost(bitmap.height - 1)
                 )
                 val isVertical = rect.height() > rect.width()
+                val fontSize = min(rect.width(), rect.height()).toFloat()
 
-                TextBlockInfo(text = text, boundingBox = rect, cornerPoints = null, isVertical = isVertical)
+                TextLineMerger.TextLine(
+                    rect = rect, text = text, fontSize = fontSize,
+                    isVertical = isVertical, score = result.scores[i]
+                )
             }
 
-            LogCollector.d(TAG, "PP-OCRv5 独立完成，共 ${textBlocks.size} 个文字块")
+            // 识别后合并（对齐参考项目 merge_bboxes_text_region）
+            val mergedRegions = TextLineMerger.merge(textLines)
+            LogCollector.d(TAG, "PP-OCRv5 TextLineMerger: ${textLines.size} 行 → ${mergedRegions.size} 个文本区域")
+
+            // 转换为 TextBlockInfo
+            val textBlocks = mergedRegions.map { region ->
+                TextBlockInfo(
+                    text = region.texts.joinToString("\n"),
+                    boundingBox = region.rect,
+                    cornerPoints = null,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL
+                )
+            }
+
+            LogCollector.d(TAG, "PP-OCRv5 独立完成，共 ${textBlocks.size} 个文本区域")
             return textBlocks
 
         } catch (e: Exception) {
