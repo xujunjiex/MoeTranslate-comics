@@ -17,7 +17,6 @@
 
 package com.moe.moetranslator.utils
 
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -40,38 +39,60 @@ class NotificationChecker {
 
     suspend fun checkNotification(): NotificationResult = withContext(Dispatchers.IO) {
         try {
+            LogCollector.d(TAG, "Fetching notification from: $GIST_RAW_URL")
             val request = Request.Builder()
                 .url(GIST_RAW_URL)
+                .header("Cache-Control", "no-cache")
                 .build()
 
             client.newCall(request).execute().use { response ->
+                LogCollector.d(TAG, "Response code: ${response.code}")
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "Gist fetch error: ${response.code}")
+                    LogCollector.e(TAG, "Gist fetch error: ${response.code}")
                     return@withContext NotificationResult.Error
                 }
 
-                val body = response.body?.string() ?: return@withContext NotificationResult.Error
-                val json = JSONObject(body)
+                val body = response.body?.string()
+                LogCollector.d(TAG, "Response body length: ${body?.length ?: 0}")
+                if (body == null) {
+                    LogCollector.e(TAG, "Response body is null")
+                    return@withContext NotificationResult.Error
+                }
 
-                val code = json.optLong("code", 0)
-                val title = json.optString("title", "")
-                val content = json.optString("content", "")
+                try {
+                    // Gist 返回的内容可能包含非 JSON 前缀（如 "星译公告"），需要提取 JSON 部分
+                    val jsonStart = body.indexOf('{')
+                    if (jsonStart < 0) {
+                        LogCollector.e(TAG, "No JSON found in response: ${body.take(200)}")
+                        return@withContext NotificationResult.Error
+                    }
+                    val jsonStr = body.substring(jsonStart)
+                    val json = JSONObject(jsonStr)
+                    val code = json.optLong("code", 0)
+                    val title = json.optString("title", "")
+                    val content = json.optString("content", "")
+                    LogCollector.d(TAG, "Parsed: code=$code, title=$title")
 
-                if (code > 0 && title.isNotEmpty()) {
-                    NotificationResult.NotificationAvailable(
-                        notificationCode = code,
-                        notificationName = title,
-                        notificationContent = content
-                    )
-                } else {
+                    if (code > 0 && title.isNotEmpty()) {
+                        NotificationResult.NotificationAvailable(
+                            notificationCode = code,
+                            notificationName = title,
+                            notificationContent = content
+                        )
+                    } else {
+                        LogCollector.e(TAG, "Invalid notification data: code=$code, title.isEmpty=${title.isEmpty()}")
+                        NotificationResult.Error
+                    }
+                } catch (e: Exception) {
+                    LogCollector.e(TAG, "JSON parse error: ${e.message}, body=${body.take(200)}")
                     NotificationResult.Error
                 }
             }
         } catch (e: IOException) {
-            Log.e(TAG, "Network error: ${e.message}")
+            LogCollector.e(TAG, "Network error: ${e.message}")
             NotificationResult.Error
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking notification: ${e.message}")
+            LogCollector.e(TAG, "Error checking notification: ${e.message}")
             NotificationResult.Error
         }
     }

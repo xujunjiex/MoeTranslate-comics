@@ -48,6 +48,7 @@ class UpdateChecker(private val context: Context) {
             val request = Request.Builder()
                 .url(RELEASES_API)
                 .header("Accept", "application/vnd.github.v3+json")
+                .header("Cache-Control", "no-cache")
                 .build()
 
             client.newCall(request).execute().use { response ->

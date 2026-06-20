@@ -409,3 +409,59 @@ Release notes 中必须包含以下信息，否则 app 内检查更新功能无�
 ```bash
 gh release create vX.X.X app/build/outputs/apk/release/app-release.apk --title "vX.X.X" --notes "..."
 ```
+
+## 日志监控
+
+### 正确的日志监控方法
+
+**⚠️ 不要手动查询日志，使用后台监控！**
+
+```powershell
+# 正确：后台持续监控
+$adb = "C:\Users\xjj20\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+& $adb logcat -c  # 先清空旧日志
+$pid = & $adb shell pidof com.moe.moetranslator
+& $adb logcat --pid=$pid | Select-String -Pattern "关键词" | Out-File -FilePath "C:\Users\xjj20\Desktop\app_log.txt" -Encoding UTF8
+```
+
+用 `run_in_background: true` 执行，让 app 运行后再查看日志文件。
+
+### 常见错误
+
+1. **PID 过期** — app 被 force-stop 后重启会获得新 PID，旧 PID 查不到日志
+2. **语法混用** — Bash 工具用 Unix 语法，PowerShell 工具用 PS 语法，不要混用
+3. **没有清空** — 旧日志会干扰，先 `logcat -c` 清空
+
+## 通知系统
+
+### 架构
+
+- `NotificationChecker.kt` — 从 Gist 获取公告 JSON
+- `UpdateChecker.kt` — 从 GitHub Releases API 检查更新
+- 两者独立，都在 `TranslateFragment` 中调用
+
+### Gist 公告格式
+
+Gist 内容可能包含非 JSON 前缀（如 "星译公告"），解析时需提取 JSON 部分：
+```kotlin
+val jsonStart = body.indexOf('{')
+if (jsonStart < 0) return NotificationResult.Error
+val json = JSONObject(body.substring(jsonStart))
+```
+
+### Android 13+ 通知权限
+
+`POST_NOTIFICATIONS` 权限需运行时请求，已在 `MainActivity.onCreate()` 中添加。
+
+## 调试面板架构
+
+### FrameLayout 触摸事件
+
+- `OnTouchListener` 返回 `true` 会吞掉所有触摸事件，子 View 收不到点击
+- 正确做法：用 `setOnClickListener`，或在 container 上用坐标判断
+
+### 折叠/展开机制
+
+- `debugInfoPanelView` — 整个 container（imageView + infoPanel + toggleButton）
+- `debugInfoPanelContentView` — 仅 infoPanel（可折叠部分）
+- 折叠时只隐藏 infoPanel，不动 container

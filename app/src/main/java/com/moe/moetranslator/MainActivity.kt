@@ -18,6 +18,7 @@
 package com.moe.moetranslator
 
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import android.view.MotionEvent
@@ -26,6 +27,10 @@ import androidx.navigation.ui.setupWithNavController
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
 class MainActivity : BaseActivity() {
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { /* 无论用户是否授权都继续 */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +45,11 @@ class MainActivity : BaseActivity() {
         val navController = navHost.navController
         val bottomNavigation:BottomNavigationView=findViewById(R.id.bottomNavigation)
         bottomNavigation.setupWithNavController(navController)
+
+        // Android 13+ 请求通知权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
 }

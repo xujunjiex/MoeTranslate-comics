@@ -199,8 +199,12 @@ class MangaFloatingService : LifecycleService() {
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
 
     // 调试详情面板（固定在屏幕底部）
-    private var debugInfoPanelView: android.view.View? = null
+    private var debugInfoPanelView: android.view.View? = null  // 整个 container（包含 imageView + infoPanel + toggleButton）
+    private var debugInfoPanelContentView: android.view.View? = null  // 仅 infoPanel（可折叠部分）
     private var debugInfoPanelAdded = false
+    private var debugInfoPanelCollapsed = false
+    private var debugToggleButton: android.widget.TextView? = null
+    private var debugToggleButtonAdded = false
 
     private sealed class GestureType {
         object Click : GestureType()
@@ -230,7 +234,7 @@ class MangaFloatingService : LifecycleService() {
         } catch (e: Exception) { 5 }
 
         // 监听源语言和引擎变化，实时检查语言/模型提示
-        val watchedKeys = setOf("Source_Language", "Manga_Det_Model", "Manga_Rec_Model")
+        val watchedKeys = setOf("Source_Language", "Manga_Det_Model", "Manga_Rec_Model", "Manga_Keep_Text_Free")
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key in watchedKeys) {
                 config = loadConfig()
@@ -1947,39 +1951,27 @@ class MangaFloatingService : LifecycleService() {
             // precomputedPHash 是全图 pHash（用于页面变化检测），缓存匹配用中心裁剪 pHash
             currentPHash = PerceptualHash.compute(bitmap, centerCrop = true)
 
-            // 全局缓存检查
-            isForceRefreshActive = forceRefresh
-            if (!isForceRefreshActive) {
-                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA)
-                if (cached != null && cached.resultBitmap != null) {
-                    LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
-                    statusOverlay.showImmediate("缓存命中")
-                    lastTranslatedHash = currentPHash
-                    withContext(Dispatchers.Main) {
-                        showResultOverlay(cached.resultBitmap, fromCache = true)
-                    }
-                    return
-                }
-            } else {
-                LogCollector.d(TAG, "processMangaScreenshot: 强制刷新，跳过缓存")
-                forceRefresh = false
+            // 调试模式：最高优先级，跳过缓存直接检测
+            val isDebugMode = when (config.detEngine) {
+                DetEngine.CTD -> prefs.getBoolean("CTD_Debug_View", false)
+                DetEngine.RT_DETR_V2 -> prefs.getBoolean("RTDetrV2_Debug_View", false)
+                DetEngine.MLKIT -> prefs.getBoolean("MLKit_Debug_View", false)
+                DetEngine.PP_OCR_V5 -> prefs.getBoolean("PPOcrV5_Debug_View", false)
+                else -> false
             }
 
-            // 调试模式：最高优先级，按当前选择的检测模型决定 debug 路径
-            when (config.detEngine) {
-                DetEngine.CTD -> {
-                    if (prefs.getBoolean("CTD_Debug_View", false)) {
+            if (isDebugMode) {
+                LogCollector.d(TAG, "processMangaScreenshot: Debug mode enabled, skip cache")
+                when (config.detEngine) {
+                    DetEngine.CTD -> {
                         LogCollector.d(TAG, "CTD Debug Mode: 开始检测")
                         val debugResult = withContext(Dispatchers.IO) {
                             detectWithCTDDebug(bitmap)
                         }
                         LogCollector.d(TAG, "CTD Debug Mode: raw=${debugResult.rawBoxes.size}, merged=${debugResult.mergedGroups.size}")
                         showCTDDebugView(bitmap, debugResult)
-                        return
                     }
-                }
-                DetEngine.RT_DETR_V2 -> {
-                    if (prefs.getBoolean("RTDetrV2_Debug_View", false)) {
+                    DetEngine.RT_DETR_V2 -> {
                         LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: 开始检测")
                         initRTDetrV2IfNeeded()
                         val debugResult = withContext(Dispatchers.IO) {
@@ -1987,22 +1979,16 @@ class MangaFloatingService : LifecycleService() {
                         }
                         LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: total=${debugResult.allBubbles.size}, text_bubble=${debugResult.textBubbles.size}, text_free=${debugResult.textFree.size}, bubble=${debugResult.emptyBubbles.size}")
                         showRTDetrV2DebugView(bitmap, debugResult)
-                        return
                     }
-                }
-                DetEngine.MLKIT -> {
-                    if (prefs.getBoolean("MLKit_Debug_View", false)) {
+                    DetEngine.MLKIT -> {
                         LogCollector.d(TAG, "ML Kit Debug Mode: 开始识别")
                         val mlKitResult = withContext(Dispatchers.IO) {
                             detectWithMLKitDebug(bitmap, config.sourceLang)
                         }
                         LogCollector.d(TAG, "ML Kit Debug Mode: blocks=${mlKitResult.textBlocks.size}, totalLines=${mlKitResult.totalLines}, totalElements=${mlKitResult.totalElements}")
                         showMLKitDebugView(bitmap, mlKitResult)
-                        return
                     }
-                }
-                DetEngine.PP_OCR_V5 -> {
-                    if (prefs.getBoolean("PPOcrV5_Debug_View", false)) {
+                    DetEngine.PP_OCR_V5 -> {
                         LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
                         initPPOcrV5IfNeeded()
                         val (recLang, hint) = PPOcrV5Engine.resolveRecLang(this@MangaFloatingService, config.sourceLang)
@@ -2019,9 +2005,28 @@ class MangaFloatingService : LifecycleService() {
                             LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
                             showToast("PP-OCRv5 不支持语言: ${config.sourceLang}", true)
                         }
-                        return
                     }
+                    else -> {}
                 }
+                return
+            }
+
+            // 全局缓存检查
+            isForceRefreshActive = forceRefresh
+            if (!isForceRefreshActive) {
+                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA)
+                if (cached != null && cached.resultBitmap != null) {
+                    LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
+                    statusOverlay.showImmediate("缓存命中")
+                    lastTranslatedHash = currentPHash
+                    withContext(Dispatchers.Main) {
+                        showResultOverlay(cached.resultBitmap, fromCache = true)
+                    }
+                    return
+                }
+            } else {
+                LogCollector.d(TAG, "processMangaScreenshot: 强制刷新，跳过缓存")
+                forceRefresh = false
             }
 
             // 分批渲染：在检测之前尝试分批流程
@@ -3165,54 +3170,77 @@ class MangaFloatingService : LifecycleService() {
             dismissResultOverlay()
         }
 
-        resultOverlayView.setImageBitmap(debugBitmap)
-        resultOverlayView.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_UP) {
-                dismissResultOverlay()
-            }
-            true
-        }
+        // 应用框选外区域遮罩
+        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
 
-        resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
-        if (cropRect != null) {
-            val crop = cropRect!!
-            val params = WindowManager.LayoutParams().apply {
-                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                format = PixelFormat.RGBA_8888
-                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                width = crop.width().toInt()
-                height = crop.height().toInt()
-                gravity = Gravity.START or Gravity.TOP
-                x = crop.left.toInt() + cropView.absolutePointOffset.x
-                y = crop.top.toInt() + cropView.absolutePointOffset.y
-            }
-            windowManager.addView(resultOverlayView, params)
-        } else {
-            val screenSize = getScreenSize()
-            val screenW = screenSize.width
-            val screenH = screenSize.height
-            val params = WindowManager.LayoutParams().apply {
-                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                format = PixelFormat.RGBA_8888
-                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                width = screenW
-                height = screenH
-                gravity = Gravity.START or Gravity.TOP
-                x = 0; y = 0
-            }
-            windowManager.addView(resultOverlayView, params)
+        // 创建容器 FrameLayout
+        val container = android.widget.FrameLayout(this)
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(displayBitmap)
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
         }
-        isResultShowing = true
+        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
 
+        // 添加底部 info panel 到容器中
         val mergedCount = debugResult.mergedGroups.count { it.size > 1 }
-        showDebugInfoPanel(listOf(
+        val infoLines = listOf(
             "🟢 绿色 = 原始框（${debugResult.rawBoxes.size}）",
             "🔵 蓝色 = 合并（${debugResult.mergedGroups.size}组，$mergedCount 个实际合并）",
             "🔴 红色 = 丢弃（${debugResult.discardedBoxes.size}）"
-        ))
+        )
+        val infoPanel = createInfoPanelView(infoLines)
+        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+        }
+        container.addView(infoPanel, infoPanelParams)
+        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
+
+        // 添加右下角展开/折叠按钮
+        val toggleButton = createToggleButton()
+        val toggleParams = android.widget.FrameLayout.LayoutParams(
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+            marginEnd = margin
+            bottomMargin = margin
+        }
+        container.addView(toggleButton, toggleParams)
+
+        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
+        imageView.isClickable = true
+        imageView.setOnClickListener {
+            dismissDebugInfoPanel()
+            dismissResultOverlay()
+        }
+
+        // 始终全屏显示
+        val screenSize = getScreenSize()
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.RGBA_8888
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = screenSize.width
+            height = screenSize.height
+            gravity = Gravity.START or Gravity.TOP
+            x = 0; y = 0
+        }
+        windowManager.addView(container, params)
+        debugInfoPanelView = container
+        debugInfoPanelAdded = true
+        debugInfoPanelCollapsed = false
+        debugToggleButton = toggleButton
+        debugToggleButtonAdded = true
+        isResultShowing = true
 
         bringFloatingBallToFront()
     }
@@ -3297,54 +3325,77 @@ class MangaFloatingService : LifecycleService() {
             dismissResultOverlay()
         }
 
-        resultOverlayView.setImageBitmap(debugBitmap)
-        resultOverlayView.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_UP) {
-                dismissResultOverlay()
-            }
-            true
-        }
+        // 应用框选外区域遮罩
+        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
 
-        resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
-        if (cropRect != null) {
-            val crop = cropRect!!
-            val params = WindowManager.LayoutParams().apply {
-                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                format = PixelFormat.RGBA_8888
-                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                width = crop.width().toInt()
-                height = crop.height().toInt()
-                gravity = Gravity.START or Gravity.TOP
-                x = crop.left.toInt() + cropView.absolutePointOffset.x
-                y = crop.top.toInt() + cropView.absolutePointOffset.y
-            }
-            windowManager.addView(resultOverlayView, params)
-        } else {
-            val screenSize = getScreenSize()
-            val screenW = screenSize.width
-            val screenH = screenSize.height
-            val params = WindowManager.LayoutParams().apply {
-                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                format = PixelFormat.RGBA_8888
-                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                width = screenW
-                height = screenH
-                gravity = Gravity.START or Gravity.TOP
-                x = 0; y = 0
-            }
-            windowManager.addView(resultOverlayView, params)
+        // 创建容器 FrameLayout
+        val container = android.widget.FrameLayout(this)
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(displayBitmap)
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
         }
-        isResultShowing = true
+        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
 
-        showDebugInfoPanel(listOf(
+        // 添加底部 info panel 到容器中
+        val infoLines = listOf(
             "🟢 绿色 = text_bubble（${debugResult.textBubbles.size}）",
             "🔵 蓝色 = text_free（${debugResult.textFree.size}）${if (config.keepTextFree) "保留" else "丢弃"}",
             "🔴 红色 = bubble（${debugResult.emptyBubbles.size}）压缩15%",
             "🟡 黄色 = 最终提交OCR（${debugResult.finalRegions.size}）"
-        ))
+        )
+        val infoPanel = createInfoPanelView(infoLines)
+        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+        }
+        container.addView(infoPanel, infoPanelParams)
+        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
+
+        // 添加右下角展开/折叠按钮
+        val toggleButton = createToggleButton()
+        val toggleParams = android.widget.FrameLayout.LayoutParams(
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+            marginEnd = margin
+            bottomMargin = margin
+        }
+        container.addView(toggleButton, toggleParams)
+
+        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
+        imageView.isClickable = true
+        imageView.setOnClickListener {
+            dismissDebugInfoPanel()
+            dismissResultOverlay()
+        }
+
+        // 始终全屏显示
+        val screenSize = getScreenSize()
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.RGBA_8888
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = screenSize.width
+            height = screenSize.height
+            gravity = Gravity.START or Gravity.TOP
+            x = 0; y = 0
+        }
+        windowManager.addView(container, params)
+        debugInfoPanelView = container
+        debugInfoPanelAdded = true
+        debugInfoPanelCollapsed = false
+        debugToggleButton = toggleButton
+        debugToggleButtonAdded = true
+        isResultShowing = true
 
         bringFloatingBallToFront()
     }
@@ -3361,6 +3412,7 @@ class MangaFloatingService : LifecycleService() {
     /**
      * 显示调试详情面板：固定在屏幕底部的半透明信息面板。
      * 与 debug bitmap 分离，不随框选区域移动。
+     * 右下角有展开/折叠按钮。
      * @param maxHeight 最大高度（px），0 表示不限制（WRAP_CONTENT）
      */
     @SuppressLint("SetTextI18n")
@@ -3406,6 +3458,84 @@ class MangaFloatingService : LifecycleService() {
         windowManager.addView(contentView, params)
         debugInfoPanelView = contentView
         debugInfoPanelAdded = true
+        debugInfoPanelCollapsed = false
+
+        // 添加右下角展开/折叠按钮
+        addDebugToggleButton()
+    }
+
+    /** 添加右下角展开/折叠按钮 */
+    @SuppressLint("SetTextI18n")
+    private fun addDebugToggleButton() {
+        removeDebugToggleButton()
+        val buttonSize = android.util.TypedValue.applyDimension(
+            android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics
+        ).toInt()
+        val margin = android.util.TypedValue.applyDimension(
+            android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics
+        ).toInt()
+
+        val button = android.widget.TextView(this).apply {
+            text = "▼"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0))
+            setOnClickListener {
+                if (debugInfoPanelCollapsed) {
+                    expandDebugInfoPanel()
+                } else {
+                    collapseDebugInfoPanel()
+                }
+            }
+        }
+
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.RGBA_8888
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            width = buttonSize
+            height = buttonSize
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = margin
+            y = margin
+        }
+        windowManager.addView(button, params)
+        debugToggleButton = button
+        debugToggleButtonAdded = true
+    }
+
+    /** 移除展开/折叠按钮 */
+    private fun removeDebugToggleButton() {
+        if (debugToggleButtonAdded) {
+            try {
+                windowManager.removeView(debugToggleButton)
+            } catch (e: Exception) {
+                LogCollector.w(TAG, "removeDebugToggleButton: ${e.message}")
+            }
+            debugToggleButton = null
+            debugToggleButtonAdded = false
+        }
+    }
+
+    /** 折叠调试详情面板 */
+    private fun collapseDebugInfoPanel() {
+        if (debugInfoPanelAdded && !debugInfoPanelCollapsed && debugInfoPanelContentView != null) {
+            debugInfoPanelContentView!!.visibility = android.view.View.GONE
+            debugInfoPanelCollapsed = true
+            debugToggleButton?.text = "▲"
+        }
+    }
+
+    /** 展开已折叠的调试详情面板 */
+    private fun expandDebugInfoPanel() {
+        if (debugInfoPanelAdded && debugInfoPanelCollapsed && debugInfoPanelContentView != null) {
+            debugInfoPanelContentView!!.visibility = android.view.View.VISIBLE
+            debugInfoPanelCollapsed = false
+            debugToggleButton?.text = "▼"
+        }
     }
 
     /**
@@ -3419,7 +3549,89 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.w(TAG, "dismissDebugInfoPanel: ${e.message}")
             }
             debugInfoPanelView = null
+            debugInfoPanelContentView = null
             debugInfoPanelAdded = false
+            debugInfoPanelCollapsed = false
+        }
+        removeDebugToggleButton()
+    }
+
+    /**
+     * 为 debug 图片添加框选外区域遮罩。
+     * 框选模式：创建全屏 bitmap，框选区域显示 debug 图片，框选外区域添加半透明黑色遮罩。
+     * 全屏模式：直接返回原 debug bitmap。
+     */
+    private fun applyCropDimmingIfNeeded(debugBitmap: Bitmap): Bitmap {
+        if (cropRect == null) return debugBitmap
+
+        val screenSize = getScreenSize()
+        val screenW = screenSize.width
+        val screenH = screenSize.height
+
+        // 创建全屏 bitmap
+        val fullBitmap = Bitmap.createBitmap(screenW, screenH, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(fullBitmap)
+
+        // 绘制半透明黑色背景（全屏）
+        val dimPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(150, 0, 0, 0)
+        }
+        canvas.drawRect(0f, 0f, screenW.toFloat(), screenH.toFloat(), dimPaint)
+
+        // 将 debug bitmap 绘制到框选区域
+        val crop = cropRect!!
+        val srcRect = android.graphics.Rect(0, 0, debugBitmap.width, debugBitmap.height)
+        val dstRect = android.graphics.Rect(
+            crop.left.toInt(),
+            crop.top.toInt(),
+            crop.right.toInt(),
+            crop.bottom.toInt()
+        )
+        canvas.drawBitmap(debugBitmap, srcRect, dstRect, null)
+
+        return fullBitmap
+    }
+
+    /**
+     * 创建 info panel 视图（用于嵌入到 debug 图片窗口中）
+     */
+    @SuppressLint("SetTextI18n")
+    private fun createInfoPanelView(lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): android.view.View {
+        val tv = android.widget.TextView(this).apply {
+            text = lines.joinToString("\n")
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = if (scrollable) 11f else 13f
+            setPadding(24, 16, 24, 16)
+            setBackgroundColor(android.graphics.Color.argb(200, 0, 0, 0))
+        }
+
+        return if (scrollable) {
+            android.widget.ScrollView(this).apply { addView(tv) }
+        } else {
+            tv
+        }
+    }
+
+    /**
+     * 创建展开/折叠按钮（用于嵌入到 debug 图片窗口中）
+     */
+    @SuppressLint("SetTextI18n")
+    private fun createToggleButton(onToggle: (() -> Unit)? = null): android.widget.TextView {
+        return android.widget.TextView(this).apply {
+            text = "▼"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0))
+            setOnClickListener {
+                onToggle?.invoke() ?: run {
+                    if (debugInfoPanelCollapsed) {
+                        expandDebugInfoPanel()
+                    } else {
+                        collapseDebugInfoPanel()
+                    }
+                }
+            }
         }
     }
 
@@ -3614,81 +3826,93 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun showMLKitDebugResultOverlay(debugBitmap: Bitmap, result: MLKitDebugResult) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            if (isResultShowing) {
-                dismissResultOverlay()
-            }
-            dismissProgressOverlay()
-
-            resultOverlayView.setImageBitmap(debugBitmap)
-            resultOverlayView.scaleType = android.widget.ImageView.ScaleType.FIT_XY
-            resultOverlayView.setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_UP) {
-                    dismissResultOverlay()
-                }
-                true
-            }
-
-            val params = if (cropRect != null) {
-                val crop = cropRect!!
-                android.view.WindowManager.LayoutParams(
-                    crop.width().toInt(),
-                    crop.height().toInt(),
-                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                    android.graphics.PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
-                    x = crop.left.toInt() + cropView.absolutePointOffset.x
-                    y = crop.top.toInt() + cropView.absolutePointOffset.y
-                }
-            } else {
-                val screenSize = getScreenSize()
-                val screenW = screenSize.width
-                val screenH = screenSize.height
-                android.view.WindowManager.LayoutParams(
-                    screenW,
-                    screenH,
-                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    android.graphics.PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
-                    x = 0; y = 0
-                }
-            }
-
-            try {
-                windowManager.addView(resultOverlayView, params)
-                isResultShowing = true
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "ML Kit Debug: 显示失败", e)
-            }
-
-            // 底部信息面板（独立窗口，不随框选移动）
-            val infoLines = buildList {
-                add("ML Kit 调试模式 | 块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements} | 语言: ${result.detectedLanguage ?: "未知"}")
-                add("绿=块  黄=行  红=元素")
-                add("")
-                for ((i, block) in result.textBlocks.withIndex()) {
-                    val bRect = block.blockRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
-                    add("B${i} $bRect \"${block.blockText.take(25)}\" ${block.language ?: ""}")
-                    for ((j, line) in block.lines.withIndex()) {
-                        val lRect = line.lineRect?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: ""
-                        add("  L${j} $lRect ${String.format("%.1f", line.angle)}° ${line.elements.size}elem \"${line.lineText.take(20)}\"")
-                        for (element in line.elements) {
-                            val eRect = element.elementRect?.let { "[${it.left},${it.top}]" } ?: ""
-                            add("    $eRect \"${element.elementText}\"")
-                        }
-                    }
-                }
-            }
-            showDebugInfoPanel(infoLines, scrollable = true)
-            bringFloatingBallToFront()
+        if (isResultShowing) {
+            dismissResultOverlay()
         }
+
+        // 应用框选外区域遮罩
+        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+
+        // 创建容器 FrameLayout
+        val container = android.widget.FrameLayout(this)
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(displayBitmap)
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+        }
+        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // 添加底部 info panel 到容器中
+        val infoLines = buildList {
+            add("ML Kit 调试模式 | 块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements} | 语言: ${result.detectedLanguage ?: "未知"}")
+            add("绿=块  黄=行  红=元素")
+            add("")
+            // 只显示每块的文字摘要，不显示坐标和子元素
+            for ((i, block) in result.textBlocks.withIndex()) {
+                val text = block.blockText.take(30).replace("\n", " ")
+                add("B${i}: \"$text\" ${block.language ?: ""}")
+            }
+        }
+        val infoPanel = createInfoPanelView(infoLines, scrollable = true)
+        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+        }
+        container.addView(infoPanel, infoPanelParams)
+        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
+
+        // 添加右下角展开/折叠按钮
+        val toggleButton = createToggleButton()
+        val toggleParams = android.widget.FrameLayout.LayoutParams(
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+            marginEnd = margin
+            bottomMargin = margin
+        }
+        container.addView(toggleButton, toggleParams)
+
+        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
+        imageView.isClickable = true
+        imageView.setOnClickListener {
+            dismissDebugInfoPanel()
+            dismissResultOverlay()
+        }
+
+        // 始终全屏显示
+        val screenSize = getScreenSize()
+        val params = android.view.WindowManager.LayoutParams(
+            screenSize.width,
+            screenSize.height,
+            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.START or android.view.Gravity.TOP
+            x = 0; y = 0
+        }
+
+        try {
+            windowManager.addView(container, params)
+            debugInfoPanelView = container
+            debugInfoPanelAdded = true
+            debugInfoPanelCollapsed = false
+            debugToggleButton = toggleButton
+            debugToggleButtonAdded = true
+            isResultShowing = true
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "ML Kit Debug: 显示失败", e)
+        }
+
+        bringFloatingBallToFront()
     }
 
     /**
@@ -3700,80 +3924,99 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            if (isResultShowing) {
-                dismissResultOverlay()
-            }
-            dismissProgressOverlay()
-
-            resultOverlayView.setImageBitmap(debugBitmap)
-            resultOverlayView.scaleType = android.widget.ImageView.ScaleType.FIT_XY
-            resultOverlayView.setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_UP) {
-                    dismissResultOverlay()
-                }
-                true
-            }
-
-            val params = if (cropRect != null) {
-                val crop = cropRect!!
-                android.view.WindowManager.LayoutParams(
-                    crop.width().toInt(),
-                    crop.height().toInt(),
-                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                    android.graphics.PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
-                    x = crop.left.toInt() + cropView.absolutePointOffset.x
-                    y = crop.top.toInt() + cropView.absolutePointOffset.y
-                }
-            } else {
-                val screenSize = getScreenSize()
-                val screenW = screenSize.width
-                val screenH = screenSize.height
-                android.view.WindowManager.LayoutParams(
-                    screenW,
-                    screenH,
-                    android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    android.graphics.PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = android.view.Gravity.START or android.view.Gravity.TOP
-                    x = 0; y = 0
-                }
-            }
-
-            try {
-                windowManager.addView(resultOverlayView, params)
-                isResultShowing = true
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
-            }
-
-            // 底部信息面板（独立窗口，不随框选移动）
-            val infoLines = buildList {
-                add("PP-OCRv5 调试模式 | 检测框: ${ocrResult.boxes.size}  识别: ${ocrResult.texts.size}")
-                add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
-                    "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
-                    "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
-                    "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
-                add("")
-                for (i in ocrResult.texts.indices) {
-                    val text = ocrResult.texts[i]
-                    val score = ocrResult.scores.getOrElse(i) { 0f }
-                    val box = ocrResult.boxes.getOrNull(i)
-                    val boxStr = if (box != null && box.size >= 8) {
-                        "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
-                    } else ""
-                    add("[$i] ${String.format("%.2f", score)} $boxStr \"$text\"")
-                }
-            }
-            showDebugInfoPanel(infoLines, scrollable = true)
-            bringFloatingBallToFront()
+        if (isResultShowing) {
+            dismissResultOverlay()
         }
+
+        // 应用框选外区域遮罩
+        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+
+        // 创建容器 FrameLayout
+        val container = android.widget.FrameLayout(this)
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(displayBitmap)
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+        }
+        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // 添加底部 info panel 到容器中
+        val infoLines = buildList {
+            add("PP-OCRv5 调试模式 | 检测框: ${ocrResult.boxes.size}  识别: ${ocrResult.texts.size}")
+            add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
+                "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
+                "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
+                "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
+            add("")
+            for (i in ocrResult.texts.indices) {
+                val text = ocrResult.texts[i]
+                val score = ocrResult.scores.getOrElse(i) { 0f }
+                val box = ocrResult.boxes.getOrNull(i)
+                val boxStr = if (box != null && box.size >= 8) {
+                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
+                } else ""
+                add("[$i] ${String.format("%.2f", score)} $boxStr \"$text\"")
+            }
+        }
+        val infoPanel = createInfoPanelView(infoLines, scrollable = true)
+        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+        }
+        container.addView(infoPanel, infoPanelParams)
+        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
+
+        // 添加右下角展开/折叠按钮
+        val toggleButton = createToggleButton()
+        val toggleParams = android.widget.FrameLayout.LayoutParams(
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+            marginEnd = margin
+            bottomMargin = margin
+        }
+        container.addView(toggleButton, toggleParams)
+
+        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
+        imageView.isClickable = true
+        imageView.setOnClickListener {
+            dismissDebugInfoPanel()
+            dismissResultOverlay()
+        }
+
+        // 始终全屏显示
+        val screenSize = getScreenSize()
+        val params = android.view.WindowManager.LayoutParams(
+            screenSize.width,
+            screenSize.height,
+            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.START or android.view.Gravity.TOP
+            x = 0; y = 0
+        }
+
+        try {
+            windowManager.addView(container, params)
+            debugInfoPanelView = container
+            debugInfoPanelAdded = true
+            debugInfoPanelCollapsed = false
+            debugToggleButton = toggleButton
+            debugToggleButtonAdded = true
+            isResultShowing = true
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
+        }
+
+        bringFloatingBallToFront()
     }
 }

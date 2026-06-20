@@ -219,13 +219,18 @@ class TranslateFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             when (val result = updateChecker.checkForUpdate()) {
                 is UpdateResult.UpdateAvailable -> {
+                    LogCollector.d(TAG, "Update available: ${result.versionName}")
                     if (prefs.getLong("Ignore_Version", 0) != result.versionCode) showUpdateDialog(
                         result
                     )
                 }
 
-                else -> {
-                    LogCollector.e(TAG, "No update or Internet error")
+                is UpdateResult.NoUpdate -> {
+                    LogCollector.d(TAG, "Already latest version")
+                }
+
+                is UpdateResult.Error -> {
+                    LogCollector.e(TAG, "Update check failed (network error)")
                 }
             }
         }
@@ -235,14 +240,17 @@ class TranslateFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             when (val result = notificationChecker.checkNotification()) {
                 is NotificationResult.NotificationAvailable -> {
-                    if ((prefs.getLong(
-                            "Read_Notice",
-                            0
-                        ) != result.notificationCode) || userGet
-                    ) showNotificationDialog(result)
+                    val readNotice = prefs.getLong("Read_Notice", 0)
+                    LogCollector.d(TAG, "Notification available: code=${result.notificationCode}, readNotice=$readNotice, userGet=$userGet")
+                    if (readNotice != result.notificationCode || userGet) {
+                        showNotificationDialog(result)
+                    } else {
+                        LogCollector.d(TAG, "Notification already read, skip")
+                    }
                 }
 
-                else -> {
+                is NotificationResult.Error -> {
+                    LogCollector.e(TAG, "Notification check failed")
                     if (userGet) UiUtils.showToast(requireContext(), getString(R.string.get_notification_error), isShort = false)
                 }
             }
