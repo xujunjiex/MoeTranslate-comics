@@ -3,6 +3,7 @@ package com.moe.moetranslator.manga
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Point
+import android.graphics.PointF
 import android.graphics.Rect
 import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
@@ -29,9 +30,9 @@ import kotlin.math.sqrt
  * CTD 调试模式结果
  */
 data class CTDDebugResult(
-    val rawBoxes: List<QuadBox>,           // CTD 检测的原始未合并 boxes（通过过滤）
-    val mergedGroups: List<List<QuadBox>>,  // BoxMerger 合并后的组
-    val discardedBoxes: List<QuadBox>       // CTD 检测中被过滤丢弃的 boxes
+    val rawBoxes: List<QuadBox>,              // CTD 检测的原始未合并 boxes（通过过滤）
+    val mergedGroups: List<TextRegionGroup>,  // TextRegionMerger 合并后的组
+    val discardedBoxes: List<QuadBox>         // CTD 检测中被过滤丢弃的 boxes
 )
 
 /**
@@ -95,10 +96,16 @@ data class CroppedBubble(
  * 裁剪后的单行文字，用于 PP-OCRv5 增量渲染的分批 OCR。
  * @param croppedBitmap 透视裁剪后的图片
  * @param rect 在原图中的位置
+ * @param angle 倾斜角（度），±3° 内视为正交
+ * @param centerX 选区中心 X
+ * @param centerY 选区中心 Y
  */
 data class CroppedTextLine(
     val croppedBitmap: Bitmap,
-    val rect: Rect
+    val rect: Rect,
+    val angle: Float = 0f,
+    val centerX: Float = -1f,
+    val centerY: Float = -1f
 )
 
 private const val DEBUG_TAG = "DetectionBridge"
@@ -127,14 +134,14 @@ suspend fun detectWithCTDDebug(bitmap: Bitmap): CTDDebugResult {
         LogCollector.d(DEBUG_TAG, "R[$idx]: ${box.aabb}, fontSize=${String.format("%.1f", box.fontSize)}")
     }
 
-    // Step 2: BoxMerger 合并
-    val mergedGroups = BoxMerger.merge(rawQuadBoxes)
-    LogCollector.d(DEBUG_TAG, "detectWithCTDDebug: BoxMerger 合并: ${rawQuadBoxes.size} → ${mergedGroups.size} 个组")
+    // Step 2: TextRegionMerger 合并
+    val mergedGroups = TextRegionMerger.merge(rawQuadBoxes.map { TextRegion(it) })
+    LogCollector.d(DEBUG_TAG, "detectWithCTDDebug: TextRegionMerger 合并: ${rawQuadBoxes.size} → ${mergedGroups.size} 个组")
 
     // 记录合并组（M=Merged）
     for ((idx, group) in mergedGroups.withIndex()) {
-        val rawIndices = group.mapNotNull { qb -> rawQuadBoxes.indexOf(qb).takeIf { it >= 0 } }
-        LogCollector.d(DEBUG_TAG, "M[$idx]:${group.size}boxes rects=${group.map { it.aabb }} rawIndices=$rawIndices")
+        val rawIndices = group.members.mapNotNull { tr -> rawQuadBoxes.indexOf(tr.quad).takeIf { it >= 0 } }
+        LogCollector.d(DEBUG_TAG, "M[$idx]:${group.members.size}boxes rect=${group.rect} rawIndices=$rawIndices")
     }
 
     return CTDDebugResult(rawQuadBoxes, mergedGroups, discardedBoxes)
@@ -208,18 +215,17 @@ object DetectionBridge {
             LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
 
             val PADDING = 10
-            // BoxMerger 前合并：用 QuadBox 结构线信息确定分组（所有引擎共用）
-            val mergedGroups = BoxMerger.merge(quadBoxes)
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) BoxMerger前合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
+            // TextRegionMerger 前合并：用 QuadBox 结构线信息确定分组（所有引擎共用）
+            val mergedGroups = TextRegionMerger.merge(quadBoxes.map { TextRegion(it) })
+            LogCollector.d(TAG, "CTD(${ocrEngine.name}) TextRegionMerger前合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
 
             // 计算每组的合并 AABB（用于 MLKit/MangaOcr 裁剪和日志）
             val expandedRects = mergedGroups.map { group ->
-                val unionRect = computeUnionAABB(group)
                 Rect(
-                    (unionRect.left - PADDING).coerceAtLeast(0),
-                    (unionRect.top - PADDING).coerceAtLeast(0),
-                    (unionRect.right + PADDING).coerceAtMost(bitmap.width),
-                    (unionRect.bottom + PADDING).coerceAtMost(bitmap.height)
+                    (group.rect.left - PADDING).coerceAtLeast(0),
+                    (group.rect.top - PADDING).coerceAtLeast(0),
+                    (group.rect.right + PADDING).coerceAtMost(bitmap.width),
+                    (group.rect.bottom + PADDING).coerceAtMost(bitmap.height)
                 )
             }
             for ((idx, rect) in expandedRects.withIndex()) {
@@ -232,7 +238,7 @@ object DetectionBridge {
 
             when (ocrEngine) {
                 CTDOCREngine.PPOcrV5 -> {
-                    // PPOcrV5 单行单列识别器：用 BoxMerger 分组，逐个 QuadBox 透视裁剪识别，按组拼接文字
+                    // PPOcrV5 单行单列识别器：用 TextRegionMerger 分组，逐个 QuadBox 透视裁剪识别，按组拼接文字
                     val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
                     if (recLang != null) {
                         // 逐个 QuadBox 透视裁剪 + 识别
@@ -246,13 +252,13 @@ object DetectionBridge {
                                 quadResults[i] = Pair(r.text, r.score)
                             }
                         }
-                        // 按 BoxMerger 分组拼接
+                        // 按 TextRegionMerger 分组拼接
                         for ((groupIdx, group) in mergedGroups.withIndex()) {
                             val rect = expandedRects[groupIdx]
-                            val isVertical = group.firstOrNull()?.isVertical ?: globalIsVertical
-                            // 收集该组内所有 QuadBox 的识别结果，按阅读顺序拼接
-                            val groupTexts = group.mapNotNull { qb ->
-                                val idx = quadBoxes.indexOf(qb)
+                            val isVertical = group.direction == TextDirection.VERTICAL_RL
+                            // 收集该组内所有成员的识别结果，按阅读顺序拼接
+                            val groupTexts = group.members.mapNotNull { tr ->
+                                val idx = quadBoxes.indexOf(tr.quad)
                                 quadResults[idx]?.let { Triple(idx, it.first, it.second) }
                             }
                             if (groupTexts.isEmpty()) continue
@@ -270,7 +276,7 @@ object DetectionBridge {
                                 cornerPoints = null,
                                 isVertical = isVertical
                             ))
-                            LogCollector.d(TAG, "CTD(PPOcrV5) 组[$groupIdx]: ${group.size}个QuadBox→'${combinedText}', score=${String.format("%.3f", avgScore)}, rect=[${rect.left},${rect.top},${rect.right},${rect.bottom}]")
+                            LogCollector.d(TAG, "CTD(PPOcrV5) 组[$groupIdx]: ${group.members.size}个QuadBox→'${combinedText}', score=${String.format("%.3f", avgScore)}, rect=[${rect.left},${rect.top},${rect.right},${rect.bottom}]")
                         }
                         // 释放裁剪图片
                         for (c in allCropped) { if (c !== bitmap) c.recycle() }
@@ -282,7 +288,7 @@ object DetectionBridge {
                     val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
                     for (i in expandedRects.indices) {
                         val cropped = croppedBitmaps[i]
-                        val isVertical = mergedGroups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
+                        val isVertical = mergedGroups.getOrNull(i)?.direction == TextDirection.VERTICAL_RL
                         try {
                             val text = OCRBridge.recognizeText(language, cropped)
                             if (text.isNotBlank()) {
@@ -305,7 +311,7 @@ object DetectionBridge {
                     val texts = MangaOcrBridge.recognizeBatch(croppedBitmaps)
                     for (i in expandedRects.indices) {
                         val text = texts[i].trim()
-                        val isVertical = mergedGroups.getOrNull(i)?.firstOrNull()?.isVertical ?: globalIsVertical
+                        val isVertical = mergedGroups.getOrNull(i)?.direction == TextDirection.VERTICAL_RL
                         if (text.isNotBlank() && !isDotOnlyPattern(text)) {
                             val rect = expandedRects[i]
                             results.add(TextBlockInfo(
@@ -1669,9 +1675,17 @@ object DetectionBridge {
                 xMax.toInt().coerceAtMost(bitmap.width - 1),
                 yMax.toInt().coerceAtMost(bitmap.height - 1)
             )
+            // 从 QuadBox 计算倾斜角
+            val tl = PointF(box[0], box[1])
+            val tr = PointF(box[2], box[3])
+            val topDx = tr.x - tl.x
+            val topDy = tr.y - tl.y
+            var angle = Math.toDegrees(kotlin.math.atan2(topDy, topDx).toDouble()).toFloat()
+            if (kotlin.math.abs(angle) <= 3f) angle = 0f
+
             val pts = PPOcrV5Engine.boxToQuadPointsPublic(box)
             val crop = PPOcrV5Engine.getRotateCropImage(bitmap, pts)
-            CroppedTextLine(crop, rect)
+            CroppedTextLine(crop, rect, angle, rect.exactCenterX(), rect.exactCenterY())
         }
 
         // 按漫画阅读顺序排序（从上到下，从右到左）
@@ -1715,6 +1729,28 @@ object DetectionBridge {
                 if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
 
                 val box = result.boxes.getOrNull(i) ?: return@mapNotNull null
+                if (box.size < 8) return@mapNotNull null
+
+                // 4 顶点：TL, TR, BR, BL
+                val tl = android.graphics.PointF(box[0], box[1])
+                val tr = android.graphics.PointF(box[2], box[3])
+                val br = android.graphics.PointF(box[4], box[5])
+                val bl = android.graphics.PointF(box[6], box[7])
+                val quadPoints = arrayOf(tl, tr, br, bl)
+
+                val topDx = tr.x - tl.x
+                val topDy = tr.y - tl.y
+                val topLen = kotlin.math.sqrt((topDx * topDx + topDy * topDy).toDouble()).toFloat()
+                val leftDx = bl.x - tl.x
+                val leftDy = bl.y - tl.y
+                val leftLen = kotlin.math.sqrt((leftDx * leftDx + leftDy * leftDy).toDouble()).toFloat()
+
+                var angle = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+                if (kotlin.math.abs(angle) <= 3f) angle = 0f
+
+                val isVertical = leftLen > topLen * 1.5f
+                val fontSize = if (isVertical) topLen else leftLen
+
                 var xMin = Float.MAX_VALUE
                 var yMin = Float.MAX_VALUE
                 var xMax = Float.MIN_VALUE
@@ -1733,18 +1769,28 @@ object DetectionBridge {
                     xMax.toInt().coerceAtMost(bitmap.width - 1),
                     yMax.toInt().coerceAtMost(bitmap.height - 1)
                 )
-                val isVertical = rect.height() > rect.width()
-                val fontSize = min(rect.width(), rect.height()).toFloat()
+                val center = android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY())
 
                 TextLineMerger.TextLine(
                     rect = rect, text = text, fontSize = fontSize,
-                    isVertical = isVertical, score = result.scores[i]
+                    isVertical = isVertical, score = result.scores[i],
+                    angle = angle, quadPoints = quadPoints, center = center
                 )
             }
 
             // 识别后合并（对齐参考项目 merge_bboxes_text_region）
-            val mergedRegions = TextLineMerger.merge(textLines)
-            LogCollector.d(TAG, "PP-OCRv5 TextLineMerger: ${textLines.size} 行 → ${mergedRegions.size} 个文本区域")
+            TextLineMerger.refreshParams(context)
+            val allMerged = TextLineMerger.merge(textLines)
+            // 合并后内容过滤：丢弃空白、单字符、纯符号、短数字
+            val mergedRegions = allMerged.filter { region ->
+                val text = region.texts.joinToString("").trim()
+                val discard = text.isEmpty() || text.length == 1 ||
+                    text.all { !it.isLetterOrDigit() } ||
+                    (text.length <= 2 && text.all { it.isDigit() })
+                if (discard) LogCollector.d(TAG, "PP-OCRv5 内容丢弃: \"${text.take(20)}\"")
+                !discard
+            }
+            LogCollector.d(TAG, "PP-OCRv5 TextLineMerger: ${textLines.size} 行 → ${allMerged.size} 合并 → 内容丢弃${allMerged.size - mergedRegions.size} → ${mergedRegions.size} 输出")
 
             // 转换为 TextBlockInfo
             val textBlocks = mergedRegions.map { region ->

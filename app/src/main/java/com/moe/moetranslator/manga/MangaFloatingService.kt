@@ -175,6 +175,9 @@ class MangaFloatingService : LifecycleService() {
         val ocrText: String,
         val ocrTextHash: Int,
         val translation: String,
+        val angle: Float = 0f,
+        val centerX: Float = -1f,
+        val centerY: Float = -1f,
         val translatedAt: Long = System.currentTimeMillis()
     )
     private val translatedRegions = mutableListOf<TranslatedRegion>()
@@ -1853,6 +1856,10 @@ class MangaFloatingService : LifecycleService() {
 
         val (ppRecLang, hint) = PPOcrV5Engine.resolveRecLang(this@MangaFloatingService, config.sourceLang)
         if (hint != null) withContext(Dispatchers.Main) { showToast(hint, true) }
+        // 非默认模型时提示
+        if (ppRecLang != null && ppRecLang != PPOcrV5Engine.RecLang.ZH && ppRecLang != PPOcrV5Engine.RecLang.JA) {
+            withContext(Dispatchers.Main) { showToast("使用专用识别模型: rec_${ppRecLang.code}", false) }
+        }
         if (ppRecLang == null) return false
 
         LogCollector.d(TAG, "incrementalPPOcrV5: 开始检测")
@@ -1880,15 +1887,20 @@ class MangaFloatingService : LifecycleService() {
         suspend fun recognizeBatch(batch: List<CroppedTextLine>): List<TextBlockInfo> {
             val crops = batch.map { it.croppedBitmap }
             val rects = batch.map { it.rect }
+            val angles = batch.map { it.angle }
+            val centers = batch.map { android.graphics.PointF(it.centerX, it.centerY) }
             val recResults = withContext(Dispatchers.IO) {
                 PPOcrV5Engine.recognizeBatchWithCls(this@MangaFloatingService, crops, ppRecLang)
             }
             // 释放裁剪图片
             crops.forEach { it.recycle() }
             // TextLineMerger 识别后合并
-            val mergedInput = PPOcrV5Engine.recResultsToTextLines(recResults, rects)
-            val mergedRegions = TextLineMerger.merge(mergedInput)
-            LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${mergedRegions.size} 个文本区域")
+            val mergedInput = PPOcrV5Engine.recResultsToTextLines(recResults, rects, angles, centers)
+            TextLineMerger.refreshParams(this@MangaFloatingService)
+            val allMerged = TextLineMerger.merge(mergedInput)
+            // 合并后内容过滤
+            val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+            LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
             return mergedRegions.map { region ->
                 TextBlockInfo(
                     text = region.texts.joinToString("\n"),
@@ -2026,6 +2038,10 @@ class MangaFloatingService : LifecycleService() {
                         if (hint != null) {
                             showToast(hint, true)
                         }
+                        // 非默认模型时提示
+                        if (recLang != null && recLang != PPOcrV5Engine.RecLang.ZH && recLang != PPOcrV5Engine.RecLang.JA) {
+                            showToast("使用专用识别模型: rec_${recLang.code}", false)
+                        }
                         if (recLang != null) {
                             val ocrResult = withContext(Dispatchers.IO) {
                                 PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = false)
@@ -2034,7 +2050,10 @@ class MangaFloatingService : LifecycleService() {
                             val debugDet = withContext(Dispatchers.IO) {
                                 PPOcrV5Engine.runDetForDebug(this@MangaFloatingService, bitmap)
                             }
-                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}, discarded=${debugDet.discardedBoxes.size}")
+                            val recDisc = ocrResult.recDebug
+                            val scoreDisc = recDisc?.discardedReasons?.count { it == "score" } ?: 0
+                            val contentDisc = recDisc?.discardedReasons?.count { it != "score" } ?: 0
+                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}, det丢弃=${debugDet.discardedBoxes.size}, 识别丢弃=$scoreDisc, 内容丢弃=$contentDisc")
                             // 原始识别详情
                             for (i in ocrResult.texts.indices) {
                                 val text = ocrResult.texts[i]
@@ -2052,15 +2071,38 @@ class MangaFloatingService : LifecycleService() {
                                 val reason = debugDet.discardedReasons.getOrElse(i) { "" }
                                 LogCollector.d(TAG, "PP-OCRv5 DISCARDED[$i]: ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
                             }
+                            // 识别/内容丢弃详情
+                            if (recDisc != null) {
+                                for (i in recDisc.discardedBoxes.indices) {
+                                    val box = recDisc.discardedBoxes[i]
+                                    val score = recDisc.discardedScores.getOrElse(i) { 0f }
+                                    val text = recDisc.discardedTexts.getOrElse(i) { "" }
+                                    val reason = recDisc.discardedReasons.getOrElse(i) { "score" }
+                                    val boxStr = "[${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}]"
+                                    if (reason == "score") {
+                                        LogCollector.d(TAG, "PP-OCRv5 REC_DISCARD[$i]: ${String.format("%.2f", score)}<thresh $boxStr \"${text.take(20)}\"")
+                                    } else {
+                                        LogCollector.d(TAG, "PP-OCRv5 CONTENT_DISCARD[$i]: $reason $boxStr \"${text.take(20)}\"")
+                                    }
+                                }
+                            }
                             // 运行 TextLineMerger 合并
-                            val mergedRegions = runTextLineMerge(ocrResult, bitmap.width, bitmap.height)
-                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${mergedRegions.size} regions")
+                            val allMerged = runTextLineMerge(ocrResult, bitmap.width, bitmap.height)
+                            // 合并后内容过滤
+                            val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
                             // 合并区域详情
                             for ((idx, region) in mergedRegions.withIndex()) {
                                 val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
                                 val r = region.rect
                                 val merged = region.texts.joinToString("｜")
                                 LogCollector.d(TAG, "PP-OCRv5 MERGED[$idx]: $dirLabel ×${region.texts.size} [${r.left},${r.top},${r.right},${r.bottom}] \"$merged\"")
+                            }
+                            // 内容丢弃详情
+                            for ((region, reason) in contentDiscarded) {
+                                val text = region.texts.joinToString("")
+                                val r = region.rect
+                                LogCollector.d(TAG, "PP-OCRv5 CONTENT_DISCARD: $reason [${r.left},${r.top},${r.right},${r.bottom}] \"${text.take(20)}\"")
                             }
                             showPPOcrV5DebugView(bitmap, ocrResult, mergedRegions, debugDet)
                         } else {
@@ -2120,6 +2162,10 @@ class MangaFloatingService : LifecycleService() {
             }
             if (ppHint != null) {
                 showToast(ppHint, true)
+            }
+            // 非默认模型时提示
+            if (ppRecLang != null && ppRecLang != PPOcrV5Engine.RecLang.ZH && ppRecLang != PPOcrV5Engine.RecLang.JA) {
+                showToast("使用专用识别模型: rec_${ppRecLang.code}", false)
             }
             LogCollector.d(TAG, "Step 1 配置: detEngine=${config.detEngine}, ocrEngine=${config.ocrEngine}, sourceLang=${config.sourceLang}" +
                 if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
@@ -2191,6 +2237,9 @@ class MangaFloatingService : LifecycleService() {
                 textBlocks.filter { it.boundingBox != null }.map { block ->
                     val rect = block.boundingBox!!
                     val isVertical = block.isVertical ?: (rect.height() > rect.width())
+                    if (kotlin.math.abs(block.angle) > 0.5f) {
+                        LogCollector.d(TAG, "BubbleRegion: angle=${block.angle}, cx=${block.centerX}, cy=${block.centerY}, text='${block.text.take(15)}'")
+                    }
                     BubbleRegion(
                         rect = rect,
                         texts = listOf(block.text),
@@ -2333,7 +2382,10 @@ class MangaFloatingService : LifecycleService() {
                 bounds = RectF(result.rect),
                 ocrText = result.originalText,
                 ocrTextHash = textHash,
-                translation = result.translatedText
+                translation = result.translatedText,
+                angle = result.angle,
+                centerX = result.centerX,
+                centerY = result.centerY
             ))
             LogCollector.d(TAG, "Cached bubble: '${result.originalText.take(20)}' → '${result.translatedText.take(20)}'")
         }
@@ -2470,7 +2522,10 @@ class MangaFloatingService : LifecycleService() {
                 translatedText = region.translation,
                 backgroundColor = Color.TRANSPARENT,
                 fontSize = config.fontSize,
-                direction = config.textDirection
+                direction = config.textDirection,
+                angle = region.angle,
+                centerX = region.centerX,
+                centerY = region.centerY
             )
         }
     }
@@ -2500,7 +2555,10 @@ class MangaFloatingService : LifecycleService() {
                     translatedText = cached.translation,
                     backgroundColor = Color.TRANSPARENT,
                     fontSize = config.fontSize,
-                    direction = config.textDirection
+                    direction = config.textDirection,
+                    angle = cached.angle,
+                    centerX = cached.centerX,
+                    centerY = cached.centerY
                 ))
             }
         }
@@ -2735,6 +2793,9 @@ class MangaFloatingService : LifecycleService() {
         }
 
         bubbles.mapIndexed { index, (bubble, originalText) ->
+            if (kotlin.math.abs(bubble.angle) > 0.5f) {
+                LogCollector.d(TAG, "TranslatedBubble[$index]: angle=${bubble.angle}, cx=${bubble.centerX}, cy=${bubble.centerY}, text='${originalText.take(15)}'")
+            }
             TranslatedBubble(
                 rect = bubble.rect,
                 originalText = originalText,
@@ -3212,33 +3273,26 @@ class MangaFloatingService : LifecycleService() {
 
         // 绘制真正合并的框（蓝色）M=Merged - 只画 size > 1 的组
         for ((groupIdx, group) in debugResult.mergedGroups.withIndex()) {
-            if (group.size < 2) continue  // size=1 表示没有合并，跳过
+            if (group.members.size < 2) continue  // size=1 表示没有合并，跳过
 
-            var left = Int.MAX_VALUE; var top = Int.MAX_VALUE
-            var right = Int.MIN_VALUE; var bottom = Int.MIN_VALUE
-            for (qb in group) {
-                val aabb = qb.aabb
-                left = minOf(left, aabb.left)
-                top = minOf(top, aabb.top)
-                right = maxOf(right, aabb.right)
-                bottom = maxOf(bottom, aabb.bottom)
-            }
+            // TextRegionGroup 已有合并后的 rect
+            val rect = group.rect
 
             // 计算原始索引用于日志对应
-            val rawIndices = group.mapNotNull { qb -> debugResult.rawBoxes.indexOf(qb).takeIf { it >= 0 } }
+            val rawIndices = group.members.mapNotNull { tr -> debugResult.rawBoxes.indexOf(tr.quad).takeIf { it >= 0 } }
 
             fillPaint.color = android.graphics.Color.argb(80, 0, 0, 255)
-            canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), fillPaint)
+            canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), fillPaint)
             val bluePaint = android.graphics.Paint().apply {
                 color = android.graphics.Color.BLUE
                 style = android.graphics.Paint.Style.STROKE
                 strokeWidth = 6f
             }
-            canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), bluePaint)
+            canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), bluePaint)
             // 标签不重叠：Y 坐标随 groupIdx 递增偏移
-            val labelY = top.toFloat() + 20f + groupIdx * 25f
-            val label = "M[$groupIdx]:${group.size}boxes"
-            canvas.drawText(label, left.toFloat() + 4, labelY, textPaint)
+            val labelY = rect.top.toFloat() + 20f + groupIdx * 25f
+            val label = "M[$groupIdx]:${group.members.size}boxes"
+            canvas.drawText(label, rect.left.toFloat() + 4, labelY, textPaint)
         }
 
         return result
@@ -3265,7 +3319,7 @@ class MangaFloatingService : LifecycleService() {
         ))
 
         // 添加底部 info panel 到容器中
-        val mergedCount = debugResult.mergedGroups.count { it.size > 1 }
+        val mergedCount = debugResult.mergedGroups.count { it.members.size > 1 }
         val infoLines = listOf(
             "🟢 绿色 = 原始框（${debugResult.rawBoxes.size}）",
             "🔵 蓝色 = 合并（${debugResult.mergedGroups.size}组，$mergedCount 个实际合并）",
@@ -3673,7 +3727,7 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 创建 PP-OCRv5 参数调节滑块面板（3 个滑块 + 大框过滤开关 + 恢复默认按钮）
+     * 创建 PP-OCRv5 参数调节滑块面板（3 检测滑块 + 4 合并滑块 + 大框过滤开关 + 恢复默认按钮）
      */
     @SuppressLint("SetTextI18n")
     private fun createPPOcrParamSlidersView(): android.view.View {
@@ -3772,7 +3826,79 @@ class MangaFloatingService : LifecycleService() {
         }
         outerPanel.addView(row1)
 
-        // ── 第二行：大框过滤开关 + 比例滑块 ──
+        // ── 第二行：合并参数滑块（4 个） ──
+        val rowMerge = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+
+        val DEF_GAP = TextLineMerger.DISCARD_CONNECTION_GAP_DEFAULT
+
+        fun mGapToSeek(v: Float) = ((v - 0.5f) / 4.5f * 100).toInt().coerceIn(0, 100)
+        fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
+
+        data class MergeSliderRef(
+            val label: android.widget.TextView,
+            val seekBar: android.widget.SeekBar,
+            val labelText: String,
+            val formatValue: (Int) -> String,
+            val save: (Int) -> Unit
+        )
+        val mergeSliderRefs = mutableListOf<MergeSliderRef>()
+
+        // 唯一可调参数：距离门控（manga hardcoded 2.0）
+        val mergeSliders = listOf(
+            Triple("距离门控", mGapToSeek(prefs.getFloat("merge_discard_gap", DEF_GAP)), { v: Int -> String.format("%.1f", mSeekToGap(v)) })
+        )
+        val mergeSaveFns: List<(Int) -> Unit> = listOf(
+            { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextLineMerger.refreshParams(this) }
+        )
+
+        for ((idx, triple) in mergeSliders.withIndex()) {
+            val (name, seekInit, fmt) = triple
+            val group = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val label = android.widget.TextView(this).apply {
+                text = "$name\n${fmt(seekInit)}"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                maxLines = 2
+            }
+
+            val seekBar = android.widget.SeekBar(this).apply {
+                max = 100
+                progress = seekInit
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt()
+                )
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (fromUser) {
+                            label.text = "$name\n${fmt(progress)}"
+                            mergeSaveFns[idx](progress)
+                        }
+                    }
+                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+                })
+            }
+
+            mergeSliderRefs.add(MergeSliderRef(label, seekBar, name, fmt, mergeSaveFns[idx]))
+            group.addView(label)
+            group.addView(seekBar)
+            rowMerge.addView(group)
+        }
+        outerPanel.addView(rowMerge)
+
+        // ── 第三行：大框过滤开关 + 比例滑块 ──
         val row2 = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
@@ -3862,6 +3988,10 @@ class MangaFloatingService : LifecycleService() {
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
                 ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+
+                // 重置合并参数（仅距离门控 1 个滑块）
+                TextLineMerger.resetParams(this@MangaFloatingService)
+                mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
             }
         }
         row3.addView(resetBtn)
@@ -4202,7 +4332,34 @@ class MangaFloatingService : LifecycleService() {
      */
     private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int): List<TextLineMerger.MergedRegion> {
         val textLines = PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
+        TextLineMerger.refreshParams(this)
         return TextLineMerger.merge(textLines)
+    }
+
+    /**
+     * 合并后内容过滤：丢弃无意义的合并结果。
+     * 在 TextLineMerger.merge 之后调用，基于合并后的完整文本判断。
+     * 返回 Pair(保留的区域, 丢弃的区域+原因)
+     */
+    private fun filterMergedRegions(regions: List<TextLineMerger.MergedRegion>): Pair<List<TextLineMerger.MergedRegion>, List<Pair<TextLineMerger.MergedRegion, String>>> {
+        val kept = mutableListOf<TextLineMerger.MergedRegion>()
+        val discarded = mutableListOf<Pair<TextLineMerger.MergedRegion, String>>()
+        for (region in regions) {
+            val text = region.texts.joinToString("").trim()
+            val reason = when {
+                text.isEmpty() -> "空白"
+                text.length == 1 -> "单字符"
+                text.all { !it.isLetterOrDigit() } -> "纯符号"
+                text.length <= 2 && text.all { it.isDigit() } -> "短数字"
+                else -> null
+            }
+            if (reason != null) {
+                discarded.add(region to reason)
+            } else {
+                kept.add(region)
+            }
+        }
+        return Pair(kept, discarded)
     }
 
     /**
@@ -4343,9 +4500,14 @@ class MangaFloatingService : LifecycleService() {
                 }
                 canvas.drawPath(path, recDiscFillPaint)
                 canvas.drawPath(path, recDiscPaint)
-                // 标签：分数 + 识别文本（前10字符）
-                val score = ocrResult.recDebug.discardedScores.getOrElse(i) { 0f }
-                val label = "✗${String.format("%.2f", score)}<${String.format("%.2f", prefs.getFloat("ppocr_text_score_thresh", 0.5f))}"
+                // 标签：根据丢弃原因显示
+                val reason = ocrResult.recDebug.discardedReasons.getOrElse(i) { "score" }
+                val label = if (reason == "score") {
+                    val score = ocrResult.recDebug.discardedScores.getOrElse(i) { 0f }
+                    "✗${String.format("%.2f", score)}<${String.format("%.2f", prefs.getFloat("ppocr_text_score_thresh", 0.5f))}"
+                } else {
+                    "✗内容:$reason"
+                }
                 canvas.drawText(label, box[0], box[1] - 4f, recDiscLabelPaint)
             }
         }
@@ -4375,13 +4537,18 @@ class MangaFloatingService : LifecycleService() {
         // 添加底部 info panel 到容器中（包含参数滑块 + 调试信息）
         val infoLines = buildList {
             val discCount = debugDet?.discardedBoxes?.size ?: 0
-            val recDiscCount = ocrResult.recDebug?.discardedBoxes?.size ?: 0
+            val recDebug = ocrResult.recDebug
+            val scoreDisc = recDebug?.discardedReasons?.count { it == "score" } ?: 0
+            val contentDisc = recDebug?.discardedReasons?.count { it != "score" } ?: 0
             val curBox = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
             val curUnclip = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
             val curText = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
-            add("PP-OCRv5 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $recDiscCount  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
-            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低被丢弃  橙虚线=识别分数低被丢弃")
+            add("PP-OCRv5 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $scoreDisc  内容丢弃: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
+            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
             add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
+            add("合并（对齐 manga-image-translator，hardcoded）:")
+            add("  距离门控 = ${String.format("%.1f", TextLineMerger.discardConnectionGap)} (×字号, AABB距离超过则拒绝合并)")
+            add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
             add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
                 "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
                 "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
@@ -4429,13 +4596,18 @@ class MangaFloatingService : LifecycleService() {
             val recDisc = ocrResult.recDebug
             if (recDisc != null && recDisc.discardedBoxes.isNotEmpty()) {
                 add("")
-                add("━━━ 被识别丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
+                add("━━━ 被识别/内容丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
                 for (i in recDisc.discardedBoxes.indices) {
                     val box = recDisc.discardedBoxes[i]
                     val score = recDisc.discardedScores.getOrElse(i) { 0f }
                     val text = recDisc.discardedTexts.getOrElse(i) { "" }
+                    val reason = recDisc.discardedReasons.getOrElse(i) { "score" }
                     val preview = text.take(20).ifEmpty { "(空)" }
-                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    if (reason == "score") {
+                        add("✗[$i] 分数${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    } else {
+                        add("✗[$i] 内容:$reason [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    }
                 }
             }
         }
