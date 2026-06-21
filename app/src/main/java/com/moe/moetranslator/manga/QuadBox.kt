@@ -18,29 +18,12 @@ class QuadBox(
     val text: String = "",
     val prob: Float = 1f
 ) {
-    /** 文字方向：对齐官方 sort_pnts 算法 */
+    /** 文字方向：基于对角线向量的结构方向 */
     val isVertical: Boolean by lazy {
-        // 计算所有 16 个 pairwise 向量
-        val pairwiseNorms = mutableListOf<Float>()
-        for (i in 0 until 4) {
-            for (j in 0 until 4) {
-                val dx = pts[j].x - pts[i].x
-                val dy = pts[j].y - pts[i].y
-                pairwiseNorms.add(sqrt(dx * dx + dy * dy))
-            }
-        }
-        // 排序后取第 8、10 个（即 4 条最长的边，对角线）
-        val sortedNorms = pairwiseNorms.sorted()
-        val diag1Norm = sortedNorms[8]
-        val diag2Norm = sortedNorms[10]
-        // 找对应的对角线向量
-        val diag1Idx = pairwiseNorms.indexOfFirst { abs(it - diag1Norm) < 1e-6f }
-        val diag2Idx = pairwiseNorms.indexOfFirst { abs(it - diag2Norm) < 1e-6f }
-        val i1 = diag1Idx / 4; val j1 = diag1Idx % 4
-        val i2 = diag2Idx / 4; val j2 = diag2Idx % 4
-        val vec1x = pts[j1].x - pts[i1].x; val vec1y = pts[j1].y - pts[i1].y
-        val vec2x = pts[j2].x - pts[i2].x; val vec2y = pts[j2].y - pts[i2].y
-        // 点积，如果 < 0 说明方向相反
+        // 直接取两条对角线：pt0↔pt2, pt1↔pt3
+        val vec1x = pts[2].x - pts[0].x; val vec1y = pts[2].y - pts[0].y
+        val vec2x = pts[3].x - pts[1].x; val vec2y = pts[3].y - pts[1].y
+        // 点积，如果 < 0 说明方向相反，翻转 v1
         val innerProd = vec1x * vec2x + vec1y * vec2y
         val correctedVec1x = if (innerProd < 0) -vec1x else vec1x
         val correctedVec1y = if (innerProd < 0) -vec1y else vec1y

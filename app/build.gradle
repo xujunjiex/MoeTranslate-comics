@@ -76,6 +76,9 @@ android {
         buildConfig true
         viewBinding true
     }
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 
     externalNativeBuild {
         cmake {
@@ -149,4 +152,8 @@ dependencies {
     implementation "androidx.room:room-runtime:2.6.1"
     kapt "androidx.room:room-compiler:2.6.1"
     implementation "androidx.room:room-ktx:2.6.1"
+
+    // 单元测试
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.11.1'
 }

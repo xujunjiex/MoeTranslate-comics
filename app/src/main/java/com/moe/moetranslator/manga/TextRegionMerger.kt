@@ -136,11 +136,13 @@ object TextRegionMerger {
 
     /**
      * 判断近似轴对齐。
-     * 直接用 angle 直判：|angle| ≤ 3° 视为 AA。
+     * QuadBox.angle 是结构线方向（弧度），可能接近 0 或 ±π。
+     * 归一化到 [0, 180°) 后判断是否接近 0° 或 180°。
      */
     private fun isApproxAxisAligned(quad: QuadBox): Boolean {
         val angleDeg = abs(quad.angle) * 180f / PI.toFloat()
-        return angleDeg <= 3f
+        val normalized = angleDeg % 180f
+        return normalized <= 3f || normalized >= 177f
     }
 
     /**
@@ -258,5 +260,283 @@ object TextRegionMerger {
         }
         if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → TILTED ACCEPT")
         return true
+    }
+
+    // ========== splitTextRegion（对齐 textline_merge/__init__.py L10-83） ==========
+
+    /**
+     * MST 分析拆分过大的文本区域。
+     * 完整对齐 split_text_region()（textline_merge/__init__.py:10-83）。
+     */
+    private fun splitTextRegion(
+        regions: List<TextRegion>,
+        connectedIndices: Set<Int>,
+        gamma: Float = 0.5f,
+        sigma: Float = 2f
+    ): List<Set<Int>> {
+        val indices = connectedIndices.toList()
+        if (indices.size == 1) return listOf(setOf(indices[0]))
+
+        if (indices.size == 2) {
+            val a = regions[indices[0]]
+            val b = regions[indices[1]]
+            val fs = max(a.quad.fontSize, b.quad.fontSize)
+            val dist = quadCenterDistance(a, b)
+            val angleDiff = abs(a.quad.angle - b.quad.angle)
+            if (dist < (1 + gamma) * fs && angleDiff < 0.2f * PI.toFloat()) {
+                return listOf(setOf(indices[0], indices[1]))
+            }
+            if (debugEnabled) LogCollector.d(TAG, "splitTextRegion[2]: split")
+            return listOf(setOf(indices[0]), setOf(indices[1]))
+        }
+
+        // case 3+: MST
+        val allEdges = mutableListOf<MSTEdge>()
+        for (i in indices.indices) {
+            for (j in i + 1 until indices.size) {
+                val u = indices[i]
+                val v = indices[j]
+                allEdges.add(MSTEdge(u, v, quadCenterDistance(regions[u], regions[v])))
+            }
+        }
+        allEdges.sortBy { it.weight }
+        val uf = UnionFind(regions.size)
+        val mstEdges = mutableListOf<MSTEdge>()
+        for (edge in allEdges) {
+            if (uf.union(edge.u, edge.v)) {
+                mstEdges.add(edge)
+                if (mstEdges.size == indices.size - 1) break
+            }
+        }
+        if (mstEdges.isEmpty()) return listOf(connectedIndices)
+
+        val sortedEdges = mstEdges.sortedByDescending { it.weight }
+        val distances = sortedEdges.map { it.weight }
+        val distancesMean = distances.average().toFloat()
+        val distancesStd = if (distances.size > 1) {
+            val mean = distancesMean
+            sqrt(distances.map { (it - mean) * (it - mean) }.average()).toFloat()
+        } else 0f
+        val avgFontSize = indices.map { regions[it].quad.fontSize }.average().toFloat()
+        val stdThreshold = max(0.3f * avgFontSize + 5f, 5f)
+
+        val maxEdge = sortedEdges.first()
+        val shouldKeep = (maxEdge.weight <= distancesMean + distancesStd * sigma ||
+                maxEdge.weight <= avgFontSize * (1 + gamma)) &&
+                distancesStd < stdThreshold
+
+        if (debugEnabled) {
+            LogCollector.d(TAG, "splitTextRegion[${indices.size}]: " +
+                "maxEdge=${String.format("%.1f", maxEdge.weight)} " +
+                "mean=${String.format("%.1f", distancesMean)} std=${String.format("%.1f", distancesStd)} " +
+                "fontSize=${String.format("%.1f", avgFontSize)} keep=$shouldKeep")
+        }
+
+        if (shouldKeep) {
+            return listOf(connectedIndices)
+        }
+
+        // 拆分：移除最大边，递归处理两个子图
+        val remainingEdges = sortedEdges.drop(1)
+        val uf2 = UnionFind(regions.size)
+        for (edge in remainingEdges) {
+            uf2.union(edge.u, edge.v)
+        }
+
+        val result = mutableListOf<Set<Int>>()
+        val visited = mutableSetOf<Int>()
+        for (idx in indices) {
+            if (idx in visited) continue
+            val component = mutableSetOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(idx)
+            while (queue.isNotEmpty()) {
+                val cur = queue.removeFirst()
+                if (cur in visited) continue
+                visited.add(cur)
+                component.add(cur)
+                for (otherIdx in indices) {
+                    if (otherIdx !in visited && uf2.find(cur) == uf2.find(otherIdx)) {
+                        queue.add(otherIdx)
+                    }
+                }
+            }
+            if (component.isNotEmpty()) {
+                result.addAll(splitTextRegion(regions, component, gamma, sigma))
+            }
+        }
+        return result
+    }
+
+    // ========== merge 主入口 ==========
+
+    /**
+     * 主入口：合并 text regions 为文本组。
+     *
+     * @param regions 待合并的 text region 列表
+     * @param params 可调参数（不传则使用当前 refreshParams 后的值）
+     * @return 合并后的 text region groups（按阅读顺序：横排 top→bottom，竖排 right→left）
+     */
+    fun merge(
+        regions: List<TextRegion>,
+        params: MergeParams = MergeParams(discardConnectionGap, charGapTolerance2)
+    ): List<TextRegionGroup> {
+        if (regions.isEmpty()) return emptyList()
+
+        // 临时覆盖可调参数
+        val savedGap = discardConnectionGap
+        val savedGap2 = charGapTolerance2
+        discardConnectionGap = params.discardConnectionGap
+        charGapTolerance2 = params.charGapTolerance2
+
+        try {
+            if (regions.size == 1) {
+                val region = regions[0]
+                val rect = region.quad.aabb
+                val quadPoints = arrayOf(
+                    PointF(rect.left.toFloat(), rect.top.toFloat()),
+                    PointF(rect.right.toFloat(), rect.top.toFloat()),
+                    PointF(rect.right.toFloat(), rect.bottom.toFloat()),
+                    PointF(rect.left.toFloat(), rect.bottom.toFloat())
+                )
+                val direction = if (region.quad.isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+                return listOf(
+                    TextRegionGroup(
+                        rect = rect,
+                        quadPoints = quadPoints,
+                        texts = listOf(region.text ?: ""),
+                        direction = direction,
+                        fontSize = region.quad.fontSize,
+                        angle = region.quad.angle * 180f / PI.toFloat(),
+                        score = region.score,
+                        center = PointF(rect.exactCenterX(), rect.exactCenterY()),
+                        members = listOf(region)
+                    )
+                )
+            }
+
+            if (debugEnabled) LogCollector.d(TAG, "merge: 输入 ${regions.size} 个 region")
+
+            // Step 1: canMergeRegion 建图 → 连通分量
+            val n = regions.size
+            val adjacency = Array(n) { mutableSetOf<Int>() }
+            for (i in 0 until n) {
+                for (j in i + 1 until n) {
+                    if (canMergeRegion(regions[i], regions[j])) {
+                        adjacency[i].add(j)
+                        adjacency[j].add(i)
+                    }
+                }
+            }
+
+            val visited = BooleanArray(n)
+            val connectedComponents = mutableListOf<Set<Int>>()
+            for (i in 0 until n) {
+                if (visited[i]) continue
+                val component = mutableSetOf<Int>()
+                val queue = ArrayDeque<Int>()
+                queue.add(i)
+                visited[i] = true
+                while (queue.isNotEmpty()) {
+                    val node = queue.removeFirst()
+                    component.add(node)
+                    for (neighbor in adjacency[node]) {
+                        if (!visited[neighbor]) {
+                            visited[neighbor] = true
+                            queue.add(neighbor)
+                        }
+                    }
+                }
+                connectedComponents.add(component)
+            }
+            if (debugEnabled) LogCollector.d(TAG, "merge: 连通分量 ${connectedComponents.size} 个")
+
+            // Step 2: splitTextRegion MST 拆分
+            val regionIndices = mutableListOf<Set<Int>>()
+            for (component in connectedComponents) {
+                regionIndices.addAll(splitTextRegion(regions, component))
+            }
+            if (debugEnabled) LogCollector.d(TAG, "merge: 拆分后 ${regionIndices.size} 个区域")
+
+            // Step 3: 方向投票 + 排序 + 合并
+            val result = mutableListOf<TextRegionGroup>()
+            for (nodeSet in regionIndices) {
+                val nodes = nodeSet.toList()
+                val members = nodes.map { regions[it] }
+
+                // 方向投票
+                val directionCounts = members.groupBy { it.quad.isVertical }.mapValues { it.value.size }
+                val majorityVertical = (directionCounts[true] ?: 0) > (directionCounts[false] ?: 0)
+                val direction = if (majorityVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+
+                // 按方向排序（同行/列时用 x/y 坐标做二级排序，保证稳定性）
+                val sortedNodes = if (direction == TextDirection.HORIZONTAL) {
+                    nodes.sortedWith(Comparator { a, b ->
+                        val ya = regions[a].quad.centroidY
+                        val yb = regions[b].quad.centroidY
+                        if (ya != yb) ya.compareTo(yb) else regions[a].quad.centroidX.compareTo(regions[b].quad.centroidX)
+                    })
+                } else {
+                    nodes.sortedWith(Comparator { a, b ->
+                        val xa = regions[a].quad.centroidX
+                        val xb = regions[b].quad.centroidX
+                        if (xa != xb) xb.compareTo(xa) else regions[a].quad.centroidY.compareTo(regions[b].quad.centroidY)
+                    })
+                }
+
+                // AABB union
+                val aabbs = sortedNodes.map { regions[it].quad.aabb }
+                val unionRect = Rect(
+                    aabbs.minOf { it.left },
+                    aabbs.minOf { it.top },
+                    aabbs.maxOf { it.right },
+                    aabbs.maxOf { it.bottom }
+                )
+
+                val combinedTexts = sortedNodes.map { regions[it].text ?: "" }
+                val minFontSize = members.minOf { it.quad.fontSize }
+                val avgScore = members.map { it.score }.average().toFloat()
+                val weightedAngle = weightedAverage(
+                    members.map { it.quad.angle * 180f / PI.toFloat() },
+                    members.map { it.quad.fontSize }
+                )
+                val mergedCenter = PointF(unionRect.exactCenterX(), unionRect.exactCenterY())
+
+                // 中心加权 quad 角点（简化版：用 unionRect）
+                val quadPoints = arrayOf(
+                    PointF(unionRect.left.toFloat(), unionRect.top.toFloat()),
+                    PointF(unionRect.right.toFloat(), unionRect.top.toFloat()),
+                    PointF(unionRect.right.toFloat(), unionRect.bottom.toFloat()),
+                    PointF(unionRect.left.toFloat(), unionRect.bottom.toFloat())
+                )
+
+                result.add(TextRegionGroup(
+                    rect = unionRect,
+                    quadPoints = quadPoints,
+                    texts = combinedTexts,
+                    direction = direction,
+                    fontSize = minFontSize,
+                    angle = weightedAngle,
+                    score = avgScore,
+                    center = mergedCenter,
+                    members = members
+                ))
+
+                if (debugEnabled) {
+                    LogCollector.d(TAG, "merge: 区域 ${members.size} 行, dir=$direction, " +
+                            "fs=${String.format("%.1f", minFontSize)}, text='${combinedTexts.first().take(20)}'")
+                }
+            }
+
+            if (debugEnabled) LogCollector.d(TAG, "merge: 输出 ${result.size} 个文本区域")
+            return result
+        } finally {
+            // 恢复参数
+            if (params.discardConnectionGap != savedGap ||
+                params.charGapTolerance2 != savedGap2) {
+                discardConnectionGap = savedGap
+                charGapTolerance2 = savedGap2
+            }
+        }
     }
 }
