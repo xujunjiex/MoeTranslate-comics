@@ -70,6 +70,10 @@ class TranslateFragment : Fragment() {
     private lateinit var serviceStopReceiver: BroadcastReceiver
     private lateinit var mangaServiceStopReceiver: BroadcastReceiver
 
+    companion object {
+        private var updateCheckedThisSession = false
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -131,7 +135,10 @@ class TranslateFragment : Fragment() {
         // 显示版本号
         binding.versionText.text = "v${com.moe.moetranslator.BuildConfig.VERSION_NAME}"
 
-        checkForUpdate()
+        if (!updateCheckedThisSession) {
+            updateCheckedThisSession = true
+            checkForUpdate()
+        }
         checkNotification()
         showAPIName()
         setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))
