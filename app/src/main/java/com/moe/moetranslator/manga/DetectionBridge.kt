@@ -1779,8 +1779,8 @@ object DetectionBridge {
             }
 
             // 识别后合并（对齐参考项目 merge_bboxes_text_region）
-            TextLineMerger.refreshParams(context)
-            val allMerged = TextLineMerger.merge(textLines)
+            TextRegionMerger.refreshParams(context)
+            val allMerged = TextRegionMerger.merge(textLines.map { TextRegion(quad = QuadBox(it.quadPoints), text = it.text, score = it.score) })
             // 合并后内容过滤：丢弃空白、单字符、纯符号、短数字
             val mergedRegions = allMerged.filter { region ->
                 val text = region.texts.joinToString("").trim()

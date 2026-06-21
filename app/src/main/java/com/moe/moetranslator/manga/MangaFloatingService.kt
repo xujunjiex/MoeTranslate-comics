@@ -1896,8 +1896,8 @@ class MangaFloatingService : LifecycleService() {
             crops.forEach { it.recycle() }
             // TextLineMerger 识别后合并
             val mergedInput = PPOcrV5Engine.recResultsToTextLines(recResults, rects, angles, centers)
-            TextLineMerger.refreshParams(this@MangaFloatingService)
-            val allMerged = TextLineMerger.merge(mergedInput)
+            TextRegionMerger.refreshParams(this@MangaFloatingService)
+            val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() })
             // 合并后内容过滤
             val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
             LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
@@ -3835,7 +3835,7 @@ class MangaFloatingService : LifecycleService() {
             ).apply { topMargin = (4 * dp).toInt() }
         }
 
-        val DEF_GAP = TextLineMerger.DISCARD_CONNECTION_GAP_DEFAULT
+        val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
 
         fun mGapToSeek(v: Float) = ((v - 0.5f) / 4.5f * 100).toInt().coerceIn(0, 100)
         fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
@@ -3854,7 +3854,7 @@ class MangaFloatingService : LifecycleService() {
             Triple("距离门控", mGapToSeek(prefs.getFloat("merge_discard_gap", DEF_GAP)), { v: Int -> String.format("%.1f", mSeekToGap(v)) })
         )
         val mergeSaveFns: List<(Int) -> Unit> = listOf(
-            { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextLineMerger.refreshParams(this) }
+            { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextRegionMerger.refreshParams(this) }
         )
 
         for ((idx, triple) in mergeSliders.withIndex()) {
@@ -3990,7 +3990,7 @@ class MangaFloatingService : LifecycleService() {
                 ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
 
                 // 重置合并参数（仅距离门控 1 个滑块）
-                TextLineMerger.resetParams(this@MangaFloatingService)
+                TextRegionMerger.resetParams(this@MangaFloatingService)
                 mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
             }
         }
@@ -4328,12 +4328,23 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 从 OcrResult 构建 TextLineMerger 输入并执行合并
+     * 从 OcrResult 构建 TextRegionMerger 输入并执行合并
      */
-    private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int): List<TextLineMerger.MergedRegion> {
+    private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int): List<TextRegionGroup> {
         val textLines = PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
-        TextLineMerger.refreshParams(this)
-        return TextLineMerger.merge(textLines)
+        TextRegionMerger.refreshParams(this)
+        return TextRegionMerger.merge(textLines.map { it.toTextRegion() })
+    }
+
+    /**
+     * TextLineMerger.TextLine → TextRegion 转换
+     */
+    private fun TextLineMerger.TextLine.toTextRegion(): TextRegion {
+        return TextRegion(
+            quad = QuadBox(quadPoints),
+            text = text,
+            score = score
+        )
     }
 
     /**
@@ -4341,9 +4352,9 @@ class MangaFloatingService : LifecycleService() {
      * 在 TextLineMerger.merge 之后调用，基于合并后的完整文本判断。
      * 返回 Pair(保留的区域, 丢弃的区域+原因)
      */
-    private fun filterMergedRegions(regions: List<TextLineMerger.MergedRegion>): Pair<List<TextLineMerger.MergedRegion>, List<Pair<TextLineMerger.MergedRegion, String>>> {
-        val kept = mutableListOf<TextLineMerger.MergedRegion>()
-        val discarded = mutableListOf<Pair<TextLineMerger.MergedRegion, String>>()
+    private fun filterMergedRegions(regions: List<TextRegionGroup>): Pair<List<TextRegionGroup>, List<Pair<TextRegionGroup, String>>> {
+        val kept = mutableListOf<TextRegionGroup>()
+        val discarded = mutableListOf<Pair<TextRegionGroup, String>>()
         for (region in regions) {
             val text = region.texts.joinToString("").trim()
             val reason = when {
@@ -4365,7 +4376,7 @@ class MangaFloatingService : LifecycleService() {
     /**
      * PP-OCRv5 调试模式：渲染检测+识别+合并结果并显示
      */
-    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion>, debugDet: PPOcrV5Engine.DebugDetResult? = null) {
+    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup>, debugDet: PPOcrV5Engine.DebugDetResult? = null) {
         val debugBitmap = renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet)
         showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult, mergedRegions, debugDet)
     }
@@ -4376,7 +4387,7 @@ class MangaFloatingService : LifecycleService() {
     private fun renderPPOcrV5DebugWithMerge(
         bitmap: Bitmap,
         ocrResult: OcrResult,
-        mergedRegions: List<TextLineMerger.MergedRegion>,
+        mergedRegions: List<TextRegionGroup>,
         debugDet: PPOcrV5Engine.DebugDetResult? = null
     ): Bitmap {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
@@ -4515,7 +4526,7 @@ class MangaFloatingService : LifecycleService() {
         return output
     }
 
-    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion> = emptyList(), debugDet: PPOcrV5Engine.DebugDetResult? = null) {
+    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup> = emptyList(), debugDet: PPOcrV5Engine.DebugDetResult? = null) {
         if (isResultShowing) {
             dismissResultOverlay()
         }
@@ -4547,7 +4558,7 @@ class MangaFloatingService : LifecycleService() {
             add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
             add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
             add("合并（对齐 manga-image-translator，hardcoded）:")
-            add("  距离门控 = ${String.format("%.1f", TextLineMerger.discardConnectionGap)} (×字号, AABB距离超过则拒绝合并)")
+            add("  距离门控 = ${String.format("%.1f", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)} (×字号, AABB距离超过则拒绝合并)")
             add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
             add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
                 "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
