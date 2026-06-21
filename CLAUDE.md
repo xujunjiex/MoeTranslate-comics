@@ -190,7 +190,7 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 
 ## 漫画模块
 
-**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`OverlayRenderer.kt`（渲染）
+**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextLineMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
 **工具类：** `GeometryUtils.kt`（凸包、点在多边形等几何算法）、`OnnxUtils.kt`（ONNX 张量提取、资源拷贝）
 
 **检测引擎（DetEngine）：**
@@ -212,6 +212,8 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 | MLKit 独立 | ❌ | ✅ | 行级文字块 → BubbleDetector 合并成气泡 |
 | PP-OCRv5 独立 | ❌ | ✅ | 行级检测框 → BubbleDetector 合并成气泡 |
 
+**单字符噪声过滤：** `textBlocksToBubbleRegions` 过滤单字符纯标点（OTHER_PUNCTUATION、DASH_PUNCTUATION、START/END_PUNCTUATION、MATH_SYMBOL、OTHER_SYMBOL），避免标点符号被当作独立气泡翻译。
+
 **翻译流程：** 截图 → 检测 → OCR → 气泡合并（按需）→ 翻译（每气泡并行）→ 覆盖渲染
 
 **增量渲染（分批 OCR+翻译）：**
@@ -224,6 +226,30 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 - MangaOcr encoder 是批处理瓶颈（~3s），分批可提前显示部分结果
 
 **Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
+
+**PP-OCRv5 参数调节：**
+用户可通过调试面板滑块实时调整 5 个参数（存 SharedPreferences，`PPOcrV5Engine.refreshParams()` 每次 OCR 前读取）：
+
+| 参数 | 键名 | 默认值 | 范围 | 作用 |
+|------|------|--------|------|------|
+| 检测置信度 | `ppocr_det_box_thresh` | 0.3 | 0.01-0.5 | box_thresh，低于此值的检测框被丢弃 |
+| 扩展比例 | `ppocr_det_unclip_ratio` | 1.6 | 1.0-3.0 | unclip 扩展，越大检测框越宽松 |
+| 识别置信度 | `ppocr_text_score_thresh` | 0.5 | 0.1-0.9 | text_score_thresh，低于此值的识别结果被丢弃 |
+| 大框过滤 | `ppocr_large_box_enabled` | false | 开/关 | 过滤占图片比例过大的检测框 |
+| 丢弃比例 | `ppocr_large_box_ratio` | 0.6 | 0.3-0.8 | 大框过滤阈值（宽/高/面积占图片比例） |
+
+- `DET_THRESH`（二值化阈值）= 0.1f，硬编码不可调，影响所有检测路径
+- `DET_MAX_CANDIDATES` = 100（连通域上限）
+- 调试面板默认折叠，含图例说明（绿=检测框、青=合并区、红虚线=检测丢弃、橙虚线=识别丢弃）
+
+**倾斜文字处理：**
+PP-OCRv5 检测框可能倾斜（QuadBox 4 顶点非正交），全链路处理：
+- **角度检测**：`atan2(topDy, topDx)` 计算顶部边与水平线夹角，±3° 内视为正交（angle=0）
+- **方向判断**：用 QuadBox 真实边长（左高 vs 顶宽×1.5），不用 AABB（倾斜时 AABB 会误判）
+- **fontSize**：用真实边长（横排=leftLen，竖排=topLen），不用 AABB 短边（倾斜时 AABB 会放大）
+- **合并**：`TextLineMerger.canMergeTilted()` — 角度差 < 3° 时用中心距离+沿倾斜角投影判断，perpDist < charSize×1.5，alongDist < charSize×3
+- **渲染**：`canvas.rotate(angle, centerX, centerY)` 旋转背景+文字，正常 overlay 和调试 overlay 均支持
+- **增量路径**：`recResultsToTextLines` 只有 AABB（裁剪后），无角度信息，沿用 AABB 启发式
 
 **屏幕尺寸获取（`getScreenSize()`）：**
 - `MangaFloatingService` 和 `FloatingBallService` 都有 `getScreenSize()` 方法
@@ -341,33 +367,6 @@ logcat 过滤器：
 tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot
 ```
 
-### 日志监控流程
-
-当需要监控 app 日志时（调试翻译、排查错误等），按以下流程操作：
-
-**1. 清空日志 + 启动后台记录**
-```powershell
-$adb = "C:\Users\xjj20\AppData\Local\Android\Sdk\platform-tools\adb.exe"
-& $adb logcat -c  # 清空旧日志
-$pid = & $adb shell pidof com.moe.moetranslator
-& $adb logcat --pid=$pid | Out-File -FilePath "C:\Users\xjj20\Desktop\app_log.txt" -Encoding UTF8
-```
-用 `run_in_background: true` 执行，日志实时写入电脑 `C:\Users\xjj20\Desktop\app_log.txt`。
-
-**2. 用户在 app 里操作**
-
-**3. 停止记录 + 查看日志**
-```powershell
-# 停止后台任务（TaskStop）
-# 然后读取日志文件
-Get-Content "C:\Users\xjj20\Desktop\app_log.txt" | Select-String "关键词"
-```
-
-**常用过滤：**
-- 翻译相关：`Select-String "MangaFloating|OpenAITrans|TranslateBridge|翻译配置|翻译结果|上下文"`
-- 错误：`Select-String "Error|Exception|FAILED|失败"`
-- 全部：直接 `Get-Content`
-
 ## 安装规范（最高优先级）
 
 **绝对禁止未经用户确认就执行 `adb uninstall`！**
@@ -431,6 +430,11 @@ $pid = & $adb shell pidof com.moe.moetranslator
 1. **PID 过期** — app 被 force-stop 后重启会获得新 PID，旧 PID 查不到日志
 2. **语法混用** — Bash 工具用 Unix 语法，PowerShell 工具用 PS 语法，不要混用
 3. **没有清空** — 旧日志会干扰，先 `logcat -c` 清空
+
+**常用过滤：**
+- 翻译相关：`Select-String "MangaFloating|OpenAITrans|TranslateBridge|翻译配置|翻译结果|上下文"`
+- 错误：`Select-String "Error|Exception|FAILED|失败"`
+- 全部：直接 `Get-Content`
 
 ## 通知系统
 
