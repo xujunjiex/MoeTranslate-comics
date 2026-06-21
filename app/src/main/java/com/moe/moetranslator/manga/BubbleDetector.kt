@@ -13,7 +13,10 @@ data class BubbleRegion(
     val rect: Rect,
     val texts: List<String>,
     val fontSize: Float = 16f,
-    val direction: TextDirection = TextDirection.VERTICAL_RL
+    val direction: TextDirection = TextDirection.VERTICAL_RL,
+    val angle: Float = 0f,
+    val centerX: Float = -1f,
+    val centerY: Float = -1f
 )
 
 /**

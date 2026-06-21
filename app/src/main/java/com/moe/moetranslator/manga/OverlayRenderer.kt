@@ -50,6 +50,12 @@ object OverlayRenderer {
         }
         for (region in regions) {
             val info = drawInfoMap[region] ?: continue
+            val hasTilt = kotlin.math.abs(info.region.angle) > 0.5f
+
+            canvas.save()
+            if (hasTilt) {
+                canvas.rotate(info.region.angle, info.region.centerX, info.region.centerY)
+            }
             canvas.save()
             canvas.clipRect(info.drawRect)
             canvas.drawBitmap(original, 0f, 0f, null)
@@ -68,6 +74,7 @@ object OverlayRenderer {
                 textColor = textColor,
                 autoFit = false
             )
+            canvas.restore()
             canvas.restore()
         }
 
@@ -135,5 +142,8 @@ data class TranslatedBubble(
     val translatedText: String,
     val backgroundColor: Int,
     val fontSize: Float = 16f,
-    val direction: TextDirection = TextDirection.VERTICAL_RL
+    val direction: TextDirection = TextDirection.VERTICAL_RL,
+    val angle: Float = 0f,
+    val centerX: Float = -1f,
+    val centerY: Float = -1f
 )

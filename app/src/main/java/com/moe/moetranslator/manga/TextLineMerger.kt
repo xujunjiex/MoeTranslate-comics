@@ -32,7 +32,10 @@ object TextLineMerger {
         val text: String,
         val fontSize: Float,
         val isVertical: Boolean,
-        val score: Float = 1f
+        val score: Float = 1f,
+        val angle: Float = 0f,
+        val quadPoints: Array<android.graphics.PointF> = emptyArray(),
+        val center: android.graphics.PointF = android.graphics.PointF(0f, 0f)
     ) {
         val aspectRatio: Float
             get() = if (rect.height() > 0) rect.width().toFloat() / rect.height().toFloat() else 1f
@@ -49,7 +52,9 @@ object TextLineMerger {
         val texts: List<String>,
         val direction: TextDirection,
         val fontSize: Float,
-        val score: Float
+        val score: Float,
+        val angle: Float = 0f,
+        val center: android.graphics.PointF = android.graphics.PointF(0f, 0f)
     )
 
     // ========== 参数（对齐参考项目 merge_bboxes_text_region 调用值） ==========
@@ -61,6 +66,7 @@ object TextLineMerger {
     private const val EDGE_ALIGN_TOL = 0.5f
     private const val FONT_SIZE_RATIO_TOL = 2.0f
     private const val ASPECT_RATIO_TOL = 1.3f
+    private const val ANGLE_MERGE_TOL = 3f
 
     // ========== 主入口 ==========
 
@@ -83,7 +89,9 @@ object TextLineMerger {
                 texts = listOf(line.text),
                 direction = if (line.isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
                 fontSize = line.fontSize,
-                score = line.score
+                score = line.score,
+                angle = line.angle,
+                center = android.graphics.PointF(line.rect.exactCenterX(), line.rect.exactCenterY())
             ))
         }
 
@@ -162,12 +170,21 @@ object TextLineMerger {
             val avgScore = lines.map { it.score }.average().toFloat()
             val textDirection = if (majorityDir == 'v') TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
 
+            // 加权平均角度（按 fontSize 加权）
+            val totalFontSize = lines.sumOf { it.fontSize.toDouble() }.toFloat()
+            val weightedAngle = if (totalFontSize > 0f) {
+                lines.sumOf { (it.angle * it.fontSize).toDouble() }.toFloat() / totalFontSize
+            } else 0f
+            val mergedCenter = android.graphics.PointF(unionRect.exactCenterX(), unionRect.exactCenterY())
+
             result.add(MergedRegion(
                 rect = unionRect,
                 texts = combinedTexts,
                 direction = textDirection,
                 fontSize = minFontSize,
-                score = avgScore
+                score = avgScore,
+                angle = weightedAngle,
+                center = mergedCenter
             ))
 
             LogCollector.d(TAG, "merge: 区域 ${lines.size} 行, dir=$textDirection, " +
@@ -181,8 +198,15 @@ object TextLineMerger {
     // ========== canMergeRegion（对齐 generic.py L653-698） ==========
 
     private fun canMergeRegion(a: TextLine, b: TextLine): Boolean {
+        // 角度差过大，不合并
+        if (abs(a.angle - b.angle) > ANGLE_MERGE_TOL) return false
+
         val charSize = min(a.fontSize, b.fontSize)
         if (charSize <= 0f) return false
+
+        // 倾斜文字使用专用合并逻辑
+        val isTilted = abs(a.angle) > 3f || abs(b.angle) > 3f
+        if (isTilted) return canMergeTilted(a, b, charSize)
 
         val dist = aabbDistance(a, b)
 
@@ -232,6 +256,27 @@ object TextLineMerger {
         if (!xOverlap && xGap > charSize * 0.5f) return false
         return abs(a.rect.top - b.rect.top) < charSize * tol ||
                abs(a.rect.bottom - b.rect.bottom) < charSize * tol
+    }
+
+    /**
+     * 倾斜文字合并判断：用中心距离 + 沿倾斜角投影判断。
+     * 角度差已在 canMergeRegion 中检查过（< ANGLE_MERGE_TOL）。
+     */
+    private fun canMergeTilted(a: TextLine, b: TextLine, charSize: Float): Boolean {
+        val dx = b.center.x - a.center.x
+        val dy = b.center.y - a.center.y
+        val angleRad = (a.angle * Math.PI / 180f).toFloat()
+        val cosA = abs(kotlin.math.cos(angleRad))
+        val sinA = abs(kotlin.math.sin(angleRad))
+        // 沿倾斜方向的距离
+        val alongDist = abs(dx * cosA + dy * sinA)
+        // 垂直于倾斜方向的距离
+        val perpDist = abs(-dx * sinA + dy * cosA)
+
+        if (perpDist > charSize * 1.5f) return false
+        if (alongDist > charSize * 3f) return false
+        if (max(a.fontSize, b.fontSize) / min(a.fontSize, b.fontSize) > FONT_SIZE_RATIO_TOL) return false
+        return true
     }
 
     // ========== AABB 距离 ==========

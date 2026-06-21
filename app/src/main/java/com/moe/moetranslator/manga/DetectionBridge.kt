@@ -1638,12 +1638,13 @@ object DetectionBridge {
      * @return 按漫画阅读顺序排列的裁剪文字行列表
      */
     suspend fun detectAndCropPPOcrV5Lines(
+        context: android.content.Context,
         bitmap: Bitmap
     ): List<CroppedTextLine> = withContext(Dispatchers.IO) {
         LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: 开始检测")
 
         // det 检测全部文字行框
-        val boxes = PPOcrV5Engine.runDetForBoxes(bitmap)
+        val boxes = PPOcrV5Engine.runDetForBoxes(context, bitmap)
         if (boxes.isEmpty()) {
             LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: 未检测到文字区域")
             return@withContext emptyList()
@@ -1751,7 +1752,10 @@ object DetectionBridge {
                     text = region.texts.joinToString("\n"),
                     boundingBox = region.rect,
                     cornerPoints = null,
-                    isVertical = region.direction == TextDirection.VERTICAL_RL
+                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    angle = region.angle,
+                    centerX = region.center.x,
+                    centerY = region.center.y
                 )
             }
 
