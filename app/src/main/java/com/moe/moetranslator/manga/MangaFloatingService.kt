@@ -1670,17 +1670,39 @@ class MangaFloatingService : LifecycleService() {
      * 复用 processMangaScreenshot Step 2 中的转换逻辑。
      */
     private fun textBlocksToBubbleRegions(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
-        return textBlocks.filter { it.boundingBox != null }.map { block ->
+        return textBlocks.filter { block ->
+            if (block.boundingBox == null) return@filter false
+            // 过滤单字符纯标点噪声
+            val cleaned = block.text.replace("\n", "").trim()
+            if (cleaned.length == 1 && cleaned[0].category in SINGLE_CHAR_NOISE_CATEGORIES) {
+                LogCollector.d(TAG, "过滤单字符噪声: \"${cleaned}\" [${block.boundingBox}]")
+                return@filter false
+            }
+            true
+        }.map { block ->
             val rect = block.boundingBox!!
             val isVertical = block.isVertical ?: (rect.height() > rect.width())
             BubbleRegion(
                 rect = rect,
                 texts = listOf(block.text),
                 fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                angle = block.angle,
+                centerX = block.centerX,
+                centerY = block.centerY
             )
         }
     }
+
+    // 单字符噪声类别（标点、符号）
+    private val SINGLE_CHAR_NOISE_CATEGORIES = setOf(
+        CharCategory.OTHER_PUNCTUATION,
+        CharCategory.DASH_PUNCTUATION,
+        CharCategory.START_PUNCTUATION,
+        CharCategory.END_PUNCTUATION,
+        CharCategory.MATH_SYMBOL,
+        CharCategory.OTHER_SYMBOL
+    )
 
     /**
      * 保存翻译缓存（不渲染 overlay）。
@@ -1834,7 +1856,7 @@ class MangaFloatingService : LifecycleService() {
         if (ppRecLang == null) return false
 
         LogCollector.d(TAG, "incrementalPPOcrV5: 开始检测")
-        val textLines = DetectionBridge.detectAndCropPPOcrV5Lines(bitmap)
+        val textLines = DetectionBridge.detectAndCropPPOcrV5Lines(this@MangaFloatingService, bitmap)
         if (textLines.isEmpty()) {
             LogCollector.d(TAG, "incrementalPPOcrV5: 未检测到文字")
             if (!isAutoTranslating) {
@@ -1863,21 +1885,8 @@ class MangaFloatingService : LifecycleService() {
             }
             // 释放裁剪图片
             crops.forEach { it.recycle() }
-            // 构建 TextLineMerger.TextLine
-            val mergedInput = mutableListOf<TextLineMerger.TextLine>()
-            for (i in recResults.indices) {
-                val r = recResults[i]
-                if (r.text.isNotBlank() && r.score >= 0.5f && i < rects.size) {
-                    val rect = rects[i]
-                    val isVertical = rect.height() > rect.width()
-                    val fontSize = minOf(rect.width(), rect.height()).toFloat()
-                    mergedInput.add(TextLineMerger.TextLine(
-                        rect = rect, text = r.text, fontSize = fontSize,
-                        isVertical = isVertical, score = r.score
-                    ))
-                }
-            }
             // TextLineMerger 识别后合并
+            val mergedInput = PPOcrV5Engine.recResultsToTextLines(recResults, rects)
             val mergedRegions = TextLineMerger.merge(mergedInput)
             LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${mergedRegions.size} 个文本区域")
             return mergedRegions.map { region ->
@@ -1885,7 +1894,10 @@ class MangaFloatingService : LifecycleService() {
                     text = region.texts.joinToString("\n"),
                     boundingBox = region.rect,
                     cornerPoints = null,
-                    isVertical = region.direction == TextDirection.VERTICAL_RL
+                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    angle = region.angle,
+                    centerX = region.center.x,
+                    centerY = region.center.y
                 )
             }.filter { it.text.isNotBlank() }
         }
@@ -2018,7 +2030,11 @@ class MangaFloatingService : LifecycleService() {
                             val ocrResult = withContext(Dispatchers.IO) {
                                 PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = false)
                             }
-                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}")
+                            // 调试检测：获取被丢弃的选区
+                            val debugDet = withContext(Dispatchers.IO) {
+                                PPOcrV5Engine.runDetForDebug(this@MangaFloatingService, bitmap)
+                            }
+                            LogCollector.d(TAG, "PP-OCRv5 Debug Mode: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}, discarded=${debugDet.discardedBoxes.size}")
                             // 原始识别详情
                             for (i in ocrResult.texts.indices) {
                                 val text = ocrResult.texts[i]
@@ -2029,8 +2045,15 @@ class MangaFloatingService : LifecycleService() {
                                 } else ""
                                 LogCollector.d(TAG, "PP-OCRv5 RAW[$i]: ${String.format("%.2f", score)} $boxStr \"$text\"")
                             }
+                            // 被丢弃选区详情
+                            for (i in debugDet.discardedBoxes.indices) {
+                                val box = debugDet.discardedBoxes[i]
+                                val score = debugDet.discardedScores.getOrElse(i) { 0f }
+                                val reason = debugDet.discardedReasons.getOrElse(i) { "" }
+                                LogCollector.d(TAG, "PP-OCRv5 DISCARDED[$i]: ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
+                            }
                             // 运行 TextLineMerger 合并
-                            val mergedRegions = runTextLineMerge(ocrResult)
+                            val mergedRegions = runTextLineMerge(ocrResult, bitmap.width, bitmap.height)
                             LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${mergedRegions.size} regions")
                             // 合并区域详情
                             for ((idx, region) in mergedRegions.withIndex()) {
@@ -2039,7 +2062,7 @@ class MangaFloatingService : LifecycleService() {
                                 val merged = region.texts.joinToString("｜")
                                 LogCollector.d(TAG, "PP-OCRv5 MERGED[$idx]: $dirLabel ×${region.texts.size} [${r.left},${r.top},${r.right},${r.bottom}] \"$merged\"")
                             }
-                            showPPOcrV5DebugView(bitmap, ocrResult, mergedRegions)
+                            showPPOcrV5DebugView(bitmap, ocrResult, mergedRegions, debugDet)
                         } else {
                             LogCollector.w(TAG, "PP-OCRv5 Debug Mode: 不支持的语言 ${config.sourceLang}")
                             showToast("PP-OCRv5 不支持语言: ${config.sourceLang}", true)
@@ -2172,7 +2195,10 @@ class MangaFloatingService : LifecycleService() {
                         rect = rect,
                         texts = listOf(block.text),
                         fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                        direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+                        direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                        angle = block.angle,
+                        centerX = block.centerX,
+                        centerY = block.centerY
                     )
                 }
             }
@@ -2271,7 +2297,10 @@ class MangaFloatingService : LifecycleService() {
                     translatedText = cachedText.translation,
                     backgroundColor = Color.TRANSPARENT,
                     fontSize = bubble.fontSize,
-                    direction = bubble.direction
+                    direction = bubble.direction,
+                    angle = bubble.angle,
+                    centerX = bubble.centerX,
+                    centerY = bubble.centerY
                 ))
                 // 更新位置和时间
                 translatedRegions.remove(cachedText)
@@ -2595,7 +2624,10 @@ class MangaFloatingService : LifecycleService() {
                     translatedText = combinedText,
                     backgroundColor = Color.TRANSPARENT,
                     fontSize = bubble.fontSize,
-                    direction = bubble.direction
+                    direction = bubble.direction,
+                    angle = bubble.angle,
+                    centerX = bubble.centerX,
+                    centerY = bubble.centerY
                 ))
             } else {
                 preparedBubbles.add(bubble to combinedText)
@@ -2709,7 +2741,10 @@ class MangaFloatingService : LifecycleService() {
                 translatedText = translations.getOrElse(index) { originalText },
                 backgroundColor = Color.TRANSPARENT,
                 fontSize = bubble.fontSize,
-                direction = bubble.direction
+                direction = bubble.direction,
+                angle = bubble.angle,
+                centerX = bubble.centerX,
+                centerY = bubble.centerY
             )
         }
     }
@@ -2824,7 +2859,10 @@ class MangaFloatingService : LifecycleService() {
                                 translatedText = result.translatedText,
                                 backgroundColor = Color.TRANSPARENT,
                                 fontSize = bubble.fontSize,
-                                direction = bubble.direction
+                                direction = bubble.direction,
+                                angle = bubble.angle,
+                                centerX = bubble.centerX,
+                                centerY = bubble.centerY
                             )
                         }
                         is TranslationResult.Error -> {
@@ -2943,7 +2981,9 @@ class MangaFloatingService : LifecycleService() {
                 resultOverlayView.setImageBitmap(null)
                 oldBitmap?.recycle()
                 resultOverlayView.setOnTouchListener(null)
-                windowManager.removeView(resultOverlayView)
+                if (resultOverlayView.isAttachedToWindow) {
+                    windowManager.removeView(resultOverlayView)
+                }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Error dismissing overlay", e)
             }
@@ -3633,6 +3673,204 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
+     * 创建 PP-OCRv5 参数调节滑块面板（3 个滑块 + 大框过滤开关 + 恢复默认按钮）
+     */
+    @SuppressLint("SetTextI18n")
+    private fun createPPOcrParamSlidersView(): android.view.View {
+        val dp = resources.displayMetrics.density
+
+        // 默认值
+        val DEF_BOX = 0.3f; val DEF_UNCLIP = 1.6f; val DEF_TEXT = 0.5f
+        val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
+
+        // 滑块范围映射
+        fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).toInt().coerceIn(0, 100)
+        fun seekToBox(v: Int) = 0.01f + v / 100f * 0.49f
+        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).toInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
+        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
+        fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
+        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
+        fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
+
+        // 外层垂直容器
+        val outerPanel = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding((8 * dp).toInt(), (4 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
+            setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
+        }
+
+        // ── 第一行：3 个滑块 ──
+        val row1 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // 存储引用以便恢复默认时更新
+        data class SliderRef(
+            val label: android.widget.TextView,
+            val seekBar: android.widget.SeekBar,
+            val labelText: String,
+            val formatValue: (Int) -> String,
+            val save: (Int) -> Unit
+        )
+        val sliderRefs = mutableListOf<SliderRef>()
+
+        val sliders = listOf(
+            Triple("检测置信度", boxToSeek(prefs.getFloat("ppocr_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
+            Triple("扩展比例", unclipToSeek(prefs.getFloat("ppocr_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) }),
+            Triple("识别置信度", textToSeek(prefs.getFloat("ppocr_text_score_thresh", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) })
+        )
+        val saveFns: List<(Int) -> Unit> = listOf(
+            { v -> prefs.setFloat("ppocr_det_box_thresh", seekToBox(v)) },
+            { v -> prefs.setFloat("ppocr_det_unclip_ratio", seekToUnclip(v)) },
+            { v -> prefs.setFloat("ppocr_text_score_thresh", seekToText(v)) }
+        )
+
+        for ((idx, triple) in sliders.withIndex()) {
+            val (name, seekInit, fmt) = triple
+            val group = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val label = android.widget.TextView(this).apply {
+                text = "$name\n${fmt(seekInit)}"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                maxLines = 2
+            }
+
+            val seekBar = android.widget.SeekBar(this).apply {
+                max = 100
+                progress = seekInit
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt()
+                )
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (fromUser) {
+                            label.text = "$name\n${fmt(progress)}"
+                            saveFns[idx](progress)
+                            PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+                        }
+                    }
+                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+                })
+            }
+
+            sliderRefs.add(SliderRef(label, seekBar, name, fmt, saveFns[idx]))
+            group.addView(label)
+            group.addView(seekBar)
+            row1.addView(group)
+        }
+        outerPanel.addView(row1)
+
+        // ── 第二行：大框过滤开关 + 比例滑块 ──
+        val row2 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+
+        val toggleLabel = android.widget.TextView(this).apply {
+            text = "大框过滤"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            setPadding(0, 0, (4 * dp).toInt(), 0)
+        }
+        val largeBoxToggle = android.widget.Switch(this).apply {
+            isChecked = prefs.getBoolean("ppocr_large_box_enabled", DEF_LARGE_ENABLED)
+            textSize = 11f
+            setTextColor(android.graphics.Color.WHITE)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.setBoolean("ppocr_large_box_enabled", isChecked)
+                PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+            }
+        }
+        row2.addView(toggleLabel)
+        row2.addView(largeBoxToggle)
+
+        val ratioLabel = android.widget.TextView(this).apply {
+            val cur = prefs.getFloat("ppocr_large_box_ratio", DEF_LARGE_RATIO)
+            text = "丢弃比例 ${String.format("%.0f%%", cur * 100)}"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            gravity = android.view.Gravity.CENTER
+            setPadding((8 * dp).toInt(), 0, (4 * dp).toInt(), 0)
+        }
+        val ratioSeekBar = android.widget.SeekBar(this).apply {
+            max = 100
+            progress = ratioToSeek(prefs.getFloat("ppocr_large_box_ratio", DEF_LARGE_RATIO))
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, (24 * dp).toInt(), 1f)
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val ratio = seekToRatio(progress)
+                        ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", ratio * 100)}"
+                        prefs.setFloat("ppocr_large_box_ratio", ratio)
+                        PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        row2.addView(ratioLabel)
+        row2.addView(ratioSeekBar)
+        outerPanel.addView(row2)
+
+        // ── 第三行：恢复默认按钮 ──
+        val row3 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        val resetBtn = android.widget.TextView(this).apply {
+            text = "恢复默认"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 12f
+            setPadding((16 * dp).toInt(), (4 * dp).toInt(), (16 * dp).toInt(), (4 * dp).toInt())
+            setBackgroundColor(android.graphics.Color.argb(150, 100, 100, 100))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                // 重置 SharedPreferences
+                prefs.setFloat("ppocr_det_box_thresh", DEF_BOX)
+                prefs.setFloat("ppocr_det_unclip_ratio", DEF_UNCLIP)
+                prefs.setFloat("ppocr_text_score_thresh", DEF_TEXT)
+                prefs.setBoolean("ppocr_large_box_enabled", DEF_LARGE_ENABLED)
+                prefs.setFloat("ppocr_large_box_ratio", DEF_LARGE_RATIO)
+                PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+
+                // 更新 UI
+                sliderRefs[0].apply { seekBar.progress = boxToSeek(DEF_BOX); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[1].apply { seekBar.progress = unclipToSeek(DEF_UNCLIP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[2].apply { seekBar.progress = textToSeek(DEF_TEXT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                largeBoxToggle.isChecked = DEF_LARGE_ENABLED
+                ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
+                ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+            }
+        }
+        row3.addView(resetBtn)
+        outerPanel.addView(row3)
+
+        return outerPanel
+    }
+
+    /**
      * 创建 info panel 视图（用于嵌入到 debug 图片窗口中）
      */
     @SuppressLint("SetTextI18n")
@@ -3962,43 +4200,27 @@ class MangaFloatingService : LifecycleService() {
     /**
      * 从 OcrResult 构建 TextLineMerger 输入并执行合并
      */
-    private fun runTextLineMerge(ocrResult: OcrResult): List<TextLineMerger.MergedRegion> {
-        val mergedInput = mutableListOf<TextLineMerger.TextLine>()
-        for (i in ocrResult.texts.indices) {
-            val text = ocrResult.texts[i].trim()
-            if (text.isEmpty()) continue
-            val score = ocrResult.scores.getOrElse(i) { 0f }
-            val box = ocrResult.boxes.getOrNull(i) ?: continue
-            if (box.size < 8) continue
-            val tlx = box[0].toInt(); val tly = box[1].toInt()
-            val trx = box[2].toInt(); val try_ = box[3].toInt()
-            val brx = box[4].toInt(); val bry = box[5].toInt()
-            val blx = box[6].toInt(); val bly = box[7].toInt()
-            val xs = intArrayOf(tlx, trx, brx, blx)
-            val ys = intArrayOf(tly, try_, bry, bly)
-            val rect = Rect(xs.min(), ys.min(), xs.max(), ys.max())
-            val isVert = rect.height() > rect.width()
-            val fontSize = minOf(rect.width(), rect.height()).toFloat()
-            mergedInput.add(TextLineMerger.TextLine(rect, text, fontSize, isVert, score))
-        }
-        return TextLineMerger.merge(mergedInput)
+    private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int): List<TextLineMerger.MergedRegion> {
+        val textLines = PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
+        return TextLineMerger.merge(textLines)
     }
 
     /**
      * PP-OCRv5 调试模式：渲染检测+识别+合并结果并显示
      */
-    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion>) {
-        val debugBitmap = renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions)
-        showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult, mergedRegions)
+    private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion>, debugDet: PPOcrV5Engine.DebugDetResult? = null) {
+        val debugBitmap = renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet)
+        showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult, mergedRegions, debugDet)
     }
 
     /**
-     * 渲染 PP-OCRv5 调试图：原始检测框 + 合并区域框
+     * 渲染 PP-OCRv5 调试图：原始检测框 + 合并区域框 + 被丢弃选区
      */
     private fun renderPPOcrV5DebugWithMerge(
         bitmap: Bitmap,
         ocrResult: OcrResult,
-        mergedRegions: List<TextLineMerger.MergedRegion>
+        mergedRegions: List<TextLineMerger.MergedRegion>,
+        debugDet: PPOcrV5Engine.DebugDetResult? = null
     ): Bitmap {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = android.graphics.Canvas(output)
@@ -4044,19 +4266,94 @@ class MangaFloatingService : LifecycleService() {
         // ② 绘制合并区域框（青色）+ 标签
         for ((idx, region) in mergedRegions.withIndex()) {
             val r = region.rect
+            val hasTilt = kotlin.math.abs(region.angle) > 0.5f
+
+            canvas.save()
+            if (hasTilt) {
+                canvas.rotate(region.angle, region.center.x, region.center.y)
+            }
             canvas.drawRect(r, mergedFillPaint)
             canvas.drawRect(r, mergedPaint)
 
-            // 标签：序号 + 方向 + 文字数
+            // 标签：序号 + 方向 + 文字数 + 倾斜角
             val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "V" else "H"
-            val label = "[$idx]$dirLabel ×${region.texts.size}"
+            val angleStr = if (hasTilt) " ∠${String.format("%.0f°", region.angle)}" else ""
+            val label = "[$idx]$dirLabel ×${region.texts.size}$angleStr"
             canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)
+            canvas.restore()
+        }
+
+        // ③ 绘制被丢弃的选区（红色虚线）
+        if (debugDet != null && debugDet.discardedBoxes.isNotEmpty()) {
+            val discPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f
+                isAntiAlias = true
+                pathEffect = android.graphics.DashPathEffect(floatArrayOf(8f, 4f), 0f)
+            }
+            val discLabelPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                textSize = 20f
+                isAntiAlias = true
+                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+            }
+            for (i in debugDet.discardedBoxes.indices) {
+                val box = debugDet.discardedBoxes[i]
+                canvas.drawLine(box[0], box[1], box[2], box[3], discPaint)
+                canvas.drawLine(box[2], box[3], box[4], box[5], discPaint)
+                canvas.drawLine(box[4], box[5], box[6], box[7], discPaint)
+                canvas.drawLine(box[6], box[7], box[0], box[1], discPaint)
+                // 标签：分数 + 原因
+                val score = debugDet.discardedScores.getOrElse(i) { 0f }
+                val reason = debugDet.discardedReasons.getOrElse(i) { "" }
+                val label = "✗${String.format("%.2f", score)} $reason"
+                canvas.drawText(label, box[0], box[1] - 4f, discLabelPaint)
+            }
+        }
+
+        // ④ 绘制被识别置信度丢弃的选区（橙色虚线）
+        if (ocrResult.recDebug != null && ocrResult.recDebug.discardedBoxes.isNotEmpty()) {
+            val recDiscPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.rgb(255, 165, 0) // 橙色
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f
+                isAntiAlias = true
+                pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f, 2f, 4f), 0f)
+            }
+            val recDiscFillPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.argb(40, 255, 165, 0)
+                style = android.graphics.Paint.Style.FILL
+            }
+            val recDiscLabelPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.rgb(255, 165, 0)
+                textSize = 18f
+                isAntiAlias = true
+                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+            }
+            for (i in ocrResult.recDebug.discardedBoxes.indices) {
+                val box = ocrResult.recDebug.discardedBoxes[i]
+                // 半透明填充
+                val path = android.graphics.Path().apply {
+                    moveTo(box[0], box[1])
+                    lineTo(box[2], box[3])
+                    lineTo(box[4], box[5])
+                    lineTo(box[6], box[7])
+                    close()
+                }
+                canvas.drawPath(path, recDiscFillPaint)
+                canvas.drawPath(path, recDiscPaint)
+                // 标签：分数 + 识别文本（前10字符）
+                val score = ocrResult.recDebug.discardedScores.getOrElse(i) { 0f }
+                val label = "✗${String.format("%.2f", score)}<${String.format("%.2f", prefs.getFloat("ppocr_text_score_thresh", 0.5f))}"
+                canvas.drawText(label, box[0], box[1] - 4f, recDiscLabelPaint)
+            }
         }
 
         return output
     }
 
-    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion> = emptyList()) {
+    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextLineMerger.MergedRegion> = emptyList(), debugDet: PPOcrV5Engine.DebugDetResult? = null) {
         if (isResultShowing) {
             dismissResultOverlay()
         }
@@ -4075,9 +4372,16 @@ class MangaFloatingService : LifecycleService() {
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        // 添加底部 info panel 到容器中
+        // 添加底部 info panel 到容器中（包含参数滑块 + 调试信息）
         val infoLines = buildList {
-            add("PP-OCRv5 调试模式 | 检测框: ${ocrResult.boxes.size}  识别: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
+            val discCount = debugDet?.discardedBoxes?.size ?: 0
+            val recDiscCount = ocrResult.recDebug?.discardedBoxes?.size ?: 0
+            val curBox = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
+            val curUnclip = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
+            val curText = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
+            add("PP-OCRv5 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $recDiscCount  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
+            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低被丢弃  橙虚线=识别分数低被丢弃")
+            add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
             add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
                 "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
                 "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
@@ -4088,7 +4392,8 @@ class MangaFloatingService : LifecycleService() {
                 val srcCount = region.texts.size
                 val merged = region.texts.joinToString("｜")
                 val r = region.rect
-                add("【$idx】$dirLabel ×$srcCount [${r.left},${r.top},${r.right},${r.bottom}]")
+                val angleStr = if (kotlin.math.abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
+                add("【$idx】$dirLabel ×$srcCount$angleStr [${r.left},${r.top},${r.right},${r.bottom}]")
                 add("    $merged")
             }
             add("")
@@ -4100,18 +4405,66 @@ class MangaFloatingService : LifecycleService() {
                 val boxStr = if (box != null && box.size >= 8) {
                     "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
                 } else ""
-                add("[$i] ${String.format("%.2f", score)} $boxStr \"$text\"")
+                // 计算每个 box 的倾斜角（与 ocrResultToTextLines 同样的算法）
+                val angleStr = if (box != null && box.size >= 8) {
+                    val topDx = box[2] - box[0]
+                    val topDy = box[3] - box[1]
+                    val ang = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+                    val finalAng = if (kotlin.math.abs(ang) <= 3f) 0f else ang
+                    if (kotlin.math.abs(finalAng) > 0.5f) " ∠${String.format("%.1f°", finalAng)}" else ""
+                } else ""
+                add("[$i] ${String.format("%.2f", score)}$angleStr $boxStr \"$text\"")
+            }
+            if (debugDet != null && debugDet.discardedBoxes.isNotEmpty()) {
+                add("")
+                add("━━━ 被检测丢弃选区 (${debugDet.discardedBoxes.size}) ━━━")
+                for (i in debugDet.discardedBoxes.indices) {
+                    val box = debugDet.discardedBoxes[i]
+                    val score = debugDet.discardedScores.getOrElse(i) { 0f }
+                    val reason = debugDet.discardedReasons.getOrElse(i) { "" }
+                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
+                }
+            }
+            // 识别置信度丢弃的选区
+            val recDisc = ocrResult.recDebug
+            if (recDisc != null && recDisc.discardedBoxes.isNotEmpty()) {
+                add("")
+                add("━━━ 被识别丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
+                for (i in recDisc.discardedBoxes.indices) {
+                    val box = recDisc.discardedBoxes[i]
+                    val score = recDisc.discardedScores.getOrElse(i) { 0f }
+                    val text = recDisc.discardedTexts.getOrElse(i) { "" }
+                    val preview = text.take(20).ifEmpty { "(空)" }
+                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                }
             }
         }
         val infoPanel = createInfoPanelView(infoLines, scrollable = true)
-        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
+
+        // 创建可折叠内容容器：参数滑块 + 调试信息
+        val foldableContent = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        // 参数滑块（带恢复默认按钮）
+        val slidersView = createPPOcrParamSlidersView()
+        foldableContent.addView(slidersView, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        // 调试信息
+        foldableContent.addView(infoPanel, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        val foldableParams = android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = android.view.Gravity.BOTTOM
         }
-        container.addView(infoPanel, infoPanelParams)
-        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
+        container.addView(foldableContent, foldableParams)
+        debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
 
         // 添加右下角展开/折叠按钮
         val toggleButton = createToggleButton()
@@ -4152,10 +4505,13 @@ class MangaFloatingService : LifecycleService() {
             windowManager.addView(container, params)
             debugInfoPanelView = container
             debugInfoPanelAdded = true
-            debugInfoPanelCollapsed = false
+            debugInfoPanelCollapsed = true  // 默认折叠
             debugToggleButton = toggleButton
             debugToggleButtonAdded = true
             isResultShowing = true
+            // 初始折叠状态：隐藏内容，按钮显示展开箭头
+            foldableContent.visibility = android.view.View.GONE
+            toggleButton.text = "▲"
         } catch (e: Exception) {
             LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
         }
