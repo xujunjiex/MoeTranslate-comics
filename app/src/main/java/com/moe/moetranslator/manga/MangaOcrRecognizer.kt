@@ -42,6 +42,9 @@ object MangaOcrRecognizer {
     var isInitialized = false
         private set
 
+    // 初始化/释放锁，防止并发 release() 中断初始化
+    private val initLock = Any()
+
     /**
      * 初始化模型
      *
@@ -51,64 +54,64 @@ object MangaOcrRecognizer {
      * @param version 模型版本（仅在 useAssets=false 时有效）
      */
     suspend fun initialize(context: Context, modelDir: String = "manga_ocr", useAssets: Boolean = true, version: MangaOcrDownloadManager.ModelVersion? = null) {
-        if (isInitialized) return
+        synchronized(initLock) {
+            if (isInitialized) return
 
-        try {
-            LogCollector.d(TAG, "开始初始化 manga-ocr 模型 (useAssets=$useAssets, version=$version, sessions=$sessionCount)...")
+            try {
+                LogCollector.d(TAG, "开始初始化 manga-ocr 模型 (useAssets=$useAssets, version=$version, sessions=$sessionCount)...")
 
-            ortEnv = OrtEnvironment.getEnvironment()
+                val env = OrtEnvironment.getEnvironment()
+                ortEnv = env
 
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setMemoryPatternOptimization(true)
-                setCPUArenaAllocator(true)
-                // BASIC_OPT：ALL_OPT 会把 Conv 转成 ConvInteger，Android ORT 不支持
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
-                setIntraOpNumThreads(2)
-            }
-
-            // 加载 encoder（1 个 session，支持动态 batch_size）
-            val encoderPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
-            } else if (version != null) {
-                MangaOcrDownloadManager.getEncoderFile(context, version).absolutePath
-            } else {
-                MangaOcrDownloadManager.getEncoderFile(context).absolutePath
-            }
-            encoderSessions = listOf(ortEnv!!.createSession(encoderPath, sessionOptions))
-            LogCollector.d(TAG, "Encoder 加载完成 (1 session, 支持动态 batch)")
-
-            // 加载 decoder（多个 session）
-            val decoderPath = if (useAssets) {
-                copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
-            } else if (version != null) {
-                MangaOcrDownloadManager.getDecoderFile(context, version).absolutePath
-            } else {
-                MangaOcrDownloadManager.getDecoderFile(context).absolutePath
-            }
-            decoderSessions = (1..sessionCount).map {
-                ortEnv!!.createSession(decoderPath, sessionOptions)
-            }
-            LogCollector.d(TAG, "Decoder 加载完成 ($sessionCount sessions)")
-
-            // 加载 tokenizer
-            tokenizer = MangaOcrTokenizer(context).apply {
-                if (!useAssets && version != null) {
-                    // 下载模型：从模型目录加载 vocab
-                    loadFromFile(MangaOcrDownloadManager.getVocabFile(context, version))
-                } else {
-                    // assets 模式：从 assets 加载
-                    loadFromAssets(modelDir)
+                val sessionOptions = OrtSession.SessionOptions().apply {
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+                    setIntraOpNumThreads(2)
                 }
+
+                // 加载 encoder（1 个 session，支持动态 batch_size）
+                val encoderPath = if (useAssets) {
+                    copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
+                } else if (version != null) {
+                    MangaOcrDownloadManager.getEncoderFile(context, version).absolutePath
+                } else {
+                    MangaOcrDownloadManager.getEncoderFile(context).absolutePath
+                }
+                encoderSessions = listOf(env.createSession(encoderPath, sessionOptions))
+                LogCollector.d(TAG, "Encoder 加载完成 (1 session, 支持动态 batch)")
+
+                // 加载 decoder（多个 session）
+                val decoderPath = if (useAssets) {
+                    copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
+                } else if (version != null) {
+                    MangaOcrDownloadManager.getDecoderFile(context, version).absolutePath
+                } else {
+                    MangaOcrDownloadManager.getDecoderFile(context).absolutePath
+                }
+                decoderSessions = (1..sessionCount).map {
+                    env.createSession(decoderPath, sessionOptions)
+                }
+                LogCollector.d(TAG, "Decoder 加载完成 ($sessionCount sessions)")
+
+                // 加载 tokenizer
+                tokenizer = MangaOcrTokenizer(context).apply {
+                    if (!useAssets && version != null) {
+                        loadFromFile(MangaOcrDownloadManager.getVocabFile(context, version))
+                    } else {
+                        loadFromAssets(modelDir)
+                    }
+                }
+                LogCollector.d(TAG, "Tokenizer 加载完成")
+
+                isInitialized = true
+                LogCollector.d(TAG, "manga-ocr 模型初始化完成 ($sessionCount sessions)")
+
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "初始化失败", e)
+                releaseInternal()
+                throw e
             }
-            LogCollector.d(TAG, "Tokenizer 加载完成")
-
-            isInitialized = true
-            LogCollector.d(TAG, "manga-ocr 模型初始化完成 ($sessionCount sessions)")
-
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "初始化失败", e)
-            release()
-            throw e
         }
     }
 
@@ -469,6 +472,12 @@ object MangaOcrRecognizer {
      * 释放资源
      */
     fun release() {
+        synchronized(initLock) {
+            releaseInternal()
+        }
+    }
+
+    private fun releaseInternal() {
         try {
             encoderSessions.forEach { try { it.close() } catch (_: Exception) {} }
             decoderSessions.forEach { try { it.close() } catch (_: Exception) {} }

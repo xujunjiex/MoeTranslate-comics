@@ -4337,9 +4337,9 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * TextLineMerger.TextLine → TextRegion 转换
+     * TextLine → TextRegion 转换
      */
-    private fun TextLineMerger.TextLine.toTextRegion(): TextRegion {
+    private fun PPOcrTextLine.toTextRegion(): TextRegion {
         return TextRegion(
             quad = QuadBox(quadPoints),
             text = text,

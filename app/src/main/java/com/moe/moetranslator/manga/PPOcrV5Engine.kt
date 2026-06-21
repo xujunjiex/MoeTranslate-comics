@@ -65,7 +65,7 @@ data class OcrResult(
 )
 
 /**
- * 识别阶段调试结果：保留和被识别置信度丢弃的选区
+ * 识别阶段调试结果：保留和被丢弃的选区（分数丢弃 + 内容丢弃）
  */
 data class DebugRecResult(
     val keptBoxes: List<FloatArray>,
@@ -73,7 +73,8 @@ data class DebugRecResult(
     val keptScores: List<Float>,
     val discardedBoxes: List<FloatArray>,
     val discardedTexts: List<String>,
-    val discardedScores: List<Float>
+    val discardedScores: List<Float>,
+    val discardedReasons: List<String> = emptyList()  // "score" 或内容原因（"空白"/"单字符"/"纯符号"/"短数字"）
 )
 
 /**
@@ -394,7 +395,7 @@ object PPOcrV5Engine {
     fun resolveRecLang(context: Context, language: String): Pair<RecLang?, String?> {
         val lang = getRecLang(language) ?: return Pair(null, null)
 
-        return when (lang) {
+        val result = when (lang) {
             RecLang.ZH, RecLang.JA -> Pair(lang, null)
             RecLang.EN -> {
                 if (isRecModelAvailable(context, RecLang.EN)) {
@@ -418,6 +419,15 @@ object PPOcrV5Engine {
                 }
             }
         }
+
+        val resolved = result.first
+        if (resolved != null) {
+            val fallback = if (lang != resolved) " (fallback: ${lang.code}→${resolved.code})" else ""
+            LogCollector.d(TAG, "识别模型: rec_${resolved.code}${fallback}, 请求语言: $language")
+        } else {
+            LogCollector.d(TAG, "识别模型: 无可用模型, 请求语言: $language, 提示: ${result.second}")
+        }
+        return result
     }
 
     // ========================================================================
@@ -1378,7 +1388,7 @@ object PPOcrV5Engine {
     }
 
     /**
-     * 将 OcrResult 转换为 TextLineMerger.TextLine 列表。
+     * 将 OcrResult 转换为 TextLine 列表。
      * 统一 OcrResult → TextLineMerger 输入的转换逻辑。
      *
      * @param result OCR 结果
@@ -1390,7 +1400,7 @@ object PPOcrV5Engine {
         result: OcrResult,
         bitmapWidth: Int,
         bitmapHeight: Int
-    ): List<TextLineMerger.TextLine> {
+    ): List<PPOcrTextLine> {
         return result.texts.indices.mapNotNull { i ->
             val text = result.texts[i]
             if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
@@ -1414,7 +1424,7 @@ object PPOcrV5Engine {
 
             // 倾斜角（度）：顶部边与水平线夹角
             var angle = atan2(topDy, topDx) * 180f / Math.PI.toFloat()
-            // ±3° 阈值：轻微倾斜视为正交
+            // ±3° 阈值：轻微倾斜归零（AA 文字角度一致便于合并判断）
             if (abs(angle) <= 3f) angle = 0f
 
             // 方向判断：用真实边长，左高 > 顶宽 * 1.5 才视为竖排
@@ -1439,7 +1449,7 @@ object PPOcrV5Engine {
             // 横排：文字高度 = leftLen；竖排：文字宽度 = topLen
             val fontSize = if (isVertical) topLen else leftLen
             val center = android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY())
-            TextLineMerger.TextLine(
+            PPOcrTextLine(
                 rect = rect, text = text, fontSize = fontSize,
                 isVertical = isVertical, score = result.scores[i],
                 angle = angle, quadPoints = quadPoints, center = center
@@ -1448,7 +1458,7 @@ object PPOcrV5Engine {
     }
 
     /**
-     * 将 RecResult 列表 + 对应 Rect 列表转换为 TextLineMerger.TextLine 列表。
+     * 将 RecResult 列表 + 对应 Rect 列表转换为 TextLine 列表。
      * 用于增量渲染场景（先 det 裁剪，再 rec 识别）。
      *
      * @param recResults 识别结果列表
@@ -1457,25 +1467,62 @@ object PPOcrV5Engine {
      */
     fun recResultsToTextLines(
         recResults: List<RecResult>,
-        rects: List<Rect>
-    ): List<TextLineMerger.TextLine> {
-        val mergedInput = mutableListOf<TextLineMerger.TextLine>()
+        rects: List<Rect>,
+        angles: List<Float> = emptyList(),
+        centers: List<android.graphics.PointF> = emptyList()
+    ): List<PPOcrTextLine> {
+        val mergedInput = mutableListOf<PPOcrTextLine>()
         for (i in recResults.indices) {
             val r = recResults[i]
             if (r.text.isNotBlank() && r.score >= 0.5f && i < rects.size) {
                 val rect = rects[i]
-                // 增量路径只有 AABB（裁剪后），无法用真实边长判断方向，沿用 AABB 启发式
-                val isVertical = rect.height() > rect.width()
-                val fontSize = minOf(rect.width(), rect.height()).toFloat()
-                val center = android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY())
-                mergedInput.add(TextLineMerger.TextLine(
+                // 增量路径：det 后裁剪 + rec，RecResult 不带原始 box
+                // 只能从 angle 反推一个虚拟 quadPoints，让 TextLine 拿到方向信息
+                val angle = angles.getOrElse(i) { 0f }
+                val center = centers.getOrElse(i) { android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY()) }
+                val quadPoints = aabbToTiltedQuad(rect, angle, center)
+                // 真实边长可从虚拟 quad 推出
+                val rad = Math.toRadians(angle.toDouble())
+                val w = rect.width().toFloat()
+                val h = rect.height().toFloat()
+                val realW = kotlin.math.abs(w * kotlin.math.cos(rad).toFloat() - h * kotlin.math.sin(rad).toFloat())
+                val realH = kotlin.math.abs(w * kotlin.math.sin(rad).toFloat() + h * kotlin.math.cos(rad).toFloat())
+                val isVertical = realH > realW * 1.5f
+                val fontSize = if (isVertical) realW else realH
+                mergedInput.add(PPOcrTextLine(
                     rect = rect, text = r.text, fontSize = fontSize,
                     isVertical = isVertical, score = r.score,
-                    center = center
+                    angle = angle, quadPoints = quadPoints, center = center
                 ))
             }
         }
         return mergedInput
+    }
+
+    /**
+     * 增量路径：从 AABB + angle 反推虚拟 quad 4 顶点。
+     * 中心点固定不动，按 angle 旋转 AABB 4 角。
+     */
+    private fun aabbToTiltedQuad(
+        rect: Rect,
+        angleDeg: Float,
+        center: android.graphics.PointF
+    ): Array<android.graphics.PointF> {
+        val rad = Math.toRadians(angleDeg.toDouble())
+        val cosA = kotlin.math.cos(rad).toFloat()
+        val sinA = kotlin.math.sin(rad).toFloat()
+        val l = rect.left.toFloat()
+        val t = rect.top.toFloat()
+        val r = rect.right.toFloat()
+        val b = rect.bottom.toFloat()
+        val cx = center.x
+        val cy = center.y
+        fun rot(x: Float, y: Float): android.graphics.PointF {
+            val dx = x - cx
+            val dy = y - cy
+            return android.graphics.PointF(cx + dx * cosA - dy * sinA, cy + dx * sinA + dy * cosA)
+        }
+        return arrayOf(rot(l, t), rot(r, t), rot(r, b), rot(l, b))
     }
 
     /**

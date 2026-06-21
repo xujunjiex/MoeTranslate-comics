@@ -1723,7 +1723,7 @@ object DetectionBridge {
                 PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = false)
             }
 
-            // 转换为 TextLineMerger.TextLine（识别后的文字行）
+            // 转换为 TextLine（识别后的文字行）
             val textLines = result.texts.indices.mapNotNull { i ->
                 val text = result.texts[i]
                 if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
@@ -1771,7 +1771,7 @@ object DetectionBridge {
                 )
                 val center = android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY())
 
-                TextLineMerger.TextLine(
+                PPOcrTextLine(
                     rect = rect, text = text, fontSize = fontSize,
                     isVertical = isVertical, score = result.scores[i],
                     angle = angle, quadPoints = quadPoints, center = center

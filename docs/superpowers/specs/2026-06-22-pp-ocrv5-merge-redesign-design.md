@@ -197,7 +197,7 @@ case 3+ (MST):
 | `DetectionBridge.kt`（CTD + PPOcrV5 路径） | `BoxMerger.merge(quads)` | `TextRegionMerger.merge(quads.map { TextRegion(it) })` |
 | `PPOcrV5Engine.kt::ocrResultToTextLines` 调用方 | `TextLineMerger.merge(textLines)` | `TextRegionMerger.merge(textLines.map { it.toTextRegion() })` |
 | `PPOcrV5Engine.kt::recResultsToTextLines` 调用方（增量渲染） | `TextLineMerger.merge(textLines)` | `TextRegionMerger.merge(...)` |
-| `OverlayRenderer.kt` | 接收 `MergedRegion` | 接收 `TextRegionGroup`（提供 `toRenderInfo()` 转换） |
+| `OverlayRenderer.kt` | 接收 `MergedRegion` | 接收 `TextRegionGroup`（独立重构渲染输入，不再提供 `MergedRegion` 兼容方法） |
 | `TextRegionSplitter.kt`（如有调用） | `TextLineMerger.merge` | `TextRegionMerger.merge` |
 
 #### 三条主路径
@@ -269,7 +269,7 @@ UI 入口：复用现有 `MergeParamsPreferenceFragment`（如有），或在 PP
 | `manga/TextLineMerger.kt` | **删除** | 520 行 |
 | `manga/DetectionBridge.kt` | **修改** | 调用点迁移到 TextRegionMerger |
 | `manga/PPOcrV5Engine.kt` | **修改** | ocrResultToTextLines / recResultsToTextLines 调用点迁移；移除 TextLine 相关内部数据结构（保留 TextLine 用于中间转换） |
-| `manga/OverlayRenderer.kt` | **修改** | 接收 TextRegionGroup（提供向后兼容的 toMergedRegion() 方法或独立重构） |
+| `manga/OverlayRenderer.kt` | **修改** | 接收 TextRegionGroup，独立重构渲染输入（不再提供 MergedRegion 兼容方法） |
 | `manga/MangaFloatingService.kt` | **修改** | 调试/增量路径调用点迁移 |
 | `manga/QuadBox.kt` | **保持** | 不变 |
 
