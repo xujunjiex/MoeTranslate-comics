@@ -91,7 +91,7 @@ class HistoryFragment : Fragment() {
 
         // 漫画历史：分组适配器
         mangaGroupAdapter = HistoryMangaGroupAdapter(
-            onItemClick = { entry -> openMangaViewer(entry) },
+            onItemClick = { grouped -> openMangaViewer(grouped) },
             onItemLongClick = { entry -> showDeleteDialog(entry) }
         )
         binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
@@ -201,11 +201,12 @@ class HistoryFragment : Fragment() {
     }
 
     /**
-     * 打开漫画图片浏览页
+     * 打开漫画图片浏览页（支持同 pHash 多尺寸切换）
      */
-    private fun openMangaViewer(entry: HistoryEntry) {
+    private fun openMangaViewer(grouped: GroupedHistoryEntry) {
         val intent = Intent(requireContext(), MangaViewerActivity::class.java).apply {
-            putExtra(MangaViewerActivity.EXTRA_ENTRY_ID, entry.id)
+            putExtra(MangaViewerActivity.EXTRA_ENTRY_ID, grouped.representative.id)
+            putExtra(MangaViewerActivity.EXTRA_ENTRY_IDS, grouped.allEntryIds.toLongArray())
         }
         startActivity(intent)
     }

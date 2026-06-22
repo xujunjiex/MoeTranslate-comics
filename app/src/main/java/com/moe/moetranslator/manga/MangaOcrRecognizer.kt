@@ -13,6 +13,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.util.Collections
@@ -44,6 +46,9 @@ object MangaOcrRecognizer {
 
     // 初始化/释放锁，防止并发 release() 中断初始化
     private val initLock = Any()
+
+    // 保护 session.run() 与 release() 不并发
+    private val sessionLock = ReentrantLock()
 
     /**
      * 初始化模型
@@ -139,7 +144,7 @@ object MangaOcrRecognizer {
             val inputTensor = preprocessImage(bitmap)
 
             // 2. Encoder 推理
-            val encoderResults = encSession.run(Collections.singletonMap("pixel_values", inputTensor))
+            val encoderResults = sessionLock.withLock { encSession.run(Collections.singletonMap("pixel_values", inputTensor)) }
             val encoderOutputs = encoderResults.get("last_hidden_state").get() as OnnxTensor
             inputTensor.close()
 
@@ -183,7 +188,7 @@ object MangaOcrRecognizer {
             // 2. Encoder 一次推理
             LogCollector.d(TAG, "Encoder batch 推理: ${bitmaps.size} 张图片")
             val t0 = System.currentTimeMillis()
-            val encoderResults = encSession.run(Collections.singletonMap("pixel_values", inputTensor))
+            val encoderResults = sessionLock.withLock { encSession.run(Collections.singletonMap("pixel_values", inputTensor)) }
             val encoderOutputs = encoderResults.get("last_hidden_state").get() as OnnxTensor
             inputTensor.close()
             LogCollector.d(TAG, "Encoder batch 完成: ${System.currentTimeMillis() - t0}ms")
@@ -239,7 +244,7 @@ object MangaOcrRecognizer {
             val inputTensor = preprocessImages(bitmaps)
             LogCollector.d(TAG, "Encoder batch 推理: ${bitmaps.size} 张图片")
             val t0 = System.currentTimeMillis()
-            val encoderResults = encSession.run(Collections.singletonMap("pixel_values", inputTensor))
+            val encoderResults = sessionLock.withLock { encSession.run(Collections.singletonMap("pixel_values", inputTensor)) }
             val encoderOutputs = encoderResults.get("last_hidden_state").get() as OnnxTensor
             inputTensor.close()
             LogCollector.d(TAG, "Encoder batch 完成: ${System.currentTimeMillis() - t0}ms")
@@ -393,7 +398,7 @@ object MangaOcrRecognizer {
                 "input_ids" to inputIdsTensor,
                 "encoder_hidden_states" to encoderHiddenStates
             )
-            val outputs = decSession.run(inputs)
+            val outputs = sessionLock.withLock { decSession.run(inputs) }
 
             // 获取最后一个 token 的 logits
             val logitsTensor = outputs.get("logits").get() as OnnxTensor
@@ -478,6 +483,7 @@ object MangaOcrRecognizer {
     }
 
     private fun releaseInternal() {
+        sessionLock.lock()
         try {
             encoderSessions.forEach { try { it.close() } catch (_: Exception) {} }
             decoderSessions.forEach { try { it.close() } catch (_: Exception) {} }
@@ -490,6 +496,7 @@ object MangaOcrRecognizer {
             ortEnv = null
             tokenizer = null
             isInitialized = false
+            sessionLock.unlock()
         }
     }
 }

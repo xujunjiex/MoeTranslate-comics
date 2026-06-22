@@ -40,6 +40,7 @@ import com.moe.moetranslator.me.OpenAIProviderConfig
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CropView
 import com.moe.moetranslator.translate.Dialogs
+import com.moe.moetranslator.translate.ScreenshotData
 import com.moe.moetranslator.translate.ScreenshotManager
 import com.moe.moetranslator.translate.TranslationResult
 import com.moe.moetranslator.translate.TranslationTextAPI
@@ -49,10 +50,13 @@ import com.moe.moetranslator.utils.KeystoreManager
 import com.moe.moetranslator.utils.TranslationStatusOverlay
 import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import translationapi.bingtranslation.BingTranslation
 import translationapi.niutrans.NiuTranslation
@@ -95,6 +99,7 @@ class MangaFloatingService : LifecycleService() {
 
         // 分批渲染常量
         const val INCREMENTAL_THRESHOLD = 6       // 触发分批的气泡数量阈值
+        const val CLUSTER_THRESHOLD = 250f        // 空间聚类加权距离阈值
 
         // 当前加载的 manga-ocr 版本，用于日志
         @Volatile
@@ -296,6 +301,13 @@ class MangaFloatingService : LifecycleService() {
         translatorText?.release()
         autoTranslateHandler.removeCallbacksAndMessages(null)
         clearRegionCache()
+
+        // 取消所有协程，等待正在执行的 ONNX 推理完成后再释放资源
+        // 防止 session.close() 和 session.run() 并发导致 native 内存损坏
+        lifecycleScope.cancel()
+        runBlocking(Dispatchers.IO) {
+            coroutineContext[Job]?.children?.forEach { it.join() }
+        }
 
         // 释放 OCR 引擎资源
         when (config.ocrEngine) {
@@ -1597,13 +1609,16 @@ class MangaFloatingService : LifecycleService() {
         LogCollector.d(TAG, "setupScreenshotCollector: starting collector coroutine")
         lifecycleScope.launch {
             LogCollector.d(TAG, "Screenshot collector: coroutine started, waiting for screenshots...")
-            ScreenshotManager.screenshotFlow.collect { bitmap ->
-                LogCollector.d(TAG, "Screenshot collector: BITMAP RECEIVED! ${bitmap.width}x${bitmap.height}")
+            ScreenshotManager.screenshotFlow.collect { data ->
+                // ocrBitmap: 用于 OCR 和翻译流程的 bitmap（裁剪后或全屏）
+                val ocrBitmap = data.croppedBitmap ?: data.fullBitmap
+                LogCollector.d(TAG, "Screenshot collector: RECEIVED! full=${data.fullBitmap.width}x${data.fullBitmap.height}, ocr=${ocrBitmap.width}x${ocrBitmap.height}")
                 try {
                     // 检测受限区域截图（全黑/几乎全黑）
-                    if (isRestrictedScreenshot(bitmap)) {
+                    if (isRestrictedScreenshot(ocrBitmap)) {
                         LogCollector.d(TAG, "Screenshot collector: 检测到受限区域截图，跳过翻译")
-                        bitmap.recycle()
+                        ocrBitmap.recycle()
+                        if (data.croppedBitmap != null) data.fullBitmap.recycle()
                         isProcessing = false
                         statusOverlay.showError("该区域无法截图，可能是受限内容（安全应用/DRM保护）")
                         if (isAutoTranslating) scheduleNextDetection(DETECT_INTERVAL_MS)
@@ -1612,22 +1627,28 @@ class MangaFloatingService : LifecycleService() {
 
                     // 自动翻译模式：pHash 门控（手动翻译时跳过）
                     if (isAutoTranslating && !isManualTranslating) {
-                        val pHash = PerceptualHash.compute(bitmap)
+                        // 用全屏截图计算稳定的 pHash（不受框选偏移影响）
+                        val pHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
+                        // 全屏 bitmap 算完 pHash 即可释放（除非它同时是 ocrBitmap）
+                        if (data.croppedBitmap != null) data.fullBitmap.recycle()
                         val shouldTranslate = processAutoDetectPHash(pHash)
                         if (!shouldTranslate) {
-                            bitmap.recycle()
+                            ocrBitmap.recycle()
                             isProcessing = false
                             // 不关闭进度条，保持"自动检测中"显示
                             return@collect
                         }
                         // pHash 通过门控，切换为"翻译中"，执行 OCR + 翻译
                         showProgressOverlay(getString(R.string.manga_translating))
-                        processMangaScreenshot(bitmap, pHash)
+                        processMangaScreenshot(ocrBitmap, pHash)
                     } else {
-                        // 手动模式：直接翻译
+                        // 手动模式：用全屏截图计算稳定的缓存 pHash
+                        val cachePHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
+                        // 全屏 bitmap 算完 pHash 即可释放（除非它同时是 ocrBitmap）
+                        if (data.croppedBitmap != null) data.fullBitmap.recycle()
                         showProgressOverlay("检测中...")
                         try {
-                            processMangaScreenshot(bitmap)
+                            processMangaScreenshot(ocrBitmap, cachePHash)
                         } finally {
                             isManualTranslating = false  // 无论成功失败，恢复自动检测
                         }
@@ -1666,6 +1687,65 @@ class MangaFloatingService : LifecycleService() {
             compareBy<CroppedBubble> { it.rect.top }
                 .thenByDescending { it.rect.left }
         )
+    }
+
+    // ========== 空间聚类（分批切分用） ==========
+
+    private class UnionFind(n: Int) {
+        private val parent = IntArray(n) { it }
+        private val rank = IntArray(n)
+        fun find(x: Int): Int {
+            var r = x
+            while (parent[r] != r) r = parent[r]
+            var i = x
+            while (i != r) { val p = parent[i]; parent[i] = r; i = p }
+            return r
+        }
+        fun union(a: Int, b: Int) {
+            val ra = find(a); val rb = find(b)
+            if (ra == rb) return
+            when {
+                rank[ra] < rank[rb] -> parent[ra] = rb
+                rank[ra] > rank[rb] -> parent[rb] = ra
+                else -> { parent[rb] = ra; rank[ra]++ }
+            }
+        }
+    }
+
+    /**
+     * 按 AABB 空间距离聚类，加权距离 dy×5 + dx。
+     * 垂直接近的行更容易归为同一组（漫画同行文字水平可远但垂直接近）。
+     */
+    private fun <T> groupByProximity(sorted: List<T>, getRect: (T) -> Rect, tag: String): List<List<T>> {
+        if (sorted.size <= 1) return listOf(sorted)
+        val rects = sorted.map { getRect(it) }
+        val uf = UnionFind(sorted.size)
+        for (i in rects.indices) {
+            for (j in i + 1 until rects.size) {
+                val ri = rects[i]; val rj = rects[j]
+                val dx = maxOf(0, maxOf(rj.left - ri.right, ri.left - rj.right))
+                val dy = maxOf(0, maxOf(rj.top - ri.bottom, ri.top - rj.bottom))
+                if (dy * 5f + dx < CLUSTER_THRESHOLD) uf.union(i, j)
+            }
+        }
+        val groups = mutableMapOf<Int, MutableList<T>>()
+        for (i in sorted.indices) groups.getOrPut(uf.find(i)) { mutableListOf() }.add(sorted[i])
+        val result = groups.values.toList()
+        LogCollector.d(TAG, "groupByProximity($tag): ${sorted.size} 行 → ${result.size} 组 ${result.joinToString { "${it.size}行" }}")
+        return result
+    }
+
+    /** 按组边界切分，不拆开任何组。 */
+    private fun <T> splitAtGroupBoundaries(groups: List<List<T>>, fraction: Int = 2, divisor: Int = 5): Pair<List<T>, List<T>> {
+        val total = groups.sumOf { it.size }
+        val target = total * fraction / divisor
+        var cum = 0; var splitIdx = 0
+        for ((i, g) in groups.withIndex()) { cum += g.size; if (cum >= target) { splitIdx = i + 1; break } }
+        if (splitIdx == 0 && groups.isNotEmpty()) splitIdx = 1
+        val first = groups.take(splitIdx).flatten()
+        val second = groups.drop(splitIdx).flatten()
+        LogCollector.d(TAG, "splitAtGroupBoundaries: target=$target, 第一批=${first.size} (${splitIdx}组), 第二批=${second.size} (${groups.size - splitIdx}组)")
+        return first to second
     }
 
     /**
@@ -1737,7 +1817,9 @@ class MangaFloatingService : LifecycleService() {
                 targetLang = config.targetLang,
                 translatorName = translatorName,
                 pHash = currentPHash,
-                sessionId = sessionId
+                sessionId = sessionId,
+                cropWidth = original.width,
+                cropHeight = original.height
             )
             if (isForceRefreshActive) {
                 cacheManager.refreshCache(currentPHash, TranslationCacheManager.MODE_MANGA, entry)
@@ -1796,9 +1878,8 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sorted = sortByMangaReadingOrder(croppedBubbles)
-        val firstBatchSize = sorted.size * 2 / 5
-        val firstBatch = sorted.take(firstBatchSize)
-        val secondBatch = sorted.drop(firstBatchSize)
+        val groups = groupByProximity(sorted, { it.rect }, "RT-DETR")
+        val (firstBatch, secondBatch) = splitAtGroupBoundaries(groups)
         LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第一批 ${firstBatch.size}，第二批 ${secondBatch.size}")
 
         try {
@@ -1817,7 +1898,7 @@ class MangaFloatingService : LifecycleService() {
                 val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
                 withContext(Dispatchers.Main) { showProgressOverlay("翻译进行中，请勿点击屏幕...") }
 
-                val ocrJob = kotlinx.coroutines.GlobalScope.async(Dispatchers.IO) {
+                val ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     DetectionBridge.recognizeCroppedBubbles(
                         secondBatch, DetectionBridge.CTDOCREngine.MangaOcr, this@MangaFloatingService, config.sourceLang
                     )
@@ -1878,9 +1959,8 @@ class MangaFloatingService : LifecycleService() {
             return false
         }
 
-        val firstBatchSize = textLines.size * 2 / 5
-        val firstBatch = textLines.take(firstBatchSize)
-        val secondBatch = textLines.drop(firstBatchSize)
+        val groups = groupByProximity(textLines, { it.rect }, "PP-OCRv5")
+        val (firstBatch, secondBatch) = splitAtGroupBoundaries(groups)
         LogCollector.d(TAG, "incrementalPPOcrV5: 第一批 ${firstBatch.size} 行，第二批 ${secondBatch.size} 行")
 
         // 识别单批：OCR → TextLineMerger 合并 → TextBlockInfo
@@ -1929,7 +2009,7 @@ class MangaFloatingService : LifecycleService() {
                 val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
                 withContext(Dispatchers.Main) { showProgressOverlay("翻译进行中，请勿点击屏幕...") }
 
-                ocrJob = kotlinx.coroutines.GlobalScope.async(Dispatchers.IO) {
+                ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     recognizeBatch(secondBatch)
                 }
 
@@ -1990,9 +2070,9 @@ class MangaFloatingService : LifecycleService() {
                 evictExpiredRegions()
             }
 
-            // 计算 pHash（使用中心裁剪提高框选偏移时的缓存命中率）
-            // precomputedPHash 是全图 pHash（用于页面变化检测），缓存匹配用中心裁剪 pHash
-            currentPHash = PerceptualHash.compute(bitmap, centerCrop = true)
+            // 使用全屏截图计算的稳定 pHash（不受框选偏移影响）
+            // collector 已传入全屏 pHash，fallback 到 bitmap 计算（理论上不会走到）
+            currentPHash = precomputedPHash ?: PerceptualHash.compute(bitmap, centerCrop = true)
 
             // 调试模式：最高优先级，跳过缓存直接检测
             val isDebugMode = when (config.detEngine) {
@@ -2131,7 +2211,7 @@ class MangaFloatingService : LifecycleService() {
             // 全局缓存检查
             isForceRefreshActive = forceRefresh
             if (!isForceRefreshActive) {
-                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA)
+                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height)
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
                     statusOverlay.showImmediate("缓存命中")
@@ -2271,12 +2351,23 @@ class MangaFloatingService : LifecycleService() {
             if (!isForceRefreshActive && allBubbles.isNotEmpty()) {
                 val ocrTexts = allBubbles.map { it.texts.joinToString("") }
                 val textCached = cacheManager.findMangaCacheByText(ocrTexts, config.sourceLang, config.targetLang)
-                if (textCached != null && textCached.resultBitmap != null) {
+                // 面积比校验：防止完全不同大小的框选误命中
+                val textCacheValid = textCached != null && textCached.resultBitmap != null &&
+                    run {
+                        if (textCached.cropWidth <= 0 || textCached.cropHeight <= 0) true  // 旧数据跳过校验
+                        else {
+                            val cachedArea = textCached.cropWidth.toLong() * textCached.cropHeight
+                            val currentArea = bitmap.width.toLong() * bitmap.height
+                            val ratio = currentArea.toFloat() / cachedArea.toFloat()
+                            ratio in 0.8f..1.25f
+                        }
+                    }
+                if (textCacheValid && textCached != null && textCached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 文本缓存命中, historyId=${textCached.historyId}")
                     statusOverlay.showImmediate("缓存命中")
                     lastTranslatedHash = currentPHash
                     // 同步 pHash 缓存
-                    cacheManager.syncPHashCache(currentPHash, TranslationCacheManager.MODE_MANGA, textCached.historyId)
+                    cacheManager.syncPHashCache(currentPHash, TranslationCacheManager.MODE_MANGA, textCached.historyId, bitmap.width, bitmap.height)
                     withContext(Dispatchers.Main) {
                         showResultOverlay(textCached.resultBitmap, fromCache = true)
                     }
@@ -2622,7 +2713,9 @@ class MangaFloatingService : LifecycleService() {
                 targetLang = config.targetLang,
                 translatorName = translatorName,
                 pHash = currentPHash,
-                sessionId = sessionId
+                sessionId = sessionId,
+                cropWidth = original.width,
+                cropHeight = original.height
             )
             // 强制刷新时替换旧缓存和历史，否则直接保存
             if (isForceRefreshActive) {

@@ -912,7 +912,7 @@ object PPOcrV5Engine {
      * @param imgList 待分类图片列表
      * @return 分类结果列表（label="0" 或 "180"）
      */
-    fun clsAndRotate(imgList: List<Bitmap>): List<ClsResult> {
+    fun clsAndRotate(imgList: List<Bitmap>): List<ClsResult> = synchronized(lock) {
         val session = clsSession ?: return imgList.map { ClsResult("0", 1.0f) }
         if (imgList.isEmpty()) return emptyList()
 
@@ -980,7 +980,7 @@ object PPOcrV5Engine {
         // 旋转 180° 由 runOCR 处理（此处仅返回分类结果）
 
         LogCollector.d(TAG, "clsAndRotate: ${batchSize} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
-        return finalResults
+        finalResults
     }
 
     /**
@@ -1039,7 +1039,7 @@ object PPOcrV5Engine {
     /**
      * 批量识别（按 wh_ratio 分组，batch 推理）。
      */
-    fun recognizeBatch(context: Context, imgList: List<Bitmap>, lang: RecLang): List<RecResult> {
+    fun recognizeBatch(context: Context, imgList: List<Bitmap>, lang: RecLang): List<RecResult> = synchronized(lock) {
         if (imgList.isEmpty()) return emptyList()
 
         val dict = dictionary[lang] ?: return imgList.map { RecResult("", 0f) }
@@ -1115,7 +1115,7 @@ object PPOcrV5Engine {
         }
 
         LogCollector.d(TAG, "recognizeBatch: ${imgList.size} 张, lang=${lang.code}, 耗时 ${System.currentTimeMillis() - t0}ms")
-        return allResults
+        allResults
     }
 
     /**
@@ -1679,7 +1679,7 @@ object PPOcrV5Engine {
     /**
      * 运行检测，返回原始坐标系的 box 数组。
      */
-    private fun runDet(bitmap: Bitmap): List<FloatArray> {
+    private fun runDet(bitmap: Bitmap): List<FloatArray> = synchronized(lock) {
         val (input, detH, detW) = preprocessDet(bitmap)
         LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH}")
 
@@ -1709,7 +1709,7 @@ object PPOcrV5Engine {
             val predW = outputShape[3].toInt()
             val pred = outputData.sliceArray(0 until predH * predW)
 
-            return postprocessDet(pred, predH, predW, bitmap.height, bitmap.width).boxes
+            postprocessDet(pred, predH, predW, bitmap.height, bitmap.width).boxes
         } finally {
             results.close()
         }

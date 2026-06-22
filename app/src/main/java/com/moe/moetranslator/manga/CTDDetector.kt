@@ -9,6 +9,8 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.nio.FloatBuffer
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.math.max
 
 /**
@@ -45,6 +47,9 @@ object CTDDetector {
     @Volatile
     var isInitialized = false
         private set
+
+    // 保护 session/env 与推理不并发：release() 等推理完成后再关闭
+    private val sessionLock = ReentrantLock()
 
     /**
      * 初始化模型
@@ -317,7 +322,7 @@ object CTDDetector {
     /**
      * 运行 CTD 推理，返回 lines_map 的概率图和内容尺寸。
      */
-    private fun runInference(bitmap: Bitmap): Triple<FloatArray, Int, Int> {
+    private fun runInference(bitmap: Bitmap): Triple<FloatArray, Int, Int> = sessionLock.withLock {
         // 1. 预处理：letterbox 缩放到 DETECT_SIZE×DETECT_SIZE（stride=64 对齐）
         val (inputTensor, contentH, contentW) = preprocessImage(bitmap)
 
@@ -387,7 +392,7 @@ object CTDDetector {
         linesMapTensor.close()
         results.close()
 
-        return Triple(probMap, contentH, contentW)
+        Triple(probMap, contentH, contentW)
     }
 
     /**
@@ -462,6 +467,7 @@ object CTDDetector {
      * 释放资源
      */
     fun release() {
+        sessionLock.lock()
         try {
             session?.close()
             ortEnv?.close()
@@ -471,6 +477,7 @@ object CTDDetector {
             session = null
             ortEnv = null
             isInitialized = false
+            sessionLock.unlock()
         }
     }
 }

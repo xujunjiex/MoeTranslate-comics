@@ -35,17 +35,32 @@
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="#FFFFFF" />
 
+    <!-- 尺寸切换按钮栏 -->
+    <LinearLayout
+        android:id="@+id/sizeSwitcher"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="88dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="#66000000"
+        android:paddingHorizontal="4dp"
+        android:paddingVertical="2dp"
+        android:visibility="gone" />
+
     <!-- 底部查看译文按钮 -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnShowTranslation"
         android:layout_width="wrap_content"
-        android:layout_height="48dp"
+        android:layout_height="40dp"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="32dp"
         android:text="@string/show_translation"
         android:textColor="#FFFFFF"
+        android:textSize="13sp"
         app:backgroundTint="#CC333333"
-        app:cornerRadius="24dp"
+        app:cornerRadius="20dp"
         app:icon="@android:drawable/ic_menu_sort_by_size"
         app:iconTint="#FFFFFF" />
 

@@ -39,6 +39,9 @@ interface TranslationHistoryDao {
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode LIMIT 1")
     suspend fun findCacheByExactHash(pHash: Long, mode: Int): PageCacheEntity?
 
+    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode")
+    suspend fun findAllCacheByHash(pHash: Long, mode: Int): List<PageCacheEntity>
+
     /**
      * 按原文+语言对查找游戏翻译历史（精确匹配 sourceText）
      */
@@ -56,6 +59,9 @@ interface TranslationHistoryDao {
 
     @Query("DELETE FROM page_cache WHERE historyId = :historyId")
     suspend fun deleteCacheByHistoryId(historyId: Long)
+
+    @Query("SELECT * FROM page_cache WHERE historyId = :historyId LIMIT 1")
+    suspend fun findCacheByHistoryId(historyId: Long): PageCacheEntity?
 
     @Query("SELECT COUNT(*) FROM page_cache WHERE mode = :mode")
     suspend fun getCacheCount(mode: Int): Int

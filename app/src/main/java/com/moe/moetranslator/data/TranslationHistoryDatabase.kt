@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [HistoryEntity::class, PageCacheEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class TranslationHistoryDatabase : RoomDatabase() {
@@ -27,13 +27,21 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
             }
         }
 
+        // 版本 3 → 4：page_cache 添加 cropWidth/cropHeight 字段
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN cropWidth INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN cropHeight INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): TranslationHistoryDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     TranslationHistoryDatabase::class.java,
                     "translation_history.db"
-                ).addMigrations(MIGRATION_2_3)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
             }

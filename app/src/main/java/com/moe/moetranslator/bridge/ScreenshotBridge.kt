@@ -35,8 +35,12 @@ object ScreenshotBridge {
      */
     fun collectScreenshot(scope: CoroutineScope, callback: (Bitmap) -> Unit): Job {
         return scope.launch {
-            ScreenshotManager.screenshotFlow.collect { bitmap ->
+            ScreenshotManager.screenshotFlow.collect { data ->
+                // 游戏翻译：使用裁剪后的 bitmap（或全屏 bitmap）
+                val bitmap = data.croppedBitmap ?: data.fullBitmap
                 callback(bitmap)
+                // 全屏 bitmap 如果不是使用中的 bitmap，释放它
+                if (data.croppedBitmap != null) data.fullBitmap.recycle()
             }
         }
     }

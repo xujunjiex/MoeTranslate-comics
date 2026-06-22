@@ -18,6 +18,7 @@ import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.ActivityMangaViewerBinding
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.PerceptualHash
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -28,13 +29,21 @@ class MangaViewerActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MangaViewerActivity"
         const val EXTRA_ENTRY_ID = "entry_id"
+        const val EXTRA_ENTRY_IDS = "entry_ids"  // 同 pHash 多尺寸条目
     }
 
     private lateinit var binding: ActivityMangaViewerBinding
     private lateinit var cacheManager: TranslationCacheManager
-    private val entries = mutableListOf<HistoryEntry>()
+
+    // 每个 pHash 组：代表条目 + 所有尺寸变体
+    data class PageGroup(
+        val representative: HistoryEntry,
+        val variants: MutableList<HistoryEntry> = mutableListOf(representative)
+    )
+    private val pageGroups = mutableListOf<PageGroup>()
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private var isPanelExpanded = false
+    private var groupEntryIds: List<Long> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,9 +60,10 @@ class MangaViewerActivity : AppCompatActivity() {
         cacheManager = TranslationCacheManager(this)
 
         val clickedEntryId = intent.getLongExtra(EXTRA_ENTRY_ID, -1L)
+        val entryIds = intent.getLongArrayExtra(EXTRA_ENTRY_IDS)
 
         setupViews()
-        loadData(clickedEntryId)
+        loadData(clickedEntryId, entryIds)
     }
 
     private fun setupViews() {
@@ -78,6 +88,8 @@ class MangaViewerActivity : AppCompatActivity() {
                 if (isPanelExpanded) {
                     collapsePanel()
                 }
+                // 更新尺寸切换按钮（根据新页组的变体数）
+                updateSizeSwitcherVisibility(position)
             }
         })
 
@@ -87,32 +99,44 @@ class MangaViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadData(clickedEntryId: Long) {
+    private fun loadData(clickedEntryId: Long, entryIds: LongArray? = null) {
         lifecycleScope.launch {
             try {
-                // 加载所有漫画历史，支持跨会话翻页
+                // 加载所有漫画历史
                 val allEntries = cacheManager.getHistory(TranslationCacheManager.MODE_MANGA, limit = 500)
 
-                entries.clear()
-                entries.addAll(allEntries)
-
-                if (entries.isEmpty()) {
+                if (allEntries.isEmpty()) {
                     Toast.makeText(this@MangaViewerActivity, R.string.no_translation_data, Toast.LENGTH_SHORT).show()
                     finish()
                     return@launch
                 }
 
-                // 设置 ViewPager
-                val adapter = MangaImageAdapter(entries)
+                // 保存分组 ID（来自历史列表点击）
+                groupEntryIds = entryIds?.toList() ?: emptyList()
+
+                // 按 pHash 分组（相似度 ≥ 0.85 视为同一页）
+                pageGroups.clear()
+                pageGroups.addAll(buildPageGroups(allEntries))
+
+                // 设置 ViewPager（每页 = 一个 pHash 组）
+                val adapter = PageGroupAdapter(pageGroups)
                 binding.viewPager.adapter = adapter
 
-                // 跳转到点击的图片
-                val clickedIndex = entries.indexOfFirst { it.id == clickedEntryId }
-                val safeIndex = if (clickedIndex >= 0) clickedIndex else 0
+                // 跳转到点击的组
+                val clickedGroupId = pageGroups.indexOfFirst {
+                    it.variants.any { v -> v.id == clickedEntryId }
+                }
+                val safeIndex = if (clickedGroupId >= 0) clickedGroupId else 0
                 binding.viewPager.setCurrentItem(safeIndex, false)
                 updatePageIndicator(safeIndex)
 
-                LogCollector.d(TAG, "加载漫画历史, ${entries.size} 张图片, 跳转到 #$safeIndex")
+                // 如果点击的组有多个尺寸，显示尺寸按钮
+                val clickedGroup = pageGroups.getOrNull(safeIndex)
+                if (clickedGroup != null && clickedGroup.variants.size > 1) {
+                    showSizeSwitcher(clickedGroup)
+                }
+
+                LogCollector.d(TAG, "加载漫画历史, ${pageGroups.size} 页, 跳转到 #$safeIndex")
             } catch (e: Exception) {
                 LogCollector.e(TAG, "加载数据失败", e)
                 Toast.makeText(this@MangaViewerActivity, R.string.no_translation_data, Toast.LENGTH_SHORT).show()
@@ -121,9 +145,150 @@ class MangaViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun updatePageIndicator(position: Int) {
-        binding.tvPageIndicator.text = "${position + 1}/${entries.size}"
+    /**
+     * 将所有条目按 pHash 相似度分组，每组取最新为代表。
+     */
+    private fun buildPageGroups(allEntries: List<HistoryEntry>): List<PageGroup> {
+        val used = mutableSetOf<Long>()
+        val groups = mutableListOf<PageGroup>()
+
+        for (entry in allEntries) {
+            if (entry.id in used) continue
+            if (entry.pHash == 0L) {
+                // 无 pHash 的条目独立成组
+                groups.add(PageGroup(entry))
+                used.add(entry.id)
+                continue
+            }
+
+            // 找同 pHash 的条目
+            val variants = allEntries.filter {
+                it.id !in used && it.pHash != 0L &&
+                    PerceptualHash.similarity(entry.pHash, it.pHash) >= 0.85f
+            }
+            variants.forEach { used.add(it.id) }
+
+            // 取最新为代表
+            val sorted = variants.sortedByDescending { it.createdAt }
+            groups.add(PageGroup(
+                representative = sorted.first(),
+                variants = sorted.toMutableList()
+            ))
+        }
+        return groups
     }
+
+    /**
+     * 翻页时更新尺寸切换按钮。
+     * 当前页组有多个变体时显示按钮，否则隐藏。
+     */
+    private fun updateSizeSwitcherVisibility(position: Int) {
+        val group = pageGroups.getOrNull(position)
+        if (group == null || group.variants.size <= 1) {
+            binding.sizeSwitcher.visibility = android.view.View.GONE
+            binding.sizeSwitcher.removeAllViews()
+        } else {
+            showSizeSwitcher(group)
+        }
+    }
+
+    /**
+     * 显示尺寸切换按钮（半透明小按钮，在"查看译文"上方）。
+     */
+    private fun showSizeSwitcher(group: PageGroup) {
+        if (group.variants.size <= 1) return
+
+        val container = binding.sizeSwitcher
+        container.removeAllViews()
+
+        val position = binding.viewPager.currentItem
+        val activeId = activeVariantIds[position] ?: group.representative.id
+
+        for ((idx, variant) in group.variants.withIndex()) {
+            val dimStr = getImageDimensions(variant.imagePath ?: variant.thumbnailPath)
+
+            val btn = android.widget.TextView(this).apply {
+                text = dimStr
+                textSize = 10f
+                setTextColor(if (variant.id == activeId) android.graphics.Color.parseColor("#FF9800") else android.graphics.Color.WHITE)
+                setPadding(12, 4, 12, 4)
+                tag = variant.id
+                setOnClickListener {
+                    switchVariant(it.tag as Long)
+                }
+            }
+            container.addView(btn)
+
+            // 分隔线
+            if (idx < group.variants.size - 1) {
+                val divider = android.view.View(this).apply {
+                    setBackgroundColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                }
+                val divParams = android.widget.LinearLayout.LayoutParams(1, android.widget.LinearLayout.LayoutParams.MATCH_PARENT)
+                container.addView(divider, divParams)
+            }
+        }
+
+        container.visibility = android.view.View.VISIBLE
+    }
+
+    /**
+     * 切换当前页的尺寸变体（不翻页，只换图片和译文）。
+     */
+    private fun switchVariant(variantId: Long) {
+        val position = binding.viewPager.currentItem
+        val group = pageGroups.getOrNull(position) ?: return
+        val variant = group.variants.find { it.id == variantId } ?: return
+
+        // 记录活跃变体
+        activeVariantIds[position] = variantId
+
+        // 更新 adapter 的活跃变体并刷新当前页
+        val adapter = binding.viewPager.adapter as? PageGroupAdapter ?: return
+        adapter.setActiveVariant(position, variantId)
+        adapter.notifyItemChanged(position)
+
+        // 更新按钮高亮
+        showSizeSwitcher(group)
+
+        // 如果面板展开，更新译文
+        if (isPanelExpanded) {
+            expandPanel()
+        }
+
+        LogCollector.d(TAG, "switchVariant: entryId=$variantId, size=${variant.imagePath?.let { getImageDimensions(it) }}")
+    }
+
+    private fun getImageDimensions(path: String?): String {
+        if (path == null) return "?"
+        return try {
+            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(path, options)
+            "${options.outWidth}×${options.outHeight}"
+        } catch (e: Exception) { "?" }
+    }
+
+    private fun updatePageIndicator(position: Int) {
+        binding.tvPageIndicator.text = "${position + 1}/${pageGroups.size}"
+    }
+
+    /**
+     * 获取当前页组的活跃变体（用户选中的尺寸，或默认代表条目）。
+     */
+    private fun getCurrentVariant(): HistoryEntry {
+        val position = binding.viewPager.currentItem
+        val group = pageGroups.getOrNull(position) ?: return pageGroups.first().representative
+        // 如果有活跃变体 ID，用它；否则用代表条目
+        val activeId = activeVariantIds[position]
+        return if (activeId != null) {
+            group.variants.find { it.id == activeId } ?: group.representative
+        } else {
+            group.representative
+        }
+    }
+
+    // 每页当前活跃的变体 ID（尺寸按钮选中的）
+    private val activeVariantIds = mutableMapOf<Int, Long>()
 
     private fun togglePanel() {
         if (isPanelExpanded) {
@@ -135,12 +300,12 @@ class MangaViewerActivity : AppCompatActivity() {
 
     private fun expandPanel() {
         val position = binding.viewPager.currentItem
-        if (position < 0 || position >= entries.size) {
-            LogCollector.w(TAG, "expandPanel: invalid position=$position, size=${entries.size}")
+        if (position < 0 || position >= pageGroups.size) {
+            LogCollector.w(TAG, "expandPanel: invalid position=$position, size=${pageGroups.size}")
             return
         }
 
-        val entry = entries[position]
+        val entry = getCurrentVariant()
         LogCollector.d(TAG, "expandPanel: entryId=${entry.id}, sourceText=${entry.sourceText?.take(30)}, translatedText=${entry.translatedText?.take(30)}")
 
         val detailList = buildDetailList(entry)
@@ -257,9 +422,16 @@ class TranslationDetailAdapter(
     override fun getItemCount() = items.size
 }
 
-class MangaImageAdapter(
-    private val entries: List<HistoryEntry>
-) : RecyclerView.Adapter<MangaImageAdapter.ViewHolder>() {
+/**
+ * 每页显示一个 pHash 组的代表图片。
+ * 支持 switchCurrentImage 切换当前页的尺寸变体。
+ */
+class PageGroupAdapter(
+    private val pageGroups: List<MangaViewerActivity.PageGroup>
+) : RecyclerView.Adapter<PageGroupAdapter.ViewHolder>() {
+
+    // 当前每页显示的变体（position → entryId），null 表示用代表条目
+    private val activeVariants = mutableMapOf<Int, Long>()
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView: ZoomableImageView = view.findViewById(R.id.ivFullImage)
@@ -272,7 +444,37 @@ class MangaImageAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val entry = entries[position]
+        val group = pageGroups[position]
+        val activeId = activeVariants[position]
+        val entry = if (activeId != null) {
+            group.variants.find { it.id == activeId } ?: group.representative
+        } else {
+            group.representative
+        }
+        loadImage(holder, entry)
+    }
+
+    override fun getItemCount() = pageGroups.size
+
+    /**
+     * 切换当前 ViewPager 页面的图片（不 notify，直接操作当前 ViewHolder）。
+     */
+    fun updateCurrentImage(entry: HistoryEntry) {
+        // 通过 ViewPager2 找到当前 ViewHolder
+        // ViewPager2 内部用 RecyclerView，但没有直接 API 获取当前 holder
+        // 用 notifyItemChanged 触发重新绑定
+        val position = activeVariants.entries.find { it.value == entry.id }?.key ?: return
+        notifyItemChanged(position)
+    }
+
+    /**
+     * 记录某页的活跃变体。
+     */
+    fun setActiveVariant(position: Int, entryId: Long) {
+        activeVariants[position] = entryId
+    }
+
+    private fun loadImage(holder: ViewHolder, entry: HistoryEntry) {
         val path = entry.imagePath ?: entry.thumbnailPath
         val isThumbnail = entry.imagePath == null
         if (path != null && java.io.File(path).exists()) {
@@ -285,6 +487,4 @@ class MangaImageAdapter(
             holder.imageView.setImageBitmap(null)
         }
     }
-
-    override fun getItemCount() = entries.size
 }

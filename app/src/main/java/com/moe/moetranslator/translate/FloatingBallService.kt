@@ -1103,7 +1103,10 @@ class FloatingBallService : LifecycleService() {
 
     private fun setupScreenshotCollector() {
         lifecycleScope.launch {
-            ScreenshotManager.screenshotFlow.collect { bitmap ->
+            ScreenshotManager.screenshotFlow.collect { data ->
+                // 游戏翻译：使用裁剪后的 bitmap（或全屏 bitmap）
+                val bitmap = data.croppedBitmap ?: data.fullBitmap
+                if (data.croppedBitmap != null) data.fullBitmap.recycle()
                 try {
                     isTranslating.set(true)
                     processScreenshot(bitmap)

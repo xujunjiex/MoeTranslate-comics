@@ -28,5 +28,7 @@ data class PageCacheEntity(
     val pHash: Long,            // 感知哈希值
     val mode: Int,              // 0=游戏, 1=漫画
     val lastAccessedAt: Long,   // 最后访问时间（LRU）
-    val createdAt: Long         // 创建时间
+    val createdAt: Long,        // 创建时间
+    val cropWidth: Int = 0,     // 裁剪区域宽度（面积比校验，0=旧数据无记录）
+    val cropHeight: Int = 0     // 裁剪区域高度（面积比校验，0=旧数据无记录）
 )

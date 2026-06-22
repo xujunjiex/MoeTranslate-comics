@@ -9,6 +9,8 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.nio.FloatBuffer
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * RT-DETR-v2 漫画气泡/文字区域检测器（ONNX Runtime 推理）。
@@ -45,6 +47,9 @@ object ComicBubbleDetector {
     @Volatile
     var isInitialized = false
         private set
+
+    // 保护 session/env 与推理不并发：release() 等推理完成后再关闭
+    private val sessionLock = ReentrantLock()
 
     /**
      * 初始化模型。仅从 filesDir 加载（需先下载）。
@@ -87,7 +92,7 @@ object ComicBubbleDetector {
      * @param confThreshold 置信度阈值，默认 0.4
      * @return 检测到的气泡/文字区域列表（已过滤 classId=0，已 NMS 去重）
      */
-    fun detectBubbles(bitmap: Bitmap, confThreshold: Float = 0.4f): List<DetectedBubble> {
+    fun detectBubbles(bitmap: Bitmap, confThreshold: Float = 0.4f): List<DetectedBubble> = sessionLock.withLock {
         if (!isInitialized) {
             throw IllegalStateException("ComicBubbleDetector 未初始化")
         }
@@ -128,7 +133,7 @@ object ComicBubbleDetector {
             results.close()
 
             // 后处理：NMS 去重（不过滤类别，由调用方决定保留哪些）
-            return postprocessAllClasses(labels, boxes, scores, confThreshold)
+            postprocessAllClasses(labels, boxes, scores, confThreshold)
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "检测失败", e)
@@ -139,7 +144,7 @@ object ComicBubbleDetector {
     /**
      * 调试用：返回所有类别的检测结果（含 classId=0 的空气泡）。
      */
-    fun detectBubblesAllClasses(bitmap: Bitmap, confThreshold: Float = 0.3f): List<DetectedBubble> {
+    fun detectBubblesAllClasses(bitmap: Bitmap, confThreshold: Float = 0.3f): List<DetectedBubble> = sessionLock.withLock {
         if (!isInitialized) {
             throw IllegalStateException("ComicBubbleDetector 未初始化")
         }
@@ -177,7 +182,7 @@ object ComicBubbleDetector {
                 candidates.add(Triple(i, RectF(x1, y1, x2, y2), scores[i]))
             }
             val keepIndices = nms(candidates.map { it.second }, candidates.map { it.third }, NMS_IOU_THRESHOLD)
-            return keepIndices.map { idx ->
+            keepIndices.map { idx ->
                 val (origIdx, box, score) = candidates[idx]
                 DetectedBubble(
                     rect = Rect(box.left.toInt().coerceAtLeast(0), box.top.toInt().coerceAtLeast(0), box.right.toInt(), box.bottom.toInt()),
@@ -384,6 +389,7 @@ object ComicBubbleDetector {
      * 释放资源。
      */
     fun release() {
+        sessionLock.lock()
         try {
             session?.close()
             ortEnv?.close()
@@ -393,6 +399,7 @@ object ComicBubbleDetector {
             session = null
             ortEnv = null
             isInitialized = false
+            sessionLock.unlock()
         }
     }
 }
