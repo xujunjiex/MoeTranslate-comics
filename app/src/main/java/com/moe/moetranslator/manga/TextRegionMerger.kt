@@ -6,6 +6,7 @@ import android.graphics.Rect
 import com.moe.moetranslator.utils.LogCollector
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -135,12 +136,43 @@ object TextRegionMerger {
     }
 
     /**
+     * AABB 距离（Chebyshev 距离）：两个 AABB 之间的最大轴向间隙。
+     * 对齐 Shapely Polygon.distance()，重叠时返回 0。
+     */
+    private fun aabbDistance(a: TextRegion, b: TextRegion): Float {
+        val ra = a.quad.aabb
+        val rb = b.quad.aabb
+        val dx = max(0, max(rb.left - ra.right, ra.left - rb.right))
+        val dy = max(0, max(rb.top - ra.bottom, ra.top - rb.bottom))
+        return max(dx, dy).toFloat()
+    }
+
+    /**
+     * 从 quad 顶边向量计算文字角度（弧度）。
+     * 不使用 QuadBox.angle（结构线方向可能反向 180°）。
+     * 对齐 ocrResultToTextLines 的 atan2(topDy, topDx) 算法。
+     */
+    private fun quadTopEdgeAngle(quad: QuadBox): Float {
+        val topDx = quad.pts[1].x - quad.pts[0].x
+        val topDy = quad.pts[1].y - quad.pts[0].y
+        return atan2(topDy, topDx)
+    }
+
+    /**
+     * 从 quad 顶边向量计算文字角度（度），±3° 内归零。
+     */
+    private fun quadTopEdgeAngleDeg(quad: QuadBox): Float {
+        var angleDeg = quadTopEdgeAngle(quad) * 180f / PI.toFloat()
+        if (abs(angleDeg) <= 3f) angleDeg = 0f
+        return angleDeg
+    }
+
+    /**
      * 判断近似轴对齐。
-     * QuadBox.angle 是结构线方向（弧度），可能接近 0 或 ±π。
-     * 归一化到 [0, 180°) 后判断是否接近 0° 或 180°。
+     * 从顶边向量计算角度，归一化到 [0, 180°) 后判断。
      */
     private fun isApproxAxisAligned(quad: QuadBox): Boolean {
-        val angleDeg = abs(quad.angle) * 180f / PI.toFloat()
+        val angleDeg = abs(quadTopEdgeAngle(quad)) * 180f / PI.toFloat()
         val normalized = angleDeg % 180f
         return normalized <= 3f || normalized >= 177f
     }
@@ -161,8 +193,8 @@ object TextRegionMerger {
         val aAA = isApproxAxisAligned(a.quad)
         val bAA = isApproxAxisAligned(b.quad)
 
-        // 距离粗筛（AA + Tilted 共用）
-        val dist = quadCenterDistance(a, b)
+        // 距离粗筛（AA + Tilted 共用，对齐 Shapely Polygon.distance）
+        val dist = aabbDistance(a, b)
         val maxGap = discardConnectionGap * charSize
         if (dist > maxGap) {
             if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → REJECT dist=${String.format("%.1f", dist)} > $maxGap")
@@ -187,7 +219,10 @@ object TextRegionMerger {
         }
 
         // 方向一致性（AA + Tilted 共用）
-        if (a.quad.isVertical != b.quad.isVertical) {
+        // 近似正方形的框方向不可靠（对角线结构向量无意义），跳过方向检查
+        val aSquare = a.quad.aspectRatio < ASPECT_RATIO_TOL
+        val bSquare = b.quad.aspectRatio < ASPECT_RATIO_TOL
+        if (!aSquare && !bSquare && a.quad.isVertical != b.quad.isVertical) {
             if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → REJECT direction mismatch")
             return false
         }
@@ -220,14 +255,14 @@ object TextRegionMerger {
                 if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA REJECT mixed orient")
                 return false
             }
-            // 横排
+            // 横排：边对齐（对齐参考：charSize * charGapTolerance2）
             if (w1 > h1 * RATIO || w2 > h2 * RATIO) {
                 val accept = abs(x1 - x2) < charSize * charGapTolerance2 ||
                              abs(x1 + w1 - (x2 + w2)) < charSize * charGapTolerance2
-                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA h-align=$accept")
+                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA h-align=$accept (Δleft=${String.format("%.0f", abs(x1-x2))}, Δright=${String.format("%.0f", abs(x1+w1-(x2+w2)))})")
                 return accept
             }
-            // 竖排
+            // 竖排：边对齐（对齐参考：charSize * charGapTolerance2）
             if (h1 > w1 * RATIO || h2 > w2 * RATIO) {
                 val y1 = a.quad.aabb.top.toFloat()
                 val y2 = b.quad.aabb.top.toFloat()
@@ -241,7 +276,7 @@ object TextRegionMerger {
         }
 
         // ========== Tilted 分支（manga L688-697）==========
-        val angleDiff = abs(a.quad.angle - b.quad.angle) * 180f / PI.toFloat()
+        val angleDiff = abs(quadTopEdgeAngle(a.quad) - quadTopEdgeAngle(b.quad)) * 180f / PI.toFloat()
         if (angleDiff > TILTED_ANGLE_DIFF_MAX) {
             if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → TILTED REJECT angleDiff=${String.format("%.1f", angleDiff)} > $TILTED_ANGLE_DIFF_MAX")
             return false
@@ -282,7 +317,7 @@ object TextRegionMerger {
             val b = regions[indices[1]]
             val fs = max(a.quad.fontSize, b.quad.fontSize)
             val dist = quadCenterDistance(a, b)
-            val angleDiff = abs(a.quad.angle - b.quad.angle)
+            val angleDiff = abs(quadTopEdgeAngle(a.quad) - quadTopEdgeAngle(b.quad))
             if (dist < (1 + gamma) * fs && angleDiff < 0.2f * PI.toFloat()) {
                 return listOf(setOf(indices[0], indices[1]))
             }
@@ -407,7 +442,7 @@ object TextRegionMerger {
                         texts = listOf(region.text ?: ""),
                         direction = direction,
                         fontSize = region.quad.fontSize,
-                        angle = region.quad.angle * 180f / PI.toFloat(),
+                        angle = quadTopEdgeAngleDeg(region.quad),
                         score = region.score,
                         center = PointF(rect.exactCenterX(), rect.exactCenterY()),
                         members = listOf(region)
@@ -464,8 +499,10 @@ object TextRegionMerger {
                 val nodes = nodeSet.toList()
                 val members = nodes.map { regions[it] }
 
-                // 方向投票
-                val directionCounts = members.groupBy { it.quad.isVertical }.mapValues { it.value.size }
+                // 方向投票（只统计有明确方向的框，正方形不参与投票）
+                val directionalMembers = members.filter { it.quad.aspectRatio >= ASPECT_RATIO_TOL }
+                val voters = if (directionalMembers.isNotEmpty()) directionalMembers else members
+                val directionCounts = voters.groupBy { it.quad.isVertical }.mapValues { it.value.size }
                 val majorityVertical = (directionCounts[true] ?: 0) > (directionCounts[false] ?: 0)
                 val direction = if (majorityVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
 
@@ -497,7 +534,7 @@ object TextRegionMerger {
                 val minFontSize = members.minOf { it.quad.fontSize }
                 val avgScore = members.map { it.score }.average().toFloat()
                 val weightedAngle = weightedAverage(
-                    members.map { it.quad.angle * 180f / PI.toFloat() },
+                    members.map { quadTopEdgeAngleDeg(it.quad) },
                     members.map { it.quad.fontSize }
                 )
                 val mergedCenter = PointF(unionRect.exactCenterX(), unionRect.exactCenterY())

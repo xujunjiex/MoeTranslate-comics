@@ -2059,10 +2059,22 @@ class MangaFloatingService : LifecycleService() {
                                 val text = ocrResult.texts[i]
                                 val score = ocrResult.scores.getOrElse(i) { 0f }
                                 val box = ocrResult.boxes.getOrNull(i)
-                                val boxStr = if (box != null && box.size >= 8) {
-                                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
-                                } else ""
-                                LogCollector.d(TAG, "PP-OCRv5 RAW[$i]: ${String.format("%.2f", score)} $boxStr \"$text\"")
+                                if (box != null && box.size >= 8) {
+                                    val topDx = box[2] - box[0]
+                                    val topDy = box[3] - box[1]
+                                    val leftDx = box[6] - box[0]
+                                    val leftDy = box[7] - box[1]
+                                    val topLen = kotlin.math.sqrt((topDx * topDx + topDy * topDy).toDouble()).toFloat()
+                                    val leftLen = kotlin.math.sqrt((leftDx * leftDx + leftDy * leftDy).toDouble()).toFloat()
+                                    var angle = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+                                    if (abs(angle) <= 3f) angle = 0f
+                                    val isVertical = leftLen > topLen * 1.5f
+                                    val fontSize = if (isVertical) topLen else leftLen
+                                    val dirLabel = if (isVertical) "V" else "H"
+                                    val angleStr = if (abs(angle) > 0.5f) "∠${String.format("%.1f°", angle)}" else "∠0°"
+                                    val quadStr = "TL(${box[0].toInt()},${box[1].toInt()}) TR(${box[2].toInt()},${box[3].toInt()}) BR(${box[4].toInt()},${box[5].toInt()}) BL(${box[6].toInt()},${box[7].toInt()})"
+                                    LogCollector.d(TAG, "PP-OCRv5 RAW[$i]: ${String.format("%.2f", score)} $dirLabel fs=${String.format("%.0f", fontSize)} $angleStr $quadStr \"$text\"")
+                                }
                             }
                             // 被丢弃选区详情
                             for (i in debugDet.discardedBoxes.indices) {
@@ -2096,7 +2108,8 @@ class MangaFloatingService : LifecycleService() {
                                 val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
                                 val r = region.rect
                                 val merged = region.texts.joinToString("｜")
-                                LogCollector.d(TAG, "PP-OCRv5 MERGED[$idx]: $dirLabel ×${region.texts.size} [${r.left},${r.top},${r.right},${r.bottom}] \"$merged\"")
+                                val angleStr = if (abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
+                                LogCollector.d(TAG, "PP-OCRv5 MERGED[$idx]: $dirLabel ×${region.texts.size}$angleStr fs=${String.format("%.0f", region.fontSize)} [${r.left},${r.top},${r.right},${r.bottom}] \"$merged\"")
                             }
                             // 内容丢弃详情
                             for ((region, reason) in contentDiscarded) {
@@ -4557,8 +4570,9 @@ class MangaFloatingService : LifecycleService() {
             add("PP-OCRv5 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $scoreDisc  内容丢弃: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
             add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
             add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
-            add("合并（对齐 manga-image-translator，hardcoded）:")
-            add("  距离门控 = ${String.format("%.1f", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)} (×字号, AABB距离超过则拒绝合并)")
+            val curGap = prefs.getFloat("merge_discard_gap", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)
+            add("合并参数（对齐 manga-image-translator）:")
+            add("  距离门控 = ${String.format("%.1f", curGap)} (×字号, AABB距离超过则拒绝合并)")
             add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
             add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
                 "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +

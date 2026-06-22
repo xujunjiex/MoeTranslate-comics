@@ -26,17 +26,6 @@ data class DetectedRect(
     val isVertical: Boolean  // 原始检测框的方向
 )
 
-/**
- * 带字高的检测矩形（用于 merge 逻辑）
- */
-data class DetectedRectWithFont(
-    val rect: Rect,           // AABB
-    val isVertical: Boolean,  // 文字方向
-    val fontSize: Float,      // 字高（从 QuadBox 结构线计算）
-    val angle: Float,         // 旋转角度（弧度）
-    val aspectRatio: Float    // 宽高比
-)
-
 object CTDDetector {
 
     private const val TAG = "CTDDetector"
@@ -482,21 +471,6 @@ object CTDDetector {
             session = null
             ortEnv = null
             isInitialized = false
-        }
-    }
-
-    /**
-     * 将 QuadBox 列表转换为 DetectedRectWithFont 列表
-     */
-    fun convertQuadBoxesToDetectedRects(quadBoxes: List<QuadBox>): List<DetectedRectWithFont> {
-        return quadBoxes.map { qb ->
-            DetectedRectWithFont(
-                rect = qb.aabb,  // 使用 QuadBox 的 AABB
-                isVertical = CTDPostProcessor.sortPnts(qb.pts),  // 从角点判断方向
-                fontSize = qb.fontSize,  // 从结构线计算的真实字高
-                angle = qb.angle,
-                aspectRatio = qb.aspectRatio
-            )
         }
     }
 }
