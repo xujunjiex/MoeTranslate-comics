@@ -2022,7 +2022,9 @@ class MangaFloatingService : LifecycleService() {
                 if (secondTextBlocks.isNotEmpty()) {
                     val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
                     result + translateBubbles(secondBubbleRegions, forceContext = true)
-                } else result
+                } else {
+                    result
+                }
             }
 
             // 回滚分批渲染添加的上下文，只保留翻译前的历史
@@ -2047,14 +2049,14 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun finalizeIncremental(bitmap: Bitmap, allTranslated: List<TranslatedBubble>) {
         if (allTranslated.isNotEmpty()) {
-            if (!isResultShowing) {
-                LogCollector.d(TAG, "finalizeIncremental: 用户已关闭 overlay，保存缓存")
-                saveTranslationCache(bitmap, allTranslated)
-            } else {
+            if (isResultShowing) {
                 withContext(Dispatchers.Main) { showProgressOverlay("显示中...") }
                 renderAndShowMergedOverlay(bitmap, allTranslated)
                 LogCollector.d(TAG, "finalizeIncremental: 最终渲染完成，共 ${allTranslated.size} 个气泡")
             }
+            // 无论 overlay 是否显示，都保存完整缓存（替换之前 renderAndShowMergedOverlay 保存的半成品）
+            LogCollector.d(TAG, "finalizeIncremental: 保存完整缓存，共 ${allTranslated.size} 个气泡")
+            saveTranslationCache(bitmap, allTranslated)
         }
         statusOverlay.showImmediate("翻译完成")
         lastTranslatedHash = currentPHash

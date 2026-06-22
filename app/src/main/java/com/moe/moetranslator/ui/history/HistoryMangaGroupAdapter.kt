@@ -113,17 +113,23 @@ class HistoryMangaGroupAdapter(
             fun bind(session: HistorySession) {
                 val startTime = timeFormat.format(Date(session.startTime))
                 val endTime = timeFormat.format(Date(session.endTime))
-                tvSessionHeader.text = "$startTime - $endTime (${session.entries.size})"
 
-                // 将每个条目包装为 GroupedHistoryEntry，携带正确的 allEntryIds
-                val groups = session.entries.map { entry ->
+                // 将每个条目包装为 GroupedHistoryEntry，按 allEntryIds 去重（同组只显示一张）
+                val seenGroups = mutableSetOf<List<Long>>()
+                val groups = mutableListOf<GroupedHistoryEntry>()
+                for (entry in session.entries) {
                     val groupIds = entryToGroupIds[entry.id] ?: listOf(entry.id)
-                    GroupedHistoryEntry(
-                        representative = entry,
-                        groupSize = groupIds.size,
-                        allEntryIds = groupIds
-                    )
+                    val key = groupIds.sorted()
+                    if (seenGroups.add(key)) {
+                        groups.add(GroupedHistoryEntry(
+                            representative = entry,
+                            groupSize = groupIds.size,
+                            allEntryIds = groupIds
+                        ))
+                    }
                 }
+
+                tvSessionHeader.text = "$startTime - $endTime (${groups.size})"
 
                 val gridAdapter = HistoryMangaAdapter(onItemClick, onItemLongClick, colorMap)
                 rvGrid.layoutManager = GridLayoutManager(itemView.context, 2)

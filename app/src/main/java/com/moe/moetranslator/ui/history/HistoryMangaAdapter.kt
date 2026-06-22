@@ -31,7 +31,7 @@ class HistoryMangaAdapter(
 
     companion object {
         private val GROUP_COLORS = intArrayOf(
-            android.graphics.Color.parseColor("#00000000"),  // 默认
+            android.graphics.Color.parseColor("#FFFFFF"),    // 默认白色
             android.graphics.Color.parseColor("#15FF6B6B"),  // 红
             android.graphics.Color.parseColor("#154FC3F7"),  // 蓝
             android.graphics.Color.parseColor("#1581C784"),  // 绿
@@ -89,7 +89,12 @@ class HistoryMangaAdapter(
             // 分组颜色
             val colorIdx = colorMap[entry.id] ?: 0
             val bgColor = GROUP_COLORS.getOrElse(colorIdx) { GROUP_COLORS[0] }
-            (binding.root as com.google.android.material.card.MaterialCardView).setCardBackgroundColor(bgColor)
+            val card = binding.root as com.google.android.material.card.MaterialCardView
+            card.setCardBackgroundColor(bgColor)
+            val strokeWidthPx = (1 * itemView.resources.displayMetrics.density).toInt()
+            card.strokeWidth = strokeWidthPx
+            card.strokeColor = android.graphics.Color.parseColor("#E0E0E0")
+            card.setBackgroundTintList(null)
 
             binding.root.setOnClickListener { onItemClick(grouped) }
             binding.root.setOnLongClickListener {

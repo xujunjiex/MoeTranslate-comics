@@ -7,9 +7,10 @@
     android:layout_marginEnd="4dp"
     android:layout_marginTop="4dp"
     android:layout_marginBottom="4dp"
-    app:cardCornerRadius="8dp"
-    app:cardElevation="2dp"
-    app:strokeWidth="0dp"
+    app:cardCornerRadius="10dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="1dp"
+    app:strokeColor="#E0E0E0"
     app:cardBackgroundColor="#FFFFFF">
 
     <LinearLayout
@@ -26,8 +27,7 @@
                 android:id="@+id/iv_thumbnail"
                 android:layout_width="match_parent"
                 android:layout_height="180dp"
-                android:scaleType="centerCrop"
-                android:background="#F0F0F0" />
+                android:scaleType="centerCrop" />
 
             <!-- 尺寸数量徽章 -->
             <TextView
@@ -55,7 +55,7 @@
             android:orientation="vertical"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
-            android:paddingTop="6dp"
+            android:paddingTop="8dp"
             android:paddingBottom="8dp">
 
             <!-- pHash 行 -->
@@ -74,14 +74,14 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginTop="2dp">
+                android:layout_marginTop="3dp">
 
                 <TextView
                     android:id="@+id/tv_translator_name"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:textColor="#AAAAAA"
+                    android:textColor="#666666"
                     android:textSize="11sp"
                     android:maxLines="1" />
 
@@ -89,7 +89,7 @@
                     android:id="@+id/tv_time"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#AAAAAA"
+                    android:textColor="#999999"
                     android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
