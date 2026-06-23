@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.PerceptualHash
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -177,6 +178,7 @@ class TranslationCacheManager(private val context: Context) {
      * 通过精确匹配 sourceText + sourceLang + targetLang 查找
      */
     suspend fun findGameCache(sourceText: String, sourceLang: String, targetLang: String): CacheResult? = withContext(Dispatchers.IO) {
+        if (getMaxCacheCount() <= 0) return@withContext null
         if (sourceText.isBlank()) return@withContext null
 
         val history = dao.findHistoryBySourceText(sourceText.trim(), sourceLang, targetLang)
@@ -202,6 +204,7 @@ class TranslationCacheManager(private val context: Context) {
         targetLang: String,
         lastSessionId: String? = null
     ): CacheResult? = withContext(Dispatchers.IO) {
+        if (getMaxCacheCount() <= 0) return@withContext null
         if (ocrTexts.isEmpty()) return@withContext null
 
         val queryFingerprint = ocrTexts.sorted().joinToString("\n")
@@ -598,6 +601,19 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     /**
+     * 获取当前缓存总数（游戏+漫画）。
+     */
+    fun getCacheCount(): Int {
+        return try {
+            kotlinx.coroutines.runBlocking {
+                dao.getCacheCount(MODE_GAME) + dao.getCacheCount(MODE_MANGA)
+            }
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    /**
      * 删除单条历史记录（同时删除关联文件和缓存条目）。
      */
     suspend fun deleteHistory(id: Long) = withContext(Dispatchers.IO) {
@@ -631,6 +647,20 @@ class TranslationCacheManager(private val context: Context) {
             textFingerprintCache.clear()
         }
         LogCollector.d(TAG, "clearHistory: type=$type, deleted ${entities.size} entries")
+    }
+
+    /**
+     * 清空全部历史记录和缓存（游戏+漫画）。
+     */
+    suspend fun clearAllCache() = withContext(Dispatchers.IO) {
+        val allEntities = dao.getHistoryByType(MODE_GAME, limit = 10000) + dao.getHistoryByType(MODE_MANGA, limit = 10000)
+        for (entity in allEntities) {
+            entity.imagePath?.let { File(it).delete() }
+            entity.thumbnailPath?.let { File(it).delete() }
+        }
+        dao.deleteAllHistory()
+        textFingerprintCache.clear()
+        LogCollector.d(TAG, "clearAllCache: deleted ${allEntities.size} entries")
     }
 
     // ========== 内部方法 ==========

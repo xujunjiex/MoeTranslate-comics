@@ -599,6 +599,11 @@
     <string name="cache_setting_title">缓存</string>
     <string name="cache_count_title">翻译缓存数量</string>
     <string name="cache_count_summary">最多缓存 %s 页翻译结果，设为 0 关闭缓存</string>
+    <string name="cache_disabled">关闭</string>
+    <string name="clear_cache_title">清除所有缓存</string>
+    <string name="clear_cache_summary">删除所有缓存的翻译和历史记录</string>
+    <string name="clear_cache_confirm">确认删除所有缓存的翻译？此操作不可撤销。</string>
+    <string name="clear_cache_success">缓存已清除（删除了 %d 条记录）</string>
 
     <string name="delete_history_confirm">确认删除此条历史记录？</string>
     <string name="delete">删除</string>

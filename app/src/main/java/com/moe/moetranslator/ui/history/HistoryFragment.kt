@@ -57,6 +57,7 @@ class HistoryFragment : Fragment() {
         setupTabs()
         setupRecyclerViews()
         setupClearButton()
+        setupClearAllCacheButton()
         setupRefreshButton()
         setupSettingsButton()
         loadHistory()
@@ -105,6 +106,12 @@ class HistoryFragment : Fragment() {
     private fun setupClearButton() {
         binding.btnClearHistory.setOnClickListener {
             showClearDialog()
+        }
+    }
+
+    private fun setupClearAllCacheButton() {
+        binding.btnClearAllCache.setOnClickListener {
+            showClearAllCacheDialog()
         }
     }
 
@@ -191,6 +198,33 @@ class HistoryFragment : Fragment() {
         }
         container.addView(displayGroup)
 
+        // 缓存数量标题 + 当前值
+        val cacheCountValues = intArrayOf(0, 20, 50, 100, 200, 500)
+        val currentCacheCount = prefs.getString("translation_cache_count", "100").toIntOrNull() ?: 100
+        val currentCacheIdx = cacheCountValues.indexOfFirst { it == currentCacheCount }.coerceAtLeast(3)
+
+        val cacheLabel = android.widget.TextView(requireContext()).apply {
+            text = getString(R.string.cache_count_title) + ": ${cacheCountValues[currentCacheIdx]}"
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#666666"))
+            setPadding(0, 24, 0, 8)
+        }
+        container.addView(cacheLabel)
+
+        val cacheSeekBar = android.widget.SeekBar(requireContext()).apply {
+            max = cacheCountValues.size - 1
+            progress = currentCacheIdx
+        }
+        cacheSeekBar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar, progress: Int, fromUser: Boolean) {
+                val v = cacheCountValues[progress]
+                cacheLabel.text = getString(R.string.cache_count_title) + ": " + if (v == 0) getString(R.string.cache_disabled) else "$v"
+            }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar) {}
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar) {}
+        })
+        container.addView(cacheSeekBar)
+
         com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
             .setTitle("历史记录设置")
             .setView(container)
@@ -203,6 +237,7 @@ class HistoryFragment : Fragment() {
                 if (newDisplayIdx >= 0) {
                     prefs.setString("history_display_mode", displayValues[newDisplayIdx])
                 }
+                prefs.setString("translation_cache_count", cacheCountValues[cacheSeekBar.progress].toString())
                 loadHistory()
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -296,6 +331,26 @@ class HistoryFragment : Fragment() {
                         Toast.makeText(requireContext(), R.string.history_cleared, Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
                         LogCollector.e(TAG, "Clear history failed", e)
+                    }
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    private fun showClearAllCacheDialog() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.clear_cache_title)
+            .setMessage(R.string.clear_cache_confirm)
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        cacheManager.clearAllCache()
+                        LogCollector.d(TAG, "Cleared all cache")
+                        loadHistory()
+                        Toast.makeText(requireContext(), R.string.history_cleared, Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "Clear all cache failed", e)
                     }
                 }
             }

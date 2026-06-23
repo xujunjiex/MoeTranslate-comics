@@ -51,6 +51,15 @@
             android:background="?attr/selectableItemBackgroundBorderless" />
 
         <ImageButton
+            android:id="@+id/btn_clear_all_cache"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/bin_clean"
+            android:tint="#FF5722"
+            android:contentDescription="Clear All Cache" />
+
+        <ImageButton
             android:id="@+id/btn_history_settings"
             android:layout_width="36dp"
             android:layout_height="36dp"

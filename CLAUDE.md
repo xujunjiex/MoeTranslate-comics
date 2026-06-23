@@ -341,18 +341,26 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 ## 缓存与历史
 
 `TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
-- 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.92）
+- 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.85）
 - 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
-- Room 数据库 `translation_history.db`，version 3，`fallbackToDestructiveMigration`
-- `HistoryEntity` 新增 `session_id` 字段（version 2→3 迁移）
+- Room 数据库 `translation_history.db`，version 8，`fallbackToDestructiveMigration`
 - 历史 UI：`ui/history/HistoryFragment`，游戏和漫画均按时间+会话分组显示
 - 漫画图片浏览：`MangaViewerActivity` 全屏翻页 + 底部译文详情面板
 
+**双 sessionId 架构：**
+- `sessionId` — 原始创建会话 ID（首次翻译时分配，永不改变，用于**按创建排序**的进程组）
+- `lastSessionId` — 最后修改会话 ID（任何修改时更新为当前会话，用于**按修改排序**的进程组）
+- `createdAt` — 继承自同 pHash 旧记录（保证按创建排序位置不变）
+- `updatedAt` — 每次翻译/缓存命中时更新
+
 **翻译会话：**
 - `FloatingBallService` / `MangaFloatingService` 每次启动生成 `UUID` 作为 `sessionId`
-- 通过 `CacheEntry.sessionId` 传给 `TranslationCacheManager.saveToCache()`
-- 历史查询 `getHistoryGrouped()` 按天+sessionId 分组
-- 旧数据（sessionId 为空）兼容处理
+- `CacheEntry` 同时携带 `sessionId` 和 `lastSessionId`（初始值均为当前会话）
+- `saveToCache`：`sessionId` 从同 pHash 旧记录继承（位置不变），`lastSessionId` 使用调用方当前会话
+- `refreshCache` / `refreshGameCache`：`sessionId` 继承旧记录，`lastSessionId` 使用当前会话
+- 缓存命中（`findCache` / `findMangaCacheByText`）：更新 `updatedAt` + `lastSessionId` 为当前会话
+- `getHistoryGrouped(sortByUpdated=true)`：日期组 = `updatedAt`，进程组 = `lastSessionId`
+- `getHistoryGrouped(sortByUpdated=false)`：日期组 = `createdAt`，进程组 = `sessionId`
 
 **缓存标识：**
 - 游戏翻译：`FloatingBallService` 缓存命中时，翻译文本前显示"⚡"标识（紧凑前缀，不换行）

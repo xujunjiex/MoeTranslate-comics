@@ -31,6 +31,9 @@ interface TranslationHistoryDao {
     @Query("DELETE FROM translation_history WHERE type = :type")
     suspend fun deleteHistoryByType(type: Int)
 
+    @Query("DELETE FROM translation_history")
+    suspend fun deleteAllHistory()
+
     // ========== Page Cache ==========
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

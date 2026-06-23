@@ -602,6 +602,11 @@
     <string name="cache_setting_title">Cache</string>
     <string name="cache_count_title">Translation Cache Limit</string>
     <string name="cache_count_summary">Keep up to %s translated pages cached. Set to 0 to disable cache.</string>
+    <string name="cache_disabled">Disabled</string>
+    <string name="clear_cache_title">Clear All Cache</string>
+    <string name="clear_cache_summary">Delete all cached translations and history</string>
+    <string name="clear_cache_confirm">Are you sure you want to delete all cached translations? This cannot be undone.</string>
+    <string name="clear_cache_success">Cache cleared (%d entries deleted)</string>
 
     <!-- Translation Status Overlay -->
     <string name="status_overlay_category">Translation Notification</string>
