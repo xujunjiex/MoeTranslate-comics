@@ -1656,6 +1656,11 @@ class MangaFloatingService : LifecycleService() {
                         }
                     }
                     LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
+                } catch (e: java.io.FileNotFoundException) {
+                    LogCollector.e(TAG, "Screenshot collector: 模型文件缺失", e)
+                    isProcessing = false
+                    dismissProgressOverlay()
+                    statusOverlay.showError("识别模型文件缺失：${e.message}")
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
                     isProcessing = false
@@ -1976,8 +1981,18 @@ class MangaFloatingService : LifecycleService() {
             val rects = batch.map { it.rect }
             val angles = batch.map { it.angle }
             val centers = batch.map { android.graphics.PointF(it.centerX, it.centerY) }
-            val recResults = withContext(Dispatchers.IO) {
-                PPOcrV5Engine.recognizeBatchWithCls(this@MangaFloatingService, crops, ppRecLang)
+            val recResults = try {
+                withContext(Dispatchers.IO) {
+                    PPOcrV5Engine.recognizeBatchWithCls(this@MangaFloatingService, crops, ppRecLang)
+                }
+            } catch (e: java.io.FileNotFoundException) {
+                crops.forEach { it.recycle() }
+                statusOverlay.showError("识别模型加载失败：${e.message}")
+                throw e
+            } catch (e: Exception) {
+                crops.forEach { it.recycle() }
+                statusOverlay.showError("识别模型异常：${e.message}")
+                throw e
             }
             // 释放裁剪图片
             crops.forEach { it.recycle() }

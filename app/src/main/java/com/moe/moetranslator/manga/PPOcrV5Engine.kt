@@ -298,7 +298,7 @@ object PPOcrV5Engine {
                 session
             } catch (e: Exception) {
                 LogCollector.e(TAG, "rec 模型 ${lang.code} 加载失败", e)
-                null
+                throw e
             }
         }
     }
