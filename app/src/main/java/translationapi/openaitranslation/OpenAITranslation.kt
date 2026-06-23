@@ -52,6 +52,8 @@ class OpenAITranslation(
     private val prefillContent: String = ""
 ) : TranslationTextAPI {
 
+    override val modelName: String get() = model
+
     companion object {
         private const val TAG = "OpenAITranslation"
         private const val SOCKET_TIMEOUT = 30L // 30秒，AI接口需要更长时间

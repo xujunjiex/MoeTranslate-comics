@@ -201,6 +201,8 @@ class MangaFloatingService : LifecycleService() {
     private lateinit var cacheManager: TranslationCacheManager
     private var forceRefresh = false
     private var isForceRefreshActive = false  // 保存 forceRefresh 状态，用于保存缓存时判断
+    private var lastCachedHistoryId: Long = 0  // 缓存命中的 historyId，用于强制刷新时删除旧记录
+    private var lastCachedPHash: Long = 0      // 缓存命中的 pHash，用于验证 historyId 有效性
 
     // 翻译会话 ID（每次服务启动生成新的）
     private val sessionId = java.util.UUID.randomUUID().toString()
@@ -1793,7 +1795,7 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun saveTranslationCache(original: Bitmap, allBubbles: List<TranslatedBubble>) {
         try {
-            val translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
+            val translatorName = buildTranslatorDisplayName()
             val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
             val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
             LogCollector.d(TAG, "saveTranslationCache: ${allBubbles.size} 个气泡")
@@ -1818,11 +1820,16 @@ class MangaFloatingService : LifecycleService() {
                 translatorName = translatorName,
                 pHash = currentPHash,
                 sessionId = sessionId,
+                lastSessionId = sessionId,
                 cropWidth = original.width,
                 cropHeight = original.height
             )
             if (isForceRefreshActive) {
-                cacheManager.refreshCache(currentPHash, TranslationCacheManager.MODE_MANGA, entry)
+                // 只删除同页面的缓存（pHash 匹配），避免误删其他页面
+                val historyIdToDelete = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
+                cacheManager.refreshCache(historyIdToDelete, entry)
+                lastCachedHistoryId = 0
+                lastCachedPHash = 0
                 isForceRefreshActive = false
             } else {
                 cacheManager.saveToCache(entry)
@@ -1905,7 +1912,7 @@ class MangaFloatingService : LifecycleService() {
                 }
 
                 val result = translateBubbles(firstBubbleRegions, forceContext = true)
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result)
+                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
 
                 val secondTextBlocks = ocrJob.await()
                 LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第二批 OCR ${secondTextBlocks.size} 个文字块")
@@ -2014,7 +2021,7 @@ class MangaFloatingService : LifecycleService() {
                 }
 
                 val result = translateBubbles(firstBubbleRegions, forceContext = true)
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result)
+                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
 
                 val secondTextBlocks = ocrJob!!.await()
                 ocrJob = null // 已完成，不再需要取消
@@ -2051,10 +2058,11 @@ class MangaFloatingService : LifecycleService() {
         if (allTranslated.isNotEmpty()) {
             if (isResultShowing) {
                 withContext(Dispatchers.Main) { showProgressOverlay("显示中...") }
-                renderAndShowMergedOverlay(bitmap, allTranslated)
+                // 只显示，不保存缓存（下面统一保存）
+                renderAndShowMergedOverlay(bitmap, allTranslated, saveCache = false)
                 LogCollector.d(TAG, "finalizeIncremental: 最终渲染完成，共 ${allTranslated.size} 个气泡")
             }
-            // 无论 overlay 是否显示，都保存完整缓存（替换之前 renderAndShowMergedOverlay 保存的半成品）
+            // 统一保存完整缓存（只保存一次，避免重复）
             LogCollector.d(TAG, "finalizeIncremental: 保存完整缓存，共 ${allTranslated.size} 个气泡")
             saveTranslationCache(bitmap, allTranslated)
         }
@@ -2213,9 +2221,11 @@ class MangaFloatingService : LifecycleService() {
             // 全局缓存检查
             isForceRefreshActive = forceRefresh
             if (!isForceRefreshActive) {
-                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height)
+                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height, sessionId)
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
+                    lastCachedHistoryId = cached.historyId
+                    lastCachedPHash = currentPHash
                     statusOverlay.showImmediate("缓存命中")
                     lastTranslatedHash = currentPHash
                     withContext(Dispatchers.Main) {
@@ -2352,7 +2362,7 @@ class MangaFloatingService : LifecycleService() {
             // 用 OCR 文本内容查找缓存，同一页不同框选范围只要文字相同就能命中
             if (!isForceRefreshActive && allBubbles.isNotEmpty()) {
                 val ocrTexts = allBubbles.map { it.texts.joinToString("") }
-                val textCached = cacheManager.findMangaCacheByText(ocrTexts, config.sourceLang, config.targetLang)
+                val textCached = cacheManager.findMangaCacheByText(ocrTexts, config.sourceLang, config.targetLang, sessionId)
                 // 面积比校验：防止完全不同大小的框选误命中
                 val textCacheValid = textCached != null && textCached.resultBitmap != null &&
                     run {
@@ -2642,7 +2652,8 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun renderAndShowMergedOverlay(
         original: Bitmap,
-        newBubbles: List<TranslatedBubble>
+        newBubbles: List<TranslatedBubble>,
+        saveCache: Boolean = true
     ) {
         val allBubbles = mutableListOf<TranslatedBubble>()
 
@@ -2699,36 +2710,40 @@ class MangaFloatingService : LifecycleService() {
             showResultOverlay(resultBitmap)
         }
 
-        // 保存到缓存和历史
-        try {
-            val translatorName = translatorText?.javaClass?.simpleName ?: "Unknown"
-            // 从 allBubbles 聚合 OCR 原文和译文（allBubbles 包含缓存 + 新翻译）
-            val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
-            val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
-            LogCollector.d(TAG, "保存缓存: ${allBubbles.size} 个气泡, ocr=${ocrTexts.take(50)}, trans=${transTexts.take(50)}")
-            val entry = CacheEntry(
-                type = TranslationCacheManager.MODE_MANGA,
-                sourceText = ocrTexts.ifEmpty { null },
-                translatedText = transTexts.ifEmpty { null },
-                resultBitmap = resultBitmap.copy(resultBitmap.config ?: Bitmap.Config.ARGB_8888, false),
-                sourceLang = config.sourceLang,
-                targetLang = config.targetLang,
-                translatorName = translatorName,
-                pHash = currentPHash,
-                sessionId = sessionId,
-                cropWidth = original.width,
-                cropHeight = original.height
-            )
-            // 强制刷新时替换旧缓存和历史，否则直接保存
-            if (isForceRefreshActive) {
-                cacheManager.refreshCache(currentPHash, TranslationCacheManager.MODE_MANGA, entry)
-                LogCollector.d(TAG, "强制刷新：替换旧缓存和历史")
-                isForceRefreshActive = false
-            } else {
-                cacheManager.saveToCache(entry)
+        // 保存到缓存和历史（分批翻译时由 finalizeIncremental 统一保存，避免保存中间结果）
+        if (saveCache) {
+            try {
+                val translatorName = buildTranslatorDisplayName()
+                val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
+                val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+                LogCollector.d(TAG, "保存缓存: ${allBubbles.size} 个气泡")
+                val entry = CacheEntry(
+                    type = TranslationCacheManager.MODE_MANGA,
+                    sourceText = ocrTexts.ifEmpty { null },
+                    translatedText = transTexts.ifEmpty { null },
+                    resultBitmap = resultBitmap.copy(resultBitmap.config ?: Bitmap.Config.ARGB_8888, false),
+                    sourceLang = config.sourceLang,
+                    targetLang = config.targetLang,
+                    translatorName = translatorName,
+                    pHash = currentPHash,
+                    sessionId = sessionId,
+                    lastSessionId = sessionId,
+                    cropWidth = original.width,
+                    cropHeight = original.height
+                )
+                if (isForceRefreshActive) {
+                    val historyIdToDelete = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
+                    cacheManager.refreshCache(historyIdToDelete, entry)
+                    LogCollector.d(TAG, "强制刷新：替换旧缓存和历史, historyId=$historyIdToDelete")
+                    lastCachedHistoryId = 0
+                    lastCachedPHash = 0
+                    isForceRefreshActive = false
+                } else {
+                    cacheManager.saveToCache(entry)
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "保存缓存失败", e)
             }
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "保存缓存失败", e)
         }
     }
 
@@ -2737,6 +2752,55 @@ class MangaFloatingService : LifecycleService() {
             .replace(Regex("[\\n\\r]+"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
+    }
+
+    /** 构建翻译器显示名：API名(模型名) + 检测器 + 识别器 + 分批等参数 */
+    private fun buildTranslatorDisplayName(): String {
+        val apiName = translatorText?.javaClass?.simpleName ?: "Unknown"
+        val model = translatorText?.modelName ?: ""
+        val apiStr = if (model.isNotEmpty()) "$apiName($model)" else apiName
+
+        val det = when (config.detEngine) {
+            DetEngine.CTD -> "CTD"
+            DetEngine.MLKIT -> "MLKit"
+            DetEngine.RT_DETR_V2 -> "RT-DETR"
+            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+        }
+        val ocr = when (config.ocrEngine) {
+            OcrEngine.MLKit -> "MLKit"
+            OcrEngine.MangaOcr -> "manga-ocr"
+            OcrEngine.PPOcrV5 -> "PP-OCRv5"
+        }
+
+        val parts = mutableListOf(apiStr, "$det+$ocr")
+
+        // 分批翻译：开关打开 + 支持的组合（RT-DETR+manga-ocr 或 PP-OCRv5 独立）
+        val incrementalEnabled = prefs.getBoolean("Incremental_Render", false)
+        val isRTDetrMangaOcr = config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr
+        val isPPOcrV5Standalone = config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5
+        if (incrementalEnabled && (isRTDetrMangaOcr || isPPOcrV5Standalone)) {
+            parts.add("分批✓")
+        } else if (incrementalEnabled) {
+            parts.add("分批✗")  // 开关打开但组合不支持
+        }
+
+        // 自由文字：开关打开 + 检测器是 RT-DETR-V2
+        val keepTextFreeEnabled = prefs.getBoolean("Manga_Keep_Text_Free", false)
+        if (keepTextFreeEnabled && config.detEngine == DetEngine.RT_DETR_V2) {
+            parts.add("自由文字✓")
+        } else if (keepTextFreeEnabled) {
+            parts.add("自由文字✗")  // 开关打开但检测器不是 RT-DETR
+        }
+
+        // PP-OCRv5 参数（仅当检测器或识别器为 PP-OCRv5 时显示）
+        if (config.detEngine == DetEngine.PP_OCR_V5 || config.ocrEngine == OcrEngine.PPOcrV5) {
+            val boxThresh = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
+            val unclipRatio = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
+            val textScore = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
+            parts.add("box=%.2f unclip=%.1f score=%.2f".format(boxThresh, unclipRatio, textScore))
+        }
+
+        return parts.joinToString(" | ")
     }
 
     /**

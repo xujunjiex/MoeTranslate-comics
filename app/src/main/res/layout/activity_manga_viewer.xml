@@ -35,6 +35,18 @@
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="#FFFFFF" />
 
+    <!-- 删除按钮 -->
+    <ImageButton
+        android:id="@+id/btnDeleteEntry"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@android:drawable/ic_menu_delete"
+        android:tint="#FFFF6B6B"
+        android:contentDescription="@string/delete" />
+
     <!-- 尺寸切换按钮栏 -->
     <LinearLayout
         android:id="@+id/sizeSwitcher"
@@ -110,6 +122,17 @@
                 android:src="@android:drawable/ic_menu_close_clear_cancel"
                 android:tint="#FFFFFF" />
         </LinearLayout>
+
+        <!-- 翻译信息栏 -->
+        <TextView
+            android:id="@+id/tvTranslationInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="6dp"
+            android:textColor="#88FFFFFF"
+            android:textSize="10sp"
+            android:lineSpacingExtra="2dp" />
 
         <!-- 译文内容列表 -->
         <androidx.recyclerview.widget.RecyclerView

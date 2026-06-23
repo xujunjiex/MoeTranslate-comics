@@ -19,7 +19,7 @@ class TranslationCacheManager(private val context: Context) {
         private const val TAG = "TranslationCacheManager"
         const val MODE_GAME = 0
         const val MODE_MANGA = 1
-        private const val MAX_CACHE_PER_MODE = 100
+        private const val DEFAULT_CACHE_COUNT = 100
         private const val SIMILARITY_THRESHOLD_MANGA = 0.85f
         private const val THUMBNAIL_SIZE = 200
         private const val AREA_RATIO_MIN = 0.8f   // 面积比下限（框选偏移面积变化 <1%，宽松允许 ±20%）
@@ -33,6 +33,16 @@ class TranslationCacheManager(private val context: Context) {
     // 漫画文本指纹 → historyId 内存缓存，避免每次翻译都扫描全部历史
     private val textFingerprintCache = mutableMapOf<String, Long>()
 
+    /** 获取用户设置的缓存数量上限，0 表示关闭缓存 */
+    private fun getMaxCacheCount(): Int {
+        return try {
+            val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(context)
+            prefs.getString("translation_cache_count", DEFAULT_CACHE_COUNT.toString()).toIntOrNull() ?: DEFAULT_CACHE_COUNT
+        } catch (e: Exception) {
+            DEFAULT_CACHE_COUNT
+        }
+    }
+
     // ========== 缓存操作 ==========
 
     /**
@@ -40,17 +50,29 @@ class TranslationCacheManager(private val context: Context) {
      * 漫画模式下校验面积比：裁剪区域差异过大时跳过缓存（防止框选完全不同区域误命中）。
      * @param currentCropWidth 当前裁剪区域宽度（0=不校验面积比）
      * @param currentCropHeight 当前裁剪区域高度（0=不校验面积比）
+     * @param lastSessionId 当前会话 ID（传入时同时更新 updatedAt 和 lastSessionId，用于按修改排序时移动到当前进程组）
      * @return 命中时返回 CacheResult，未命中返回 null
      */
-    suspend fun findCache(pHash: Long, mode: Int, currentCropWidth: Int = 0, currentCropHeight: Int = 0): CacheResult? = withContext(Dispatchers.IO) {
+    suspend fun findCache(pHash: Long, mode: Int, currentCropWidth: Int = 0, currentCropHeight: Int = 0, lastSessionId: String? = null): CacheResult? = withContext(Dispatchers.IO) {
+        if (getMaxCacheCount() <= 0) return@withContext null
+
         // 1. 精确匹配（同 pHash 可能有多个条目，选面积最接近的）
         val allExactMatches = dao.findAllCacheByHash(pHash, mode)
         if (allExactMatches.isNotEmpty()) {
             val bestExact = findBestAreaMatch(allExactMatches, currentCropWidth, currentCropHeight)
             if (bestExact != null) {
-                dao.updateLastAccessed(bestExact.id, System.currentTimeMillis())
+                val now = System.currentTimeMillis()
+                dao.updateLastAccessed(bestExact.id, now)
                 val history = dao.getHistoryById(bestExact.historyId)
                 if (history != null) {
+                    // 更新 history 的 updatedAt 和 lastSessionId（用于按修改时间排序时移动到当前进程组）
+                    if (history.updatedAt == 0L || history.updatedAt < now - 60_000) {
+                        if (lastSessionId != null) {
+                            dao.updateHistoryTimestampAndLastSession(history.id, now, lastSessionId)
+                        } else {
+                            dao.updateHistoryTimestamp(history.id, now)
+                        }
+                    }
                     LogCollector.d(TAG, "findCache: 精确命中, historyId=${history.id}, crop=${bestExact.cropWidth}x${bestExact.cropHeight}")
                     return@withContext buildCacheResult(history, bestExact.cropWidth, bestExact.cropHeight)
                 }
@@ -75,9 +97,17 @@ class TranslationCacheManager(private val context: Context) {
             }
 
             if (bestMatch != null) {
-                dao.updateLastAccessed(bestMatch.id, System.currentTimeMillis())
+                val now = System.currentTimeMillis()
+                dao.updateLastAccessed(bestMatch.id, now)
                 val history = dao.getHistoryById(bestMatch.historyId)
                 if (history != null) {
+                    if (history.updatedAt == 0L || history.updatedAt < now - 60_000) {
+                        if (lastSessionId != null) {
+                            dao.updateHistoryTimestampAndLastSession(history.id, now, lastSessionId)
+                        } else {
+                            dao.updateHistoryTimestamp(history.id, now)
+                        }
+                    }
                     LogCollector.d(TAG, "findCache: 相似度命中 (${bestSimilarity}), historyId=${history.id}")
                     return@withContext buildCacheResult(history, bestMatch.cropWidth, bestMatch.cropHeight)
                 }
@@ -169,18 +199,24 @@ class TranslationCacheManager(private val context: Context) {
     suspend fun findMangaCacheByText(
         ocrTexts: List<String>,
         sourceLang: String,
-        targetLang: String
+        targetLang: String,
+        lastSessionId: String? = null
     ): CacheResult? = withContext(Dispatchers.IO) {
         if (ocrTexts.isEmpty()) return@withContext null
 
         val queryFingerprint = ocrTexts.sorted().joinToString("\n")
+        val now = System.currentTimeMillis()
 
         // 1. 先查内存缓存
         val cachedId = textFingerprintCache[queryFingerprint]
         if (cachedId != null) {
             val history = dao.getHistoryById(cachedId)
             if (history != null) {
-                dao.updateLastAccessed(history.id, System.currentTimeMillis())
+                if (lastSessionId != null) {
+                    dao.updateHistoryTimestampAndLastSession(history.id, now, lastSessionId)
+                } else {
+                    dao.updateLastAccessed(history.id, now)
+                }
                 val cacheEntry = dao.findCacheByHistoryId(history.id)
                 LogCollector.d(TAG, "findMangaCacheByText: 内存缓存命中, historyId=${history.id}")
                 return@withContext buildCacheResult(history, cacheEntry?.cropWidth ?: 0, cacheEntry?.cropHeight ?: 0)
@@ -196,7 +232,11 @@ class TranslationCacheManager(private val context: Context) {
             val storedFingerprint = extractTextFingerprint(history.sourceText)
             if (storedFingerprint == queryFingerprint) {
                 textFingerprintCache[storedFingerprint] = history.id
-                dao.updateLastAccessed(history.id, System.currentTimeMillis())
+                if (lastSessionId != null) {
+                    dao.updateHistoryTimestampAndLastSession(history.id, now, lastSessionId)
+                } else {
+                    dao.updateLastAccessed(history.id, now)
+                }
                 val cacheEntry = dao.findCacheByHistoryId(history.id)
                 LogCollector.d(TAG, "findMangaCacheByText: 数据库命中, historyId=${history.id}")
                 return@withContext buildCacheResult(history, cacheEntry?.cropWidth ?: 0, cacheEntry?.cropHeight ?: 0)
@@ -220,30 +260,57 @@ class TranslationCacheManager(private val context: Context) {
 
     /**
      * 保存翻译结果到历史 + 缓存。自动执行 LRU 淘汰。
-     * 漫画模式：同 pHash 且面积比兼容的旧记录会被替换（防止重复/半成品残留）。
-     * @param skipDedup 跳过去重（由 refreshCache 调用时，旧条目已删除，无需重复删除）
+     * 漫画模式：同 pHash + 同尺寸的旧记录会被替换（防止重复/半成品残留）。
+     * sessionId 从同 pHash 旧记录继承（保证按创建排序位置不变）。
+     * lastSessionId 使用调用方传入的当前会话（用于按修改排序分组）。
      */
-    suspend fun saveToCache(entry: CacheEntry, skipDedup: Boolean = false) = withContext(Dispatchers.IO) {
-        // 0. 漫画模式去重：同 pHash 且面积比兼容时替换旧记录
-        if (!skipDedup && entry.type == MODE_MANGA && entry.pHash != 0L) {
-            val allSameHash = dao.findAllCacheByHash(entry.pHash, MODE_MANGA)
-            val target = findBestAreaMatch(allSameHash, entry.cropWidth, entry.cropHeight)
-            if (target != null) {
-                val oldHistory = dao.getHistoryById(target.historyId)
-                dao.deleteCacheById(target.id)
-                if (oldHistory != null) {
-                    oldHistory.imagePath?.let { File(it).delete() }
-                    oldHistory.thumbnailPath?.let { File(it).delete() }
-                    if (!oldHistory.sourceText.isNullOrBlank()) {
-                        textFingerprintCache.remove(extractTextFingerprint(oldHistory.sourceText))
-                    }
-                    dao.deleteHistoryById(oldHistory.id.toInt())
-                    LogCollector.d(TAG, "saveToCache: 替换匹配旧缓存, historyId=${oldHistory.id}, crop=${target.cropWidth}x${target.cropHeight}")
+    suspend fun saveToCache(entry: CacheEntry, createdAt: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
+        if (getMaxCacheCount() <= 0) return@withContext
+
+        // 漫画模式：查找并删除同 pHash + 同尺寸的旧记录，继承 sessionId 和 createdAt
+        var inheritedSessionId = entry.sessionId
+        var inheritedCreatedAt = createdAt
+        if (entry.type == MODE_MANGA && entry.pHash != 0L) {
+            var oldHistoryToDelete: HistoryEntity? = null
+            var oldCacheToDelete: PageCacheEntity? = null
+            if (entry.cropWidth > 0 && entry.cropHeight > 0) {
+                oldCacheToDelete = dao.findCacheByHashAndSize(entry.pHash, MODE_MANGA, entry.cropWidth, entry.cropHeight)
+                if (oldCacheToDelete != null) {
+                    oldHistoryToDelete = dao.getHistoryById(oldCacheToDelete.historyId)
                 }
+            }
+
+            // 继承 sessionId 和 createdAt：优先从要删除的旧记录，否则从同 pHash 的任意记录
+            // lastSessionId 不继承，使用调用方传入的当前会话
+            if (oldHistoryToDelete != null) {
+                inheritedSessionId = oldHistoryToDelete.sessionId
+                inheritedCreatedAt = oldHistoryToDelete.createdAt
+            } else {
+                val anyOldCache = dao.findCacheByPHash(entry.pHash, MODE_MANGA)
+                if (anyOldCache != null) {
+                    val anyOldHistory = dao.getHistoryById(anyOldCache.historyId)
+                    if (anyOldHistory != null) {
+                        inheritedSessionId = anyOldHistory.sessionId
+                        inheritedCreatedAt = anyOldHistory.createdAt
+                    }
+                }
+            }
+
+            // 删除旧记录
+            if (oldHistoryToDelete != null && oldCacheToDelete != null) {
+                dao.deleteCacheById(oldCacheToDelete.id)
+                oldHistoryToDelete.imagePath?.let { f -> File(f).delete() }
+                oldHistoryToDelete.thumbnailPath?.let { f -> File(f).delete() }
+                val oldSourceText = oldHistoryToDelete.sourceText
+                if (!oldSourceText.isNullOrBlank()) {
+                    textFingerprintCache.remove(extractTextFingerprint(oldSourceText))
+                }
+                dao.deleteHistoryById(oldHistoryToDelete.id.toInt())
+                LogCollector.d(TAG, "saveToCache: 替换同尺寸旧记录, historyId=${oldHistoryToDelete.id}")
             }
         }
 
-        // 1. 保存图片（漫画翻译）
+        // 保存图片（漫画翻译）
         var imagePath: String? = null
         var thumbnailPath: String? = null
         if (entry.type == MODE_MANGA && entry.resultBitmap != null) {
@@ -252,7 +319,8 @@ class TranslationCacheManager(private val context: Context) {
             thumbnailPath = saveThumbnail(entry.resultBitmap, "manga_${timestamp}_thumb.jpg")
         }
 
-        // 2. 插入 history 记录
+        // 插入 history 记录
+        val now = System.currentTimeMillis()
         val historyEntity = HistoryEntity(
             type = entry.type,
             sourceText = entry.sourceText,
@@ -263,27 +331,28 @@ class TranslationCacheManager(private val context: Context) {
             targetLang = entry.targetLang,
             translatorName = entry.translatorName,
             pHash = entry.pHash,
-            createdAt = System.currentTimeMillis(),
-            sessionId = entry.sessionId
+            createdAt = inheritedCreatedAt,
+            sessionId = inheritedSessionId,
+            lastSessionId = entry.lastSessionId,
+            updatedAt = now
         )
         val historyId = dao.insertHistory(historyEntity)
-        LogCollector.d(TAG, "saveToCache: 插入 history, id=$historyId")
+        LogCollector.d(TAG, "saveToCache: 插入 history, id=$historyId, sessionId=$inheritedSessionId, createdAt=$inheritedCreatedAt")
 
         // 更新内存指纹缓存（漫画模式）
         if (entry.type == MODE_MANGA && !entry.sourceText.isNullOrBlank()) {
             val fingerprint = extractTextFingerprint(entry.sourceText)
             if (textFingerprintCache.size > 500) {
-                // 淘汰最早的 100 条，而非清空全部
                 val iter = textFingerprintCache.iterator()
                 repeat(100) { if (iter.hasNext()) { iter.next(); iter.remove() } }
             }
             textFingerprintCache[fingerprint] = historyId
         }
 
-        // 3. LRU 淘汰：检查缓存容量
+        // LRU 淘汰
         evictIfNeeded(entry.type)
 
-        // 4. 插入 cache 记录
+        // 插入 cache 记录
         val cacheEntity = PageCacheEntity(
             historyId = historyId,
             pHash = entry.pHash,
@@ -298,32 +367,34 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     /**
-     * 强制刷新缓存：用与 findCache 相同的匹配逻辑找到要替换的条目，删除后保存新结果。
-     * 只删除当前尺寸的条目，不同尺寸的条目保留。
+     * 强制刷新缓存：用 historyId 删除旧记录，保存新结果。
+     * sessionId 继承旧记录（按创建排序位置不变），lastSessionId 使用当前会话，createdAt 继承旧记录。
      */
-    suspend fun refreshCache(pHash: Long, mode: Int, newEntry: CacheEntry) = withContext(Dispatchers.IO) {
-        // 用与 findCache 相同的匹配逻辑找到要替换的条目
-        val allSameHash = dao.findAllCacheByHash(pHash, mode)
-        val target = findBestAreaMatch(allSameHash, newEntry.cropWidth, newEntry.cropHeight)
-        if (target != null) {
-            dao.deleteCacheById(target.id)
-            LogCollector.d(TAG, "refreshCache: 删除匹配旧 cache, id=${target.id}, crop=${target.cropWidth}x${target.cropHeight}")
-
-            val oldHistory = dao.getHistoryById(target.historyId)
-            if (oldHistory != null) {
-                oldHistory.imagePath?.let { File(it).delete() }
-                oldHistory.thumbnailPath?.let { File(it).delete() }
-                if (!oldHistory.sourceText.isNullOrBlank()) {
-                    textFingerprintCache.remove(extractTextFingerprint(oldHistory.sourceText))
-                }
-                dao.deleteHistoryById(oldHistory.id.toInt())
-                LogCollector.d(TAG, "refreshCache: 删除匹配旧 history, id=${oldHistory.id}")
+    suspend fun refreshCache(historyIdToDelete: Long, newEntry: CacheEntry) = withContext(Dispatchers.IO) {
+        var inheritedSessionId = newEntry.sessionId
+        var inheritedCreatedAt = System.currentTimeMillis()
+        val oldHistory = dao.getHistoryById(historyIdToDelete)
+        if (oldHistory != null) {
+            // sessionId 继承旧值（按创建排序位置不变）
+            inheritedSessionId = oldHistory.sessionId
+            inheritedCreatedAt = oldHistory.createdAt
+            // 删除关联的 cache 条目
+            val oldCache = dao.findCacheByHistoryId(historyIdToDelete)
+            if (oldCache != null) {
+                dao.deleteCacheById(oldCache.id)
             }
+            oldHistory.imagePath?.let { File(it).delete() }
+            oldHistory.thumbnailPath?.let { File(it).delete() }
+            if (!oldHistory.sourceText.isNullOrBlank()) {
+                textFingerprintCache.remove(extractTextFingerprint(oldHistory.sourceText))
+            }
+            dao.deleteHistoryById(oldHistory.id.toInt())
+            LogCollector.d(TAG, "refreshCache: 删除旧记录, historyId=$historyIdToDelete, sessionId=$inheritedSessionId, createdAt=$inheritedCreatedAt")
         }
 
-        // 保存新结果（跳过去重，旧条目已删除）
-        saveToCache(newEntry, skipDedup = true)
-        LogCollector.d(TAG, "refreshCache: 保存新结果")
+        // lastSessionId 使用调用方的当前会话（不继承旧值），sessionId 和 createdAt 继承旧值
+        saveToCache(newEntry.copy(sessionId = inheritedSessionId), createdAt = inheritedCreatedAt)
+        LogCollector.d(TAG, "refreshCache: 保存新结果, sessionId=$inheritedSessionId, lastSessionId=${newEntry.lastSessionId}, createdAt=$inheritedCreatedAt")
     }
 
     /**
@@ -335,20 +406,22 @@ class TranslationCacheManager(private val context: Context) {
         targetLang: String,
         newEntry: CacheEntry
     ) = withContext(Dispatchers.IO) {
-        // 查找旧的同源 history
+        var inheritedSessionId = newEntry.sessionId
+        var inheritedCreatedAt = System.currentTimeMillis()
         val oldHistory = dao.findHistoryBySourceText(sourceText.trim(), sourceLang, targetLang)
         if (oldHistory != null) {
-            // 删除关联的 cache 条目
+            // sessionId 继承旧值（按创建排序位置不变）
+            inheritedSessionId = oldHistory.sessionId
+            inheritedCreatedAt = oldHistory.createdAt
             dao.deleteCacheByHistoryId(oldHistory.id)
             LogCollector.d(TAG, "refreshGameCache: 删除旧 cache by historyId=${oldHistory.id}")
-            // 删除旧 history
             dao.deleteHistoryById(oldHistory.id.toInt())
-            LogCollector.d(TAG, "refreshGameCache: 删除旧 history, id=${oldHistory.id}")
+            LogCollector.d(TAG, "refreshGameCache: 删除旧 history, id=${oldHistory.id}, sessionId=$inheritedSessionId, createdAt=$inheritedCreatedAt")
         }
 
-        // 保存新结果（跳过去重，旧条目已删除）
-        saveToCache(newEntry, skipDedup = true)
-        LogCollector.d(TAG, "refreshGameCache: 保存新结果")
+        // lastSessionId 使用调用方的当前会话（不继承旧值），sessionId 和 createdAt 继承旧值
+        saveToCache(newEntry.copy(sessionId = inheritedSessionId), createdAt = inheritedCreatedAt)
+        LogCollector.d(TAG, "refreshGameCache: 保存新结果, sessionId=$inheritedSessionId, lastSessionId=${newEntry.lastSessionId}, createdAt=$inheritedCreatedAt")
     }
 
     /**
@@ -401,13 +474,33 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     /**
-     * 获取按日期和会话分组的历史记录（游戏模式）。
+     * 获取按日期和会话分组的历史记录。
+     *
+     * 按创建排序：日期组 = createdAt 日期，进程组 = sessionId（永不改变），组内按 updatedAt DESC
+     * 按修改排序：日期组 = updatedAt 日期，进程组 = lastSessionId（修改时更新为当前会话），组内按 updatedAt DESC
      */
-    suspend fun getHistoryGrouped(type: Int, limit: Int = 200): List<HistoryGroup> = withContext(Dispatchers.IO) {
+    suspend fun getHistoryGrouped(type: Int, limit: Int = 200, sortByUpdated: Boolean = false): List<HistoryGroup> = withContext(Dispatchers.IO) {
         val entities = dao.getHistoryByType(type, limit)
-        val entries = entities.map { it.toHistoryEntry() }
+        val rawEntries = entities.map { it.toHistoryEntry() }
 
-        if (entries.isEmpty()) return@withContext emptyList()
+        if (rawEntries.isEmpty()) return@withContext emptyList()
+
+        // 漫画模式：按 pHash 去重，同 pHash 只保留最新一条作为代表
+        val entries = if (type == MODE_MANGA) {
+            rawEntries
+                .filter { it.pHash != 0L }
+                .groupBy { it.pHash }
+                .map { (_, group) ->
+                    val sorted = group.sortedByDescending { it.updatedAt }
+                    val representative = sorted.first()
+                    representative.copy(
+                        variantCount = sorted.size,
+                        variantIds = sorted.map { it.id }
+                    )
+                }
+        } else {
+            rawEntries
+        }
 
         val calendar = java.util.Calendar.getInstance()
         val today = java.util.Calendar.getInstance().apply {
@@ -434,29 +527,51 @@ class TranslationCacheManager(private val context: Context) {
             }
         }
 
-        // 按日期分组
-        val groupedByDate = entries.groupBy { getDateLabel(it.createdAt) }
-
-        // 日期排序：今天的在最前面
+        // 日期排序优先级
         val dateOrder = listOf("今天", "昨天", "3天前", "7天前")
 
-        groupedByDate.entries.sortedByDescending { entry ->
-            val idx = dateOrder.indexOf(entry.key)
-            if (idx >= 0) (-idx).toLong() else Long.MAX_VALUE - entry.value.maxOf { it.createdAt }
-        }.map { (dateLabel, dateEntries) ->
-            // 每个日期内按 sessionId 分组
-            val sessions = dateEntries.groupBy { it.sessionId }
-                .map { (sessionId, sessionEntries) ->
-                    HistorySession(
-                        sessionId = sessionId,
-                        startTime = sessionEntries.minOf { it.createdAt },
-                        endTime = sessionEntries.maxOf { it.createdAt },
-                        entries = sessionEntries.sortedByDescending { it.createdAt }
-                    )
-                }
-                .sortedByDescending { it.startTime }
+        if (sortByUpdated) {
+            // 按修改排序：日期组 = updatedAt 日期，进程组 = lastSessionId（修改时更新为当前会话）
+            val groupedByDate = entries.groupBy { getDateLabel(it.updatedAt) }
 
-            HistoryGroup(dateLabel = dateLabel, sessions = sessions)
+            groupedByDate.entries.sortedByDescending { entry ->
+                val idx = dateOrder.indexOf(entry.key)
+                if (idx >= 0) (-idx).toLong() else Long.MAX_VALUE - entry.value.maxOf { it.updatedAt }
+            }.map { (dateLabel, dateEntries) ->
+                val sessions = dateEntries.groupBy { it.lastSessionId.ifEmpty { it.sessionId } }
+                    .map { (sessionId, sessionEntries) ->
+                        HistorySession(
+                            sessionId = sessionId,
+                            startTime = sessionEntries.maxOf { it.updatedAt },
+                            endTime = sessionEntries.maxOf { it.updatedAt },
+                            entries = sessionEntries.sortedByDescending { it.updatedAt }
+                        )
+                    }
+                    .sortedByDescending { it.startTime }
+
+                HistoryGroup(dateLabel = dateLabel, sessions = sessions)
+            }
+        } else {
+            // 按创建排序：日期组 = createdAt 日期，进程组 = sessionId（永不改变）
+            val groupedByDate = entries.groupBy { getDateLabel(it.createdAt) }
+
+            groupedByDate.entries.sortedByDescending { entry ->
+                val idx = dateOrder.indexOf(entry.key)
+                if (idx >= 0) (-idx).toLong() else Long.MAX_VALUE - entry.value.maxOf { it.createdAt }
+            }.map { (dateLabel, dateEntries) ->
+                val sessions = dateEntries.groupBy { it.sessionId }
+                    .map { (sessionId, sessionEntries) ->
+                        HistorySession(
+                            sessionId = sessionId,
+                            startTime = sessionEntries.minOf { it.createdAt },
+                            endTime = sessionEntries.maxOf { it.createdAt },
+                            entries = sessionEntries.sortedByDescending { it.updatedAt }
+                        )
+                    }
+                    .sortedByDescending { it.startTime }
+
+                HistoryGroup(dateLabel = dateLabel, sessions = sessions)
+            }
         }
     }
 
@@ -473,6 +588,13 @@ class TranslationCacheManager(private val context: Context) {
      */
     suspend fun getHistoryById(id: Long): HistoryEntry? = withContext(Dispatchers.IO) {
         dao.getHistoryById(id)?.toHistoryEntry()
+    }
+
+    /**
+     * 更新历史记录的 updatedAt 时间戳（缓存命中时调用）。
+     */
+    suspend fun updateHistoryTimestamp(id: Long) = withContext(Dispatchers.IO) {
+        dao.updateHistoryTimestamp(id, System.currentTimeMillis())
     }
 
     /**
@@ -514,8 +636,10 @@ class TranslationCacheManager(private val context: Context) {
     // ========== 内部方法 ==========
 
     private suspend fun evictIfNeeded(mode: Int) {
+        val maxCount = getMaxCacheCount()
+        if (maxCount <= 0) return
         val count = dao.getCacheCount(mode)
-        if (count >= MAX_CACHE_PER_MODE) {
+        if (count >= maxCount) {
             val oldest = dao.getOldestCache(mode)
             if (oldest != null) {
                 dao.deleteCacheById(oldest.id)
@@ -600,7 +724,8 @@ data class CacheEntry(
     val targetLang: String,
     val translatorName: String,
     val pHash: Long,
-    val sessionId: String = "",  // 翻译会话 ID
+    val sessionId: String = "",      // 原始创建会话 ID（永不改变）
+    val lastSessionId: String = "",  // 最后修改会话 ID（任何修改时更新为当前会话）
     val cropWidth: Int = 0,     // 漫画翻译：裁剪区域宽度（用于面积比校验）
     val cropHeight: Int = 0     // 漫画翻译：裁剪区域高度（用于面积比校验）
 )
@@ -615,9 +740,13 @@ data class HistoryEntry(
     val sourceLang: String,
     val targetLang: String,
     val translatorName: String,
-    val createdAt: Long,
-    val sessionId: String = "",
-    val pHash: Long = 0
+    val createdAt: Long = 0,            // 原始创建时间（继承自同 pHash 旧记录，永不改变）
+    val sessionId: String = "",         // 原始创建会话 ID（永不改变，用于按创建排序分组）
+    val lastSessionId: String = "",     // 最后修改会话 ID（任何修改时更新，用于按修改排序分组）
+    val pHash: Long = 0,
+    val updatedAt: Long = 0,
+    val variantCount: Int = 1,          // 同 pHash 的不同尺寸数量
+    val variantIds: List<Long> = emptyList()  // 同 pHash 的所有变体 ID
 )
 
 data class HistoryGroup(
@@ -646,5 +775,7 @@ fun HistoryEntity.toHistoryEntry() = HistoryEntry(
     translatorName = translatorName,
     createdAt = createdAt,
     sessionId = sessionId,
-    pHash = pHash
+    lastSessionId = lastSessionId,
+    pHash = pHash,
+    updatedAt = updatedAt
 )

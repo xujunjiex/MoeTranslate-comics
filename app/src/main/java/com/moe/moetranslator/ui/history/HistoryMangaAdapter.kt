@@ -1,16 +1,17 @@
 package com.moe.moetranslator.ui.history
 
 import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.card.MaterialCardView
+import com.moe.moetranslator.R
 import com.moe.moetranslator.data.HistoryEntry
-import com.moe.moetranslator.databinding.ItemHistoryMangaBinding
-import com.moe.moetranslator.ui.history.GroupedHistoryEntry
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -18,16 +19,21 @@ import java.util.Locale
 
 /**
  * 漫画历史条目适配器。
- * 接收 GroupedHistoryEntry 列表，同 pHash 条目合并显示，右下角显示尺寸数量。
+ * 支持多种显示模式：list / large / medium / small
  * @param colorMap entryId → 颜色组号（用于跨 session 的 pHash 分组着色）
+ * @param displayMode 显示模式
  */
 class HistoryMangaAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
     private val onItemLongClick: (HistoryEntry) -> Unit,
-    private val colorMap: Map<Long, Int> = emptyMap()
+    private val colorMap: Map<Long, Int> = emptyMap(),
+    private val displayMode: String = "large",
+    private val sortByUpdated: Boolean = false
 ) : ListAdapter<GroupedHistoryEntry, HistoryMangaAdapter.ViewHolder>(DiffCallback()) {
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    private val shortDateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val isSmall get() = displayMode == "small"
 
     companion object {
         private val GROUP_COLORS = intArrayOf(
@@ -39,22 +45,57 @@ class HistoryMangaAdapter(
             android.graphics.Color.parseColor("#15CE93D8"),  // 紫
             android.graphics.Color.parseColor("#15FFAB91"),  // 橙
         )
+
+        private val TRANSLATOR_DISPLAY_NAMES = mapOf(
+            "OpenAITranslation" to "OpenAI",
+            "BingTranslation" to "Bing",
+            "GoogleMLKitTranslation" to "ML Kit",
+            "NLLBTranslation" to "NLLB",
+            "NiuTransTranslation" to "小牛",
+            "VolcTranslation" to "火山",
+            "DeepLTranslation" to "DeepL",
+            "BaiduTranslation" to "百度",
+            "TencentCloudTranslation" to "腾讯",
+            "AzureTranslation" to "Azure",
+        )
+
+        fun getDisplayName(translatorName: String): String {
+            // 新格式: "OpenAITranslation(gpt-4o) | PP-OCRv5+PP-OCRv5 | 分批 | 自由文字 | box=0.30 unclip=1.6 score=0.50"
+            // 只取第一个 " | " 之前的部分（API名称+模型）
+            val apiPart = translatorName.split(" | ").first().trim()
+
+            // 处理 "OpenAITranslation(gpt-4o)" 格式
+            val match = Regex("^(\\w+?)\\((.+)\\)$").find(apiPart)
+            if (match != null) {
+                val apiClass = match.groupValues[1]
+                val model = match.groupValues[2]
+                val friendlyName = TRANSLATOR_DISPLAY_NAMES[apiClass] ?: apiClass
+                return "$friendlyName($model)"
+            }
+            return TRANSLATOR_DISPLAY_NAMES[apiPart] ?: apiPart
+        }
+    }
+
+    override fun getItemViewType(position: Int): Int {
+        return if (displayMode == "list") 1 else 0
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = ItemHistoryMangaBinding.inflate(
-            LayoutInflater.from(parent.context), parent, false
-        )
-        return ViewHolder(binding)
+        val layoutId = if (viewType == 1) R.layout.item_history_manga_list else R.layout.item_history_manga
+        val view = LayoutInflater.from(parent.context).inflate(layoutId, parent, false)
+        return ViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         holder.bind(getItem(position))
     }
 
-    inner class ViewHolder(
-        private val binding: ItemHistoryMangaBinding
-    ) : RecyclerView.ViewHolder(binding.root) {
+    inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val ivThumbnail: ImageView = view.findViewById(R.id.iv_thumbnail)
+        private val tvPhash: TextView = view.findViewById(R.id.tv_phash)
+        private val tvTranslatorName: TextView = view.findViewById(R.id.tv_translator_name)
+        private val tvTime: TextView = view.findViewById(R.id.tv_time)
+        private val tvSizeBadge: TextView = view.findViewById(R.id.tv_size_badge)
 
         fun bind(grouped: GroupedHistoryEntry) {
             val entry = grouped.representative
@@ -62,42 +103,47 @@ class HistoryMangaAdapter(
             // 加载缩略图
             if (entry.thumbnailPath != null && File(entry.thumbnailPath).exists()) {
                 val bitmap = BitmapFactory.decodeFile(entry.thumbnailPath)
-                binding.ivThumbnail.setImageBitmap(bitmap)
+                ivThumbnail.setImageBitmap(bitmap)
             } else {
-                binding.ivThumbnail.setImageBitmap(null)
+                ivThumbnail.setImageBitmap(null)
             }
 
-            // pHash 显示（最后 8 位十六进制）
+            // pHash 显示（最后 8 位十六进制，小模式缩短前缀）
             if (entry.pHash != 0L) {
-                binding.tvPhash.text = "pHash:${String.format("%08X", entry.pHash and 0xFFFFFFFFL)}"
-                binding.tvPhash.visibility = android.view.View.VISIBLE
+                tvPhash.text = if (isSmall) String.format("%08X", entry.pHash and 0xFFFFFFFFL)
+                               else "pHash:${String.format("%08X", entry.pHash and 0xFFFFFFFFL)}"
+                tvPhash.visibility = View.VISIBLE
             } else {
-                binding.tvPhash.visibility = android.view.View.GONE
+                tvPhash.visibility = View.GONE
             }
 
-            binding.tvTranslatorName.text = entry.translatorName
-            binding.tvTime.text = dateFormat.format(Date(entry.createdAt))
+            tvTranslatorName.text = getDisplayName(entry.translatorName)
+            val displayTime = entry.updatedAt
+            tvTime.text = if (isSmall) shortDateFormat.format(Date(displayTime))
+                          else fullDateFormat.format(Date(displayTime))
 
             // 尺寸数量徽章
             if (grouped.groupSize > 1) {
-                binding.tvSizeBadge.text = "×${grouped.groupSize}"
-                binding.tvSizeBadge.visibility = android.view.View.VISIBLE
+                tvSizeBadge.text = "×${grouped.groupSize}"
+                tvSizeBadge.visibility = View.VISIBLE
             } else {
-                binding.tvSizeBadge.visibility = android.view.View.GONE
+                tvSizeBadge.visibility = View.GONE
             }
 
             // 分组颜色
             val colorIdx = colorMap[entry.id] ?: 0
             val bgColor = GROUP_COLORS.getOrElse(colorIdx) { GROUP_COLORS[0] }
-            val card = binding.root as com.google.android.material.card.MaterialCardView
-            card.setCardBackgroundColor(bgColor)
-            val strokeWidthPx = (1 * itemView.resources.displayMetrics.density).toInt()
-            card.strokeWidth = strokeWidthPx
-            card.strokeColor = android.graphics.Color.parseColor("#E0E0E0")
-            card.setBackgroundTintList(null)
+            val card = itemView as? MaterialCardView
+            if (card != null) {
+                card.setCardBackgroundColor(bgColor)
+                val strokeWidthPx = (1 * itemView.resources.displayMetrics.density).toInt()
+                card.strokeWidth = strokeWidthPx
+                card.strokeColor = android.graphics.Color.parseColor("#E0E0E0")
+                card.setBackgroundTintList(null)
+            }
 
-            binding.root.setOnClickListener { onItemClick(grouped) }
-            binding.root.setOnLongClickListener {
+            itemView.setOnClickListener { onItemClick(grouped) }
+            itemView.setOnLongClickListener {
                 onItemLongClick(entry)
                 true
             }

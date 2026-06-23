@@ -37,7 +37,7 @@ class MangaViewerActivity : AppCompatActivity() {
 
     // 每个 pHash 组：代表条目 + 所有尺寸变体
     data class PageGroup(
-        val representative: HistoryEntry,
+        var representative: HistoryEntry,
         val variants: MutableList<HistoryEntry> = mutableListOf(representative)
     )
     private val pageGroups = mutableListOf<PageGroup>()
@@ -78,6 +78,11 @@ class MangaViewerActivity : AppCompatActivity() {
         // 关闭底部面板
         binding.btnCloseSheet.setOnClickListener {
             collapsePanel()
+        }
+
+        // 删除当前条目
+        binding.btnDeleteEntry.setOnClickListener {
+            confirmDeleteCurrentEntry()
         }
 
         // ViewPager 翻页监听
@@ -127,14 +132,21 @@ class MangaViewerActivity : AppCompatActivity() {
                     it.variants.any { v -> v.id == clickedEntryId }
                 }
                 val safeIndex = if (clickedGroupId >= 0) clickedGroupId else 0
+
+                // 设置初始活跃变体（点击的条目或代表条目）
+                val clickedGroup = pageGroups.getOrNull(safeIndex)
+                if (clickedGroup != null) {
+                    val initialVariant = if (clickedEntryId > 0 && clickedGroup.variants.any { it.id == clickedEntryId }) {
+                        clickedEntryId
+                    } else {
+                        clickedGroup.representative.id
+                    }
+                    activeVariantIds[safeIndex] = initialVariant
+                }
+
                 binding.viewPager.setCurrentItem(safeIndex, false)
                 updatePageIndicator(safeIndex)
-
-                // 如果点击的组有多个尺寸，显示尺寸按钮
-                val clickedGroup = pageGroups.getOrNull(safeIndex)
-                if (clickedGroup != null && clickedGroup.variants.size > 1) {
-                    showSizeSwitcher(clickedGroup)
-                }
+                updateSizeSwitcherVisibility(safeIndex)
 
                 LogCollector.d(TAG, "加载漫画历史, ${pageGroups.size} 页, 跳转到 #$safeIndex")
             } catch (e: Exception) {
@@ -169,7 +181,7 @@ class MangaViewerActivity : AppCompatActivity() {
             variants.forEach { used.add(it.id) }
 
             // 取最新为代表
-            val sorted = variants.sortedByDescending { it.createdAt }
+            val sorted = variants.sortedByDescending { it.updatedAt }
             groups.add(PageGroup(
                 representative = sorted.first(),
                 variants = sorted.toMutableList()
@@ -308,6 +320,14 @@ class MangaViewerActivity : AppCompatActivity() {
         val entry = getCurrentVariant()
         LogCollector.d(TAG, "expandPanel: entryId=${entry.id}, sourceText=${entry.sourceText?.take(30)}, translatedText=${entry.translatedText?.take(30)}")
 
+        // 翻译信息栏：完整参数、尺寸、语言、时间
+        val dimStr = getImageDimensions(entry.imagePath ?: entry.thumbnailPath)
+        val timeStr = dateFormat.format(Date(entry.updatedAt))
+
+        // 完整参数信息（translatorName 包含所有参数）
+        val fullInfo = entry.translatorName
+        binding.tvTranslationInfo.text = "$fullInfo\n尺寸: $dimStr  |  ${entry.sourceLang} → ${entry.targetLang}  |  $timeStr"
+
         val detailList = buildDetailList(entry)
         LogCollector.d(TAG, "expandPanel: detailList size=${detailList.size}")
 
@@ -336,6 +356,47 @@ class MangaViewerActivity : AppCompatActivity() {
             .start()
 
         isPanelExpanded = false
+    }
+
+    private fun confirmDeleteCurrentEntry() {
+        val entry = getCurrentVariant()
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setMessage(R.string.delete_history_confirm)
+            .setPositiveButton(R.string.delete) { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        cacheManager.deleteHistory(entry.id)
+                        // 从当前组中移除该变体
+                        val position = binding.viewPager.currentItem
+                        val group = pageGroups.getOrNull(position)
+                        if (group != null) {
+                            group.variants.removeIf { it.id == entry.id }
+                            if (group.variants.isEmpty()) {
+                                // 组已空，移除整页
+                                pageGroups.removeAt(position)
+                                if (pageGroups.isEmpty()) {
+                                    Toast.makeText(this@MangaViewerActivity, R.string.history_deleted, Toast.LENGTH_SHORT).show()
+                                    finish()
+                                    return@launch
+                                }
+                                binding.viewPager.adapter?.notifyItemRemoved(position)
+                                updatePageIndicator(binding.viewPager.currentItem.coerceAtMost(pageGroups.size - 1))
+                            } else {
+                                // 还有其他变体，切换到第一个
+                                group.representative = group.variants.first()
+                                activeVariantIds[position] = group.representative.id
+                                binding.viewPager.adapter?.notifyItemChanged(position)
+                                updateSizeSwitcherVisibility(position)
+                            }
+                        }
+                        Toast.makeText(this@MangaViewerActivity, R.string.history_deleted, Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "删除失败", e)
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun buildDetailList(entry: HistoryEntry): List<TranslationDetailItem> {

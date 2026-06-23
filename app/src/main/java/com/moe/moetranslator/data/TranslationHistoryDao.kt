@@ -13,13 +13,13 @@ interface TranslationHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHistory(entry: HistoryEntity): Long
 
-    @Query("SELECT * FROM translation_history WHERE type = :type ORDER BY createdAt DESC LIMIT :limit")
+    @Query("SELECT * FROM translation_history WHERE type = :type ORDER BY created_at DESC LIMIT :limit")
     suspend fun getHistoryByType(type: Int, limit: Int = 50): List<HistoryEntity>
 
-    @Query("SELECT * FROM translation_history WHERE session_id = :sessionId ORDER BY createdAt DESC")
+    @Query("SELECT * FROM translation_history WHERE session_id = :sessionId ORDER BY updated_at DESC")
     suspend fun getHistoryBySessionId(sessionId: String): List<HistoryEntity>
 
-    @Query("SELECT * FROM translation_history ORDER BY createdAt DESC LIMIT :limit")
+    @Query("SELECT * FROM translation_history ORDER BY updated_at DESC LIMIT :limit")
     suspend fun getAllHistory(limit: Int = 50): List<HistoryEntity>
 
     @Query("SELECT * FROM translation_history WHERE id = :id")
@@ -54,6 +54,12 @@ interface TranslationHistoryDao {
     @Query("UPDATE page_cache SET lastAccessedAt = :time WHERE id = :id")
     suspend fun updateLastAccessed(id: Long, time: Long)
 
+    @Query("UPDATE translation_history SET updated_at = :time WHERE id = :id")
+    suspend fun updateHistoryTimestamp(id: Long, time: Long)
+
+    @Query("UPDATE translation_history SET updated_at = :time, last_session_id = :lastSessionId WHERE id = :id")
+    suspend fun updateHistoryTimestampAndLastSession(id: Long, time: Long, lastSessionId: String)
+
     @Query("DELETE FROM page_cache WHERE id = :id")
     suspend fun deleteCacheById(id: Long)
 
@@ -78,4 +84,10 @@ interface TranslationHistoryDao {
 
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode LIMIT 1")
     suspend fun findCacheByPHash(pHash: Long, mode: Int): PageCacheEntity?
+
+    /**
+     * 按 pHash + cropWidth + cropHeight 精确查找缓存（用于保存时去重）。
+     */
+    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode AND cropWidth = :cropWidth AND cropHeight = :cropHeight LIMIT 1")
+    suspend fun findCacheByHashAndSize(pHash: Long, mode: Int, cropWidth: Int, cropHeight: Int): PageCacheEntity?
 }

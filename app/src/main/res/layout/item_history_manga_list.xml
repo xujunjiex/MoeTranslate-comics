@@ -5,9 +5,9 @@
     android:layout_height="wrap_content"
     android:layout_marginStart="4dp"
     android:layout_marginEnd="4dp"
-    android:layout_marginTop="4dp"
-    android:layout_marginBottom="4dp"
-    app:cardCornerRadius="10dp"
+    android:layout_marginTop="2dp"
+    android:layout_marginBottom="2dp"
+    app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
     app:strokeWidth="1dp"
     app:strokeColor="#E0E0E0"
@@ -16,20 +16,20 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp">
 
-        <!-- 缩略图 -->
+        <!-- 左侧小缩略图 -->
         <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_width="56dp"
+            android:layout_height="56dp">
 
             <ImageView
                 android:id="@+id/iv_thumbnail"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:adjustViewBounds="true"
-                android:maxHeight="200dp"
-                android:scaleType="fitCenter" />
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:scaleType="centerCrop" />
 
             <!-- 尺寸数量徽章 -->
             <TextView
@@ -37,30 +37,26 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end|top"
-                android:layout_marginTop="6dp"
-                android:layout_marginEnd="6dp"
                 android:background="@drawable/badge_background"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp"
+                android:textSize="8sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
         </FrameLayout>
 
-        <!-- 底部信息：pHash + 翻译器 + 时间 -->
+        <!-- 右侧信息 -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:orientation="vertical"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
+            android:layout_marginStart="10dp">
 
-            <!-- pHash 行 -->
+            <!-- pHash -->
             <TextView
                 android:id="@+id/tv_phash"
                 android:layout_width="wrap_content"
@@ -76,7 +72,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginTop="3dp">
+                android:layout_marginTop="2dp">
 
                 <TextView
                     android:id="@+id/tv_translator_name"
@@ -92,7 +88,10 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="#999999"
-                    android:textSize="11sp" />
+                    android:textSize="11sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:layout_marginStart="8dp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

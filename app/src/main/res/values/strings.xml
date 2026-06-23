@@ -549,9 +549,16 @@
     <string name="history_manga_tab">Manga</string>
     <string name="confirm_clear_history">Confirm clear all history?</string>
     <string name="delete_history_confirm">Delete this history record?</string>
+    <string name="delete">Delete</string>
     <string name="history_deleted">History deleted</string>
     <string name="history_cleared">History cleared</string>
     <string name="history_copied">Copied to clipboard</string>
+    <string name="history_sort_created">Sort by Created</string>
+    <string name="history_sort_updated">Sort by Updated</string>
+    <string name="history_display_list">List</string>
+    <string name="history_display_large">Large</string>
+    <string name="history_display_medium">Medium</string>
+    <string name="history_display_small">Small</string>
     <string name="show_translation">Show Translation</string>
     <string name="translation_detail">Translation Detail</string>
     <string name="ocr_original_text">OCR Original</string>
@@ -590,6 +597,11 @@
     <string name="game_context_summary">Carry translation history as context for better coherence (Game mode only, OpenAI-compatible APIs only)</string>
     <string name="game_context_count_title">Context Rounds</string>
     <string name="game_context_count_summary">Keep last %s rounds as context (Note: more rounds = more token usage)</string>
+
+    <!-- Translation Cache -->
+    <string name="cache_setting_title">Cache</string>
+    <string name="cache_count_title">Translation Cache Limit</string>
+    <string name="cache_count_summary">Keep up to %s translated pages cached. Set to 0 to disable cache.</string>
 
     <!-- Translation Status Overlay -->
     <string name="status_overlay_category">Translation Notification</string>

@@ -37,7 +37,7 @@ class HistoryGameAdapter(
             binding.tvSourceText.text = entry.sourceText ?: ""
             binding.tvTranslatedText.text = entry.translatedText ?: ""
             binding.tvTranslatorName.text = entry.translatorName
-            binding.tvTime.text = dateFormat.format(Date(entry.createdAt))
+            binding.tvTime.text = dateFormat.format(Date(entry.updatedAt))
 
             binding.root.setOnClickListener { onItemClick(entry) }
             binding.root.setOnLongClickListener {

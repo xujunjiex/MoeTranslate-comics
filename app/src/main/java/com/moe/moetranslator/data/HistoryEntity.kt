@@ -8,7 +8,7 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "translation_history",
     indices = [
-        Index(value = ["type", "createdAt"])
+        Index(value = ["type", "created_at"])
     ]
 )
 data class HistoryEntity(
@@ -23,7 +23,12 @@ data class HistoryEntity(
     val targetLang: String,     // 目标语言代码
     val translatorName: String, // 翻译器名称
     val pHash: Long,            // 感知哈希值
-    val createdAt: Long,        // 创建时间戳
+    @ColumnInfo(name = "created_at", defaultValue = "0")
+    val createdAt: Long = 0,    // session 创建时间（继承自同 pHash 旧记录，永不改变）
     @ColumnInfo(name = "session_id", defaultValue = "")
-    val sessionId: String = ""  // 翻译会话 ID
+    val sessionId: String = "", // 原始创建会话 ID（首次翻译时分配，永不改变，用于按创建排序分组）
+    @ColumnInfo(name = "last_session_id", defaultValue = "")
+    val lastSessionId: String = "", // 最后修改会话 ID（任何修改时更新为当前会话，用于按修改排序分组）
+    @ColumnInfo(name = "updated_at", defaultValue = "0")
+    val updatedAt: Long = 0     // 最后修改时间戳（翻译/缓存命中时更新）
 )

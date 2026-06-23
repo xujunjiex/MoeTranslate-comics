@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [HistoryEntity::class, PageCacheEntity::class],
-    version = 4,
+    version = 8,
     exportSchema = false
 )
 abstract class TranslationHistoryDatabase : RoomDatabase() {
@@ -35,13 +35,20 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
             }
         }
 
+        // 版本 4 → 5：translation_history 添加 updated_at 字段
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE translation_history ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): TranslationHistoryDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     TranslationHistoryDatabase::class.java,
                     "translation_history.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
             }

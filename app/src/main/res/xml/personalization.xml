@@ -230,6 +230,20 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/cache_setting_title"
+        app:iconSpaceReserved="false">
+
+        <ListPreference
+            android:key="translation_cache_count"
+            app:iconSpaceReserved="false"
+            android:defaultValue="100"
+            android:title="@string/cache_count_title"
+            android:entries="@array/cache_count_entries"
+            android:entryValues="@array/cache_count_values" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/other_setting"
         app:iconSpaceReserved="false">
 

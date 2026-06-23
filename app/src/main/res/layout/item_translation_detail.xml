@@ -12,7 +12,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="#88FFFFFF"
-        android:textSize="12sp"
+        android:textSize="10sp"
         android:textStyle="bold" />
 
     <!-- OCR 原文 -->
@@ -20,20 +20,20 @@
         android:id="@+id/tvOcrText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="1dp"
         android:textColor="#99FFFFFF"
-        android:textSize="13sp"
-        android:lineSpacingExtra="2dp" />
+        android:textSize="11sp"
+        android:lineSpacingExtra="1dp" />
 
     <!-- AI 译文 -->
     <TextView
         android:id="@+id/tvTranslatedText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:textColor="#FFFFFF"
-        android:textSize="15sp"
-        android:lineSpacingExtra="4dp" />
+        android:textSize="12sp"
+        android:lineSpacingExtra="2dp" />
 
     <!-- 分隔线 -->
     <View

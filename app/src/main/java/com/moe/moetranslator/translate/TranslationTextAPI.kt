@@ -25,6 +25,9 @@ sealed class TranslationResult {
 
 interface TranslationTextAPI {
 
+    // 模型名称（用于历史记录显示，如 "gpt-4o"、"deepseek-chat"）
+    val modelName: String get() = ""
+
     // 异步翻译方法
     fun getTranslation(
         text: String,

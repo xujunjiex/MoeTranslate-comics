@@ -49,6 +49,15 @@
             android:paddingHorizontal="12dp"
             android:paddingVertical="8dp"
             android:background="?attr/selectableItemBackgroundBorderless" />
+
+        <ImageButton
+            android:id="@+id/btn_history_settings"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_manage"
+            android:tint="#666666"
+            android:contentDescription="Settings" />
     </LinearLayout>
 
     <!-- 内容区域 -->

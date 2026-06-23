@@ -380,6 +380,15 @@ tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:Det
 - `FloatingBallService` 使用 `foregroundServiceType="mediaProjection"`
 - 许可证：LGPL（原项目）
 
+## UI 规范
+
+- **禁止使用系统弹窗和菜单**：所有弹窗（Dialog）、菜单（Menu）、选择器（Picker）必须使用应用自身的样式，禁止使用系统默认样式
+  - 弹窗：使用 `MaterialAlertDialogBuilder`，禁止 `AlertDialog.Builder`
+  - 选择列表：使用 `MaterialAlertDialogBuilder` + `setItems` / `setSingleChoiceItems`，禁止 `PopupMenu`、`Spinner`
+  - 选项弹窗：使用 `MaterialAlertDialogBuilder` + 自定义 View（RadioGroup 等），禁止 `PopupMenu`
+  - 底部弹窗：使用 `BottomSheetDialogFragment`，禁止系统 `Dialog`
+- 所有 UI 组件使用 Material Design 组件库（`com.google.android.material.*`）
+
 ## 网络配置
 
 - GitHub/HuggingFace 下载需代理（国内环境）

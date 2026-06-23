@@ -825,7 +825,7 @@ class FloatingBallService : LifecycleService() {
                 val dateFormat = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
                 val items = historyList.map { entry ->
                     Dialogs.HistoryItem(
-                        time = dateFormat.format(java.util.Date(entry.createdAt)),
+                        time = dateFormat.format(java.util.Date(entry.updatedAt)),
                         source = entry.sourceText?.take(50) ?: "",
                         translated = entry.translatedText?.take(50) ?: ""
                     )
@@ -1382,7 +1382,8 @@ class FloatingBallService : LifecycleService() {
                     targetLang = prefs.getString("Target_Language", "zh"),
                     translatorName = translatorName,
                     pHash = 0L,
-                    sessionId = sessionId
+                    sessionId = sessionId,
+                    lastSessionId = sessionId
                 )
                 // 先删除旧的同源记录，再保存新结果
                 cacheManager.refreshGameCache(sourceText, entry.sourceLang ?: "ja", entry.targetLang ?: "zh", entry)

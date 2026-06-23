@@ -58,6 +58,7 @@ class HistoryFragment : Fragment() {
         setupRecyclerViews()
         setupClearButton()
         setupRefreshButton()
+        setupSettingsButton()
         loadHistory()
     }
 
@@ -90,9 +91,12 @@ class HistoryFragment : Fragment() {
         binding.rvGameHistory.adapter = gameGroupAdapter
 
         // 漫画历史：分组适配器
+        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val displayMode = prefs.getString("history_display_mode", "large")
         mangaGroupAdapter = HistoryMangaGroupAdapter(
             onItemClick = { grouped -> openMangaViewer(grouped) },
-            onItemLongClick = { entry -> showDeleteDialog(entry) }
+            onItemLongClick = { entry -> showDeleteDialog(entry) },
+            displayMode = displayMode
         )
         binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
         binding.rvMangaHistory.adapter = mangaGroupAdapter
@@ -109,6 +113,100 @@ class HistoryFragment : Fragment() {
             loadHistory()
             Toast.makeText(requireContext(), R.string.history_refreshed, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun setupSettingsButton() {
+        binding.btnHistorySettings.setOnClickListener { view ->
+            showHistorySettingsMenu(view)
+        }
+    }
+
+    private fun showHistorySettingsMenu(anchor: View) {
+        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val sortByUpdated = prefs.getString("history_sort_mode", "created") == "updated"
+        val displayMode = prefs.getString("history_display_mode", "large")
+
+        val sortOptions = arrayOf(
+            getString(R.string.history_sort_created),
+            getString(R.string.history_sort_updated)
+        )
+        val displayOptions = arrayOf(
+            getString(R.string.history_display_list),
+            getString(R.string.history_display_large),
+            getString(R.string.history_display_medium),
+            getString(R.string.history_display_small)
+        )
+        val currentSortIdx = if (sortByUpdated) 1 else 0
+        val currentDisplayIdx = when (displayMode) {
+            "list" -> 0; "large" -> 1; "medium" -> 2; "small" -> 3
+            else -> 1
+        }
+
+        // 用 LinearLayout 组合两组选项
+        val container = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+        }
+
+        // 排序标题
+        container.addView(android.widget.TextView(requireContext()).apply {
+            text = "排列方式"
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#666666"))
+            setPadding(0, 0, 0, 8)
+        })
+
+        // 排序单选
+        val sortGroup = android.widget.RadioGroup(requireContext()).apply {
+            orientation = android.widget.RadioGroup.VERTICAL
+        }
+        sortOptions.forEachIndexed { idx, label ->
+            sortGroup.addView(android.widget.RadioButton(requireContext()).apply {
+                text = label
+                id = idx
+                isChecked = idx == currentSortIdx
+            })
+        }
+        container.addView(sortGroup)
+
+        // 显示标题
+        container.addView(android.widget.TextView(requireContext()).apply {
+            text = "显示方式"
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#666666"))
+            setPadding(0, 24, 0, 8)
+        })
+
+        // 显示单选
+        val displayGroup = android.widget.RadioGroup(requireContext()).apply {
+            orientation = android.widget.RadioGroup.VERTICAL
+        }
+        val displayValues = arrayOf("list", "large", "medium", "small")
+        displayOptions.forEachIndexed { idx, label ->
+            displayGroup.addView(android.widget.RadioButton(requireContext()).apply {
+                text = label
+                id = idx
+                isChecked = idx == currentDisplayIdx
+            })
+        }
+        container.addView(displayGroup)
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+            .setTitle("历史记录设置")
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val newSortIdx = sortGroup.checkedRadioButtonId
+                val newDisplayIdx = displayGroup.checkedRadioButtonId
+                if (newSortIdx >= 0) {
+                    prefs.setString("history_sort_mode", if (newSortIdx == 1) "updated" else "created")
+                }
+                if (newDisplayIdx >= 0) {
+                    prefs.setString("history_display_mode", displayValues[newDisplayIdx])
+                }
+                loadHistory()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun switchTab(tab: Int) {
@@ -128,19 +226,24 @@ class HistoryFragment : Fragment() {
     private fun loadHistory() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+                val sortByUpdated = prefs.getString("history_sort_mode", "created") == "updated"
+                val displayMode = prefs.getString("history_display_mode", "large")
+
                 when (currentTab) {
                     TranslationCacheManager.MODE_GAME -> {
-                        // 游戏历史：使用分组查询
-                        val groups = cacheManager.getHistoryGrouped(currentTab)
+                        val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
                         gameGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组")
+                        LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "updated" else "created"}")
                     }
                     TranslationCacheManager.MODE_MANGA -> {
-                        val groups = cacheManager.getHistoryGrouped(currentTab)
+                        mangaGroupAdapter.setDisplayMode(displayMode)
+                        mangaGroupAdapter.setSortByUpdated(sortByUpdated)
+                        val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
                         mangaGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: 漫画分组, ${groups.size} 个日期组")
+                        LogCollector.d(TAG, "loadHistory: 漫画分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "updated" else "created"}, display=$displayMode")
                     }
                 }
             } catch (e: Exception) {

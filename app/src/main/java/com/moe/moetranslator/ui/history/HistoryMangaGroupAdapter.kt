@@ -15,7 +15,6 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.HistoryGroup
 import com.moe.moetranslator.data.HistorySession
-import com.moe.moetranslator.utils.PerceptualHash
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -36,10 +35,26 @@ data class GroupedHistoryEntry(
  */
 class HistoryMangaGroupAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
-    private val onItemLongClick: (HistoryEntry) -> Unit
+    private val onItemLongClick: (HistoryEntry) -> Unit,
+    private var displayMode: String = "large",
+    private var sortByUpdated: Boolean = false
 ) : ListAdapter<HistoryGroup, HistoryMangaGroupAdapter.GroupViewHolder>(GroupDiffCallback()) {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+    fun setDisplayMode(mode: String) {
+        if (displayMode != mode) {
+            displayMode = mode
+            notifyDataSetChanged()
+        }
+    }
+
+    fun setSortByUpdated(sortByUpdated: Boolean) {
+        if (this.sortByUpdated != sortByUpdated) {
+            this.sortByUpdated = sortByUpdated
+            notifyDataSetChanged()
+        }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): GroupViewHolder {
         val view = LayoutInflater.from(parent.context)
@@ -58,29 +73,26 @@ class HistoryMangaGroupAdapter(
         fun bind(group: HistoryGroup) {
             tvDateHeader.text = group.dateLabel
 
-            // 跨 session 收集所有条目，按 pHash 分组，用于计算每个条目的徽章
+            // 构建颜色映射（多尺寸分组）
             val allEntries = group.sessions.flatMap { it.entries }
-            val pHashGroups = groupByPHash(allEntries)
-
-            // 构建 entryId → allEntryIds 映射（用于徽章显示）
-            val entryToGroupIds = mutableMapOf<Long, List<Long>>()
-            for (g in pHashGroups) {
-                for (id in g.allEntryIds) {
-                    entryToGroupIds[id] = g.allEntryIds
+            val colorMap = mutableMapOf<Long, Int>()
+            var colorIdx = 1
+            for (entry in allEntries) {
+                if (entry.variantCount > 1) {
+                    for (id in entry.variantIds) {
+                        colorMap[id] = colorIdx
+                    }
+                    colorIdx = (colorIdx % 6) + 1
                 }
             }
 
-            // 为多尺寸分组分配颜色
-            val colorMap = computeGroupColorMap(pHashGroups)
-
             val sessionAdapter = MangaSessionAdapter(
                 onItemClick = { grouped ->
-                    val allIds = entryToGroupIds[grouped.representative.id]
-                        ?: grouped.allEntryIds
-                    onItemClick(GroupedHistoryEntry(grouped.representative, allIds.size, allIds))
+                    val representative = grouped.representative
+                    val allIds = if (representative.variantIds.isNotEmpty()) representative.variantIds else listOf(representative.id)
+                    onItemClick(GroupedHistoryEntry(representative, allIds.size, allIds))
                 },
                 onItemLongClick = onItemLongClick,
-                entryToGroupIds = entryToGroupIds,
                 colorMap = colorMap
             )
             rvSessions.layoutManager = LinearLayoutManager(itemView.context)
@@ -92,7 +104,6 @@ class HistoryMangaGroupAdapter(
     private inner class MangaSessionAdapter(
         private val onItemClick: (GroupedHistoryEntry) -> Unit,
         private val onItemLongClick: (HistoryEntry) -> Unit,
-        private val entryToGroupIds: Map<Long, List<Long>> = emptyMap(),
         private val colorMap: Map<Long, Int> = emptyMap()
     ) : ListAdapter<HistorySession, MangaSessionAdapter.SessionViewHolder>(SessionDiffCallback()) {
 
@@ -114,25 +125,27 @@ class HistoryMangaGroupAdapter(
                 val startTime = timeFormat.format(Date(session.startTime))
                 val endTime = timeFormat.format(Date(session.endTime))
 
-                // 将每个条目包装为 GroupedHistoryEntry，按 allEntryIds 去重（同组只显示一张）
-                val seenGroups = mutableSetOf<List<Long>>()
-                val groups = mutableListOf<GroupedHistoryEntry>()
-                for (entry in session.entries) {
-                    val groupIds = entryToGroupIds[entry.id] ?: listOf(entry.id)
-                    val key = groupIds.sorted()
-                    if (seenGroups.add(key)) {
-                        groups.add(GroupedHistoryEntry(
-                            representative = entry,
-                            groupSize = groupIds.size,
-                            allEntryIds = groupIds
-                        ))
-                    }
+                // 每个条目直接作为 GroupedHistoryEntry（pHash 去重已在 getHistoryGrouped 完成）
+                val groups = session.entries.map { entry ->
+                    val ids = if (entry.variantIds.isNotEmpty()) entry.variantIds else listOf(entry.id)
+                    GroupedHistoryEntry(
+                        representative = entry,
+                        groupSize = entry.variantCount,
+                        allEntryIds = ids
+                    )
                 }
 
                 tvSessionHeader.text = "$startTime - $endTime (${groups.size})"
 
-                val gridAdapter = HistoryMangaAdapter(onItemClick, onItemLongClick, colorMap)
-                rvGrid.layoutManager = GridLayoutManager(itemView.context, 2)
+                val gridAdapter = HistoryMangaAdapter(onItemClick, onItemLongClick, colorMap, displayMode, sortByUpdated)
+                val spanCount = when (displayMode) {
+                    "list" -> 1
+                    "large" -> 2
+                    "medium" -> 3
+                    "small" -> 4
+                    else -> 2
+                }
+                rvGrid.layoutManager = GridLayoutManager(itemView.context, spanCount)
                 rvGrid.adapter = gridAdapter
                 gridAdapter.submitList(groups)
             }
@@ -157,80 +170,4 @@ class HistoryMangaGroupAdapter(
         }
     }
 
-    companion object {
-        private const val PHASH_GROUP_THRESHOLD = 0.85f
-
-        /**
-         * 按 pHash 相似度将条目分组。
-         * 同组取最新条目为代表，返回 GroupedHistoryEntry 列表。
-         * 无 pHash 的条目各自独立成组。
-         */
-        fun groupByPHash(entries: List<HistoryEntry>): List<GroupedHistoryEntry> {
-            val validEntries = entries.filter { it.pHash != 0L }
-            val noPHashEntries = entries.filter { it.pHash == 0L }
-
-            val result = noPHashEntries.map { entry ->
-                GroupedHistoryEntry(representative = entry, groupSize = 1, allEntryIds = listOf(entry.id))
-            }.toMutableList()
-
-            if (validEntries.isEmpty()) return result
-
-            // Union-Find 分组
-            val parent = IntArray(validEntries.size) { it }
-            fun find(x: Int): Int {
-                if (parent[x] != x) parent[x] = find(parent[x])
-                return parent[x]
-            }
-            fun union(a: Int, b: Int) {
-                val ra = find(a)
-                val rb = find(b)
-                if (ra != rb) parent[ra] = rb
-            }
-
-            for (i in validEntries.indices) {
-                for (j in i + 1 until validEntries.size) {
-                    val sim = PerceptualHash.similarity(validEntries[i].pHash, validEntries[j].pHash)
-                    if (sim >= PHASH_GROUP_THRESHOLD) {
-                        union(i, j)
-                    }
-                }
-            }
-
-            val groups = mutableMapOf<Int, MutableList<HistoryEntry>>()
-            for (i in validEntries.indices) {
-                val root = find(i)
-                groups.getOrPut(root) { mutableListOf() }.add(validEntries[i])
-            }
-
-            for (group in groups.values) {
-                val sorted = group.sortedByDescending { it.createdAt }
-                result.add(GroupedHistoryEntry(
-                    representative = sorted.first(),
-                    groupSize = sorted.size,
-                    allEntryIds = sorted.map { it.id }
-                ))
-            }
-
-            return result
-        }
-
-        /**
-         * 为多尺寸分组分配颜色。
-         * 多尺寸分组的 pHash → 颜色索引（1-6）。
-         */
-        fun computeGroupColorMap(
-            pHashGroups: List<GroupedHistoryEntry>
-        ): Map<Long, Int> {
-            val result = mutableMapOf<Long, Int>()
-            val multiGroups = pHashGroups.filter { it.allEntryIds.size > 1 }
-            var colorIdx = 1
-            for (group in multiGroups) {
-                for (id in group.allEntryIds) {
-                    result[id] = colorIdx
-                }
-                colorIdx = (colorIdx % 6) + 1
-            }
-            return result
-        }
-    }
 }

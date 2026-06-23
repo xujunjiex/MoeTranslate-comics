@@ -188,6 +188,25 @@
         <item>10</item>
     </string-array>
 
+    <!-- Translation cache count -->
+    <string-array name="cache_count_entries">
+        <item>0 (Disabled)</item>
+        <item>20</item>
+        <item>50</item>
+        <item>100</item>
+        <item>200</item>
+        <item>500</item>
+    </string-array>
+
+    <string-array name="cache_count_values">
+        <item>0</item>
+        <item>20</item>
+        <item>50</item>
+        <item>100</item>
+        <item>200</item>
+        <item>500</item>
+    </string-array>
+
     <!-- Floating ball gesture actions -->
     <string-array name="ball_action_entries">
         <item>@string/ball_action_translate</item>
