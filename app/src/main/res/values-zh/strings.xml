@@ -582,6 +582,10 @@
     <string name="game_crop_done">框选完成</string>
     <string name="game_cannot_close_ball">自动翻译中无法关闭悬浮球</string>
     <string name="game_back_main">回到星译主界面</string>
+    <string name="game_switch_language">切换语言</string>
+    <string name="auto_translate_no_switch">自动翻译中无法切换语言</string>
+    <string name="no_available_ocr_model">没有可用的 OCR 模型</string>
+    <string name="language_switched_to">源语言：%s</string>
     <string name="game_show_log">显示日志</string>
     <string name="game_hide_log">隐藏日志</string>
     <string name="pixel_stability_title">翻页稳定性检测</string>

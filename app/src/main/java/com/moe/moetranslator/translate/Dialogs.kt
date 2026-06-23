@@ -46,7 +46,7 @@ data class DialogResult(
 
 object Dialogs {
     @SuppressLint("MissingInflatedId")
-    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, ocrEngineLabel: String = ""): DialogResult {
+    fun menuDialog(ctx: Context, isAutoTranslating: Boolean, ocrEngineLabel: String = "", currentLangName: String = ""): DialogResult {
         // 动态构建菜单项
         val strItems = mutableListOf<String>()
         val imgItems = mutableListOf<Int>()
@@ -57,12 +57,15 @@ object Dialogs {
         // 1: 字体大小
         strItems.add(ctx.getString(R.string.game_font_size))
         imgItems.add(R.drawable.result_size)
-        // 4: OCR 模型（动态标签）
+        // 2: OCR 模型（动态标签）
         if (ocrEngineLabel.isNotEmpty()) {
             strItems.add(ctx.getString(R.string.game_ocr_engine_label) + "：" + ocrEngineLabel)
             imgItems.add(R.drawable.ocr_engine)
         }
-        // 5: 翻译历史
+        // 3: 切换语言（动态标签）
+        strItems.add(ctx.getString(R.string.game_switch_language) + "：" + currentLangName)
+        imgItems.add(R.drawable.language_switch)
+        // 4: 翻译历史
         strItems.add(ctx.getString(R.string.game_translation_history))
         imgItems.add(R.drawable.ic_history)
         // 自动翻译
@@ -153,7 +156,8 @@ object Dialogs {
         isAutoTranslating: Boolean,
         cropLabel: String,
         detModelLabel: String = ctx.getString(R.string.manga_det_mlkit),
-        ocrEngineLabel: String = ctx.getString(R.string.manga_ocr_mlkit)
+        ocrEngineLabel: String = ctx.getString(R.string.manga_ocr_mlkit),
+        currentLangName: String = ""
     ): DialogResult {
         val baseItems = if (isAutoTranslating) {
             ctx.resources.getStringArray(R.array.manga_menu_items_auto_on)
@@ -166,6 +170,7 @@ object Dialogs {
                 0 -> "${baseItems[0]}：$cropLabel"
                 2 -> "${baseItems[2]}：$detModelLabel"
                 3 -> "${baseItems[3]}：$ocrEngineLabel"
+                4 -> "${baseItems[4]}：$currentLangName"
                 else -> baseItems[i]
             }
         }
@@ -175,6 +180,7 @@ object Dialogs {
                 R.drawable.result_size,
                 R.drawable.model_manage,
                 R.drawable.ocr_engine,
+                R.drawable.language_switch,
                 R.drawable.stop_auto,
                 R.drawable.close_service,
                 R.drawable.back_home
@@ -185,6 +191,7 @@ object Dialogs {
                 R.drawable.result_size,
                 R.drawable.model_manage,
                 R.drawable.ocr_engine,
+                R.drawable.language_switch,
                 R.drawable.start_auto,
                 R.drawable.close_service,
                 R.drawable.back_home
@@ -217,7 +224,8 @@ object Dialogs {
         ctx: Context,
         isAutoTranslating: Boolean,
         cropLabel: String,
-        modelLabel: String
+        modelLabel: String,
+        currentLangName: String = ""
     ): DialogResult {
         val baseItems = if (isAutoTranslating) {
             ctx.resources.getStringArray(R.array.manga_menu_items_simple_auto_on)
@@ -228,6 +236,7 @@ object Dialogs {
             when (i) {
                 0 -> "${baseItems[0]}：$cropLabel"
                 2 -> "${baseItems[2]}：$modelLabel"
+                3 -> "${baseItems[3]}：$currentLangName"
                 else -> baseItems[i]
             }
         }
@@ -236,6 +245,7 @@ object Dialogs {
                 R.drawable.crop_screen,
                 R.drawable.result_size,
                 R.drawable.model_manage,
+                R.drawable.language_switch,
                 R.drawable.stop_auto,
                 R.drawable.close_service,
                 R.drawable.back_home
@@ -245,6 +255,7 @@ object Dialogs {
                 R.drawable.crop_screen,
                 R.drawable.result_size,
                 R.drawable.model_manage,
+                R.drawable.language_switch,
                 R.drawable.start_auto,
                 R.drawable.close_service,
                 R.drawable.back_home

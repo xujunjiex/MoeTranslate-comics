@@ -854,8 +854,9 @@ class MangaFloatingService : LifecycleService() {
             else -> getString(R.string.manga_model_mlkit)  // 兜底
         }
 
+        val langName = getCurrentSourceLangName()
         val (dialog, listView) = Dialogs.mangaMenuDialogSimple(
-            applicationContext, isAutoTranslating, cropLabel, modelLabel
+            applicationContext, isAutoTranslating, cropLabel, modelLabel, langName
         )
 
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
@@ -888,22 +889,32 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 3 -> {
+                    if (isAutoTranslating) {
+                        showToast(getString(R.string.auto_translate_no_switch), true)
+                    } else {
+                        // 循环切换源语言，不关闭菜单
+                        cycleSourceLang()
+                        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                        adapter.updateLabel(3, "${getString(R.string.game_switch_language)}：${getCurrentSourceLangName()}")
+                    }
+                }
+                4 -> {
                     // 自动翻译
                     toggleAutoTranslate()
                     val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                     if (isAutoTranslating) {
-                        adapter.updateLabel(3, getString(R.string.manga_menu_stop_auto))
-                        adapter.updateIcon(3, R.drawable.stop_auto)
+                        adapter.updateLabel(4, getString(R.string.manga_menu_stop_auto))
+                        adapter.updateIcon(4, R.drawable.stop_auto)
                     } else {
-                        adapter.updateLabel(3, getString(R.string.manga_menu_auto_translate))
-                        adapter.updateIcon(3, R.drawable.start_auto)
+                        adapter.updateLabel(4, getString(R.string.manga_menu_auto_translate))
+                        adapter.updateIcon(4, R.drawable.start_auto)
                     }
                 }
-                4 -> {
+                5 -> {
                     dialog.dismiss()
                     stopSelf()
                 }
-                5 -> {
+                6 -> {
                     dialog.dismiss()
                     backToMainActivity()
                 }
@@ -941,8 +952,9 @@ class MangaFloatingService : LifecycleService() {
             OcrEngine.PPOcrV5 -> "PP-OCRv5"
         }
 
+        val langName = getCurrentSourceLangName()
         val (dialog, listView) = Dialogs.mangaMenuDialog(
-            applicationContext, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel
+            applicationContext, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel, langName
         )
 
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
@@ -980,21 +992,31 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 4 -> {
-                    toggleAutoTranslate()
-                    val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
                     if (isAutoTranslating) {
-                        adapter.updateLabel(4, getString(R.string.manga_menu_stop_auto))
-                        adapter.updateIcon(4, R.drawable.stop_auto)
+                        showToast(getString(R.string.auto_translate_no_switch), true)
                     } else {
-                        adapter.updateLabel(4, getString(R.string.manga_menu_auto_translate))
-                        adapter.updateIcon(4, R.drawable.start_auto)
+                        // 循环切换源语言，不关闭菜单
+                        cycleSourceLang()
+                        val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                        adapter.updateLabel(4, "${getString(R.string.game_switch_language)}：${getCurrentSourceLangName()}")
                     }
                 }
                 5 -> {
+                    toggleAutoTranslate()
+                    val adapter = listView.adapter as com.moe.moetranslator.translate.MenuDialogAdapter
+                    if (isAutoTranslating) {
+                        adapter.updateLabel(5, getString(R.string.manga_menu_stop_auto))
+                        adapter.updateIcon(5, R.drawable.stop_auto)
+                    } else {
+                        adapter.updateLabel(5, getString(R.string.manga_menu_auto_translate))
+                        adapter.updateIcon(5, R.drawable.start_auto)
+                    }
+                }
+                6 -> {
                     dialog.dismiss()
                     stopSelf()
                 }
-                6 -> {
+                7 -> {
                     dialog.dismiss()
                     backToMainActivity()
                 }
@@ -1117,6 +1139,53 @@ class MangaFloatingService : LifecycleService() {
 
     private fun showSystemToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 循环切换源语言：ja → en → zh → ko → ru → ja
+     * 跳过 OCR 模型不可用的语言（PP-OCRv5 的 KO/RU 需要检查是否已下载）
+     */
+    private fun cycleSourceLang() {
+        val langCycle = arrayOf("ja", "en", "zh", "ko", "ru")
+        val current = prefs.getString("Source_Language", "ja")
+        val currentIdx = langCycle.indexOf(current).coerceAtLeast(0)
+
+        for (i in 1..langCycle.size) {
+            val nextIdx = (currentIdx + i) % langCycle.size
+            val nextLang = langCycle[nextIdx]
+            if (isOcrLangAvailable(nextLang)) {
+                prefs.setString("Source_Language", nextLang)
+                config = loadConfig()  // 重新加载配置
+                val langName = com.moe.moetranslator.translate.CustomLocale.getInstance(nextLang).getDisplayName()
+                showToast(getString(R.string.language_switched_to, langName), true)
+                checkLanguageHints()
+                return
+            }
+        }
+        showToast(getString(R.string.no_available_ocr_model), true)
+    }
+
+    /**
+     * 检查指定语言的 OCR 模型是否可用
+     */
+    private fun isOcrLangAvailable(lang: String): Boolean {
+        val isPP = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
+        if (!isPP) return true  // 非 PP-OCRv5 不需要检查
+        return when (lang) {
+            "zh", "ja" -> true  // 内置模型
+            "en" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.EN)
+            "ko" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.KO)
+            "ru" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.RU)
+            else -> true
+        }
+    }
+
+    /**
+     * 获取当前源语言的显示名称
+     */
+    private fun getCurrentSourceLangName(): String {
+        val lang = prefs.getString("Source_Language", "ja")
+        return com.moe.moetranslator.translate.CustomLocale.getInstance(lang).getDisplayName()
     }
 
     /**

@@ -279,6 +279,15 @@ PP-OCRv5 检测框可能倾斜（QuadBox 4 顶点非正交），全链路处理�
 
 **核心文件：** `AutoTranslateEngine.kt`（状态机）、`FloatingBallService`（主服务）、`GameOcrEngine.kt`（OCR 封装）、`PixelCompare.kt`（像素比较）、`GameDebugOverlay.kt`（调试浮窗）
 
+**悬浮窗语言切换：**
+游戏和漫画模式的悬浮菜单都支持运行时切换源语言。
+- 循环切换：ja → en → zh → ko → ru → ja
+- 跳过未下载的 OCR 模型（PP-OCRv5 的 KO/RU 需检查是否已下载）
+- 自动翻译时禁用切换，显示提示
+- 切换后不关闭菜单，显示新的语言名称
+- 实时生效：切换后下次翻译使用新语言
+- 主页语言切换限制已移除，翻译运行中也可在主页切换语言
+
 **状态机：**
 ```
 IDLE（跳过OCR）──像素变化──→ CHANGED ──稳定1帧──→ STABLE_1 ──稳定2帧──→ STABLE_2（触发OCR）→ IDLE

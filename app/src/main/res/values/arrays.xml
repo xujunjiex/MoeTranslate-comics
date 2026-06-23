@@ -55,6 +55,7 @@
         <item>Font Size</item>
         <item>Detection Model</item>
         <item>OCR Engine</item>
+        <item>Switch Language</item>
         <item>Auto Translate</item>
         <item>Close Ball</item>
         <item>Main Page</item>
@@ -65,6 +66,7 @@
         <item>Font Size</item>
         <item>Detection Model</item>
         <item>OCR Engine</item>
+        <item>Switch Language</item>
         <item>Stop Auto</item>
         <item>Close Ball</item>
         <item>Main Page</item>
@@ -75,6 +77,7 @@
         <item>Translation Area</item>
         <item>Font Size</item>
         <item>Model</item>
+        <item>Switch Language</item>
         <item>Auto Translate</item>
         <item>Close Ball</item>
         <item>Main Page</item>
@@ -84,6 +87,7 @@
         <item>Translation Area</item>
         <item>Font Size</item>
         <item>Model</item>
+        <item>Switch Language</item>
         <item>Stop Auto</item>
         <item>Close Ball</item>
         <item>Main Page</item>

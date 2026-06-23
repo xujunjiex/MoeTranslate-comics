@@ -615,11 +615,13 @@ class FloatingBallService : LifecycleService() {
 
     private fun showLongPressMenu() {
         val ocrLabel = getOcrEngineLabel()
-        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, ocrLabel)
+        val langName = getCurrentSourceLangName()
+        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, ocrLabel, langName)
 
         // 动态计算菜单索引
         var idx = 2  // 前 2 项固定：框选、字体
         val ocrIdx = idx++                  // OCR 模型
+        val langIdx = idx++                 // 切换语言
         val historyIdx = idx++              // 历史
         val autoIdx = idx++                 // 自动翻译
         val closeIdx = idx++                // 关闭
@@ -651,6 +653,16 @@ class FloatingBallService : LifecycleService() {
                             cycleOcrEngine()
                             val adapter = listView.adapter as MenuDialogAdapter
                             adapter.updateLabel(ocrIdx, getString(R.string.game_ocr_engine_label) + "：" + getOcrEngineLabel())
+                        }
+                    }
+                    langIdx -> {
+                        if (isAutoTranslating) {
+                            showToast(getString(R.string.auto_translate_no_switch), true)
+                        } else {
+                            // 循环切换源语言，不关闭菜单
+                            cycleSourceLang()
+                            val adapter = listView.adapter as MenuDialogAdapter
+                            adapter.updateLabel(langIdx, getString(R.string.game_switch_language) + "：" + getCurrentSourceLangName())
                         }
                     }
                     historyIdx -> {
@@ -698,6 +710,52 @@ class FloatingBallService : LifecycleService() {
             2 -> getString(R.string.game_ocr_engine_manga_ocr)
             else -> getString(R.string.game_ocr_engine_mlkit)
         }
+    }
+
+    /**
+     * 循环切换源语言：ja → en → zh → ko → ru → ja
+     * 跳过 OCR 模型不可用的语言（PP-OCRv5 的 KO/RU 需要检查是否已下载）
+     */
+    private fun cycleSourceLang() {
+        val langCycle = arrayOf("ja", "en", "zh", "ko", "ru")
+        val current = prefs.getString("Source_Language", "ja")
+        val currentIdx = langCycle.indexOf(current).coerceAtLeast(0)
+
+        for (i in 1..langCycle.size) {
+            val nextIdx = (currentIdx + i) % langCycle.size
+            val nextLang = langCycle[nextIdx]
+            if (isOcrLangAvailable(nextLang)) {
+                prefs.setString("Source_Language", nextLang)
+                val langName = com.moe.moetranslator.translate.CustomLocale.getInstance(nextLang).getDisplayName()
+                showToast(getString(R.string.language_switched_to, langName), true)
+                checkLanguageHints()
+                return
+            }
+        }
+        showToast(getString(R.string.no_available_ocr_model), true)
+    }
+
+    /**
+     * 检查指定语言的 OCR 模型是否可用
+     */
+    private fun isOcrLangAvailable(lang: String): Boolean {
+        val ocrEngine = prefs.getInt("Game_OCR_Engine", 0)
+        if (ocrEngine != 1) return true  // 非 PP-OCRv5 不需要检查
+        return when (lang) {
+            "zh", "ja" -> true  // 内置模型
+            "en" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.EN)
+            "ko" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.KO)
+            "ru" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.RU)
+            else -> true
+        }
+    }
+
+    /**
+     * 获取当前源语言的显示名称
+     */
+    private fun getCurrentSourceLangName(): String {
+        val lang = prefs.getString("Source_Language", "ja")
+        return com.moe.moetranslator.translate.CustomLocale.getInstance(lang).getDisplayName()
     }
 
     /** 循环切换 OCR 引擎：MLKit → PP-OCRv5 → manga-ocr → MLKit */

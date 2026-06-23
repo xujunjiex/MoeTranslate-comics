@@ -585,6 +585,10 @@
     <string name="game_crop_done">Area selected</string>
     <string name="game_cannot_close_ball">Cannot close floating ball during auto-translate</string>
     <string name="game_back_main">Return to StarFlow Main Page</string>
+    <string name="game_switch_language">Switch Language</string>
+    <string name="auto_translate_no_switch">Cannot switch language during auto-translate</string>
+    <string name="no_available_ocr_model">No available OCR model for this language</string>
+    <string name="language_switched_to">Source language: %s</string>
     <string name="game_show_log">Show Log</string>
     <string name="game_hide_log">Hide Log</string>
     <string name="pixel_stability_title">Page Stability Check</string>
