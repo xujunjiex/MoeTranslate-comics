@@ -12,7 +12,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.Looper
-import android.util.DisplayMetrics
+import android.graphics.Point
 import android.view.WindowManager
 import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
@@ -39,9 +39,9 @@ class Shooter(private val context: Context) {
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var lastBitmap: Bitmap? = null
-    private var imageAvailable = false
+    @Volatile private var imageAvailable = false
 
-    var ready = false
+    @Volatile var ready = false
         private set
 
     /**
@@ -63,14 +63,14 @@ class Shooter(private val context: Context) {
                 }
             }, Handler(Looper.getMainLooper()))
 
-            // 获取实际屏幕尺寸
+            // 获取实际屏幕尺寸（使用 getRealSize 匹配项目规范）
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val metrics = DisplayMetrics()
+            val screenPoint = Point()
             @Suppress("DEPRECATION")
-            wm.defaultDisplay.getRealMetrics(metrics)
-            val screenWidth = metrics.widthPixels
-            val screenHeight = metrics.heightPixels
-            val dpi = metrics.densityDpi
+            wm.defaultDisplay.getRealSize(screenPoint)
+            val screenWidth = screenPoint.x
+            val screenHeight = screenPoint.y
+            val dpi = context.resources.displayMetrics.densityDpi
 
             // 创建 ImageReader
             imageReader = ImageReader.newInstance(
@@ -127,6 +127,7 @@ class Shooter(private val context: Context) {
         try {
             val image = imageReader?.acquireLatestImage()
             if (image != null) {
+                lastBitmap?.recycle()
                 lastBitmap = convert(image)
                 image.close()
                 imageAvailable = false
@@ -155,7 +156,9 @@ class Shooter(private val context: Context) {
 
         // 裁剪到实际尺寸
         return if (rowPadding > 0) {
-            Bitmap.createBitmap(bitmap, 0, 0, width, height)
+            val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+            bitmap.recycle()
+            cropped
         } else {
             bitmap
         }
