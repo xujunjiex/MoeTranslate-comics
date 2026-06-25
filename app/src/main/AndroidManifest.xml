@@ -103,6 +103,11 @@
                 android:value="漫画翻译悬浮窗服务，通过 Accessibility Service 截屏后进行 OCR 识别和翻译" />
         </service>
 
+        <activity
+            android:name=".translate.ScreenCapturePermissionActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
     </application>
 
 </manifest>
