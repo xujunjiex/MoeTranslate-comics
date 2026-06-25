@@ -656,4 +656,14 @@
     <string name="manga_ocr_non_ja_hint">manga-ocr model is optimized for Japanese, current source language may affect recognition, consider switching to PP-OCRv5</string>
     <string name="model_download_in_browser">🔗 Browser</string>
     <string name="model_storage_path_label">Model storage path:</string>
+
+    <!-- Screenshot Method -->
+    <string name="screenshot_method">Screenshot Method</string>
+    <string name="screenshot_method_mediaprojection">Screen Capture (Recommended)</string>
+    <string name="screenshot_method_accessibility">Accessibility Service</string>
+    <string name="screenshot_method_summary">Choose how screenshots are taken for translation</string>
+    <string name="screenshot_permission_denied">Screenshot permission is required for translation</string>
+    <string name="screenshot_permission_granted">Screenshot permission granted</string>
+    <string name="foreground_service_notification_title">StarFlow</string>
+    <string name="foreground_service_notification_text">Translation service is running</string>
 </resources>

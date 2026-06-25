@@ -225,4 +225,15 @@
         <item>2</item>
         <item>3</item>
     </string-array>
+
+    <!-- Screenshot Method -->
+    <string-array name="screenshot_method_entries">
+        <item>@string/screenshot_method_mediaprojection</item>
+        <item>@string/screenshot_method_accessibility</item>
+    </string-array>
+
+    <string-array name="screenshot_method_values">
+        <item>0</item>
+        <item>1</item>
+    </string-array>
 </resources>

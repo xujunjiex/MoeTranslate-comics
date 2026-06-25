@@ -654,4 +654,14 @@
     <string name="update_go_authorize">去授权</string>
     <string name="update_downloaded_ready">更新包已下载完成，请授权安装权限后将自动安装。</string>
     <string name="update_install_now">安装更新</string>
+
+    <!-- 截图方式 -->
+    <string name="screenshot_method">截图方式</string>
+    <string name="screenshot_method_mediaprojection">录屏授权（推荐）</string>
+    <string name="screenshot_method_accessibility">无障碍服务</string>
+    <string name="screenshot_method_summary">选择翻译功能的截图方式</string>
+    <string name="screenshot_permission_denied">需要截图权限才能翻译</string>
+    <string name="screenshot_permission_granted">截图权限已获取</string>
+    <string name="foreground_service_notification_title">星译</string>
+    <string name="foreground_service_notification_text">翻译服务运行中</string>
 </resources>

@@ -48,6 +48,14 @@ import java.io.IOException
 
 
 class PersonalizationConfig : PreferenceFragmentCompat() {
+
+    companion object {
+        // 截图方式：0 = MediaProjection, 1 = AccessibilityService
+        private const val SCREENSHOT_METHOD_KEY = "Screenshot_Method"
+        private const val SCREENSHOT_METHOD_MEDIAPROJECTION = 0
+        private const val SCREENSHOT_METHOD_ACCESSIBILITY = 1
+    }
+
     private lateinit var prefs: CustomPreference
     private val pickFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { handleFileSelection(it) }
