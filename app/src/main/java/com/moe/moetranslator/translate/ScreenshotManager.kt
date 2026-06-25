@@ -40,8 +40,8 @@ object ScreenshotManager {
      * 裁剪 Bitmap
      */
     fun cropBitmap(source: Bitmap, cropRect: RectF, offset: Point): Bitmap {
-        val x = (cropRect.left - offset.x).toInt().coerceIn(0, source.width - 1)
-        val y = (cropRect.top - offset.y).toInt().coerceIn(0, source.height - 1)
+        val x = (cropRect.left.toInt() + offset.x).coerceIn(0, source.width - 1)
+        val y = (cropRect.top.toInt() + offset.y).coerceIn(0, source.height - 1)
         val w = cropRect.width().toInt().coerceAtMost(source.width - x)
         val h = cropRect.height().toInt().coerceAtMost(source.height - y)
 
