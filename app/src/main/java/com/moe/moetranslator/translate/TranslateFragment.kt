@@ -165,7 +165,7 @@ class TranslateFragment : Fragment() {
                     MangaFloatingService.stop(requireContext())
                     setMangaButtonState(false)
                 }
-                if (checkAndroidSDK() && checkAccessibilityService() && checkFloatingBall() && checkNotify() && checkTranslateAPI() && checkCombination()) {
+                if (checkAndroidSDK() && checkScreenshotMethod() && checkFloatingBall() && checkNotify() && checkTranslateAPI() && checkCombination()) {
                     if ((prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id) && (prefs.getInt(
                             "Text_API",
                             Constants.TextApi.BING.id
@@ -187,7 +187,7 @@ class TranslateFragment : Fragment() {
                 if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java)) {
                     stopFloatingBallService()
                 }
-                if (checkAndroidSDK() && checkAccessibilityService() && checkFloatingBall()) {
+                if (checkAndroidSDK() && checkScreenshotMethod() && checkFloatingBall()) {
                     MangaFloatingService.start(requireContext())
                     UiUtils.showToast(requireContext(), "漫画翻译已启动", isShort = false)
                     setMangaButtonState(true)
@@ -859,6 +859,28 @@ class TranslateFragment : Fragment() {
             dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         }
         return ret
+    }
+
+    // 检查截图方式是否可用
+    private fun checkScreenshotMethod(): Boolean {
+        val method = prefs.getInt("Screenshot_Method", 0)
+        return when (method) {
+            0 -> {
+                // MediaProjection 模式：检查权限是否已获取
+                if (MediaProjectionIntentHolder.intent != null) {
+                    true
+                } else {
+                    // 启动权限请求
+                    ScreenCapturePermissionActivity.start(requireContext())
+                    false
+                }
+            }
+            1 -> {
+                // AccessibilityService 模式：检查服务是否开启
+                checkAccessibilityService()
+            }
+            else -> false
+        }
     }
 
     private fun checkFloatingBall(): Boolean {
