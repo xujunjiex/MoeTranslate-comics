@@ -18,9 +18,14 @@
 package com.moe.moetranslator.translate
 
 import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.Point
+import android.os.Build
 import android.widget.Toast
 import java.util.LinkedList
 import android.graphics.BitmapFactory
@@ -28,6 +33,7 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
+import androidx.core.app.NotificationCompat
 import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.utils.LogCollector
@@ -179,10 +185,96 @@ class FloatingBallService : LifecycleService() {
     private val autoTranslateHandler = Handler(Looper.getMainLooper())
 
 
+    // 截图提供者
+    private var screenshotProvider: ScreenshotProvider? = null
+
     companion object {
         private const val DEFAULT_PIXEL_CHECK_INTERVAL_MS = 300L
         private const val OCR_TIMEOUT_MS = 3000L
         private const val DOUBLE_CLICK_DELAY = 300L
+        private const val FOREGROUND_NOTIFICATION_ID = 34765
+        private const val NOTIFICATION_CHANNEL_ID = "screen_capture"
+    }
+
+    // 初始化截图提供者
+    private fun initScreenshotProvider() {
+        val method = prefs.getInt("Screenshot_Method", 0)
+        screenshotProvider = when (method) {
+            0 -> MediaProjectionProvider(this)
+            1 -> AccessibilityProvider()
+            else -> MediaProjectionProvider(this)
+        }
+        LogCollector.d(TAG, "Screenshot provider initialized: ${screenshotProvider?.javaClass?.simpleName}")
+    }
+
+    // 启动前台服务（MediaProjection 模式需要）
+    private fun startForegroundForScreenshot() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                getString(R.string.screenshot_method),
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = getString(R.string.screenshot_method_summary)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(getString(R.string.foreground_service_notification_title))
+            .setContentText(getString(R.string.foreground_service_notification_text))
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
+    }
+
+    // 停止前台服务
+    private fun stopForegroundForScreenshot() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+    }
+
+    // 使用 ScreenshotProvider 截图
+    private fun takeScreenshotWithProvider(cropRect: RectF?, offset: Point) {
+        val provider = screenshotProvider ?: return
+
+        if (provider is MediaProjectionProvider) {
+            // MediaProjection 模式：需要检查初始化
+            if (!provider.ensureInitialized()) {
+                // 需要请求权限
+                ScreenCapturePermissionActivity.start(this)
+                return
+            }
+            // 前台服务
+            startForegroundForScreenshot()
+            // 异步截图
+            lifecycleScope.launch {
+                val bitmap = provider.takeScreenshot(cropRect, offset)
+                if (bitmap != null) {
+                    ScreenshotManager.emitScreenshot(ScreenshotData(bitmap, null))
+                }
+            }
+        } else {
+            // AccessibilityService 模式：直接调用（结果通过 ScreenshotManager.screenshotFlow 返回）
+            lifecycleScope.launch {
+                provider.takeScreenshot(cropRect, offset)
+            }
+        }
     }
 
     private fun getPixelCheckInterval(): Long {
@@ -277,6 +369,7 @@ class FloatingBallService : LifecycleService() {
             prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
         } catch (e: Exception) { 5 }
         initialize()
+        initScreenshotProvider()
         setupScreenshotCollector()
 
         // 监听源语言和引擎变化，实时检查语言/模型提示
@@ -290,6 +383,14 @@ class FloatingBallService : LifecycleService() {
         checkLanguageHints()
 
         LogCollector.d(TAG, "FloatingBallService created")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra("PERMISSION_RESULT", false) == true) {
+            // 权限已获取，重新初始化
+            (screenshotProvider as? MediaProjectionProvider)?.ensureInitialized()
+        }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     @SuppressLint("InflateParams")
@@ -1015,7 +1116,7 @@ class FloatingBallService : LifecycleService() {
                 scheduleNextDetection(getPixelCheckInterval())
             }
         }, OCR_TIMEOUT_MS)
-        AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
+        takeScreenshotWithProvider(mRectF, cropView.absolutePointOffset)
     }
 
     private fun setCropView(){
@@ -1151,7 +1252,7 @@ class FloatingBallService : LifecycleService() {
                     showDebugOverlay()
                     updateDebugStatus("【检测中】手动翻译")
                 }
-                AccessibilityServiceManager.takeScreenshot(mRectF, cropView.absolutePointOffset)
+                takeScreenshotWithProvider(mRectF, cropView.absolutePointOffset)
             }
             is BallStatus.Crop -> {
                 // 框选确认通过 CropView 的确认按钮完成，此处忽略
@@ -1546,6 +1647,9 @@ class FloatingBallService : LifecycleService() {
     override fun onDestroy() {
         LogCollector.d(TAG, "FloatingBallService onDestroy")
         super.onDestroy()
+        // 释放截图提供者
+        screenshotProvider?.release()
+        stopForegroundForScreenshot()
         // 注销 SharedPreferences listener
         prefChangeListener?.let {
             prefs.getSharedPreferences().unregisterOnSharedPreferenceChangeListener(it)
