@@ -9,10 +9,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.ServiceInfo
 import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
@@ -37,11 +39,15 @@ import com.moe.moetranslator.bridge.OCRBridge
 import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.me.OpenAIProviderConfig
+import com.moe.moetranslator.translate.AccessibilityProvider
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CropView
 import com.moe.moetranslator.translate.Dialogs
+import com.moe.moetranslator.translate.MediaProjectionProvider
 import com.moe.moetranslator.translate.ScreenshotData
 import com.moe.moetranslator.translate.ScreenshotManager
+import com.moe.moetranslator.translate.ScreenshotProvider
+import com.moe.moetranslator.translate.ScreenCapturePermissionActivity
 import com.moe.moetranslator.translate.TranslationResult
 import com.moe.moetranslator.translate.TranslationTextAPI
 import com.moe.moetranslator.utils.Constants
@@ -82,6 +88,10 @@ class MangaFloatingService : LifecycleService() {
         private const val TAG = "MangaFloatingService"
         private const val NOTIFICATION_CHANNEL_ID = "manga_floating_service"
         private const val NOTIFICATION_ID = 7
+
+        // 前台服务通知 ID（MediaProjection 模式需要）
+        private const val FOREGROUND_NOTIFICATION_ID = 34766
+        private const val SCREEN_CAPTURE_CHANNEL_ID = "screen_capture"
 
         private const val CLICK_SLOP = 5f
         private const val LONG_PRESS_SLOP = 10f
@@ -197,6 +207,9 @@ class MangaFloatingService : LifecycleService() {
     private lateinit var config: MangaModeConfig
     private var translatorText: TranslationTextAPI? = null
 
+    // 截图提供者
+    private var screenshotProvider: ScreenshotProvider? = null
+
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
     private var forceRefresh = false
@@ -265,6 +278,7 @@ class MangaFloatingService : LifecycleService() {
         startForeground(NOTIFICATION_ID, buildNotification())
 
         initializeViews()
+        initScreenshotProvider()
         setupScreenshotCollector()
 
         // 初始化 OCR 引擎（识别器）
@@ -291,8 +305,19 @@ class MangaFloatingService : LifecycleService() {
         stopSelf()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra("PERMISSION_RESULT", false) == true) {
+            // 权限已获取，重新初始化
+            (screenshotProvider as? MediaProjectionProvider)?.ensureInitialized()
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        // 释放截图提供者
+        screenshotProvider?.release()
+        stopForegroundForScreenshot()
         // 注销 SharedPreferences listener
         prefChangeListener?.let {
             prefs.getSharedPreferences().unregisterOnSharedPreferenceChangeListener(it)
@@ -333,6 +358,17 @@ class MangaFloatingService : LifecycleService() {
     }
 
     // ---------- Initialization ----------
+
+    // 初始化截图提供者
+    private fun initScreenshotProvider() {
+        val method = prefs.getInt("Screenshot_Method", 0)
+        screenshotProvider = when (method) {
+            0 -> MediaProjectionProvider(this)
+            1 -> AccessibilityProvider()
+            else -> MediaProjectionProvider(this)
+        }
+        LogCollector.d(TAG, "Screenshot provider initialized: ${screenshotProvider?.javaClass?.simpleName}")
+    }
 
     private fun reloadConfig() {
         config = loadConfig()
@@ -1665,12 +1701,81 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.d(TAG, "triggerTranslation: cropRect=$cropRect")
             if (cropRect != null) {
                 LogCollector.d(TAG, "triggerTranslation: taking cropped screenshot")
-                AccessibilityServiceManager.takeScreenshot(cropRect, cropView.absolutePointOffset)
             } else {
                 LogCollector.d(TAG, "triggerTranslation: taking full screenshot")
-                AccessibilityServiceManager.takeScreenshot(null, android.graphics.Point(0, 0))
             }
+            takeScreenshotWithProvider(cropRect, cropView.absolutePointOffset)
             LogCollector.d(TAG, "========== triggerTranslation END ==========")
+        }
+    }
+
+    // 使用 ScreenshotProvider 截图
+    private fun takeScreenshotWithProvider(cropRect: RectF?, offset: Point) {
+        val provider = screenshotProvider ?: return
+
+        if (provider is MediaProjectionProvider) {
+            // MediaProjection 模式：需要检查初始化
+            if (!provider.ensureInitialized()) {
+                // 需要请求权限
+                ScreenCapturePermissionActivity.start(this)
+                return
+            }
+            // 前台服务
+            startForegroundForScreenshot()
+            // 异步截图
+            lifecycleScope.launch {
+                val bitmap = provider.takeScreenshot(cropRect, offset)
+                if (bitmap != null) {
+                    ScreenshotManager.emitScreenshot(ScreenshotData(bitmap, null))
+                }
+            }
+        } else {
+            // AccessibilityService 模式：直接调用
+            lifecycleScope.launch {
+                provider.takeScreenshot(cropRect, offset)
+            }
+        }
+    }
+
+    // 启动前台服务（MediaProjection 模式需要）
+    private fun startForegroundForScreenshot() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                SCREEN_CAPTURE_CHANNEL_ID,
+                getString(R.string.screenshot_method),
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = getString(R.string.screenshot_method_summary)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, SCREEN_CAPTURE_CHANNEL_ID)
+            .setContentTitle(getString(R.string.foreground_service_notification_title))
+            .setContentText(getString(R.string.foreground_service_notification_text))
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
+    }
+
+    // 停止前台服务
+    private fun stopForegroundForScreenshot() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
         }
     }
 
