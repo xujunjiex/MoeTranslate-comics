@@ -75,7 +75,7 @@ sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
 - `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — 文本翻译
 - `TranslationPicAPI.getTranslation(bitmap, sourceLanguage, targetLanguage, callback)` — 图片翻译
 
-**截图流程：** `ScreenShotAccessibilityService` → `ScreenshotManager.screenshotFlow`（SharedFlow）→ `FloatingBallService` 接收处理
+**截图流程：** `ScreenshotProvider`（双模式）→ `ScreenshotManager.screenshotFlow`（SharedFlow）→ `FloatingBallService` / `MangaFloatingService` 接收处理
 
 **翻译提示词架构：**
 
@@ -389,11 +389,44 @@ tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:Det
 **绝对禁止未经用户确认就执行 `adb uninstall`！**
 安装失败时：只报告错误，询问用户是否需要卸载重装，等用户明确同意后才能执行。这条规则没有例外。
 
+## 双模式截图
+
+截图方式通过 `Screenshot_Method` 偏好设置（关于页面选择）：
+- **MediaProjection（默认）**：弹窗授权，门槛低，每次启动都要授权
+- **AccessibilityService**：需要手动开启无障碍服务，永久有效
+
+### 架构
+
+```
+ScreenshotProvider（接口）
+├── MediaProjectionProvider — Shooter 截图
+└── AccessibilityProvider — 无障碍服务截图
+
+ScreenshotManager（单例）
+├── screenshotFlow: SharedFlow<ScreenshotData>
+└── contentChangedFlow: SharedFlow<Unit>
+```
+
+### 前台服务
+
+MediaProjection 模式需要前台服务 + FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION。
+FloatingBallService 和 MangaFloatingService 在 MediaProjection 模式下自动启动前台服务。
+
+### 权限请求
+
+ScreenCapturePermissionActivity — 透明 Activity，弹出系统授权弹窗。
+MediaProjectionIntentHolder — 存储授权 Intent。
+
+### 响应时间差异
+
+- 游戏模式：无差异（300ms 轮询）
+- 漫画模式：MediaProjection 翻页后等轮询周期，AccessibilityService 翻页后 ~500ms 触发
+
 ## 关键约束
 
 - **minSdk 29**（Android 10+），**targetSdk 35**
 - **仅支持 arm64-v8a** — 不支持 32 位
-- 需要 Accessibility Service 进行截屏（非 MediaProjection）
+- 双模式截图：MediaProjection（默认）/ AccessibilityService
 - `FloatingBallService` 使用 `foregroundServiceType="mediaProjection"`
 - 许可证：LGPL（原项目）
 
