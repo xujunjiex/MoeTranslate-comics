@@ -31,34 +31,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
-
-/**
- * 截图数据：包含全屏截图和裁剪后截图。
- * @param fullBitmap 全屏截图（用于计算稳定的 pHash，用完需 recycle）
- * @param croppedBitmap 裁剪后截图（用于 OCR，null 表示全屏无裁剪）
- */
-data class ScreenshotData(val fullBitmap: Bitmap, val croppedBitmap: Bitmap?)
-
-// 单例类管理SharedFlow
-object ScreenshotManager {
-    private val _screenshotFlow = MutableSharedFlow<ScreenshotData>()
-    val screenshotFlow = _screenshotFlow.asSharedFlow()
-
-    // 内容变化事件流（AccessibilityService 通知 MangaFloatingService 加速检测）
-    private val _contentChangedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val contentChangedFlow = _contentChangedFlow.asSharedFlow()
-
-    suspend fun emitScreenshot(data: ScreenshotData) {
-        _screenshotFlow.emit(data)
-    }
-
-    fun notifyContentChanged() {
-        _contentChangedFlow.tryEmit(Unit)
-    }
-}
 
 class ScreenShotAccessibilityService: AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -86,27 +58,15 @@ class ScreenShotAccessibilityService: AccessibilityService() {
                             )?.copy(Bitmap.Config.ARGB_8888, true)
 
                             Log.d("ASSOFFSET", "x:"+offset.x+"  y:"+offset.y)
-                            var croppedBitmap: Bitmap? = null
-                            if (mRectF != null){
-                                val b = fullBitmap!!
-                                val x = (mRectF.left.toInt() + offset.x).coerceIn(0, b.width - 1)
-                                val y = (mRectF.top.toInt() + offset.y).coerceIn(0, b.height - 1)
-                                val w = mRectF.width().toInt().coerceAtMost(b.width - x)
-                                val h = mRectF.height().toInt().coerceAtMost(b.height - y)
-                                if (w > 0 && h > 0) {
-                                    croppedBitmap = Bitmap.createBitmap(b, x, y, w, h)
-                                }
+                            val croppedBitmap = if (mRectF != null && fullBitmap != null) {
+                                ScreenshotManager.cropBitmap(fullBitmap, mRectF, offset)
+                            } else {
+                                null
                             }
 
                             //使用sharedflow，发送截图完成信号以及全屏+裁剪bitmap
                             fullBitmap?.let { fb ->
-                                serviceScope.launch {
-                                    try {
-                                        ScreenshotManager.emitScreenshot(ScreenshotData(fb, croppedBitmap))
-                                    } catch (e: Exception) {
-                                        showToast("Error emitting screenshot：$e")
-                                    }
-                                }
+                                ScreenshotManager.emitScreenshot(ScreenshotData(fb, croppedBitmap))
                             }
 
                         } catch (e: Exception) {
