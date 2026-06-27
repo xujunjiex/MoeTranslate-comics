@@ -19,8 +19,20 @@ object ScreenshotManager {
     private val _screenshotFlow = MutableSharedFlow<ScreenshotData>(extraBufferCapacity = 1)
     val screenshotFlow = _screenshotFlow.asSharedFlow()
 
-    private val _contentChangedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val contentChangedFlow = _contentChangedFlow.asSharedFlow()
+    private val _eventTriggerFlow = MutableSharedFlow<String>(extraBufferCapacity = 2)
+    val eventTriggerFlow = _eventTriggerFlow.asSharedFlow()
+
+    /** 框选区域（用于事件过滤） */
+    var cropRect: RectF? = null
+
+    /** 事件模式设置 */
+    private var eventModeHandler: AccessibilityEventHandler? = null
+    fun setEventMode(mode: AccessibilityEventHandler.Mode) {
+        eventModeHandler?.setMode(mode)
+    }
+    fun registerEventHandler(handler: AccessibilityEventHandler) {
+        eventModeHandler = handler
+    }
 
     /**
      * 发送截图数据
@@ -30,10 +42,10 @@ object ScreenshotManager {
     }
 
     /**
-     * 通知内容变化（用于加速漫画自动翻译检测）
+     * 通知无障碍事件触发（经 EventHandler 去抖后调用）
      */
-    fun notifyContentChanged() {
-        _contentChangedFlow.tryEmit(Unit)
+    fun notifyEventTrigger(eventType: String) {
+        _eventTriggerFlow.tryEmit(eventType)
     }
 
     /**

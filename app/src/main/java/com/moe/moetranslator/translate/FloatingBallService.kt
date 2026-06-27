@@ -263,16 +263,30 @@ class FloatingBallService : LifecycleService() {
                 showToast("录屏权限未授予，无法截图", true)
                 return false
             }
-            // 异步截图
             lifecycleScope.launch {
-                LogCollector.d(TAG, "Taking MediaProjection screenshot")
+                LogCollector.d(TAG, "Taking MediaProjection screenshot (game mode)")
                 val bitmap = provider.takeScreenshot(cropRect, offset)
                 if (bitmap != null) {
                     LogCollector.d(TAG, "Screenshot captured: ${bitmap.width}x${bitmap.height}")
                     ScreenshotManager.emitScreenshot(ScreenshotData(bitmap, null))
-                } else {
-                    LogCollector.w(TAG, "Screenshot returned null")
+                } else if (!provider.ensureInitialized()) {
+                    // Shooter 已断开（系统回收录屏），停止自动翻译并提示重新授权
+                    LogCollector.w(TAG, "Shooter not ready, stopping auto-translate")
+                    withContext(Dispatchers.Main) {
+                        showToast("录屏已断开，请重新授权", true)
+                        stopAutoTranslate()
+                    }
                     isTranslating.set(false)
+                } else {
+                    // 普通截图失败
+                    LogCollector.w(TAG, "Screenshot returned null, retrying")
+                    isTranslating.set(false)
+                    if (isAutoTranslating) {
+                        autoTranslateHandler.removeCallbacksAndMessages(null)
+                        scheduleNextDetection(getPixelCheckInterval())
+                    } else {
+                        showToast("截图失败，请重试", true)
+                    }
                 }
             }
             return true
@@ -381,10 +395,11 @@ class FloatingBallService : LifecycleService() {
         initScreenshotProvider()
         setupScreenshotCollector()
 
-        // MediaProjection 模式：服务启动时立即请求录屏权限
+        // MediaProjection 模式：不在 onCreate 初始化 Shooter（此时方向可能不是横屏）
+        // 延迟到首次截图时懒加载，确保 Shooter 以当前方向初始化
         if (screenshotProvider is MediaProjectionProvider) {
             startForegroundForScreenshot()
-            if (!(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
+            if (MediaProjectionIntentHolder.intent == null) {
                 LogCollector.d(TAG, "MediaProjection needs permission at service start")
                 ScreenCapturePermissionActivity.start(this)
             }
@@ -1315,9 +1330,9 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun setupScreenshotCollector() {
+        // 截图处理
         lifecycleScope.launch {
             ScreenshotManager.screenshotFlow.collect { data ->
-                // 游戏翻译：使用裁剪后的 bitmap（或全屏 bitmap）
                 val bitmap = data.croppedBitmap ?: data.fullBitmap
                 if (data.croppedBitmap != null) data.fullBitmap.recycle()
                 try {
@@ -1328,10 +1343,19 @@ class FloatingBallService : LifecycleService() {
                     updateDebugStatus("【错误】截图处理失败: ${e.message?.take(30)}")
                     statusOverlay.showError("OCR失败：$e")
                 } finally {
-                    // 截图处理完成后再调度下一次，避免截图频率超限
                     if (isAutoTranslating) {
                         scheduleNextDetection(getPixelCheckInterval())
                     }
+                }
+            }
+        }
+
+        // 画面变化加速检测：AccessibilityService 检测到事件时立即触发
+        lifecycleScope.launch {
+            ScreenshotManager.eventTriggerFlow.collect {
+                if (isAutoTranslating && !isTranslating.get()) {
+                    autoTranslateHandler.removeCallbacksAndMessages(null)
+                    runAutoDetect()
                 }
             }
         }

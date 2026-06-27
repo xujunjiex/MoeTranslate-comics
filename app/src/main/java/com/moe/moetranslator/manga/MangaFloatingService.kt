@@ -40,12 +40,14 @@ import com.moe.moetranslator.bridge.TextBlockInfo
 import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.me.OpenAIProviderConfig
 import com.moe.moetranslator.translate.AccessibilityProvider
+import com.moe.moetranslator.translate.AccessibilityEventHandler
 import com.moe.moetranslator.translate.AccessibilityServiceManager
 import com.moe.moetranslator.translate.CropView
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.MediaProjectionProvider
 import com.moe.moetranslator.translate.ScreenshotData
 import com.moe.moetranslator.translate.ScreenshotManager
+import com.moe.moetranslator.translate.MediaProjectionIntentHolder
 import com.moe.moetranslator.translate.ScreenshotProvider
 import com.moe.moetranslator.translate.ScreenCapturePermissionActivity
 import com.moe.moetranslator.translate.TranslationResult
@@ -279,10 +281,10 @@ class MangaFloatingService : LifecycleService() {
         initScreenshotProvider()
         setupScreenshotCollector()
 
-        // MediaProjection 模式：服务启动时立即请求录屏权限
+        // MediaProjection 模式：不在 onCreate 初始化 Shooter，延迟到首次截图时懒加载
         if (screenshotProvider is MediaProjectionProvider) {
             updateForegroundTypeForMediaProjection()
-            if (!(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
+            if (MediaProjectionIntentHolder.intent == null) {
                 LogCollector.d(TAG, "MediaProjection needs permission at service start")
                 ScreenCapturePermissionActivity.start(this)
             }
@@ -1851,6 +1853,7 @@ class MangaFloatingService : LifecycleService() {
 
     private fun setupScreenshotCollector() {
         LogCollector.d(TAG, "setupScreenshotCollector: starting collector coroutine")
+        ScreenshotManager.setEventMode(AccessibilityEventHandler.Mode.MANGA)
         lifecycleScope.launch {
             LogCollector.d(TAG, "Screenshot collector: coroutine started, waiting for screenshots...")
             ScreenshotManager.screenshotFlow.collect { data ->
@@ -1922,11 +1925,11 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
         }
 
-        // Accessibility 事件辅助：屏幕内容变化时加速 IDLE 状态的检测
+        // 无障碍事件辅助：滚动/内容变化时加速检测（事件经 EventHandler 去抖后到达）
         lifecycleScope.launch {
-            ScreenshotManager.contentChangedFlow.collect {
+            ScreenshotManager.eventTriggerFlow.collect { eventType ->
                 if (isAutoTranslating && detectState == DetectState.IDLE && !isProcessing) {
-                    // 取消当前调度，500ms 后立即检测（比默认间隔快）
+                    LogCollector.d(TAG, "事件触发 [$eventType]: 立即检测")
                     autoTranslateHandler.removeCallbacksAndMessages(null)
                     autoTranslateHandler.postDelayed({ runAutoDetect() }, 500L)
                 }
@@ -2912,9 +2915,7 @@ class MangaFloatingService : LifecycleService() {
         newBubbles: List<TranslatedBubble>,
         saveCache: Boolean = true
     ) {
-        val allBubbles = newBubbles
-
-        if (allBubbles.isEmpty()) {
+        if (newBubbles.isEmpty()) {
             LogCollector.d(TAG, "renderAndShowMergedOverlay: no content to render")
             return
         }
@@ -2928,7 +2929,7 @@ class MangaFloatingService : LifecycleService() {
         val resultBitmap = withContext(Dispatchers.Default) {
             OverlayRenderer.renderOverlay(
                 original = original,
-                regions = allBubbles,
+                regions = newBubbles,
                 fontSize = config.fontSize,
                 autoFit = config.autoFontSize,
                 textColor = config.textColor,
@@ -2945,9 +2946,9 @@ class MangaFloatingService : LifecycleService() {
         if (saveCache) {
             try {
                 val translatorName = buildTranslatorDisplayName()
-                val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
-                val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
-                LogCollector.d(TAG, "保存缓存: ${allBubbles.size} 个气泡")
+                val ocrTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
+                val transTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+                LogCollector.d(TAG, "保存缓存: ${newBubbles.size} 个气泡")
                 val entry = CacheEntry(
                     type = TranslationCacheManager.MODE_MANGA,
                     sourceText = ocrTexts.ifEmpty { null },

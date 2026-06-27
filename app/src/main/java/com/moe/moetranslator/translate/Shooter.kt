@@ -116,8 +116,8 @@ class Shooter(private val context: Context) {
                             if (prevHash != 0L) {
                                 val sim = PerceptualHash.similarity(prevHash, currentHash)
                                 if (sim < FRAME_CHANGE_THRESHOLD) {
-                                    // 内容发生显著变化（如翻页），通知上层加速检测
-                                    ScreenshotManager.notifyContentChanged()
+                                    // 内容发生显著变化，通知上层加速检测
+                                    ScreenshotManager.notifyEventTrigger("content_changed")
                                 }
                             }
                         }
@@ -139,6 +139,12 @@ class Shooter(private val context: Context) {
             ready = true
             LogCollector.d(TAG, "Initialized: ${screenWidth}x${screenHeight}")
             return true
+        } catch (e: SecurityException) {
+            // Token 过期或重复使用：清除已失效的 intent，下次请求新授权
+            LogCollector.e(TAG, "MediaProjection token expired or reused, clearing stored intent", e)
+            MediaProjectionIntentHolder.clear()
+            release()
+            return false
         } catch (e: Exception) {
             LogCollector.e(TAG, "Init failed", e)
             release()
@@ -177,6 +183,20 @@ class Shooter(private val context: Context) {
 
         // listener 已经在后台线程完成了 acquire + convert，直接复制结果
         imageAvailable = false
+        return@withContext synchronized(bitmapLock) {
+            lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
+        }
+    }
+
+    /**
+     * 不等待新帧，直接返回最新缓存帧。
+     * 游戏模式用：像素对比不要求绝对最新帧，避免画面静止时白等 200ms。
+     */
+    suspend fun shotNoWait(): Bitmap? = withContext(Dispatchers.IO) {
+        if (!ready) {
+            LogCollector.w(TAG, "Not ready, returning null")
+            return@withContext null
+        }
         return@withContext synchronized(bitmapLock) {
             lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
         }

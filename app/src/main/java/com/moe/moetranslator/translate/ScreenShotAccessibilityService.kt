@@ -35,6 +35,9 @@ import kotlinx.coroutines.cancel
 class ScreenShotAccessibilityService: AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var statusOverlay: TranslationStatusOverlay
+    private val eventHandler = AccessibilityEventHandler {
+        ScreenshotManager.notifyEventTrigger(it)
+    }.also { ScreenshotManager.registerEventHandler(it) }
 
     // 当用户点击悬浮球时调用此方法
     fun takeScreenshot(mRectF: RectF?, offset: Point) {
@@ -107,10 +110,7 @@ class ScreenShotAccessibilityService: AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // 通知自动翻译加速检测（TYPE_WINDOW_CONTENT_CHANGED 表示屏幕内容变化）
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-            ScreenshotManager.notifyContentChanged()
-        }
+        event?.let { eventHandler.onEvent(it) }
     }
 
     override fun onInterrupt() {
@@ -125,6 +125,8 @@ class ScreenShotAccessibilityService: AccessibilityService() {
         if (::statusOverlay.isInitialized) {
             statusOverlay.release()
         }
+        // 取消事件处理
+        eventHandler.cancel()
         // 取消所有协程
         serviceScope.cancel()
     }
