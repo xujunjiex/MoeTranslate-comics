@@ -4,16 +4,17 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 import com.moe.moetranslator.manga.MangaFloatingService
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.ServiceUtils
 import com.moe.moetranslator.utils.UiUtils
 
 /**
  * 截图权限请求 Activity
  * 透明 Activity，弹出系统授权弹窗后立即关闭
  */
-class ScreenCapturePermissionActivity : AppCompatActivity() {
+class ScreenCapturePermissionActivity : Activity() {
     companion object {
         private const val TAG = "ScreenCapturePermission"
         private const val REQUEST_CODE = 222
@@ -59,19 +60,24 @@ class ScreenCapturePermissionActivity : AppCompatActivity() {
     }
 
     /**
-     * 通知所有翻译服务权限已处理
+     * 通知当前正在运行的翻译服务权限已处理
+     * 只通知正在运行的服务，避免意外启动另一个服务
      */
     private fun notifyServices() {
-        // 通知 FloatingBallService
-        val gameIntent = Intent(this, FloatingBallService::class.java).apply {
-            putExtra("PERMISSION_RESULT", true)
+        if (ServiceUtils.isServiceRunning(this, MangaFloatingService::class.java)) {
+            LogCollector.d(TAG, "Notifying MangaFloatingService of permission result")
+            val mangaIntent = Intent(this, MangaFloatingService::class.java).apply {
+                putExtra("PERMISSION_RESULT", true)
+            }
+            startService(mangaIntent)
+        } else if (ServiceUtils.isServiceRunning(this, FloatingBallService::class.java)) {
+            LogCollector.d(TAG, "Notifying FloatingBallService of permission result")
+            val gameIntent = Intent(this, FloatingBallService::class.java).apply {
+                putExtra("PERMISSION_RESULT", true)
+            }
+            startService(gameIntent)
+        } else {
+            LogCollector.w(TAG, "No translation service running, permission result not delivered")
         }
-        startService(gameIntent)
-
-        // 通知 MangaFloatingService
-        val mangaIntent = Intent(this, MangaFloatingService::class.java).apply {
-            putExtra("PERMISSION_RESULT", true)
-        }
-        startService(mangaIntent)
     }
 }

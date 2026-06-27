@@ -33,21 +33,40 @@ class MediaProjectionProvider(private val context: Context) : ScreenshotProvider
     fun ensureInitialized(): Boolean {
         if (isInitialized && shooter.ready) return true
 
-        val intent = MediaProjectionIntentHolder.intent ?: return false
+        val intent = MediaProjectionIntentHolder.intent
+        if (intent == null) {
+            LogCollector.w(TAG, "No MediaProjection intent available")
+            return false
+        }
+        LogCollector.d(TAG, "Initializing Shooter with stored intent")
         isInitialized = shooter.init(intent)
+        if (!isInitialized) {
+            // init 失败（intent 已过期/被重用），清除存储的 intent 以便下次请求新的
+            LogCollector.w(TAG, "Shooter init failed, clearing stored intent")
+            MediaProjectionIntentHolder.clear()
+        }
+        LogCollector.d(TAG, "Shooter init result: $isInitialized")
         return isInitialized
     }
 
     override suspend fun takeScreenshot(cropRect: RectF?, offset: Point): Bitmap? {
         if (!ensureInitialized()) {
-            LogCollector.w(TAG, "Not initialized")
+            LogCollector.w(TAG, "Not initialized, cannot take screenshot")
             return null
         }
 
-        val fullBitmap = shooter.shot() ?: return null
+        LogCollector.d(TAG, "Taking screenshot, cropRect=$cropRect")
+        val fullBitmap = shooter.shot()
+        if (fullBitmap == null) {
+            LogCollector.w(TAG, "Shooter returned null bitmap")
+            return null
+        }
+        LogCollector.d(TAG, "Full screenshot: ${fullBitmap.width}x${fullBitmap.height}")
 
         return if (cropRect != null) {
-            ScreenshotManager.cropBitmap(fullBitmap, cropRect, offset)
+            val cropped = ScreenshotManager.cropBitmap(fullBitmap, cropRect, offset)
+            LogCollector.d(TAG, "Cropped screenshot: ${cropped.width}x${cropped.height}")
+            cropped
         } else {
             fullBitmap
         }

@@ -180,6 +180,7 @@ class FloatingBallService : LifecycleService() {
 
     // 自动翻译相关属性
     private var isAutoTranslating = false
+    private var pendingAutoStart = false   // 等待权限授权后自动启动
     private var isMenuShowing = false
     private var wasAutoTranslatingBeforeCrop = false  // 框选前的自动翻译状态
     private val autoTranslateHandler = Handler(Looper.getMainLooper())
@@ -198,7 +199,7 @@ class FloatingBallService : LifecycleService() {
 
     // 初始化截图提供者
     private fun initScreenshotProvider() {
-        val method = prefs.getInt("Screenshot_Method", 0)
+        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
         screenshotProvider = when (method) {
             0 -> MediaProjectionProvider(this)
             1 -> AccessibilityProvider()
@@ -212,10 +213,10 @@ class FloatingBallService : LifecycleService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                getString(R.string.screenshot_method),
+                getString(R.string.foreground_service_notification_title),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = getString(R.string.screenshot_method_summary)
+                description = getString(R.string.foreground_service_notification_text)
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -250,30 +251,38 @@ class FloatingBallService : LifecycleService() {
     }
 
     // 使用 ScreenshotProvider 截图
-    private fun takeScreenshotWithProvider(cropRect: RectF?, offset: Point) {
-        val provider = screenshotProvider ?: return
+    // @return true 截图已启动，false 截图未启动（需要权限等）
+    private fun takeScreenshotWithProvider(cropRect: RectF?, offset: Point): Boolean {
+        val provider = screenshotProvider ?: return false
+        LogCollector.d(TAG, "takeScreenshotWithProvider: provider=${provider.javaClass.simpleName}, cropRect=$cropRect")
 
         if (provider is MediaProjectionProvider) {
-            // MediaProjection 模式：需要检查初始化
+            // MediaProjection 模式：需要已初始化（权限在服务启动时请求）
             if (!provider.ensureInitialized()) {
-                // 需要请求权限
-                ScreenCapturePermissionActivity.start(this)
-                return
+                LogCollector.w(TAG, "MediaProjection not initialized, permission not granted yet")
+                showToast("录屏权限未授予，无法截图", true)
+                return false
             }
-            // 前台服务
-            startForegroundForScreenshot()
             // 异步截图
             lifecycleScope.launch {
+                LogCollector.d(TAG, "Taking MediaProjection screenshot")
                 val bitmap = provider.takeScreenshot(cropRect, offset)
                 if (bitmap != null) {
+                    LogCollector.d(TAG, "Screenshot captured: ${bitmap.width}x${bitmap.height}")
                     ScreenshotManager.emitScreenshot(ScreenshotData(bitmap, null))
+                } else {
+                    LogCollector.w(TAG, "Screenshot returned null")
+                    isTranslating.set(false)
                 }
             }
+            return true
         } else {
             // AccessibilityService 模式：直接调用（结果通过 ScreenshotManager.screenshotFlow 返回）
+            LogCollector.d(TAG, "Taking AccessibilityService screenshot")
             lifecycleScope.launch {
                 provider.takeScreenshot(cropRect, offset)
             }
+            return true
         }
     }
 
@@ -372,6 +381,15 @@ class FloatingBallService : LifecycleService() {
         initScreenshotProvider()
         setupScreenshotCollector()
 
+        // MediaProjection 模式：服务启动时立即请求录屏权限
+        if (screenshotProvider is MediaProjectionProvider) {
+            startForegroundForScreenshot()
+            if (!(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
+                LogCollector.d(TAG, "MediaProjection needs permission at service start")
+                ScreenCapturePermissionActivity.start(this)
+            }
+        }
+
         // 监听源语言和引擎变化，实时检查语言/模型提示
         val watchedKeys = setOf("Source_Language", "Game_OCR_Engine")
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -387,8 +405,19 @@ class FloatingBallService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.getBooleanExtra("PERMISSION_RESULT", false) == true) {
-            // 权限已获取，重新初始化
-            (screenshotProvider as? MediaProjectionProvider)?.ensureInitialized()
+            LogCollector.d(TAG, "Received PERMISSION_RESULT, reinitializing provider")
+            val initialized = (screenshotProvider as? MediaProjectionProvider)?.ensureInitialized() ?: false
+            LogCollector.d(TAG, "Provider reinitialization result: $initialized")
+            if (initialized) {
+                if (pendingAutoStart) {
+                    LogCollector.d(TAG, "Permission granted, starting pending auto-translate")
+                    pendingAutoStart = false
+                    startAutoTranslate()
+                } else if (isAutoTranslating) {
+                    LogCollector.d(TAG, "Permission granted, resuming auto-translate")
+                    scheduleNextDetection(0L)
+                }
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -1034,10 +1063,21 @@ class FloatingBallService : LifecycleService() {
 
     // 5.1.0新增：启动自动翻译
     private fun startAutoTranslate() {
-        if (AccessibilityServiceManager.getService() == null) {
+        // 只在 AccessibilityService 模式下检查无障碍服务
+        val isMediaProjection = screenshotProvider is MediaProjectionProvider
+        if (!isMediaProjection && AccessibilityServiceManager.getService() == null) {
             showToast(getString(R.string.accessibility_recycle), true)
             return
         }
+
+        // MediaProjection 模式：检查权限，未授权则请求并等待回调
+        if (isMediaProjection && !(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
+            LogCollector.d(TAG, "startAutoTranslate: MediaProjection not ready, requesting permission")
+            pendingAutoStart = true
+            ScreenCapturePermissionActivity.start(this)
+            return
+        }
+        pendingAutoStart = false
 
         when (currentBallStatus) {
             is BallStatus.Crop -> {
@@ -1116,7 +1156,15 @@ class FloatingBallService : LifecycleService() {
                 scheduleNextDetection(getPixelCheckInterval())
             }
         }, OCR_TIMEOUT_MS)
-        takeScreenshotWithProvider(mRectF, cropView.absolutePointOffset)
+        val screenshotStarted = takeScreenshotWithProvider(mRectF, cropView.absolutePointOffset)
+        if (!screenshotStarted) {
+            LogCollector.w(TAG, "Screenshot not started in runAutoDetect, resetting state")
+            isTranslating.set(false)
+            autoTranslateHandler.removeCallbacksAndMessages(null)
+            if (isAutoTranslating) {
+                scheduleNextDetection(getPixelCheckInterval())
+            }
+        }
     }
 
     private fun setCropView(){
@@ -1218,7 +1266,9 @@ class FloatingBallService : LifecycleService() {
 
         when (currentBallStatus){
             is BallStatus.Normal -> {
-                if (AccessibilityServiceManager.getService() == null) {
+                // 只在 AccessibilityService 模式下检查无障碍服务
+                val isMediaProjection = screenshotProvider is MediaProjectionProvider
+                if (!isMediaProjection && AccessibilityServiceManager.getService() == null) {
                     showToast(getString(R.string.accessibility_recycle), true)
                     return
                 }
@@ -1252,7 +1302,11 @@ class FloatingBallService : LifecycleService() {
                     showDebugOverlay()
                     updateDebugStatus("【检测中】手动翻译")
                 }
-                takeScreenshotWithProvider(mRectF, cropView.absolutePointOffset)
+                val screenshotStarted = takeScreenshotWithProvider(mRectF, cropView.absolutePointOffset)
+                if (!screenshotStarted) {
+                    LogCollector.w(TAG, "Screenshot not started in manual translate, resetting state")
+                    isTranslating.set(false)
+                }
             }
             is BallStatus.Crop -> {
                 // 框选确认通过 CropView 的确认按钮完成，此处忽略

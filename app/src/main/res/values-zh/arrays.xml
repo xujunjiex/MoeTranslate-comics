@@ -55,6 +55,7 @@
         <item>字体大小</item>
         <item>检测模型</item>
         <item>OCR引擎</item>
+        <item>切换语言</item>
         <item>自动翻译</item>
         <item>关闭悬浮球</item>
         <item>返回主界面</item>
@@ -65,6 +66,7 @@
         <item>字体大小</item>
         <item>检测模型</item>
         <item>OCR引擎</item>
+        <item>切换语言</item>
         <item>停止自动翻译</item>
         <item>关闭悬浮球</item>
         <item>返回主界面</item>
@@ -75,6 +77,7 @@
         <item>翻译区域</item>
         <item>字体大小</item>
         <item>模型</item>
+        <item>切换语言</item>
         <item>自动翻译</item>
         <item>关闭悬浮球</item>
         <item>返回主界面</item>
@@ -84,6 +87,7 @@
         <item>翻译区域</item>
         <item>字体大小</item>
         <item>模型</item>
+        <item>切换语言</item>
         <item>停止自动翻译</item>
         <item>关闭悬浮球</item>
         <item>返回主界面</item>

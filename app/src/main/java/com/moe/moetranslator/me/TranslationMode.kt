@@ -52,5 +52,27 @@ class TranslationMode : Fragment() {
         binding.ocrModeLayout.setOnClickListener {
             // OCR模式已固定，无需切换
         }
+
+        // 截图方式选择
+        updateScreenshotSelection()
+        binding.mediaprojectionLayout.setOnClickListener {
+            prefs.setString("Screenshot_Method", "0")
+            updateScreenshotSelection()
+        }
+        binding.accessibilityLayout.setOnClickListener {
+            prefs.setString("Screenshot_Method", "1")
+            updateScreenshotSelection()
+        }
+    }
+
+    private fun updateScreenshotSelection() {
+        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
+        if (method == 0) {
+            binding.mediaprojectionLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
+            binding.accessibilityLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
+        } else {
+            binding.mediaprojectionLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
+            binding.accessibilityLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
+        }
     }
 }

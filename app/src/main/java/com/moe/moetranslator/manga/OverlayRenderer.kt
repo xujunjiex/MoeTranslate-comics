@@ -19,29 +19,30 @@ object OverlayRenderer {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
 
-        data class DrawInfo(val region: TranslatedBubble, val drawRect: Rect, val fitFontSize: Float)
+        data class DrawInfo(val region: TranslatedBubble, val drawRect: Rect, val fitFontSize: Float, val displayText: String)
 
         val sortedRegions = regions.sortedByDescending { it.rect.width() * it.rect.height() }
         val usedRects = mutableListOf<Rect>()
         val drawInfoMap = mutableMapOf<TranslatedBubble, DrawInfo>()
 
         for (region in sortedRegions) {
+            val displayText = if (region.fromCache) "⚡${region.translatedText}" else region.translatedText
             val baseFontSize = if (autoFit) region.fontSize else fontSize
             val fitFontSize = if (autoFit) {
                 VerticalTextRenderer.calculateFitFontSize(
-                    region.translatedText, region.rect, region.direction, baseFontSize
+                    displayText, region.rect, region.direction, baseFontSize
                 )
             } else {
                 baseFontSize
             }
-            val neededRect = calculateExpandedRect(region.rect, region.translatedText, region.direction, fitFontSize)
+            val neededRect = calculateExpandedRect(region.rect, displayText, region.direction, fitFontSize)
             val drawRect = if (hasOverlap(neededRect, usedRects)) {
                 region.rect
             } else {
                 neededRect
             }
             usedRects.add(drawRect)
-            drawInfoMap[region] = DrawInfo(region, drawRect, fitFontSize)
+            drawInfoMap[region] = DrawInfo(region, drawRect, fitFontSize, displayText)
         }
 
         val bgPaint = Paint().apply {
@@ -67,7 +68,7 @@ object OverlayRenderer {
             canvas.clipRect(info.drawRect)
             VerticalTextRenderer.drawText(
                 canvas = canvas,
-                text = info.region.translatedText,
+                text = info.displayText,
                 region = info.drawRect,
                 direction = info.region.direction,
                 fontSize = info.fitFontSize,
@@ -75,6 +76,7 @@ object OverlayRenderer {
                 autoFit = false
             )
             canvas.restore()
+
             canvas.restore()
         }
 
@@ -145,5 +147,6 @@ data class TranslatedBubble(
     val direction: TextDirection = TextDirection.VERTICAL_RL,
     val angle: Float = 0f,
     val centerX: Float = -1f,
-    val centerY: Float = -1f
+    val centerY: Float = -1f,
+    val fromCache: Boolean = false
 )

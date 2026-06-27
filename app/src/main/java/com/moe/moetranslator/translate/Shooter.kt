@@ -11,34 +11,44 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.graphics.Point
 import android.view.WindowManager
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.PerceptualHash
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
  * MediaProjection 截图器
- * 参考 fby Shooter.java，改进：
- * - 使用实际屏幕尺寸而非固定 2000×2000
- * - 使用协程 suspend 替代忙等待
- * - 添加完善的错误处理和日志
+ *
+ * 关键设计：OnImageAvailableListener 必须在独立后台线程上运行，
+ * 不能用主线程 Handler —— 主线程被 OCR/翻译/渲染阻塞时，listener 回调
+ * 无法执行，导致 imageAvailable 永远不会被设为 true → 超时。
  */
 class Shooter(private val context: Context) {
     companion object {
         private const val TAG = "Shooter"
         private const val IMAGE_BUFFER_COUNT = 2
-        private const val WAIT_IMAGE_TIMEOUT_MS = 500L
+        private const val WAIT_IMAGE_TIMEOUT_MS = 200L
         private const val WAIT_IMAGE_DELAY_MS = 10L
         private const val FRAME_READY_DELAY_MS = 50L
+        private const val FRAME_CHANGE_CHECK_INTERVAL_MS = 300L  // 帧变化检查节流间隔
+        private const val FRAME_CHANGE_THRESHOLD = 0.95f         // 低于此相似度视为帧变化
     }
+
+    private var lastFrameHash: Long = 0L
+    private var lastFrameChangeCheckTime: Long = 0L
 
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var lastBitmap: Bitmap? = null
+    private var listenerThread: HandlerThread? = null
+    private val bitmapLock = Any()  // 保护 lastBitmap 的并发访问
+
     @Volatile private var imageAvailable = false
 
     @Volatile var ready = false
@@ -55,7 +65,7 @@ class Shooter(private val context: Context) {
             val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mgr.getMediaProjection(-1, captureIntent)
 
-            // 注册回调，监听投影停止
+            // 注册回调，监听投影停止（用主线程 Handler 即可，回调很轻）
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     LogCollector.d(TAG, "MediaProjection stopped")
@@ -72,14 +82,50 @@ class Shooter(private val context: Context) {
             val screenHeight = screenPoint.y
             val dpi = context.resources.displayMetrics.densityDpi
 
+            // 创建专用后台线程处理 ImageAvailable 回调
+            // 不能用主线程 —— 主线程被 OCR/翻译阻塞时回调无法执行
+            listenerThread = HandlerThread("Shooter-ImageListener").also { it.start() }
+            val listenerHandler = Handler(listenerThread!!.looper)
+
             // 创建 ImageReader
             imageReader = ImageReader.newInstance(
                 screenWidth, screenHeight,
                 PixelFormat.RGBA_8888, IMAGE_BUFFER_COUNT
             )
-            imageReader!!.setOnImageAvailableListener({
-                imageAvailable = true
-            }, Handler(Looper.getMainLooper()))
+            imageReader!!.setOnImageAvailableListener({ reader ->
+                // 在后台线程直接 acquire 并缓存，避免主线程阻塞导致丢帧
+                try {
+                    val image = reader.acquireLatestImage()
+                    if (image != null) {
+                        val newBitmap = convert(image)
+                        image.close()
+                        synchronized(bitmapLock) {
+                            lastBitmap?.recycle()
+                            lastBitmap = newBitmap
+                        }
+                        imageAvailable = true
+
+                        // P1: 帧变化检测 — 当内容发生显著变化时通知上层加速检测
+                        // 节流：最多每 300ms 检查一次，避免 60fps 下频繁计算 pHash
+                        val now = System.currentTimeMillis()
+                        if (now - lastFrameChangeCheckTime >= FRAME_CHANGE_CHECK_INTERVAL_MS) {
+                            lastFrameChangeCheckTime = now
+                            val currentHash = PerceptualHash.compute(newBitmap, centerCrop = true)
+                            val prevHash = lastFrameHash
+                            lastFrameHash = currentHash
+                            if (prevHash != 0L) {
+                                val sim = PerceptualHash.similarity(prevHash, currentHash)
+                                if (sim < FRAME_CHANGE_THRESHOLD) {
+                                    // 内容发生显著变化（如翻页），通知上层加速检测
+                                    ScreenshotManager.notifyContentChanged()
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    LogCollector.e(TAG, "Listener acquire failed", e)
+                }
+            }, listenerHandler)
 
             // 创建 VirtualDisplay
             virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -102,41 +148,38 @@ class Shooter(private val context: Context) {
 
     /**
      * 截图
-     * @return Bitmap 或 null（失败时）
+     * @return Bitmap 的副本，调用方负责 recycle；null 表示失败
      */
     suspend fun shot(): Bitmap? = withContext(Dispatchers.IO) {
         if (!ready) {
-            LogCollector.w(TAG, "Not ready")
-            return@withContext lastBitmap
+            LogCollector.w(TAG, "Not ready, returning null")
+            return@withContext null
         }
 
-        // 等待 imageAvailable（最多 500ms）
+        // 等待 imageAvailable（listener 在后台线程设置此标志）
         val startTime = System.currentTimeMillis()
         while (!imageAvailable && System.currentTimeMillis() - startTime < WAIT_IMAGE_TIMEOUT_MS) {
             delay(WAIT_IMAGE_DELAY_MS)
         }
 
         if (!imageAvailable) {
-            LogCollector.w(TAG, "Timeout waiting for image")
-            return@withContext lastBitmap
+            // 屏幕静止时 VirtualDisplay 可能不再产生新帧，buffer 为空导致 timeout。
+            // 检测逻辑（pHash 比较）只需要最近的截图，不一定要最新帧。
+            // 返回 lastBitmap 的缓存副本，让上层正常做相似度判断。
+            LogCollector.w(TAG, "Timeout waiting for image, returning cached bitmap (ready=$ready, projection=${mediaProjection != null})")
+            return@withContext synchronized(bitmapLock) {
+                lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
+            }
         }
 
         // 额外延迟确保帧就绪
         delay(FRAME_READY_DELAY_MS)
 
-        try {
-            val image = imageReader?.acquireLatestImage()
-            if (image != null) {
-                lastBitmap?.recycle()
-                lastBitmap = convert(image)
-                image.close()
-                imageAvailable = false
-            }
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "Shot failed", e)
+        // listener 已经在后台线程完成了 acquire + convert，直接复制结果
+        imageAvailable = false
+        return@withContext synchronized(bitmapLock) {
+            lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
         }
-
-        lastBitmap
     }
 
     /**
@@ -169,8 +212,12 @@ class Shooter(private val context: Context) {
      */
     fun release() {
         LogCollector.d(TAG, "Releasing")
-        lastBitmap?.recycle()
-        lastBitmap = null
+        synchronized(bitmapLock) {
+            lastBitmap?.recycle()
+            lastBitmap = null
+        }
+        lastFrameHash = 0L
+        lastFrameChangeCheckTime = 0L
         imageAvailable = false
         ready = false
         imageReader?.close()
@@ -179,5 +226,7 @@ class Shooter(private val context: Context) {
         virtualDisplay = null
         mediaProjection?.stop()
         mediaProjection = null
+        listenerThread?.quitSafely()
+        listenerThread = null
     }
 }

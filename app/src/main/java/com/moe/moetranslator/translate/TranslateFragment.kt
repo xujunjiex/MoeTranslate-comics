@@ -863,7 +863,7 @@ class TranslateFragment : Fragment() {
 
     // 检查截图方式是否可用
     private fun checkScreenshotMethod(): Boolean {
-        val method = prefs.getInt("Screenshot_Method", 0)
+        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
         return when (method) {
             0 -> {
                 // MediaProjection 模式：检查权限是否已获取

@@ -97,10 +97,10 @@
             android:name="com.moe.moetranslator.manga.MangaFloatingService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="mediaProjection|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="漫画翻译悬浮窗服务，通过 Accessibility Service 截屏后进行 OCR 识别和翻译" />
+                android:value="漫画翻译悬浮窗服务，通过录屏或无障碍服务截屏后进行 OCR 识别和翻译" />
         </service>
 
         <activity

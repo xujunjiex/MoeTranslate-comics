@@ -234,15 +234,6 @@
         app:iconSpaceReserved="false">
 
         <ListPreference
-            android:key="Screenshot_Method"
-            app:iconSpaceReserved="false"
-            android:defaultValue="0"
-            android:title="@string/screenshot_method"
-            android:summary="@string/screenshot_method_summary"
-            android:entries="@array/screenshot_method_entries"
-            android:entryValues="@array/screenshot_method_values" />
-
-        <ListPreference
             android:key="app_language"
             app:iconSpaceReserved="false"
             android:defaultValue="system"

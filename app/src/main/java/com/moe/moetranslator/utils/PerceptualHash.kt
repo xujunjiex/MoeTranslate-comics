@@ -129,7 +129,7 @@ object PerceptualHash {
      * 计算两个直方图的差异（归一化 Manhattan 距离）。
      * @return 0.0 ~ 1.0，0 表示完全相同
      */
-    private fun histogramDiff(hist1: FloatArray, hist2: FloatArray): Float {
+    fun histogramDiff(hist1: FloatArray, hist2: FloatArray): Float {
         var diff = 0f
         for (i in hist1.indices) {
             diff += kotlin.math.abs(hist1[i] - hist2[i])

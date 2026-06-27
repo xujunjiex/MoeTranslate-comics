@@ -44,7 +44,7 @@
     <string name="no_update">已是最新版本</string>
     <string name="internet_error">网络出现问题，请检查后重试</string>
     <string name="get_notification_error">获取通知失败，可能是网络未连接</string>
-    <string name="translation_mode">翻译模式</string>
+    <string name="translation_mode">翻译设置</string>
     <string name="api_configuration">API配置</string>
     <string name="personalization_setting">个性化设置</string>
     <string name="article_page">壹日 · 壹篇</string>
@@ -304,7 +304,7 @@
     <string name="faq_a1">这是由于华为更新HarmonyOS后（注意并不是HarmonyOS NEXT），其底层的Android API不再能被用户直观地看出。对于<b><u>大部分较新款</u></b>的华为手机，HarmonyOS 2.0对应Android 10 (API 29)；HarmonyOS 3.0对应Android 12 (API 31)。但对于部分较旧的华为机型，虽然更新了HarmonyOS 3.0，但实际上并未更新底层的Android API，一些机型底层的Android版本仍为Android 10。因此<b><u>系统仍没有达到本软件要求</u></b>的Android 11 (API 30)。下面是一些已知的型号：\n\n搭载麒麟980及以下的机型，如mate20，P30，Nova5等机型，HarmonyOS 3.0对应的Android版本是10 (API 29)。这些机型的HarmonyOS 3.0其实并不是真正的3.0，功能缺失比较多，主要升级是：更新了版本号，使用了3.0的新主题，增加了一些不依赖Android 12的小功能。</string>
     <string name="faq_q2">为什么我已经授予了无障碍权限，但软件依旧提示没有获取到无障碍权限？</string>
     <string name="faq_a2">这是由于<b><u>无障碍权限被系统回收</u></b>导致的；在安卓系统中，无障碍是一个非常重要的权限。大部分基于安卓的系统在您退出软件或者关机重启时就会将无障碍权限回收，这也是出于安全考虑（当然，本软件是开源的，不会收集您的任何信息）。\n\n明白了原因，解决起来也非常方便。只要软件首页点击右上角的"？"->找到授予无障碍权限的那一步->点击"去授予该权限"->找到本软件，然后<b><u>关闭软件的无障碍权限，重新授予</u></b>即可。</string>
-    <string name="more_api">在【设置】页面的"翻译模式"和"API配置"中调整该选项</string>
+    <string name="more_api">在【设置】页面的"翻译设置"和"API配置"中调整该选项</string>
     <string name="faq_q3">为什么点击了悬浮球，长时间没有翻译结果，最后报错？</string>
     <string name="faq_a3">这大概率是<b><u>由于网络不畅导致的</u></b>。很多外服游戏需要使用加速器，但使用加速器后，再访问国内的翻译API就比较慢了。所以就会导致翻译超时，出现错误。\n\n这时请<b><u>关闭您的wifi，打开数据流量，然后重新用加速器加速</u></b>。这时应该就能流畅使用翻译了。<b><u>无需担心流量消耗</u></b>，一般来说，当您使用"本地OCR识别+文本翻译"的翻译模式时，花费的流量是微乎其微的。</string>
     <string name="faq_q4">为什么模型管理页面无法下载模型、无法更新软件、看不到更新公告？</string>
@@ -317,6 +317,8 @@
     <string name="faq_a7">在漫画翻译的 PP-OCRv5 调试模式中，可以通过滑块调整以下参数：\n\n<b><u>1. 检测置信度（DET_BOX_THRESH）</u></b>\n默认值：0.3 | 范围：0.01 ~ 0.5\n\n控制文字区域检测的严格程度。值越低，检测越宽松，能识别更多弱文字区域（如模糊、低对比度的文字），但可能引入噪声框。值越高，检测越严格，只保留高置信度的文字框。\n\n• 文字经常漏检 → 适当降低（如 0.2）\n• 检测到太多噪声框 → 适当提高（如 0.4）\n\n<b><u>2. 扩展比例（DET_UNCLIP_RATIO）</u></b>\n默认值：1.6 | 范围：1.0 ~ 3.0\n\n检测框向外扩展的比例。OCR 需要裁剪文字区域进行识别，如果检测框刚好贴着文字边缘，裁剪可能不完整导致识别错误。扩展会让检测框更大，确保文字完整包含在内。\n\n• 识别结果缺字/截断 → 增大（如 2.0）\n• 检测框过大导致多个文字区域重叠 → 减小（如 1.2）\n\n<b><u>3. 识别置信度（TEXT_SCORE_THRESH）</u></b>\n默认值：0.5 | 范围：0.1 ~ 0.9\n\nOCR 识别结果的最低置信度。识别出的文字低于此分数会被丢弃。值越低，保留越多识别结果（可能包含错误识别）；值越高，只保留高置信度结果。\n\n• 翻译结果经常缺失 → 适当降低（如 0.3）\n• 翻译结果有乱码/错误文字 → 适当提高（如 0.6）\n\n<b><u>4. 大框过滤（isLargeBox）</u></b>\n默认值：关闭\n\n过滤占图片比例过大的检测框。某些场景下（如漫画背景、装饰图案），检测器可能错误地将大块区域识别为文字。开启后，宽、高或面积超过图片一定比例的检测框会被丢弃。\n\n• 检测到巨大的错误框 → 开启\n• 正常使用建议保持关闭\n\n<b><u>5. 丢弃比例（largeBoxRatio）</u></b>\n默认值：60% | 范围：30% ~ 80%\n\n大框过滤的阈值。检测框的宽、高或面积占图片比例超过此值时被丢弃。仅在大框过滤开启时生效。\n\n• 过滤太激进（正常框也被丢弃） → 增大比例\n• 过滤不够（大框仍然出现） → 减小比例</string>
     <string name="faq_q8">下载专用 OCR 识别模型有什么作用？</string>
     <string name="faq_a8">PP-OCRv5 的中文识别模型（rec_zh）是一个中日英混合通用模型，可以识别中文、日文和英文。在未下载专用模型时，英文识别默认使用这个通用模型。\n\n<b><u>下载专用模型后，系统会自动切换</u></b>，效果更好：\n\n• <b><u>英文模型（rec_en）</u></b>：专为英文优化，识别准确率更高，特别是大小写、数字、标点的识别更精确。\n• <b><u>韩文模型（rec_ko）</u></b>：韩文专用，未下载时韩文无法识别。\n• <b><u>俄文模型（rec_ru）</u></b>：俄文/西里尔文字专用，未下载时俄文无法识别。\n\n<b><u>如何下载</u></b>：进入 设置 → 模型管理 → PP-OCRv5 识别模型，点击下载即可。模型体积小（7~13MB），下载后立即生效，无需重启。\n\n<b><u>如何确认是否生效</u></b>：使用非默认语言（如英文）进行漫画翻译时，屏幕底部会弹出提示\"使用专用识别模型: rec_en\"，表示专用模型已生效。如果没有弹出提示，说明仍在使用通用中文模型。</string>
+    <string name="faq_q9">为什么在某些应用（如相册、支付）中无法翻译，反复提示"未检测到文字"？</string>
+    <string name="faq_a9">这是由于系统开启了<b><u>屏幕共享防护</u></b>，对敏感内容进行了保护。在相册、银行、支付等应用中进行截图时，系统会用保护层覆盖敏感内容，OCR 识别到的是系统提示文字（如"屏幕防护中"），而不是真实的画面内容。\n\n这是<b><u>系统级别的安全机制</u></b>，无法绕过。解决方法：\n\n• 将图片保存到本地，用其他不受保护的应用打开后翻译\n• 使用浏览器或其他阅读器打开相同内容\n• 尝试切换截图方式（MediaProjection ↔ 无障碍服务），部分场景兼容性不同</string>
     <string name="err_baidu_text_title">百度翻译（OCR）</string>
     <string name="err_baidu_text_content">百度翻译（文本）的错误码可在下方链接中找到：\n注意：需使用桌面端UA方可正常浏览，否则会跳转至百度翻译开放平台首页。\nhttps://fanyi-api.baidu.com/doc/21</string>
     <string name="err_bing_text_title">必应翻译（OCR）</string>
@@ -423,6 +425,7 @@
     <string name="err_deepl_text_title">DeepL 翻译（OCR）</string>
     <string name="err_deepl_text_content">DeepL 翻译的错误码可在下方链接中找到：\n\nhttps://developers.deepl.com/docs/best-practices/error-handling</string>
     <string name="no_text_found">未检测到文字</string>
+    <string name="no_text_found_protected">连续多次未检测到文字，可能处于受保护区域（如相册/支付页面），截图内容被系统屏蔽。请切换到其他应用后重试，详情见常见问题</string>
     <string name="manga_translate_title">漫画翻译</string>
     <string name="manga_direction_switched">已切换文字方向</string>
     <string name="manga_auto_translate_start">漫画自动翻译已开启</string>
@@ -656,10 +659,12 @@
     <string name="update_install_now">安装更新</string>
 
     <!-- 截图方式 -->
-    <string name="screenshot_method">截图方式</string>
+    <string name="screenshot_section_title">截图方式</string>
+    <string name="screenshot_section_desc">选择翻译时如何获取屏幕截图</string>
     <string name="screenshot_method_mediaprojection">录屏授权（推荐）</string>
     <string name="screenshot_method_accessibility">无障碍服务</string>
-    <string name="screenshot_method_summary">选择翻译功能的截图方式</string>
+    <string name="screenshot_mediaprojection_desc">每次启动翻译时弹窗授权，无需开启无障碍服务，开箱即用。授权后通过系统录屏 API 截取屏幕图像进行翻译。</string>
+    <string name="screenshot_accessibility_desc">需要在系统设置中开启无障碍服务权限，授权后永久有效，无需重复授权。通过无障碍服务截取屏幕图像进行翻译。</string>
     <string name="screenshot_permission_denied">需要截图权限才能翻译</string>
     <string name="screenshot_permission_granted">截图权限已获取</string>
     <string name="foreground_service_notification_title">星译</string>
