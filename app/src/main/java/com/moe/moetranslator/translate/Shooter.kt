@@ -240,13 +240,25 @@ class Shooter(private val context: Context) {
         lastFrameChangeCheckTime = 0L
         imageAvailable = false
         ready = false
-        imageReader?.close()
-        imageReader = null
+
+        // 1. 先移除 listener，防止新回调入队
+        imageReader?.setOnImageAvailableListener(null, null)
+
+        // 2. 释放 VirtualDisplay（停止生产新帧）
         virtualDisplay?.release()
         virtualDisplay = null
-        mediaProjection?.stop()
-        mediaProjection = null
+
+        // 3. 退出 listener 线程（在 imageReader.close() 之前）
+        //    quitSafely 会排空待处理的回调，此时 Image 仍有效
         listenerThread?.quitSafely()
         listenerThread = null
+
+        // 4. 安全关闭 ImageReader——不再有回调访问其 Image
+        imageReader?.close()
+        imageReader = null
+
+        // 5. 最后停止 MediaProjection
+        mediaProjection?.stop()
+        mediaProjection = null
     }
 }

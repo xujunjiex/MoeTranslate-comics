@@ -181,6 +181,7 @@ class FloatingBallService : LifecycleService() {
     // 自动翻译相关属性
     private var isAutoTranslating = false
     private var pendingAutoStart = false   // 等待权限授权后自动启动
+    private var isFullyInitialized = false  // 悬浮球和收集器是否已初始化
     private var isMenuShowing = false
     private var wasAutoTranslatingBeforeCrop = false  // 框选前的自动翻译状态
     private val autoTranslateHandler = Handler(Looper.getMainLooper())
@@ -391,19 +392,23 @@ class FloatingBallService : LifecycleService() {
         contextMaxCount = try {
             prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
         } catch (e: Exception) { 5 }
-        initialize()
-        initScreenshotProvider()
-        setupScreenshotCollector()
 
-        // MediaProjection 模式：不在 onCreate 初始化 Shooter（此时方向可能不是横屏）
-        // 延迟到首次截图时懒加载，确保 Shooter 以当前方向初始化
+        // 先初始化截图提供者，再检查权限（权限检查在悬浮球创建之前）
+        initScreenshotProvider()
+
         if (screenshotProvider is MediaProjectionProvider) {
             startForegroundForScreenshot()
-            if (MediaProjectionIntentHolder.intent == null) {
-                LogCollector.d(TAG, "MediaProjection needs permission at service start")
-                ScreenCapturePermissionActivity.start(this)
+            if (!(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
+                // 未授权：弹授权对话框，延迟初始化（不创建悬浮球）
+                LogCollector.d(TAG, "MediaProjection needs permission, deferring init")
+                ScreenCapturePermissionActivity.start(this, "game")
+                // 服务继续运行但不显示悬浮球，等授权后再初始化
+                return
             }
         }
+
+        // 权限就绪，正常初始化
+        fullInit()
 
         // 监听源语言和引擎变化，实时检查语言/模型提示
         val watchedKeys = setOf("Source_Language", "Game_OCR_Engine")
@@ -420,21 +425,31 @@ class FloatingBallService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.getBooleanExtra("PERMISSION_RESULT", false) == true) {
-            LogCollector.d(TAG, "Received PERMISSION_RESULT, reinitializing provider")
+            LogCollector.d(TAG, "Permission granted, initializing Shooter")
             val initialized = (screenshotProvider as? MediaProjectionProvider)?.ensureInitialized() ?: false
-            LogCollector.d(TAG, "Provider reinitialization result: $initialized")
+            LogCollector.d(TAG, "Shooter init result: $initialized")
             if (initialized) {
+                // 如果悬浮球还没创建（onCreate 被跳过了），现在初始化
+                if (!isFullyInitialized) fullInit()
                 if (pendingAutoStart) {
-                    LogCollector.d(TAG, "Permission granted, starting pending auto-translate")
                     pendingAutoStart = false
+                    LogCollector.d(TAG, "Starting pending auto-translate")
                     startAutoTranslate()
                 } else if (isAutoTranslating) {
-                    LogCollector.d(TAG, "Permission granted, resuming auto-translate")
+                    LogCollector.d(TAG, "Resuming auto-translate")
                     scheduleNextDetection(0L)
                 }
             }
         }
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun fullInit() {
+        if (isFullyInitialized) return
+        isFullyInitialized = true
+        initialize()
+        setupScreenshotCollector()
+        LogCollector.d(TAG, "Full initialization complete")
     }
 
     @SuppressLint("InflateParams")
@@ -1089,7 +1104,7 @@ class FloatingBallService : LifecycleService() {
         if (isMediaProjection && !(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
             LogCollector.d(TAG, "startAutoTranslate: MediaProjection not ready, requesting permission")
             pendingAutoStart = true
-            ScreenCapturePermissionActivity.start(this)
+            ScreenCapturePermissionActivity.start(this, "game")
             return
         }
         pendingAutoStart = false
@@ -1160,7 +1175,8 @@ class FloatingBallService : LifecycleService() {
             return
         }
         if (isTranslating.get()) {
-            // 上一次截图还在处理中，跳过（截图回调的 finally 会调度下一次）
+            // 翻译还在进行中（API 未返回），调度下一次检查
+            scheduleNextDetection(getPixelCheckInterval())
             return
         }
         // 设置超时：如果截图失败或没有响应，也要继续检测

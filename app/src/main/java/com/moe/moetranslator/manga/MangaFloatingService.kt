@@ -277,18 +277,22 @@ class MangaFloatingService : LifecycleService() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        initializeViews()
+        // 先初始化截图提供者，权限检查在 UI 初始化之前
         initScreenshotProvider()
-        setupScreenshotCollector()
 
-        // MediaProjection 模式：不在 onCreate 初始化 Shooter，延迟到首次截图时懒加载
         if (screenshotProvider is MediaProjectionProvider) {
             updateForegroundTypeForMediaProjection()
-            if (MediaProjectionIntentHolder.intent == null) {
-                LogCollector.d(TAG, "MediaProjection needs permission at service start")
-                ScreenCapturePermissionActivity.start(this)
+            if (!(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
+                LogCollector.d(TAG, "MediaProjection needs permission, deferring UI init")
+                ScreenCapturePermissionActivity.start(this, "manga")
+                // 不创建 UI，等授权后再初始化
+                return
             }
         }
+
+        // 权限就绪，正常初始化 UI
+        initializeViews()
+        setupScreenshotCollector()
 
         // 初始化 OCR 引擎（识别器）
         when (config.ocrEngine) {
@@ -316,19 +320,17 @@ class MangaFloatingService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.getBooleanExtra("PERMISSION_RESULT", false) == true) {
-            LogCollector.d(TAG, "Received PERMISSION_RESULT, reinitializing provider")
+            LogCollector.d(TAG, "Permission granted, initializing Shooter")
             updateForegroundTypeForMediaProjection()
             val initialized = (screenshotProvider as? MediaProjectionProvider)?.ensureInitialized() ?: false
-            LogCollector.d(TAG, "Provider reinitialization result: $initialized")
-            if (initialized) {
-                if (pendingAutoStart) {
-                    LogCollector.d(TAG, "Permission granted, starting pending auto-translate")
-                    pendingAutoStart = false
-                    startAutoTranslate()
-                } else if (isAutoTranslating) {
-                    LogCollector.d(TAG, "Permission granted, resuming auto-translate")
-                    scheduleNextDetection(0L)
-                }
+            LogCollector.d(TAG, "Shooter init result: $initialized")
+            if (pendingAutoStart && initialized) {
+                pendingAutoStart = false
+                LogCollector.d(TAG, "Starting pending auto-translate")
+                startAutoTranslate()
+            } else if (isAutoTranslating && initialized) {
+                LogCollector.d(TAG, "Resuming auto-translate")
+                scheduleNextDetection(0L)
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -1442,7 +1444,7 @@ class MangaFloatingService : LifecycleService() {
         if (isMediaProjection && !(screenshotProvider as MediaProjectionProvider).ensureInitialized()) {
             LogCollector.d(TAG, "startAutoTranslate: MediaProjection not ready, requesting permission")
             pendingAutoStart = true
-            ScreenCapturePermissionActivity.start(this)
+            ScreenCapturePermissionActivity.start(this, "manga")
             return
         }
         pendingAutoStart = false

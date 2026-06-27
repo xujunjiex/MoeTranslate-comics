@@ -165,7 +165,9 @@ class TranslateFragment : Fragment() {
                     MangaFloatingService.stop(requireContext())
                     setMangaButtonState(false)
                 }
-                if (checkAndroidSDK() && checkScreenshotMethod() && checkFloatingBall() && checkNotify() && checkTranslateAPI() && checkCombination()) {
+                // checkScreenshotMethod 放最后，因为它会弹出授权窗口并返回 false，
+                // 授权成功后由 ScreenCapturePermissionActivity 自动启动服务
+                if (checkAndroidSDK() && checkFloatingBall() && checkNotify() && checkTranslateAPI() && checkCombination() && checkScreenshotMethod("game")) {
                     if ((prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id) && (prefs.getInt(
                             "Text_API",
                             Constants.TextApi.BING.id
@@ -187,7 +189,9 @@ class TranslateFragment : Fragment() {
                 if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java)) {
                     stopFloatingBallService()
                 }
-                if (checkAndroidSDK() && checkScreenshotMethod() && checkFloatingBall()) {
+                // checkScreenshotMethod 放最后，因为它会弹出授权窗口并返回 false，
+                // 授权成功后由 ScreenCapturePermissionActivity 自动启动服务
+                if (checkAndroidSDK() && checkFloatingBall() && checkScreenshotMethod("manga")) {
                     MangaFloatingService.start(requireContext())
                     UiUtils.showToast(requireContext(), "漫画翻译已启动", isShort = false)
                     setMangaButtonState(true)
@@ -862,18 +866,17 @@ class TranslateFragment : Fragment() {
     }
 
     // 检查截图方式是否可用
-    private fun checkScreenshotMethod(): Boolean {
+    // 对于 MediaProjection 模式：始终弹出授权窗口，授权成功后由 ScreenCapturePermissionActivity 自动启动服务
+    // 返回 false 表示异步处理（授权窗口已弹出），返回 true 表示可直接继续
+    private fun checkScreenshotMethod(serviceType: String): Boolean {
         val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
         return when (method) {
             0 -> {
-                // MediaProjection 模式：检查权限是否已获取
-                if (MediaProjectionIntentHolder.intent != null) {
-                    true
-                } else {
-                    // 启动权限请求
-                    ScreenCapturePermissionActivity.start(requireContext())
-                    false
-                }
+                // MediaProjection 模式：始终弹出授权窗口
+                // 不再检查 MediaProjectionIntentHolder.intent 是否已存在，
+                // 每次点击都重新授权，确保用户知情同意
+                ScreenCapturePermissionActivity.start(requireContext(), serviceType)
+                false  // 异步处理，授权结果由 ScreenCapturePermissionActivity.onActivityResult 处理
             }
             1 -> {
                 // AccessibilityService 模式：检查服务是否开启
