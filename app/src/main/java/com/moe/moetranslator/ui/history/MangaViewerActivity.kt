@@ -6,6 +6,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import android.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -360,7 +361,7 @@ class MangaViewerActivity : AppCompatActivity() {
 
     private fun confirmDeleteCurrentEntry() {
         val entry = getCurrentVariant()
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        AlertDialog.Builder(this)
             .setMessage(R.string.delete_history_confirm)
             .setPositiveButton(R.string.delete) { _, _ ->
                 lifecycleScope.launch {

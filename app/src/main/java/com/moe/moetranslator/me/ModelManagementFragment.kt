@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import android.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.moe.moetranslator.R
 import com.moe.moetranslator.manga.CTDModelManager
@@ -206,7 +207,7 @@ class ModelManagementFragment : Fragment() {
     }
 
     private fun showRTDetrDeleteConfirmDialog() {
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.model_delete)
             .setMessage(getString(R.string.model_delete_confirm, "RT-DETR-V2"))
             .setPositiveButton(R.string.confirm) { _, _ -> deleteRTDetrModel() }
@@ -315,7 +316,7 @@ class ModelManagementFragment : Fragment() {
     }
 
     private fun showCtdDeleteConfirmDialog() {
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.model_delete)
             .setMessage(getString(R.string.model_delete_confirm, "CTD"))
             .setPositiveButton(R.string.confirm) { _, _ -> deleteCtdModel() }
@@ -493,7 +494,7 @@ class ModelManagementFragment : Fragment() {
     }
 
     private fun showMangaOcrDeleteConfirmDialog(version: MangaOcrDownloadManager.ModelVersion) {
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.model_delete)
             .setMessage(getString(R.string.model_delete_confirm, version.description.split(" (")[0]))
             .setPositiveButton(R.string.confirm) { _, _ ->
@@ -727,7 +728,7 @@ class ModelManagementFragment : Fragment() {
             "ko" -> "PP-OCRv5 KO"
             else -> "PP-OCRv5 RU"
         }
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.model_delete)
             .setMessage(getString(R.string.model_delete_confirm, name))
             .setPositiveButton(R.string.confirm) { _, _ -> deletePPOcrModel(lang) }

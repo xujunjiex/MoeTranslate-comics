@@ -665,8 +665,8 @@
     <string name="screenshot_section_desc">Choose how to capture the screen for translation</string>
     <string name="screenshot_method_mediaprojection">Screen Capture (Recommended)</string>
     <string name="screenshot_method_accessibility">Accessibility Service</string>
-    <string name="screenshot_mediaprojection_desc">Requests screen capture permission each time you start translating. No accessibility service needed. Uses the system screen capture API to capture the screen.</string>
-    <string name="screenshot_accessibility_desc">Requires enabling accessibility service in system settings. Once granted, no repeat authorization needed. Uses accessibility service to capture the screen.</string>
+    <string name="screenshot_mediaprojection_desc">✅ Works out of the box — no additional service to install or configure\n❌ Permission dialog on every launch\n❌ Android requires persistent "recording" notification</string>
+    <string name="screenshot_accessibility_desc">✅ One-time authorization — never asked again\n✅ No persistent notification — clean status bar\n❌ Must manually enable in system accessibility settings</string>
     <string name="screenshot_permission_denied">Screenshot permission is required for translation</string>
     <string name="screenshot_permission_granted">Screenshot permission granted</string>
     <string name="foreground_service_notification_title">StarFlow</string>

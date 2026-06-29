@@ -776,7 +776,7 @@ class FloatingBallService : LifecycleService() {
     private fun showLongPressMenu() {
         val ocrLabel = getOcrEngineLabel()
         val langName = getCurrentSourceLangName()
-        val (dialog, listView) = Dialogs.menuDialog(applicationContext, isAutoTranslating, ocrLabel, langName)
+        val (dialog, listView) = Dialogs.menuDialog(this, isAutoTranslating, ocrLabel, langName)
 
         // 动态计算菜单索引
         var idx = 2  // 前 2 项固定：框选、字体
@@ -1049,7 +1049,7 @@ class FloatingBallService : LifecycleService() {
                     )
                 }
                 withContext(Dispatchers.Main) {
-                    val histDialog = Dialogs.historyDialog(applicationContext, items,
+                    val histDialog = Dialogs.historyDialog(this@FloatingBallService, items,
                         onItemClick = { position ->
                             // 点击：显示翻译结果
                             val selected = historyList[position]

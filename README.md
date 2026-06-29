@@ -13,6 +13,15 @@
 
 ## 功能
 
+### 🔄 双模式截图
+
+两种截图方式可切换，适配不同使用场景：
+
+- **MediaProjection（默认）：** 弹窗授权，门槛低，每次启动需重新授权。需要前台服务支持。
+- **AccessibilityService：** 手动开启无障碍服务，永久有效，无需重复授权。
+
+通过 `ScreenshotProvider` 接口抽象，`ScreenshotManager` 单例解耦截图生产者与消费者，游戏和漫画模式共用同一套截图架构。
+
 ### 🎮 游戏/视频翻译
 
 截图 OCR 识别 + 翻译 API，悬浮窗覆盖显示翻译结果。
@@ -51,11 +60,17 @@
 **悬浮球交互：**
 - 单击/双击/长按手势可自定义分配动作（翻译、打开菜单、自动翻译开关）
 - 三个手势互斥配置，选择时自动交换冲突项
+- 双击有动画反馈，长按延迟可调
 
 **翻译结果容器：**
 - 可拖动定位、锁定后固定位置
 - 锁定/关闭按钮，关闭后再次点击悬浮球可恢复
 - 半透明穿透模式（alpha 控制），开启后仍可拖动
+
+**运行时语言切换：**
+- 游戏和漫画悬浮菜单都支持运行时切换源语言
+- 循环切换 ja → en → zh → ko → ru，跳过未下载的 OCR 模型
+- 切换后即时生效，无需重启翻译
 
 **权限预检：**
 - 启动前自动检查 5 项：Android 版本、无障碍服务、悬浮窗权限、通知权限、API 配置
@@ -82,6 +97,17 @@
 - **普通模式：** 固定搭配循环切换（MLKit → PP-OCRv5 → manga-ocr），跳过未下载的模型
 - **高级模式：** 自由搭配检测器 + 识别器，菜单分两个独立选项
 
+**TextRegionMerger 合并引擎：**
+- 基于 MST（最小生成树）+ UnionFind 的区域合并算法
+- 统一处理 CTD/RT-DETR-V2/PP-OCRv5/MLKit 各检测器的后处理
+- 替代旧版 BoxMerger + TextLineMerger，代码更精简
+
+**倾斜文字处理：**
+- PP-OCRv5 检测框可能倾斜（QuadBox 4 顶点非正交），全链路支持
+- 角度检测（atan2）+ 方向判断（真实边长） + 合并（沿倾斜角投影）
+- 渲染时 `canvas.rotate(angle)` 旋转背景和文字
+- 正常 overlay 和调试 overlay 均支持倾斜渲染
+
 **增量渲染：**
 - 超过 6 个气泡自动分批处理（2/5 + 3/5）
 - 首批翻译完立即显示，减少用户等待时间
@@ -93,16 +119,19 @@
 - 手动点击悬浮球可跳过等待，强制翻译
 
 **翻译缓存：**
-- pHash 相似度匹配（阈值 0.92），翻过的页面秒显示
+- pHash 精确匹配 + 相似度匹配（阈值 0.85），翻过的页面秒显示
 - 左上角橙色 ⚡ 缓存标识 + 刷新按钮
 - 区域级缓存（IoU ≥ 0.4 判重，TTL 5 分钟）
+- 缓存数量可调（滑块设置），清除缓存按钮在历史页面
 
-**渲染：** 半透明背景 + 竖排/横排文字覆盖，全屏和调试模式用真实屏幕像素定位。
+**渲染：** 半透明背景 + 竖排/横排文字覆盖，支持倾斜文字旋转渲染，全屏和调试模式用真实屏幕像素定位。
 
 ### 📚 翻译历史
 
 - 游戏和漫画翻译记录按时间 + 会话分组保存
-- 漫画翻译支持全屏翻页浏览原图 + 译文详情面板
+- **双 sessionId 架构：** 原始 sessionId（按创建排序） + lastSessionId（按修改排序），翻页历史位置固定
+- 漫画翻译支持全屏翻页浏览原图 + 译文详情面板 + 尺寸变体切换
+- 同 pHash 页面分组显示，多尺寸变体可切换
 - Room 数据库本地持久化
 
 ### ⚙️ 个性化设置
@@ -119,14 +148,35 @@
 - 按需下载：CTD（~94MB）、RT-DETR-V2（~11MB）、manga-ocr（~135MB/~460MB）
 - 下载管理器支持断点续传、重试、进度回调
 - 404/403 不重试，其他错误最多重试 3 次
+- OCR 模型加载失败时弹窗报错，不再静默吞掉异常
+
+### 🎛️ PP-OCRv5 调试面板
+
+开发者选项中可开启 PP-OCRv5 调试面板，实时调节 5 个参数：
+
+| 参数 | 默认值 | 范围 | 作用 |
+|------|--------|------|------|
+| 检测置信度 | 0.3 | 0.01–0.5 | 低于此值的检测框被丢弃 |
+| 扩展比例 | 1.6 | 1.0–3.0 | unclip 扩展，越大检测框越宽松 |
+| 识别置信度 | 0.5 | 0.1–0.9 | 低于此值的识别结果被丢弃 |
+| 大框过滤 | 关 | 开/关 | 过滤占图片比例过大的检测框 |
+| 丢弃比例 | 0.6 | 0.3–0.8 | 大框过滤阈值（宽/高/面积占图片比例） |
+
+调试面板默认折叠，含图例说明（绿=检测框、青=合并区、红虚线=检测丢弃、橙虚线=识别丢弃）。
+
+### 🔔 通知系统
+
+- **应用内公告：** 开发者通过 Gist 推送公告，app 启动时自动检查
+- **版本更新通知：** 从 GitHub Releases 自动检测新版本
+- Android 13+ 运行时通知权限请求（POST_NOTIFICATIONS）
 
 ### 🔧 其他功能
 
 - **首次启动引导：** 权限申请 + API 配置引导
-- **应用内通知：** 开发者公告推送
-- **FAQ 页面：** 常见问题解答
-- **开发者选项：** 各引擎调试浮窗（CTD/RT-DETR-V2/MLKit/PP-OCRv5）
-- **检查更新：** GitHub Release 自动检测，支持直接下载/百度网盘/夸克网盘
+- **主页版本号：** 主页显示当前版本号，点击可检查更新
+- **FAQ 页面：** 常见问题解答（含 PP-OCRv5 调试面板参数详解）
+- **开发者选项：** 各引擎调试浮窗（CTD/RT-DETR-V2/MLKit/PP-OCRv5）+ 参数调节面板
+- **检查更新：** GitHub Release 自动检测，支持直接下载/百度网盘/夸克网盘，仅在启动时触发一次
 - **日志收集：** 所有日志通过 LogCollector 统一管理，支持导出
 
 ### 🔒 安全
@@ -161,12 +211,12 @@ app 内置检查更新功能，支持：
 
 ## 项目结构
 
-- `translate/` — 游戏/视频翻译引擎（FloatingBallService、AutoTranslateEngine、GameOcrEngine、CropView、TranslationResultView）
-- `manga/` — 漫画翻译引擎（MangaFloatingService、气泡检测 + OCR + 翻译 + 竖排渲染、GeometryUtils、OnnxUtils）
+- `translate/` — 游戏/视频翻译引擎（FloatingBallService、AutoTranslateEngine、GameOcrEngine、CropView、TranslationResultView、Shooter、ScreenshotManager、ScreenshotProvider、Dialogs）
+- `manga/` — 漫画翻译引擎（MangaFloatingService、气泡检测 + OCR + 翻译 + 竖排渲染、TextRegionMerger、GeometryUtils、OnnxUtils）
 - `bridge/` — 桥接层（OCRBridge、TranslateBridge、ScreenshotBridge、DetectionBridge）
-- `me/` — 设置和 API 配置（PersonalizationConfig、APIConfig、TranslationMode、AboutMe、FAQPage）
+- `me/` — 设置和 API 配置（PersonalizationConfig、APIConfig、TranslationMode、AboutMe、FAQPage、Developer）
 - `launch/` — 首次启动引导
-- `utils/` — 工具类（PixelCompare、LogCollector、UpdateChecker、UiUtils、ServiceUtils、Constants、CustomPreference）
+- `utils/` — 工具类（PixelCompare、PerceptualHash、LogCollector、UpdateChecker、NotificationChecker、UiUtils、ServiceUtils、Constants、CustomPreference）
 - `data/` — Room 数据库、TranslationCacheManager
 - `ui/history/` — 历史记录 UI（HistoryFragment、MangaViewerActivity）
 - `translationapi/` — 翻译 API 实现（openaitranslation、bingtranslation、mlkittranslation、nllbtranslation、niutrans、volctranslation、deepltranslation、baidutranslation、tencentcloud、azuretranslation、customtranslation）

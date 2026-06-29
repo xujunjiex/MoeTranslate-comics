@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 回弹到正常大小 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/overshoot">
+    <scale
+        android:duration="200"
+        android:fromXScale="1.03"
+        android:toXScale="1.0"
+        android:fromYScale="1.03"
+        android:toYScale="1.0"
+        android:pivotX="50%"
+        android:pivotY="50%" />
+</set>

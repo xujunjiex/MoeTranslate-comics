@@ -15,6 +15,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.graphics.Point
 import android.view.WindowManager
+import java.nio.ByteBuffer
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.PerceptualHash
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +100,10 @@ class Shooter(private val context: Context) {
                     if (image != null) {
                         val newBitmap = convert(image)
                         image.close()
+                        if (newBitmap == null) {
+                            LogCollector.w(TAG, "convert returned null, skipping frame")
+                            return@setOnImageAvailableListener
+                        }
                         synchronized(bitmapLock) {
                             lastBitmap?.recycle()
                             lastBitmap = newBitmap
@@ -203,19 +208,56 @@ class Shooter(private val context: Context) {
     }
 
     /**
-     * 将 Image 转换为 Bitmap
+     * 将 Image 转换为 Bitmap。
+     *
+     * ⚠️ Image.planes[0].buffer 是 DirectByteBuffer，先 get() 拷贝到 Java 堆
+     * byte[]，再用 ByteBuffer.wrap 包装后调用 copyPixelsFromBuffer，避免
+     * DirectByteBuffer native 指针失效导致 memcpy crash。
+     *
+     * ⚠️ pixelStride 单位是**字节**（不是像素），RGBA_8888 = 4 bytes/pixel。
      */
-    private fun convert(image: Image): Bitmap {
+    private fun convert(image: Image): Bitmap? {
         val width = image.width
         val height = image.height
         val planes = image.planes
-        val buffer = planes[0].buffer
-        val pixelStride = planes[0].pixelStride
-        val rowStride = planes[0].rowStride
-        val rowPadding = (rowStride - pixelStride * width) / pixelStride
+        if (planes.isEmpty()) {
+            LogCollector.e(TAG, "No planes in image")
+            return lastKnownGoodBitmap()
+        }
 
-        val bitmap = Bitmap.createBitmap(width + rowPadding, height, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(buffer)
+        val plane = planes[0]
+        val buffer = plane.buffer
+        val pixelStride = plane.pixelStride   // 字节/像素，RGBA_8888 = 4
+        val rowStride = plane.rowStride        // 字节/行
+
+        val rowPadding = (rowStride - pixelStride * width) / pixelStride
+        val bitmapWidth = width + rowPadding
+        val expectedBytes = bitmapWidth * height * 4
+
+        val remaining = buffer.remaining()
+        if (remaining < expectedBytes) {
+            LogCollector.e(TAG, "Buffer too small: remaining=$remaining, expected=$expectedBytes")
+            return lastKnownGoodBitmap()
+        }
+
+        // 先拷到 Java 堆 byte[]，避免 DirectByteBuffer native 指针问题
+        val bytes = ByteArray(expectedBytes)
+        try {
+            buffer.rewind()
+            buffer.get(bytes)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "Failed to read buffer to byte array: ${e.message}", e)
+            return lastKnownGoodBitmap()
+        }
+
+        val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
+        try {
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(bytes))
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "copyPixelsFromBuffer failed: ${e.message}", e)
+            bitmap.recycle()
+            return lastKnownGoodBitmap()
+        }
 
         // 裁剪到实际尺寸
         return if (rowPadding > 0) {
@@ -224,6 +266,15 @@ class Shooter(private val context: Context) {
             cropped
         } else {
             bitmap
+        }
+    }
+
+    /**
+     * Fallback：返回缓存的最新有效帧，用于 convert 失败时降级
+     */
+    private fun lastKnownGoodBitmap(): Bitmap? {
+        return synchronized(bitmapLock) {
+            lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
         }
     }
 

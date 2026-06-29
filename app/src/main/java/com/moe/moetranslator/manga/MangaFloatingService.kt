@@ -915,7 +915,7 @@ class MangaFloatingService : LifecycleService() {
 
         val langName = getCurrentSourceLangName()
         val (dialog, listView) = Dialogs.mangaMenuDialogSimple(
-            applicationContext, isAutoTranslating, cropLabel, modelLabel, langName
+            this, isAutoTranslating, cropLabel, modelLabel, langName
         )
 
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
@@ -1013,7 +1013,7 @@ class MangaFloatingService : LifecycleService() {
 
         val langName = getCurrentSourceLangName()
         val (dialog, listView) = Dialogs.mangaMenuDialog(
-            applicationContext, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel, langName
+            this, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel, langName
         )
 
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->

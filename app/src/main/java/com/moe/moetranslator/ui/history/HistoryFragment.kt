@@ -12,7 +12,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.app.AlertDialog
 import com.google.android.material.tabs.TabLayout
 import com.moe.moetranslator.R
 import com.moe.moetranslator.data.HistoryEntry
@@ -225,7 +225,7 @@ class HistoryFragment : Fragment() {
         })
         container.addView(cacheSeekBar)
 
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle("历史记录设置")
             .setView(container)
             .setPositiveButton(android.R.string.ok) { _, _ ->
@@ -301,7 +301,7 @@ class HistoryFragment : Fragment() {
     }
 
     private fun showDeleteDialog(entry: HistoryEntry) {
-        MaterialAlertDialogBuilder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setMessage(R.string.delete_history_confirm)
             .setPositiveButton(R.string.confirm) { _, _ ->
                 viewLifecycleOwner.lifecycleScope.launch {
@@ -320,7 +320,7 @@ class HistoryFragment : Fragment() {
     }
 
     private fun showClearDialog() {
-        MaterialAlertDialogBuilder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setMessage(R.string.confirm_clear_history)
             .setPositiveButton(R.string.confirm) { _, _ ->
                 viewLifecycleOwner.lifecycleScope.launch {
@@ -339,7 +339,7 @@ class HistoryFragment : Fragment() {
     }
 
     private fun showClearAllCacheDialog() {
-        MaterialAlertDialogBuilder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.clear_cache_title)
             .setMessage(R.string.clear_cache_confirm)
             .setPositiveButton(R.string.confirm) { _, _ ->

@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnimationUtils
 import androidx.fragment.app.Fragment
 import com.moe.moetranslator.R
 import com.moe.moetranslator.databinding.FragmentTranslationModeBinding
@@ -54,25 +55,47 @@ class TranslationMode : Fragment() {
         }
 
         // 截图方式选择
-        updateScreenshotSelection()
+        updateScreenshotSelection(animate = false)
         binding.mediaprojectionLayout.setOnClickListener {
             prefs.setString("Screenshot_Method", "0")
-            updateScreenshotSelection()
+            updateScreenshotSelection(animate = true)
         }
         binding.accessibilityLayout.setOnClickListener {
             prefs.setString("Screenshot_Method", "1")
-            updateScreenshotSelection()
+            updateScreenshotSelection(animate = true)
         }
     }
 
-    private fun updateScreenshotSelection() {
+    private fun updateScreenshotSelection(animate: Boolean) {
         val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
+
+        val selectedView: View
+        val unselectedView: View
+
         if (method == 0) {
-            binding.mediaprojectionLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
-            binding.accessibilityLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
+            selectedView = binding.mediaprojectionLayout
+            unselectedView = binding.accessibilityLayout
         } else {
-            binding.mediaprojectionLayout.setBackgroundResource(R.drawable.custom_radio_button_background)
-            binding.accessibilityLayout.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
+            selectedView = binding.accessibilityLayout
+            unselectedView = binding.mediaprojectionLayout
+        }
+
+        // 更新背景
+        selectedView.setBackgroundResource(R.drawable.custom_radio_button_selected_background)
+        unselectedView.setBackgroundResource(R.drawable.custom_radio_button_background)
+
+        // 选中动画：轻微放大再回弹
+        if (animate) {
+            val bounceIn = AnimationUtils.loadAnimation(requireContext(), R.anim.card_select_bounce_in)
+            val bounceOut = AnimationUtils.loadAnimation(requireContext(), R.anim.card_select_bounce_out)
+            bounceIn.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
+                override fun onAnimationStart(animation: android.view.animation.Animation?) {}
+                override fun onAnimationRepeat(animation: android.view.animation.Animation?) {}
+                override fun onAnimationEnd(animation: android.view.animation.Animation?) {
+                    selectedView.startAnimation(bounceOut)
+                }
+            })
+            selectedView.startAnimation(bounceIn)
         }
     }
 }

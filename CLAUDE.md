@@ -13,6 +13,16 @@
 - **`docs/docs/`** — 文档内容（提交到 GitHub），`docs/` 其余文件已 gitignore。
 - 禁止在项目根目录或其他非标准位置放置模型文件或参考项目。
 
+## 环境搭建
+
+**必需：** JDK 17、Android SDK（compileSdk 35）、NDK 25.2.9519653、CMake 3.22.1。
+
+**首次克隆后：**
+1. 创建 `local.properties`（已 gitignore）：`sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk`，路径用正斜杠 `/`
+2. 配置 git 代理（国内环境）：`git config --global http.proxy http://127.0.0.1:7897`
+3. 确认 Windows hosts 无 `#S302` 条目将 github.com 指向 127.0.0.1
+4. `./gradlew assembleDebug` 验证构建
+
 ## 构建命令
 
 ```bash
@@ -28,6 +38,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 # 清理构建
 ./gradlew clean assembleDebug
 
+# 运行单元测试
+./gradlew test
+
 # 实时查看应用日志
 adb logcat --pid=$(adb shell pidof com.moe.moetranslator)
 
@@ -38,8 +51,6 @@ adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 adb devices
 ```
 
-环境要求：JDK 17、Android SDK（compileSdk 35）、NDK 25.2.9519653、CMake 3.22.1。
-
 **Windows 注意：** `adb` 命令需要通过 PowerShell 调用完整路径：
 ```powershell
 # 安装 APK
@@ -48,12 +59,6 @@ adb devices
 # 监控日志（按 tag 过滤）
 & "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" logcat --pid=$(& "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" shell pidof com.moe.moetranslator) | Select-String -Pattern "MangaFloatingService|OpenAITranslation|TranslateBridge|FloatingBallService"
 ```
-
-**首次克隆后**需创建 `local.properties`（已在 .gitignore 中）：
-```properties
-sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
-```
-注意路径用**正斜杠** `/`，不要用反斜杠 `\`。
 
 ## 架构
 
@@ -528,3 +533,45 @@ val json = JSONObject(body.substring(jsonStart))
 - `debugInfoPanelView` — 整个 container（imageView + infoPanel + toggleButton）
 - `debugInfoPanelContentView` — 仅 infoPanel（可折叠部分）
 - 折叠时只隐藏 infoPanel，不动 container
+
+## Skill routing
+
+当用户请求匹配可用 skill 时，通过 Skill 工具调用。不确定时也调用。
+
+关键路由规则：
+- 发布版本 → 调用 `/release-replace`
+- 审查代码变更 → 调用 `/review`
+- Bug/错误排查 → 先查日志，定位代码后修复
+- UI 布局问题 → 直接对比代码找差异，不要求看日志
+- 构建/安装 → 使用构建命令，安装前不卸载
+
+## .claude/ 目录
+
+```
+.claude/
+├── skills/                   # 项目级 skill（如 release-replace）
+│   └── release-replace/      # 版本发布管理
+├── plans/                    # 实现计划草稿（gitignored）
+└── worktrees/                # git worktree 隔离工作区（自动清理）
+```
+
+## 常见问题排查
+
+### 构建失败
+
+```powershell
+# 检查 local.properties 是否存在
+Test-Path local.properties
+# 内容应为：sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk
+```
+
+### 安装失败
+
+**绝对禁止未经确认执行 `adb uninstall`。** 常见原因：
+- **签名不一致**：debug/release 签名不同，需先卸载旧版本（用户确认后）
+- **INSTALL_FAILED_UPDATE_INCOMPATIBLE**：同上
+- **设备空间不足**：清理设备存储
+
+### 日志无输出
+- PID 过期：app 重启后 PID 变化，需重新获取
+- 日志 tag 未匹配：检查 `LogCollector` tag 是否在过滤列表中

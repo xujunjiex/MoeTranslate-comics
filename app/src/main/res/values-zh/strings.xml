@@ -663,8 +663,8 @@
     <string name="screenshot_section_desc">选择翻译时如何获取屏幕截图</string>
     <string name="screenshot_method_mediaprojection">录屏授权（推荐）</string>
     <string name="screenshot_method_accessibility">无障碍服务</string>
-    <string name="screenshot_mediaprojection_desc">每次启动翻译时弹窗授权，无需开启无障碍服务，开箱即用。授权后通过系统录屏 API 截取屏幕图像进行翻译。</string>
-    <string name="screenshot_accessibility_desc">需要在系统设置中开启无障碍服务权限，授权后永久有效，无需重复授权。通过无障碍服务截取屏幕图像进行翻译。</string>
+    <string name="screenshot_mediaprojection_desc">✅ 开箱即用，无需安装或配置额外服务\n❌ 每次启动翻译需弹窗授权\n❌ 状态栏显示"正在录制"通知（Android 要求）</string>
+    <string name="screenshot_accessibility_desc">✅ 一次授权永久有效，不再弹窗打扰\n✅ 无前台通知，状态栏干净\n❌ 需在系统设置中手动开启无障碍服务</string>
     <string name="screenshot_permission_denied">需要截图权限才能翻译</string>
     <string name="screenshot_permission_granted">截图权限已获取</string>
     <string name="foreground_service_notification_title">星译</string>
