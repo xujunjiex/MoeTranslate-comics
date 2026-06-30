@@ -222,6 +222,9 @@ class MangaFloatingService : LifecycleService() {
     private var currentPHash = 0L
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
 
+    // 当前翻译的原始全屏截图（未裁剪），用于缓存 originalBitmap
+    private var pendingFullBitmap: Bitmap? = null
+
     // 调试详情面板（固定在屏幕底部）
     private var debugInfoPanelView: android.view.View? = null  // 整个 container（包含 imageView + infoPanel + toggleButton）
     private var debugInfoPanelContentView: android.view.View? = null  // 仅 infoPanel（可折叠部分）
@@ -1762,14 +1765,19 @@ class MangaFloatingService : LifecycleService() {
                 showToast("录屏权限未授予，无法截图", true)
                 return false
             }
-            // 异步截图
+            // 异步截图：先获取全屏，再由服务层裁剪（保留全屏 bitmap 供缓存使用）
             lifecycleScope.launch {
                 LogCollector.d(TAG, "Taking MediaProjection screenshot")
                 try {
-                    val bitmap = provider.takeScreenshot(cropRect, offset)
-                    if (bitmap != null) {
-                        LogCollector.d(TAG, "Screenshot captured: ${bitmap.width}x${bitmap.height}")
-                        ScreenshotManager.emitScreenshot(ScreenshotData(bitmap, null))
+                    val fullBitmap = provider.takeScreenshot(null, offset)
+                    if (fullBitmap != null) {
+                        LogCollector.d(TAG, "Full screenshot: ${fullBitmap.width}x${fullBitmap.height}")
+                        val croppedBitmap = if (cropRect != null) {
+                            val cropped = ScreenshotManager.cropBitmap(fullBitmap, cropRect, offset)
+                            LogCollector.d(TAG, "Cropped screenshot: ${cropped.width}x${cropped.height}")
+                            cropped
+                        } else null
+                        ScreenshotManager.emitScreenshot(ScreenshotData(fullBitmap, croppedBitmap))
                     } else {
                         LogCollector.w(TAG, "Screenshot returned null")
                         isProcessing = false
@@ -1867,11 +1875,13 @@ class MangaFloatingService : LifecycleService() {
                     if (isAutoTranslating && !isManualTranslating) {
                         // 用全屏截图计算稳定的 pHash（不受框选偏移影响）
                         val pHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
-                        // 全屏 bitmap 算完 pHash 即可释放（除非它同时是 ocrBitmap）
-                        if (data.croppedBitmap != null) data.fullBitmap.recycle()
+                        // 保存全屏 bitmap 引用用于缓存（不要在翻译前释放）
+                        pendingFullBitmap = data.fullBitmap
                         val shouldTranslate = processAutoDetectPHash(pHash)
                         if (!shouldTranslate) {
                             ocrBitmap.recycle()
+                            pendingFullBitmap = null
+                            if (data.croppedBitmap != null) data.fullBitmap.recycle()
                             isProcessing = false
                             // 不关闭进度条，保持"自动检测中"显示
                             return@collect
@@ -1880,6 +1890,8 @@ class MangaFloatingService : LifecycleService() {
                         if (isRestrictedScreenshot(ocrBitmap)) {
                             LogCollector.d(TAG, "Screenshot collector: 检测到受限区域截图，跳过翻译")
                             ocrBitmap.recycle()
+                            pendingFullBitmap = null
+                            if (data.croppedBitmap != null) data.fullBitmap.recycle()
                             isProcessing = false
                             statusOverlay.showError("该区域无法截图，可能是受限内容（安全应用/DRM保护）")
                             scheduleNextDetection(DETECT_INTERVAL_MS)
@@ -1901,8 +1913,8 @@ class MangaFloatingService : LifecycleService() {
                         }
                         // 手动模式：用全屏截图计算稳定的缓存 pHash
                         val cachePHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
-                        // 全屏 bitmap 算完 pHash 即可释放（除非它同时是 ocrBitmap）
-                        if (data.croppedBitmap != null) data.fullBitmap.recycle()
+                        // 保存全屏 bitmap 引用用于缓存（不要在翻译前释放）
+                        pendingFullBitmap = data.fullBitmap
                         showProgressOverlay("检测中...")
                         try {
                             processMangaScreenshot(ocrBitmap, cachePHash)
@@ -2070,6 +2082,10 @@ class MangaFloatingService : LifecycleService() {
                     bgColor = config.bgColor
                 )
             }
+            // 使用实际裁剪坐标（如果有 cropRect）或全屏尺寸
+            val fullWidth = pendingFullBitmap?.width ?: original.width
+            val fullHeight = pendingFullBitmap?.height ?: original.height
+            val useCrop = cropRect != null
             val entry = CacheEntry(
                 type = TranslationCacheManager.MODE_MANGA,
                 sourceText = ocrTexts.ifEmpty { null },
@@ -2081,20 +2097,20 @@ class MangaFloatingService : LifecycleService() {
                 pHash = currentPHash,
                 sessionId = sessionId,
                 lastSessionId = sessionId,
-                cropLeft = 0,
-                cropTop = 0,
-                cropRight = original.width,
-                cropBottom = original.height
+                cropLeft = if (useCrop) cropRect!!.left.toInt() else 0,
+                cropTop = if (useCrop) cropRect!!.top.toInt() else 0,
+                cropRight = if (useCrop) cropRect!!.right.toInt() else fullWidth,
+                cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight
             )
             if (isForceRefreshActive) {
                 // 只删除同页面的缓存（pHash 匹配），避免误删其他页面
                 val historyIdToDelete = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
-                cacheManager.refreshCache(historyIdToDelete, entry)
+                cacheManager.refreshCache(historyIdToDelete, entry, originalBitmap = pendingFullBitmap)
                 lastCachedHistoryId = 0
                 lastCachedPHash = 0
                 isForceRefreshActive = false
             } else {
-                cacheManager.saveToCache(entry)
+                cacheManager.saveToCache(entry, originalBitmap = pendingFullBitmap)
             }
         } catch (e: Exception) {
             LogCollector.e(TAG, "saveTranslationCache 失败", e)
@@ -2671,6 +2687,11 @@ class MangaFloatingService : LifecycleService() {
 
         } finally {
             bitmap.recycle()
+            // 如果有独立的全屏 bitmap（不同于 OCR bitmap），一并释放
+            if (pendingFullBitmap != null && pendingFullBitmap !== bitmap) {
+                pendingFullBitmap!!.recycle()
+            }
+            pendingFullBitmap = null
             // 自动翻译模式：确保 lastTranslatedHash 被更新，避免异常后状态机卡住
             if (isAutoTranslating && currentPHash != 0L) {
                 lastTranslatedHash = currentPHash
@@ -2953,6 +2974,10 @@ class MangaFloatingService : LifecycleService() {
                 val ocrTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
                 val transTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
                 LogCollector.d(TAG, "保存缓存: ${newBubbles.size} 个气泡")
+                // 使用实际裁剪坐标（如果有 cropRect）或全屏尺寸
+                val fullWidth = pendingFullBitmap?.width ?: original.width
+                val fullHeight = pendingFullBitmap?.height ?: original.height
+                val useCrop = cropRect != null
                 val entry = CacheEntry(
                     type = TranslationCacheManager.MODE_MANGA,
                     sourceText = ocrTexts.ifEmpty { null },
@@ -2964,20 +2989,20 @@ class MangaFloatingService : LifecycleService() {
                     pHash = currentPHash,
                     sessionId = sessionId,
                     lastSessionId = sessionId,
-                    cropLeft = 0,
-                    cropTop = 0,
-                    cropRight = original.width,
-                    cropBottom = original.height
+                    cropLeft = if (useCrop) cropRect!!.left.toInt() else 0,
+                    cropTop = if (useCrop) cropRect!!.top.toInt() else 0,
+                    cropRight = if (useCrop) cropRect!!.right.toInt() else fullWidth,
+                    cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight
                 )
                 if (isForceRefreshActive) {
                     val historyIdToDelete = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
-                    cacheManager.refreshCache(historyIdToDelete, entry)
+                    cacheManager.refreshCache(historyIdToDelete, entry, originalBitmap = pendingFullBitmap)
                     LogCollector.d(TAG, "强制刷新：替换旧缓存和历史, historyId=$historyIdToDelete")
                     lastCachedHistoryId = 0
                     lastCachedPHash = 0
                     isForceRefreshActive = false
                 } else {
-                    cacheManager.saveToCache(entry)
+                    cacheManager.saveToCache(entry, originalBitmap = pendingFullBitmap)
                 }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "保存缓存失败", e)

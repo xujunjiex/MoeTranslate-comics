@@ -396,7 +396,7 @@ class TranslationCacheManager(private val context: Context) {
      * 强制刷新缓存：用 historyId 删除旧记录，保存新结果。
      * sessionId 继承旧记录（按创建排序位置不变），lastSessionId 使用当前会话，createdAt 继承旧记录。
      */
-    suspend fun refreshCache(historyIdToDelete: Long, newEntry: CacheEntry) = withContext(Dispatchers.IO) {
+    suspend fun refreshCache(historyIdToDelete: Long, newEntry: CacheEntry, originalBitmap: Bitmap? = null) = withContext(Dispatchers.IO) {
         var inheritedSessionId = newEntry.sessionId
         var inheritedCreatedAt = System.currentTimeMillis()
         val oldHistory = dao.getHistoryById(historyIdToDelete)
@@ -419,7 +419,7 @@ class TranslationCacheManager(private val context: Context) {
         }
 
         // lastSessionId 使用调用方的当前会话（不继承旧值），sessionId 和 createdAt 继承旧值
-        saveToCache(newEntry.copy(sessionId = inheritedSessionId), createdAt = inheritedCreatedAt)
+        saveToCache(newEntry.copy(sessionId = inheritedSessionId), originalBitmap = originalBitmap, createdAt = inheritedCreatedAt)
         LogCollector.d(TAG, "refreshCache: 保存新结果, sessionId=$inheritedSessionId, lastSessionId=${newEntry.lastSessionId}, createdAt=$inheritedCreatedAt")
     }
 
