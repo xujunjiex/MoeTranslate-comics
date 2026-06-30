@@ -35,21 +35,18 @@
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="#FFFFFF" />
 
-    <!-- 原图/译文切换按钮 -->
-    <TextView
+    <!-- 原图/译文切换 -->
+    <ImageButton
         android:id="@+id/btnToggleImage"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_gravity="top|end"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="72dp"
-        android:text="原"
-        android:textSize="14sp"
-        android:textColor="#FFFFFF"
-        android:gravity="center"
-        android:background="#66000000"
-        android:clickable="true"
-        android:focusable="true" />
+        android:layout_marginTop="64dp"
+        android:layout_marginEnd="16dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@android:drawable/ic_menu_camera"
+        android:tint="#FFFFFF"
+        android:contentDescription="切换原图/译文" />
 
     <!-- 删除按钮 -->
     <ImageButton
@@ -92,52 +89,33 @@
         app:icon="@android:drawable/ic_menu_sort_by_size"
         app:iconTint="#FFFFFF" />
 
-    <!-- 底部操作栏 (重新翻译 / 删除 / 尺寸切换) -->
-    <LinearLayout
-        android:id="@+id/actionBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_gravity="bottom"
-        android:background="#FFFFFF"
-        android:elevation="8dp"
-        android:padding="8dp">
+    <!-- 变体尺寸下拉 -->
+    <Spinner
+        android:id="@+id/spinnerVariant"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="88dp"
+        android:background="#66000000"
+        android:paddingHorizontal="8dp"
+        android:visibility="gone" />
 
-        <LinearLayout
-            android:id="@+id/variantSelectorLayout"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/history_variant_size_label"
-                android:textSize="14sp"
-                android:layout_marginEnd="8dp" />
-
-            <Spinner
-                android:id="@+id/spinnerVariant"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="4dp">
-
-            <Button
-                android:id="@+id/btnRetranslate"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:text="@string/history_retranslate" />
-
-        </LinearLayout>
-    </LinearLayout>
+    <!-- 重新翻译按钮 -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnRetranslate"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="88dp"
+        android:text="@string/history_retranslate"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        app:backgroundTint="#CC333333"
+        app:cornerRadius="20dp"
+        app:icon="@android:drawable/ic_menu_rotate"
+        app:iconTint="#FFFFFF" />
 
     <!-- 底部译文面板 -->
     <LinearLayout

@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -25,15 +24,10 @@ import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
-import java.io.BufferedOutputStream
-import java.io.FileOutputStream
 import java.io.FileInputStream
-import kotlin.coroutines.resume
+import java.io.FileOutputStream
 
 class HistoryFragment : Fragment() {
 
@@ -72,6 +66,7 @@ class HistoryFragment : Fragment() {
         setupViewModeTabs()
         setupEngineSelectors()
         setupRecyclerViews()
+        switchTab(TranslationCacheManager.MODE_GAME) // 初始化游戏 tab 的视图状态
         setupClearButton()
         setupClearAllCacheButton()
         setupRefreshButton()
@@ -413,7 +408,7 @@ class HistoryFragment : Fragment() {
     }
 
 
-    // ========== Task 12: Session ZIP download ==========
+    // ========== Session ZIP download ==========
 
     /**
      * 下载进程组图片为 ZIP
@@ -421,81 +416,58 @@ class HistoryFragment : Fragment() {
     private fun downloadSession(session: com.moe.moetranslator.data.HistorySession) {
         lifecycleScope.launch {
             try {
-                val paths = mutableListOf<String>()
-                for (entry in session.entries) {
-                    if (entry.variantCount > 1) {
-                        val chosen = withContext(Dispatchers.Main) {
-                            showVariantPickerForDownload(entry)
-                        }
-                        if (chosen != null) paths.add(chosen)
-                    } else {
-                        entry.imagePath?.let { paths.add(it) }
-                    }
-                }
-                if (paths.isEmpty()) {
-                    Toast.makeText(requireContext(), R.string.history_no_images_to_download, Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
-                withContext(Dispatchers.IO) {
-                    val zipFile = File(requireContext().cacheDir, "session_${session.sessionId}.zip")
-                    ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
-                        paths.forEachIndexed { idx, path ->
-                            val f = File(path)
-                            if (f.exists()) {
-                                zos.putNextEntry(ZipEntry("img_${idx}.jpg"))
-                                FileInputStream(f).use { it.copyTo(zos) }
-                                zos.closeEntry()
-                            }
-                        }
-                    }
+                // Check for multi-size variants
+                val hasMultiVariant = session.entries.any { it.variantCount > 1 }
+
+                if (hasMultiVariant) {
+                    // Just warn, download ALL variants by default
                     withContext(Dispatchers.Main) {
-                        val uri = FileProvider.getUriForFile(
-                            requireContext(), "${requireContext().packageName}.fileprovider", zipFile
-                        )
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/zip"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(share, getString(R.string.history_share_session)))
+                        AlertDialog.Builder(requireContext())
+                            .setMessage("该进程组包含多个尺寸的翻译结果，将全部下载。")
+                            .setPositiveButton("全部下载") { _, _ ->
+                                lifecycleScope.launch { doDownloadSession(session) }
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
                     }
+                } else {
+                    doDownloadSession(session)
                 }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Download session failed", e)
-                Toast.makeText(requireContext(), getString(R.string.history_download_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "下载失败", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private suspend fun showVariantPickerForDownload(entry: HistoryEntry): String? {
-        return suspendCancellableCoroutine { cont ->
-            lifecycleScope.launch {
-                try {
-                    val variants = entry.variantIds.mapNotNull { id ->
-                        cacheManager.getHistoryById(id)
+    private suspend fun doDownloadSession(session: com.moe.moetranslator.data.HistorySession) {
+        val paths = session.entries.mapNotNull { it.imagePath }.filter { File(it).exists() }
+        if (paths.isEmpty()) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "没有可下载的图片", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        withContext(Dispatchers.IO) {
+            val zipFile = File(requireContext().cacheDir, "session_${session.sessionId}.zip")
+            java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+                paths.forEachIndexed { idx, path ->
+                    val f = File(path)
+                    if (f.exists()) {
+                        zos.putNextEntry(java.util.zip.ZipEntry("img_${idx}.jpg"))
+                        FileInputStream(f).use { it.copyTo(zos) }
+                        zos.closeEntry()
                     }
-                    val items = variants.map { v ->
-                        val dim = v.imagePath?.let { path ->
-                            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                            BitmapFactory.decodeFile(path, opts)
-                            "${opts.outWidth}x${opts.outHeight}"
-                        } ?: "?"
-                        dim
-                    }.toTypedArray()
-                    val dialog = AlertDialog.Builder(requireContext())
-                        .setTitle(R.string.history_select_variant)
-                        .setItems(items) { _, which ->
-                            if (cont.isActive) cont.resume(variants[which].imagePath)
-                        }
-                        .setOnCancelListener {
-                            if (cont.isActive) cont.resume(null)
-                        }
-                        .show()
-                    cont.invokeOnCancellation { dialog.dismiss() }
-                } catch (e: Exception) {
-                    LogCollector.e(TAG, "Variant picker failed", e)
-                    if (cont.isActive) cont.resume(null)
                 }
+            }
+            withContext(Dispatchers.Main) {
+                val uri = FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", zipFile)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(share, "分享进程组"))
             }
         }
     }

@@ -22,14 +22,18 @@
             android:textColor="#FF999999"
             android:textSize="12sp" />
 
-        <ImageButton
+        <TextView
             android:id="@+id/btnDownloadSession"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@android:drawable/stat_sys_download"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="⬇ 下载"
+            android:textSize="12sp"
+            android:textColor="#55AEEA"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/history_download_session"
-            android:tint="#666666"
+            android:clickable="true"
+            android:focusable="true"
             android:visibility="gone" />
 
     </LinearLayout>

@@ -91,7 +91,10 @@ class MangaViewerActivity : AppCompatActivity() {
         // 原图/译文切换
         binding.btnToggleImage.setOnClickListener {
             showingOriginal = !showingOriginal
-            binding.btnToggleImage.text = if (showingOriginal) "译" else "原"
+            binding.btnToggleImage.setImageResource(
+                if (showingOriginal) android.R.drawable.ic_menu_gallery
+                else android.R.drawable.ic_menu_camera
+            )
             val entry = getCurrentVariant()
             val path = if (showingOriginal) entry.originalImagePath else (entry.imagePath ?: entry.thumbnailPath)
             if (path != null && java.io.File(path).exists()) {
@@ -156,7 +159,7 @@ class MangaViewerActivity : AppCompatActivity() {
                 updatePageIndicator(position)
                 // 翻页时重置原图/译文切换
                 showingOriginal = false
-                binding.btnToggleImage.text = "原"
+                binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 adapter?.setOverrideImage(null)
                 // 翻页时关闭面板
@@ -353,10 +356,10 @@ class MangaViewerActivity : AppCompatActivity() {
     private fun updateVariantSpinner(position: Int) {
         val group = pageGroups.getOrNull(position)
         if (group == null || group.variants.size <= 1) {
-            binding.variantSelectorLayout.visibility = android.view.View.GONE
+            binding.spinnerVariant.visibility = android.view.View.GONE
             return
         }
-        binding.variantSelectorLayout.visibility = android.view.View.VISIBLE
+        binding.spinnerVariant.visibility = android.view.View.VISIBLE
         val items = group.variants.map { v ->
             v.imagePath?.let { getImageDimensions(it) } ?: "?"
         }
