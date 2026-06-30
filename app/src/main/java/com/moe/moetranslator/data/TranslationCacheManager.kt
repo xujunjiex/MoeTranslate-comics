@@ -74,8 +74,8 @@ class TranslationCacheManager(private val context: Context) {
                             dao.updateHistoryTimestamp(history.id, now)
                         }
                     }
-                    LogCollector.d(TAG, "findCache: 精确命中, historyId=${history.id}, crop=${bestExact.cropWidth}x${bestExact.cropHeight}")
-                    return@withContext buildCacheResult(history, bestExact.cropWidth, bestExact.cropHeight)
+                    LogCollector.d(TAG, "findCache: 精确命中, historyId=${history.id}, crop=${bestExact.effectiveCropWidth()}x${bestExact.effectiveCropHeight()}")
+                    return@withContext buildCacheResult(history, bestExact.effectiveCropWidth(), bestExact.effectiveCropHeight())
                 }
             } else {
                 LogCollector.d(TAG, "findCache: 精确匹配存在但面积比都不兼容, 跳过")
@@ -110,7 +110,7 @@ class TranslationCacheManager(private val context: Context) {
                         }
                     }
                     LogCollector.d(TAG, "findCache: 相似度命中 (${bestSimilarity}), historyId=${history.id}")
-                    return@withContext buildCacheResult(history, bestMatch.cropWidth, bestMatch.cropHeight)
+                    return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight())
                 }
             }
         }
@@ -126,16 +126,18 @@ class TranslationCacheManager(private val context: Context) {
     private fun isCropAreaCompatible(entry: PageCacheEntity, currentCropWidth: Int, currentCropHeight: Int): Boolean {
         // 不校验：当前未提供裁剪尺寸（游戏模式）或缓存无裁剪记录（旧数据）
         if (currentCropWidth <= 0 || currentCropHeight <= 0) return true
-        if (entry.cropWidth <= 0 || entry.cropHeight <= 0) return true
+        val entryWidth = entry.effectiveCropWidth()
+        val entryHeight = entry.effectiveCropHeight()
+        if (entryWidth <= 0 || entryHeight <= 0) return true
 
-        val cachedArea = entry.cropWidth.toLong() * entry.cropHeight
+        val cachedArea = entryWidth.toLong() * entryHeight
         val currentArea = currentCropWidth.toLong() * currentCropHeight
         if (cachedArea <= 0) return true
 
         val ratio = currentArea.toFloat() / cachedArea.toFloat()
         val compatible = ratio in AREA_RATIO_MIN..AREA_RATIO_MAX
         if (!compatible) {
-            LogCollector.d(TAG, "面积比不兼容: current=${currentCropWidth}x${currentCropHeight}, cached=${entry.cropWidth}x${entry.cropHeight}, ratio=${String.format("%.2f", ratio)}")
+            LogCollector.d(TAG, "面积比不兼容: current=${currentCropWidth}x${currentCropHeight}, cached=${entryWidth}x${entryHeight}, ratio=${String.format("%.2f", ratio)}")
         }
         return compatible
     }
@@ -154,13 +156,15 @@ class TranslationCacheManager(private val context: Context) {
         var bestRatioDiff = Float.MAX_VALUE
         var hasRealMatch = false
         for (entry in entries) {
-            if (entry.cropWidth <= 0 || entry.cropHeight <= 0) {
+            val entryWidth = entry.effectiveCropWidth()
+            val entryHeight = entry.effectiveCropHeight()
+            if (entryWidth <= 0 || entryHeight <= 0) {
                 // 旧数据：只有在没有真实匹配时才作为 fallback
                 if (!hasRealMatch && bestEntry == null) bestEntry = entry
                 continue
             }
             hasRealMatch = true
-            val cachedArea = entry.cropWidth.toLong() * entry.cropHeight
+            val cachedArea = entryWidth.toLong() * entryHeight
             val ratio = currentArea.toFloat() / cachedArea.toFloat()
             if (ratio in AREA_RATIO_MIN..AREA_RATIO_MAX) {
                 val ratioDiff = kotlin.math.abs(ratio - 1f)
@@ -222,7 +226,7 @@ class TranslationCacheManager(private val context: Context) {
                 }
                 val cacheEntry = dao.findCacheByHistoryId(history.id)
                 LogCollector.d(TAG, "findMangaCacheByText: 内存缓存命中, historyId=${history.id}")
-                return@withContext buildCacheResult(history, cacheEntry?.cropWidth ?: 0, cacheEntry?.cropHeight ?: 0)
+                return@withContext buildCacheResult(history, cacheEntry?.effectiveCropWidth() ?: 0, cacheEntry?.effectiveCropHeight() ?: 0)
             }
             // history 已被删除，清除失效缓存
             textFingerprintCache.remove(queryFingerprint)
@@ -242,7 +246,7 @@ class TranslationCacheManager(private val context: Context) {
                 }
                 val cacheEntry = dao.findCacheByHistoryId(history.id)
                 LogCollector.d(TAG, "findMangaCacheByText: 数据库命中, historyId=${history.id}")
-                return@withContext buildCacheResult(history, cacheEntry?.cropWidth ?: 0, cacheEntry?.cropHeight ?: 0)
+                return@withContext buildCacheResult(history, cacheEntry?.effectiveCropWidth() ?: 0, cacheEntry?.effectiveCropHeight() ?: 0)
             }
         }
 
@@ -267,7 +271,11 @@ class TranslationCacheManager(private val context: Context) {
      * sessionId 从同 pHash 旧记录继承（保证按创建排序位置不变）。
      * lastSessionId 使用调用方传入的当前会话（用于按修改排序分组）。
      */
-    suspend fun saveToCache(entry: CacheEntry, createdAt: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
+    suspend fun saveToCache(
+        entry: CacheEntry,
+        originalBitmap: Bitmap? = null,
+        createdAt: Long = System.currentTimeMillis()
+    ) = withContext(Dispatchers.IO) {
         if (getMaxCacheCount() <= 0) return@withContext
 
         // 漫画模式：查找并删除同 pHash + 同尺寸的旧记录，继承 sessionId 和 createdAt
@@ -276,8 +284,10 @@ class TranslationCacheManager(private val context: Context) {
         if (entry.type == MODE_MANGA && entry.pHash != 0L) {
             var oldHistoryToDelete: HistoryEntity? = null
             var oldCacheToDelete: PageCacheEntity? = null
-            if (entry.cropWidth > 0 && entry.cropHeight > 0) {
-                oldCacheToDelete = dao.findCacheByHashAndSize(entry.pHash, MODE_MANGA, entry.cropWidth, entry.cropHeight)
+            val dedupWidth = entry.cropRight - entry.cropLeft
+            val dedupHeight = entry.cropBottom - entry.cropTop
+            if (dedupWidth > 0 && dedupHeight > 0) {
+                oldCacheToDelete = dao.findCacheByHashAndSize(entry.pHash, MODE_MANGA, dedupWidth, dedupHeight)
                 if (oldCacheToDelete != null) {
                     oldHistoryToDelete = dao.getHistoryById(oldCacheToDelete.historyId)
                 }
@@ -322,6 +332,13 @@ class TranslationCacheManager(private val context: Context) {
             thumbnailPath = saveThumbnail(entry.resultBitmap, "manga_${timestamp}_thumb.jpg")
         }
 
+        // Save original image (if provided — manga mode only)
+        var originalImagePath: String? = null
+        if (originalBitmap != null) {
+            val timestamp = System.currentTimeMillis()
+            originalImagePath = saveBitmap(originalBitmap, "manga_original_${timestamp}.jpg")
+        }
+
         // 插入 history 记录
         val now = System.currentTimeMillis()
         val historyEntity = HistoryEntity(
@@ -337,6 +354,8 @@ class TranslationCacheManager(private val context: Context) {
             createdAt = inheritedCreatedAt,
             sessionId = inheritedSessionId,
             lastSessionId = entry.lastSessionId,
+            originalImagePath = originalImagePath,
+            isRetranslated = entry.isRetranslated,
             updatedAt = now
         )
         val historyId = dao.insertHistory(historyEntity)
@@ -362,8 +381,12 @@ class TranslationCacheManager(private val context: Context) {
             mode = entry.type,
             lastAccessedAt = System.currentTimeMillis(),
             createdAt = System.currentTimeMillis(),
-            cropWidth = entry.cropWidth,
-            cropHeight = entry.cropHeight
+            cropWidth = 0,  // deprecated, keep at 0
+            cropHeight = 0,  // deprecated, keep at 0
+            cropLeft = entry.cropLeft,
+            cropTop = entry.cropTop,
+            cropRight = entry.cropRight,
+            cropBottom = entry.cropBottom
         )
         dao.insertCache(cacheEntity)
         LogCollector.d(TAG, "saveToCache: 插入 cache, pHash=${entry.pHash}, mode=${entry.type}")
@@ -455,7 +478,11 @@ class TranslationCacheManager(private val context: Context) {
             lastAccessedAt = System.currentTimeMillis(),
             createdAt = System.currentTimeMillis(),
             cropWidth = cropWidth,
-            cropHeight = cropHeight
+            cropHeight = cropHeight,
+            cropLeft = 0,
+            cropTop = 0,
+            cropRight = 0,
+            cropBottom = 0
         )
         dao.insertCache(cacheEntity)
         LogCollector.d(TAG, "syncPHashCache: 新增 pHash=$pHash → historyId=$historyId, crop=${cropWidth}x${cropHeight}")
@@ -665,6 +692,18 @@ class TranslationCacheManager(private val context: Context) {
 
     // ========== 内部方法 ==========
 
+    suspend fun getCacheByHistoryId(historyId: Long): PageCacheEntity? = withContext(Dispatchers.IO) {
+        dao.findCacheByHistoryId(historyId)
+    }
+
+    /** 获取 PageCacheEntity 的裁剪宽度：优先 cropWidth，否则从 cropRight-cropLeft 计算 */
+    private fun PageCacheEntity.effectiveCropWidth(): Int =
+        if (cropWidth > 0) cropWidth else (cropRight - cropLeft).coerceAtLeast(0)
+
+    /** 获取 PageCacheEntity 的裁剪高度：优先 cropHeight，否则从 cropBottom-cropTop 计算 */
+    private fun PageCacheEntity.effectiveCropHeight(): Int =
+        if (cropHeight > 0) cropHeight else (cropBottom - cropTop).coerceAtLeast(0)
+
     private suspend fun evictIfNeeded(mode: Int) {
         val maxCount = getMaxCacheCount()
         if (maxCount <= 0) return
@@ -756,8 +795,11 @@ data class CacheEntry(
     val pHash: Long,
     val sessionId: String = "",      // 原始创建会话 ID（永不改变）
     val lastSessionId: String = "",  // 最后修改会话 ID（任何修改时更新为当前会话）
-    val cropWidth: Int = 0,     // 漫画翻译：裁剪区域宽度（用于面积比校验）
-    val cropHeight: Int = 0     // 漫画翻译：裁剪区域高度（用于面积比校验）
+    val cropLeft: Int = 0,      // 裁剪区域左边界
+    val cropTop: Int = 0,       // 裁剪区域上边界
+    val cropRight: Int = 0,     // 裁剪区域右边界
+    val cropBottom: Int = 0,    // 裁剪区域下边界
+    val isRetranslated: Boolean = false,
 )
 
 data class HistoryEntry(
@@ -776,7 +818,9 @@ data class HistoryEntry(
     val pHash: Long = 0,
     val updatedAt: Long = 0,
     val variantCount: Int = 1,          // 同 pHash 的不同尺寸数量
-    val variantIds: List<Long> = emptyList()  // 同 pHash 的所有变体 ID
+    val variantIds: List<Long> = emptyList(),  // 同 pHash 的所有变体 ID
+    val originalImagePath: String? = null,
+    val isRetranslated: Boolean = false,
 )
 
 data class HistoryGroup(
@@ -807,5 +851,7 @@ fun HistoryEntity.toHistoryEntry() = HistoryEntry(
     sessionId = sessionId,
     lastSessionId = lastSessionId,
     pHash = pHash,
-    updatedAt = updatedAt
+    updatedAt = updatedAt,
+    originalImagePath = originalImagePath,
+    isRetranslated = isRetranslated
 )

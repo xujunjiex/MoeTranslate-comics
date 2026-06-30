@@ -2081,8 +2081,10 @@ class MangaFloatingService : LifecycleService() {
                 pHash = currentPHash,
                 sessionId = sessionId,
                 lastSessionId = sessionId,
-                cropWidth = original.width,
-                cropHeight = original.height
+                cropLeft = 0,
+                cropTop = 0,
+                cropRight = original.width,
+                cropBottom = original.height
             )
             if (isForceRefreshActive) {
                 // 只删除同页面的缓存（pHash 匹配），避免误删其他页面
@@ -2962,8 +2964,10 @@ class MangaFloatingService : LifecycleService() {
                     pHash = currentPHash,
                     sessionId = sessionId,
                     lastSessionId = sessionId,
-                    cropWidth = original.width,
-                    cropHeight = original.height
+                    cropLeft = 0,
+                    cropTop = 0,
+                    cropRight = original.width,
+                    cropBottom = original.height
                 )
                 if (isForceRefreshActive) {
                     val historyIdToDelete = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
