@@ -1,13 +1,10 @@
 package com.moe.moetranslator.ui.history
 
-import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.BitmapFactory
-import android.graphics.RectF
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -17,7 +14,6 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import android.app.AlertDialog
 import com.google.android.material.tabs.TabLayout
@@ -27,7 +23,6 @@ import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.FragmentHistoryBinding
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LogCollector
-import com.moe.moetranslator.utils.ServiceUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,8 +34,6 @@ import java.io.BufferedOutputStream
 import java.io.FileOutputStream
 import java.io.FileInputStream
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
-import kotlin.coroutines.resumeWithException
 
 class HistoryFragment : Fragment() {
 
@@ -57,8 +50,6 @@ class HistoryFragment : Fragment() {
 
     // 0=游戏, 1=漫画
     private var currentTab = TranslationCacheManager.MODE_GAME
-
-    private var retranslateCompleteReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,23 +76,6 @@ class HistoryFragment : Fragment() {
         setupClearAllCacheButton()
         setupRefreshButton()
         setupSettingsButton()
-
-        // 注册重新翻译完成广播接收器
-        registerRetranslateReceiver()
-
-        // 注册 CropFragment 结果监听
-        childFragmentManager.setFragmentResultListener(
-            CropFragment.RESULT_KEY, this
-        ) { _, bundle ->
-            val cropLeft = bundle.getInt("cropLeft", -1)
-            val cropTop = bundle.getInt("cropTop", -1)
-            val cropRight = bundle.getInt("cropRight", -1)
-            val cropBottom = bundle.getInt("cropBottom", -1)
-            val imagePath = bundle.getString("originalImagePath", "")
-            if (cropLeft >= 0 && imagePath.isNotEmpty()) {
-                sendRetranslateRequest(imagePath, cropLeft, cropTop, cropRight, cropBottom)
-            }
-        }
 
         loadHistory()
     }
@@ -438,57 +412,6 @@ class HistoryFragment : Fragment() {
         startActivity(intent)
     }
 
-    // ========== Task 11: Retranslate flow ==========
-
-    /**
-     * 发送重新翻译广播
-     */
-    private fun sendRetranslateRequest(
-        imagePath: String,
-        cropLeft: Int,
-        cropTop: Int,
-        cropRight: Int,
-        cropBottom: Int
-    ) {
-        val prefs = CustomPreference.getInstance(requireContext())
-        val intent = Intent("com.moe.moetranslator.RETRANSLATE_REQUEST").apply {
-            putExtra("originalImagePath", imagePath)
-            putExtra("cropLeft", cropLeft)
-            putExtra("cropTop", cropTop)
-            putExtra("cropRight", cropRight)
-            putExtra("cropBottom", cropBottom)
-            putExtra("ocrEngine", prefs.getString("history_retranslate_engine", "PP_OCR_V5"))
-        }
-        LocalBroadcastManager.getInstance(requireContext()).sendBroadcast(intent)
-    }
-
-    /**
-     * 注册重新翻译完成广播接收器
-     */
-    private fun registerRetranslateReceiver() {
-        retranslateCompleteReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action != "com.moe.moetranslator.RETRANSLATE_COMPLETE") return
-                val success = intent.getBooleanExtra("success", false)
-                val errorMessage = intent.getStringExtra("errorMessage")
-                lifecycleScope.launch {
-                    if (success) {
-                        Toast.makeText(requireContext(), R.string.history_retranslate_done, Toast.LENGTH_SHORT).show()
-                        loadHistory()
-                    } else {
-                        // 服务端忙（翻译进行中）显示专用提示，其余显示具体错误
-                        if (errorMessage == "翻译进行中，请稍后") {
-                            Toast.makeText(requireContext(), R.string.history_retranslate_busy, Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(requireContext(), errorMessage ?: getString(R.string.translation_failed, "").substringBefore("%s").trim(), Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            }
-        }
-        LocalBroadcastManager.getInstance(requireContext())
-            .registerReceiver(retranslateCompleteReceiver!!, IntentFilter("com.moe.moetranslator.RETRANSLATE_COMPLETE"))
-    }
 
     // ========== Task 12: Session ZIP download ==========
 
@@ -578,10 +501,6 @@ class HistoryFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        retranslateCompleteReceiver?.let {
-            LocalBroadcastManager.getInstance(requireContext()).unregisterReceiver(it)
-            retranslateCompleteReceiver = null
-        }
         _binding = null
         super.onDestroyView()
     }
