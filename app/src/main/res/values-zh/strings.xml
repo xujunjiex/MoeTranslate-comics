@@ -669,4 +669,26 @@
     <string name="screenshot_permission_granted">截图权限已获取</string>
     <string name="foreground_service_notification_title">星译</string>
     <string name="foreground_service_notification_text">翻译服务运行中</string>
+
+    <!-- 历史视图模式 -->
+    <string name="history_view_default">默认视图</string>
+    <string name="history_view_manage">管理视图</string>
+    <string name="history_retranslate">重新翻译</string>
+    <string name="history_delete_variant">删除此尺寸</string>
+    <string name="history_use_current_crop">用当前裁剪</string>
+    <string name="history_new_crop">重新裁剪</string>
+    <string name="history_original_unavailable">原图不可用</string>
+    <string name="history_service_not_running">请先启动漫画翻译</string>
+    <string name="history_retranslate_done">重新翻译完成</string>
+    <string name="history_retranslate_busy">翻译进行中，请稍后</string>
+    <string name="history_download_session">下载</string>
+    <string name="history_settings_title">历史记录设置</string>
+    <string name="history_display_mode_label">显示方式</string>
+    <string name="history_no_images_to_download">没有可下载的图片</string>
+    <string name="history_share_session">分享进程组</string>
+    <string name="history_download_failed">下载失败：%s</string>
+    <string name="history_select_variant">选择保留的尺寸</string>
+    <string name="history_variant_label">变体 %d</string>
+    <string name="history_variant_info">变体 %1$d（%2$s）</string>
+
 </resources>

@@ -1,9 +1,13 @@
 package com.moe.moetranslator.ui.history
 
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.BitmapFactory
+import android.graphics.RectF
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -11,8 +15,10 @@ import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import android.app.AlertDialog
 import com.google.android.material.tabs.TabLayout
@@ -21,8 +27,21 @@ import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.FragmentHistoryBinding
 import com.moe.moetranslator.me.ConfigurationStorage
+import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LogCollector
+import com.moe.moetranslator.utils.ServiceUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import java.io.BufferedOutputStream
+import java.io.FileOutputStream
+import java.io.FileInputStream
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import kotlin.coroutines.resumeWithException
 
 class HistoryFragment : Fragment() {
 
@@ -39,6 +58,8 @@ class HistoryFragment : Fragment() {
 
     // 0=游戏, 1=漫画
     private var currentTab = TranslationCacheManager.MODE_GAME
+
+    private var retranslateCompleteReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,6 +86,24 @@ class HistoryFragment : Fragment() {
         setupClearAllCacheButton()
         setupRefreshButton()
         setupSettingsButton()
+
+        // 注册重新翻译完成广播接收器
+        registerRetranslateReceiver()
+
+        // 注册 CropFragment 结果监听
+        childFragmentManager.setFragmentResultListener(
+            CropFragment.RESULT_KEY, this
+        ) { _, bundle ->
+            val cropLeft = bundle.getInt("cropLeft", -1)
+            val cropTop = bundle.getInt("cropTop", -1)
+            val cropRight = bundle.getInt("cropRight", -1)
+            val cropBottom = bundle.getInt("cropBottom", -1)
+            val imagePath = bundle.getString("originalImagePath", "")
+            if (cropLeft >= 0 && imagePath.isNotEmpty()) {
+                sendRetranslateRequest(imagePath, cropLeft, cropTop, cropRight, cropBottom)
+            }
+        }
+
         loadHistory()
     }
 
@@ -97,7 +136,7 @@ class HistoryFragment : Fragment() {
         binding.rvGameHistory.adapter = gameGroupAdapter
 
         // 漫画历史：分组适配器
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val prefs = CustomPreference.getInstance(requireContext())
         val displayMode = prefs.getString("history_display_mode", "large")
         val viewMode = prefs.getString("history_view_mode", "default")
         mangaGroupAdapter = HistoryMangaGroupAdapter(
@@ -105,8 +144,10 @@ class HistoryFragment : Fragment() {
             onItemLongClick = { entry -> showDeleteDialog(entry) },
             displayMode = displayMode,
             isManageView = (viewMode == "manage"),
-            onRetranslateClick = { entry -> /* Task 11: 重新翻译逻辑 */ },
-            onDeleteVariantClick = { entry -> /* Task 11: 删除尺寸逻辑 */ }
+            onRetranslateClick = { entry -> handleRetranslateClick(entry) },
+            onDeleteVariantClick = { entry -> handleDeleteVariant(entry) },
+            onSwitchVariant = { entry, position -> handleSwitchVariant(entry, position) },
+            onDownloadSessionClick = { session -> downloadSession(session) }
         )
         binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
         binding.rvMangaHistory.adapter = mangaGroupAdapter
@@ -138,7 +179,7 @@ class HistoryFragment : Fragment() {
     }
 
     private fun showHistorySettingsMenu(anchor: View) {
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val prefs = CustomPreference.getInstance(requireContext())
         val displayMode = prefs.getString("history_display_mode", "large")
 
         val displayOptions = arrayOf(
@@ -152,21 +193,18 @@ class HistoryFragment : Fragment() {
             else -> 1
         }
 
-        // 用 LinearLayout 组合两组选项
         val container = android.widget.LinearLayout(requireContext()).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(48, 24, 48, 0)
         }
 
-        // 显示标题
         container.addView(android.widget.TextView(requireContext()).apply {
-            text = "显示方式"
+            text = getString(R.string.history_display_mode_label)
             textSize = 14f
             setTextColor(android.graphics.Color.parseColor("#666666"))
             setPadding(0, 24, 0, 8)
         })
 
-        // 显示单选
         val displayGroup = android.widget.RadioGroup(requireContext()).apply {
             orientation = android.widget.RadioGroup.VERTICAL
         }
@@ -180,7 +218,6 @@ class HistoryFragment : Fragment() {
         }
         container.addView(displayGroup)
 
-        // 缓存数量标题 + 当前值
         val cacheCountValues = intArrayOf(0, 20, 50, 100, 200, 500)
         val currentCacheCount = prefs.getString("translation_cache_count", "100").toIntOrNull() ?: 100
         val currentCacheIdx = cacheCountValues.indexOfFirst { it == currentCacheCount }.coerceAtLeast(3)
@@ -208,7 +245,7 @@ class HistoryFragment : Fragment() {
         container.addView(cacheSeekBar)
 
         AlertDialog.Builder(requireContext())
-            .setTitle("历史记录设置")
+            .setTitle(R.string.history_settings_title)
             .setView(container)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val newDisplayIdx = displayGroup.checkedRadioButtonId
@@ -223,10 +260,10 @@ class HistoryFragment : Fragment() {
     }
 
     private fun setupViewModeTabs() {
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val prefs = CustomPreference.getInstance(requireContext())
 
-        binding.viewModeTabLayout.addTab(binding.viewModeTabLayout.newTab().setText("默认视图"))
-        binding.viewModeTabLayout.addTab(binding.viewModeTabLayout.newTab().setText("管理视图"))
+        binding.viewModeTabLayout.addTab(binding.viewModeTabLayout.newTab().setText(R.string.history_view_default))
+        binding.viewModeTabLayout.addTab(binding.viewModeTabLayout.newTab().setText(R.string.history_view_manage))
 
         val savedMode = prefs.getString("history_view_mode", "default")
         if (savedMode == "manage") {
@@ -246,9 +283,8 @@ class HistoryFragment : Fragment() {
     }
 
     private fun setupEngineSelectors() {
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val prefs = CustomPreference.getInstance(requireContext())
 
-        // OCR Engine spinner
         val ocrEngines = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
         val ocrValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
         val savedOcr = prefs.getString("history_ocr_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
@@ -263,7 +299,6 @@ class HistoryFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Translation provider spinner
         val providerList = ConfigurationStorage.loadAllProviders(prefs)
         val providerNames = providerList.map { it.modelName }
         if (providerNames.isEmpty()) {
@@ -282,7 +317,7 @@ class HistoryFragment : Fragment() {
     }
 
     private fun updateEngineSelectorVisibility() {
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val prefs = CustomPreference.getInstance(requireContext())
         val isManageView = prefs.getString("history_view_mode", "default") == "manage"
         val isMangaTab = currentTab == TranslationCacheManager.MODE_MANGA
         binding.engineSelectorLayout.visibility = if (isManageView && isMangaTab) View.VISIBLE else View.GONE
@@ -307,7 +342,7 @@ class HistoryFragment : Fragment() {
     private fun loadHistory() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+                val prefs = CustomPreference.getInstance(requireContext())
                 val viewMode = prefs.getString("history_view_mode", "default")
                 val sortByUpdated = (viewMode == "default")
                 val displayMode = prefs.getString("history_display_mode", "large")
@@ -317,16 +352,38 @@ class HistoryFragment : Fragment() {
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
                         gameGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "default" else "manage"}")
+                        LogCollector.d(TAG, "loadHistory: game groups=${groups.size}, sort=${if (sortByUpdated) "default" else "manage"}")
                     }
                     TranslationCacheManager.MODE_MANGA -> {
                         mangaGroupAdapter.isManageView = (viewMode == "manage")
                         mangaGroupAdapter.setDisplayMode(displayMode)
                         mangaGroupAdapter.setSortByUpdated(sortByUpdated)
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
+
+                        // Pre-compute retranslate counts for manage view
+                        if (viewMode == "manage") {
+                            val retranslateCountMap = withContext(Dispatchers.IO) {
+                                val map = mutableMapOf<Long, Int>()
+                                for (group in groups) {
+                                    for (session in group.sessions) {
+                                        for (entry in session.entries) {
+                                            if (entry.variantIds.isNotEmpty()) {
+                                                val count = entry.variantIds.count { variantId ->
+                                                    cacheManager.getHistoryById(variantId)?.isRetranslated == true
+                                                }
+                                                map[entry.id] = count
+                                            }
+                                        }
+                                    }
+                                }
+                                map
+                            }
+                            mangaGroupAdapter.retranslateCountMap = retranslateCountMap
+                        }
+
                         mangaGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: 漫画分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "default" else "manage"}, display=$displayMode")
+                        LogCollector.d(TAG, "loadHistory: manga groups=${groups.size}, sort=${if (sortByUpdated) "default" else "manage"}, display=$displayMode")
                     }
                 }
             } catch (e: Exception) {
@@ -417,8 +474,256 @@ class HistoryFragment : Fragment() {
         startActivity(intent)
     }
 
+    // ========== Task 11: Retranslate flow ==========
+
+    /**
+     * 处理重新翻译点击
+     */
+    private fun handleRetranslateClick(entry: HistoryEntry) {
+        // 1. 检查服务是否运行
+        if (!ServiceUtils.isServiceRunning(requireContext(), com.moe.moetranslator.manga.MangaFloatingService::class.java)) {
+            Toast.makeText(requireContext(), R.string.history_service_not_running, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 2. 检查原图是否存在
+        val imagePath = entry.originalImagePath
+        if (imagePath.isNullOrEmpty() || !File(imagePath).exists()) {
+            Toast.makeText(requireContext(), R.string.history_original_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 3. 弹出选项：用当前裁剪 / 重新裁剪
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.history_retranslate)
+            .setItems(arrayOf(
+                getString(R.string.history_use_current_crop),
+                getString(R.string.history_new_crop)
+            )) { _, which ->
+                when (which) {
+                    0 -> { // 用当前裁剪
+                        lifecycleScope.launch {
+                            val cache = cacheManager.getCacheByHistoryId(entry.id)
+                            if (cache != null && cache.cropLeft >= 0 && cache.cropRight > 0) {
+                                sendRetranslateRequest(
+                                    imagePath = imagePath,
+                                    cropLeft = cache.cropLeft,
+                                    cropTop = cache.cropTop,
+                                    cropRight = cache.cropRight,
+                                    cropBottom = cache.cropBottom
+                                )
+                            } else {
+                                // 没有缓存裁剪区域，用默认全图
+                                sendRetranslateRequest(
+                                    imagePath = imagePath,
+                                    cropLeft = 0,
+                                    cropTop = 0,
+                                    cropRight = 0,
+                                    cropBottom = 0
+                                )
+                            }
+                        }
+                    }
+                    1 -> { // 重新裁剪
+                        showCropFragment(imagePath)
+                    }
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    /**
+     * 显示裁剪弹窗
+     */
+    private fun showCropFragment(imagePath: String) {
+        // 先检查是否有缓存的裁剪区域
+        val cropFragment = CropFragment.newInstance(imagePath)
+        cropFragment.show(childFragmentManager, "crop")
+    }
+
+    /**
+     * 发送重新翻译广播
+     */
+    private fun sendRetranslateRequest(
+        imagePath: String,
+        cropLeft: Int,
+        cropTop: Int,
+        cropRight: Int,
+        cropBottom: Int
+    ) {
+        val prefs = CustomPreference.getInstance(requireContext())
+        val intent = Intent("com.moe.moetranslator.RETRANSLATE_REQUEST").apply {
+            putExtra("originalImagePath", imagePath)
+            putExtra("cropLeft", cropLeft)
+            putExtra("cropTop", cropTop)
+            putExtra("cropRight", cropRight)
+            putExtra("cropBottom", cropBottom)
+            putExtra("ocrEngine", prefs.getString("history_ocr_engine", "PP_OCR_V5"))
+            putExtra("openaiProviderIndex", prefs.getString("history_openai_provider_index", "0")?.toIntOrNull() ?: 0)
+        }
+        LocalBroadcastManager.getInstance(requireContext()).sendBroadcast(intent)
+        Toast.makeText(requireContext(), R.string.history_retranslate_busy, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 注册重新翻译完成广播接收器
+     */
+    private fun registerRetranslateReceiver() {
+        retranslateCompleteReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action != "com.moe.moetranslator.RETRANSLATE_COMPLETE") return
+                val success = intent.getBooleanExtra("success", false)
+                val errorMessage = intent.getStringExtra("errorMessage")
+                lifecycleScope.launch {
+                    if (success) {
+                        Toast.makeText(requireContext(), R.string.history_retranslate_done, Toast.LENGTH_SHORT).show()
+                        loadHistory()
+                    } else {
+                        Toast.makeText(requireContext(), errorMessage ?: getString(R.string.translation_failed, "").substringBefore("%s").trim(), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        LocalBroadcastManager.getInstance(requireContext())
+            .registerReceiver(retranslateCompleteReceiver!!, IntentFilter("com.moe.moetranslator.RETRANSLATE_COMPLETE"))
+    }
+
+    /**
+     * Task 11e: 删除变体
+     */
+    private fun handleDeleteVariant(entry: HistoryEntry) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.history_delete_variant)
+            .setMessage(R.string.delete_history_confirm)
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        cacheManager.deleteHistory(entry.id)
+                        LogCollector.d(TAG, "Deleted variant: id=${entry.id}")
+                        loadHistory()
+                        Toast.makeText(requireContext(), R.string.history_deleted, Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "Delete variant failed", e)
+                    }
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
+    }
+
+    /**
+     * Task 11f: 切换变体显示
+     */
+    private fun handleSwitchVariant(entry: HistoryEntry, position: Int) {
+        lifecycleScope.launch {
+            try {
+                val variantId = entry.variantIds.getOrNull(position) ?: return@launch
+                val variantEntry = cacheManager.getHistoryById(variantId)
+                if (variantEntry != null) {
+                    val dim = variantEntry.imagePath?.let { path ->
+                        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(path, opts)
+                        "${opts.outWidth}x${opts.outHeight}"
+                    } ?: "?"
+                    Toast.makeText(requireContext(), getString(R.string.history_variant_info, position + 1, dim), Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Switch variant failed", e)
+            }
+        }
+    }
+
+    // ========== Task 12: Session ZIP download ==========
+
+    /**
+     * 下载进程组图片为 ZIP
+     */
+    private fun downloadSession(session: com.moe.moetranslator.data.HistorySession) {
+        lifecycleScope.launch {
+            try {
+                val paths = mutableListOf<String>()
+                for (entry in session.entries) {
+                    if (entry.variantCount > 1) {
+                        val chosen = withContext(Dispatchers.Main) {
+                            showVariantPickerForDownload(entry)
+                        }
+                        if (chosen != null) paths.add(chosen)
+                    } else {
+                        entry.imagePath?.let { paths.add(it) }
+                    }
+                }
+                if (paths.isEmpty()) {
+                    Toast.makeText(requireContext(), R.string.history_no_images_to_download, Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                withContext(Dispatchers.IO) {
+                    val zipFile = File(requireContext().cacheDir, "session_${session.sessionId}.zip")
+                    ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+                        paths.forEachIndexed { idx, path ->
+                            val f = File(path)
+                            if (f.exists()) {
+                                zos.putNextEntry(ZipEntry("img_${idx}.jpg"))
+                                FileInputStream(f).use { it.copyTo(zos) }
+                                zos.closeEntry()
+                            }
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        val uri = FileProvider.getUriForFile(
+                            requireContext(), "${requireContext().packageName}.fileprovider", zipFile
+                        )
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/zip"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(share, getString(R.string.history_share_session)))
+                    }
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Download session failed", e)
+                Toast.makeText(requireContext(), getString(R.string.history_download_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private suspend fun showVariantPickerForDownload(entry: HistoryEntry): String? {
+        return suspendCoroutine { cont ->
+            lifecycleScope.launch {
+                try {
+                    val variants = entry.variantIds.mapNotNull { id ->
+                        cacheManager.getHistoryById(id)
+                    }
+                    val items = variants.map { v ->
+                        val dim = v.imagePath?.let { path ->
+                            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeFile(path, opts)
+                            "${opts.outWidth}x${opts.outHeight}"
+                        } ?: "?"
+                        dim
+                    }.toTypedArray()
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.history_select_variant)
+                        .setItems(items) { _, which ->
+                            cont.resume(variants[which].imagePath)
+                        }
+                        .setOnCancelListener { cont.resume(null) }
+                        .show()
+                } catch (e: Exception) {
+                    LogCollector.e(TAG, "Variant picker failed", e)
+                    cont.resume(null)
+                }
+            }
+        }
+    }
+
     override fun onDestroyView() {
-        super.onDestroyView()
+        retranslateCompleteReceiver?.let {
+            LocalBroadcastManager.getInstance(requireContext()).unregisterReceiver(it)
+            retranslateCompleteReceiver = null
+        }
         _binding = null
+        super.onDestroyView()
     }
 }

@@ -671,4 +671,26 @@
     <string name="screenshot_permission_granted">Screenshot permission granted</string>
     <string name="foreground_service_notification_title">StarFlow</string>
     <string name="foreground_service_notification_text">Translation service is running</string>
+
+    <!-- History view mode -->
+    <string name="history_view_default">Default View</string>
+    <string name="history_view_manage">Manage</string>
+    <string name="history_retranslate">Retranslate</string>
+    <string name="history_delete_variant">Delete This Size</string>
+    <string name="history_use_current_crop">Use Current Crop</string>
+    <string name="history_new_crop">New Crop</string>
+    <string name="history_original_unavailable">Original image unavailable</string>
+    <string name="history_service_not_running">Please start translation first</string>
+    <string name="history_retranslate_done">Retranslate completed</string>
+    <string name="history_retranslate_busy">Translation in progress, try later</string>
+    <string name="history_download_session">Download</string>
+    <string name="history_settings_title">History Settings</string>
+    <string name="history_display_mode_label">Display Mode</string>
+    <string name="history_no_images_to_download">No images to download</string>
+    <string name="history_share_session">Share Session</string>
+    <string name="history_download_failed">Download failed: %s</string>
+    <string name="history_select_variant">Select Size</string>
+    <string name="history_variant_label">Variant %d</string>
+    <string name="history_variant_info">Variant %1$d (%2$s)</string>
+
 </resources>

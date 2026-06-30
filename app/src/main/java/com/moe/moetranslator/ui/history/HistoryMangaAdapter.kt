@@ -38,7 +38,9 @@ class HistoryMangaAdapter(
     private val sortByUpdated: Boolean = false,
     private val isManageView: Boolean = false,
     private val onRetranslateClick: ((HistoryEntry) -> Unit)? = null,
-    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null
+    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null,
+    private val retranslateCountMap: Map<Long, Int> = emptyMap(),
+    private val onSwitchVariant: ((HistoryEntry, Int) -> Unit)? = null  // entry, selectedVariantIndex
 ) : ListAdapter<GroupedHistoryEntry, RecyclerView.ViewHolder>(DiffCallback()) {
 
     private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -193,13 +195,7 @@ class HistoryMangaAdapter(
 
         private fun bindManageViews(grouped: GroupedHistoryEntry, entry: HistoryEntry) {
             // 重新翻译计数徽章
-            // 统计组内所有变体中 isRetranslated=true 的数量
-            val retranslateCount = if (!entry.variantIds.isNullOrEmpty()) {
-                entry.variantIds.count { it > 0 }  // placeholder: 实际逻辑在 Task 11
-                0
-            } else {
-                0
-            }
+            val retranslateCount = retranslateCountMap[entry.id] ?: 0
             tvRetranslateBadge?.apply {
                 if (retranslateCount > 0) {
                     text = "🔄×$retranslateCount"
@@ -212,12 +208,19 @@ class HistoryMangaAdapter(
             // 尺寸选择 Spinner
             spinnerVariant?.apply {
                 if (!entry.variantIds.isNullOrEmpty() && entry.variantIds.size > 1) {
-                    val variantLabels = entry.variantIds.mapIndexed { idx, _ -> "尺寸 ${idx + 1}" }
+                    val variantLabels = entry.variantIds.mapIndexed { idx, _ ->
+                        itemView.context.getString(R.string.history_variant_label, idx + 1)
+                    }
                     adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, variantLabels)
                     visibility = View.VISIBLE
+                    val currentIdx = entry.variantIds.indexOf(entry.id).coerceAtLeast(0)
+                    // 先设置选中，再设置 listener，避免触发回调
+                    setSelection(currentIdx, false)
                     onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                         override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                            // Task 11: 切换变体显示
+                            if (position >= 0 && position < entry.variantIds.size && position != entry.variantIds.indexOf(entry.id)) {
+                                onSwitchVariant?.invoke(entry, position)
+                            }
                         }
                         override fun onNothingSelected(parent: AdapterView<*>?) {}
                     }

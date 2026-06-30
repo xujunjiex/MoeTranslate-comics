@@ -3,6 +3,7 @@ package com.moe.moetranslator.ui.history
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
@@ -40,7 +41,10 @@ class HistoryMangaGroupAdapter(
     private var sortByUpdated: Boolean = false,
     var isManageView: Boolean = false,
     private val onRetranslateClick: ((HistoryEntry) -> Unit)? = null,
-    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null
+    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null,
+    var retranslateCountMap: Map<Long, Int> = emptyMap(),
+    private val onSwitchVariant: ((HistoryEntry, Int) -> Unit)? = null,
+    private val onDownloadSessionClick: ((HistorySession) -> Unit)? = null
 ) : ListAdapter<HistoryGroup, HistoryMangaGroupAdapter.GroupViewHolder>(GroupDiffCallback()) {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -96,7 +100,10 @@ class HistoryMangaGroupAdapter(
                     onItemClick(GroupedHistoryEntry(representative, allIds.size, allIds))
                 },
                 onItemLongClick = onItemLongClick,
-                colorMap = colorMap
+                colorMap = colorMap,
+                retranslateCountMap = retranslateCountMap,
+                onSwitchVariant = onSwitchVariant,
+                onDownloadSessionClick = onDownloadSessionClick
             )
             rvSessions.layoutManager = LinearLayoutManager(itemView.context)
             rvSessions.adapter = sessionAdapter
@@ -107,7 +114,10 @@ class HistoryMangaGroupAdapter(
     private inner class MangaSessionAdapter(
         private val onItemClick: (GroupedHistoryEntry) -> Unit,
         private val onItemLongClick: (HistoryEntry) -> Unit,
-        private val colorMap: Map<Long, Int> = emptyMap()
+        private val colorMap: Map<Long, Int> = emptyMap(),
+        private val retranslateCountMap: Map<Long, Int> = emptyMap(),
+        private val onSwitchVariant: ((HistoryEntry, Int) -> Unit)? = null,
+        private val onDownloadSessionClick: ((HistorySession) -> Unit)? = null
     ) : ListAdapter<HistorySession, MangaSessionAdapter.SessionViewHolder>(SessionDiffCallback()) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SessionViewHolder {
@@ -123,6 +133,7 @@ class HistoryMangaGroupAdapter(
         inner class SessionViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             private val tvSessionHeader: TextView = view.findViewById(R.id.tvMangaSessionHeader)
             private val rvGrid: RecyclerView = view.findViewById(R.id.rvMangaSessionGrid)
+            private val btnDownloadSession: ImageButton = view.findViewById(R.id.btnDownloadSession)
 
             fun bind(session: HistorySession) {
                 val startTime = timeFormat.format(Date(session.startTime))
@@ -144,7 +155,9 @@ class HistoryMangaGroupAdapter(
                     onItemClick, onItemLongClick, colorMap, displayMode, sortByUpdated,
                     isManageView = isManageView,
                     onRetranslateClick = onRetranslateClick,
-                    onDeleteVariantClick = onDeleteVariantClick
+                    onDeleteVariantClick = onDeleteVariantClick,
+                    retranslateCountMap = retranslateCountMap,
+                    onSwitchVariant = onSwitchVariant
                 )
                 val spanCount = when (displayMode) {
                     "list" -> 1
@@ -156,6 +169,12 @@ class HistoryMangaGroupAdapter(
                 rvGrid.layoutManager = GridLayoutManager(itemView.context, spanCount)
                 rvGrid.adapter = gridAdapter
                 gridAdapter.submitList(groups)
+
+                // 下载按钮
+                btnDownloadSession.visibility = if (groups.isNotEmpty()) View.VISIBLE else View.GONE
+                btnDownloadSession.setOnClickListener {
+                    onDownloadSessionClick?.invoke(session)
+                }
             }
         }
     }
