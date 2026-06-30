@@ -675,6 +675,7 @@
     <string name="history_view_manage">管理视图</string>
     <string name="history_retranslate">重新翻译</string>
     <string name="history_delete_variant">删除此尺寸</string>
+    <string name="history_variant_size_label">尺寸:</string>
     <string name="history_use_current_crop">用当前裁剪</string>
     <string name="history_new_crop">重新裁剪</string>
     <string name="history_original_unavailable">原图不可用</string>

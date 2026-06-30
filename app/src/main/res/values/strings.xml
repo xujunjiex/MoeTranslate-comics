@@ -677,6 +677,7 @@
     <string name="history_view_manage">Manage</string>
     <string name="history_retranslate">Retranslate</string>
     <string name="history_delete_variant">Delete This Size</string>
+    <string name="history_variant_size_label">尺寸:</string>
     <string name="history_use_current_crop">Use Current Crop</string>
     <string name="history_new_crop">New Crop</string>
     <string name="history_original_unavailable">Original image unavailable</string>

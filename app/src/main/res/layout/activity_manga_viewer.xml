@@ -67,7 +67,7 @@
         android:layout_width="wrap_content"
         android:layout_height="40dp"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="32dp"
+        android:layout_marginBottom="120dp"
         android:text="@string/show_translation"
         android:textColor="#FFFFFF"
         android:textSize="13sp"
@@ -75,6 +75,61 @@
         app:cornerRadius="20dp"
         app:icon="@android:drawable/ic_menu_sort_by_size"
         app:iconTint="#FFFFFF" />
+
+    <!-- 底部操作栏 (重新翻译 / 删除 / 尺寸切换) -->
+    <LinearLayout
+        android:id="@+id/actionBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_gravity="bottom"
+        android:background="#FFFFFF"
+        android:elevation="8dp"
+        android:padding="8dp">
+
+        <LinearLayout
+            android:id="@+id/variantSelectorLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/history_variant_size_label"
+                android:textSize="14sp"
+                android:layout_marginEnd="8dp" />
+
+            <Spinner
+                android:id="@+id/spinnerVariant"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+
+            <Button
+                android:id="@+id/btnRetranslate"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/history_retranslate"
+                android:layout_marginEnd="8dp" />
+
+            <Button
+                android:id="@+id/btnDeleteVariant"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/history_delete_variant" />
+        </LinearLayout>
+    </LinearLayout>
 
     <!-- 底部译文面板 -->
     <LinearLayout
