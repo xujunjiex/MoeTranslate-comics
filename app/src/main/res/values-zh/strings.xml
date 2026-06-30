@@ -690,5 +690,8 @@
     <string name="history_select_variant">选择保留的尺寸</string>
     <string name="history_variant_label">变体 %d</string>
     <string name="history_variant_info">变体 %1$d（%2$s）</string>
+    <string name="crop_confirm_action">确认裁剪</string>
+    <string name="history_original_abbr">原</string>
+    <string name="history_translated_abbr">译</string>
 
 </resources>

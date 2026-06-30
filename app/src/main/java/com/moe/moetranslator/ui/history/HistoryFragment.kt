@@ -12,7 +12,6 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -286,20 +285,20 @@ class HistoryFragment : Fragment() {
     private fun setupEngineSelectors() {
         val prefs = CustomPreference.getInstance(requireContext())
 
+        // OCR Engine
         val ocrEngines = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
         val ocrValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
         val savedOcr = prefs.getString("history_ocr_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
         val ocrIdx = ocrValues.indexOfFirst { it == savedOcr }.coerceAtLeast(0)
 
-        binding.spinnerOcrEngine.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, ocrEngines)
-        binding.spinnerOcrEngine.setSelection(ocrIdx)
-        binding.spinnerOcrEngine.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                prefs.setString("history_ocr_engine", ocrValues[position])
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        val ocrAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, ocrEngines)
+        binding.spinnerOcrEngine.setAdapter(ocrAdapter)
+        binding.spinnerOcrEngine.setText(ocrEngines[ocrIdx], false)
+        binding.spinnerOcrEngine.setOnItemClickListener { _, _, position, _ ->
+            prefs.setString("history_ocr_engine", ocrValues[position])
         }
 
+        // Translation API
         val providerList = ConfigurationStorage.loadAllProviders(prefs)
         val providerNames = providerList.map { it.modelName }
         if (providerNames.isEmpty()) {
@@ -307,13 +306,11 @@ class HistoryFragment : Fragment() {
             return
         }
         val savedIdx = prefs.getString("history_openai_provider_index", "0")?.toIntOrNull()?.coerceAtMost(providerNames.size - 1) ?: 0
-        binding.spinnerTranslateApi.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, providerNames.toTypedArray())
-        binding.spinnerTranslateApi.setSelection(savedIdx)
-        binding.spinnerTranslateApi.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                prefs.setString("history_openai_provider_index", position.toString())
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        val translateAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, providerNames.toTypedArray())
+        binding.spinnerTranslateApi.setAdapter(translateAdapter)
+        binding.spinnerTranslateApi.setText(providerNames[savedIdx], false)
+        binding.spinnerTranslateApi.setOnItemClickListener { _, _, position, _ ->
+            prefs.setString("history_openai_provider_index", position.toString())
         }
     }
 
@@ -361,19 +358,31 @@ class HistoryFragment : Fragment() {
                         mangaGroupAdapter.setSortByUpdated(sortByUpdated)
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
 
-                        // Pre-compute retranslate counts for manage view
+                        // Pre-compute retranslate counts for manage view (batch query)
                         if (viewMode == "manage") {
                             val retranslateCountMap = withContext(Dispatchers.IO) {
+                                // Collect all variant IDs across all entries
+                                val allVariantIds = groups.flatMap { group ->
+                                    group.sessions.flatMap { session ->
+                                        session.entries.filter { it.variantIds.isNotEmpty() }.flatMap { it.variantIds }
+                                    }
+                                }
+                                // Batch load all variants
+                                val variantEntries = if (allVariantIds.isNotEmpty()) {
+                                    cacheManager.getHistoryByIds(allVariantIds.distinct())
+                                } else {
+                                    emptyList()
+                                }
+                                val retranslateCountById = variantEntries.groupBy { it.id }.mapValues { (_, list) -> list[0] }
+                                // Build per-entry count
                                 val map = mutableMapOf<Long, Int>()
                                 for (group in groups) {
                                     for (session in group.sessions) {
                                         for (entry in session.entries) {
-                                            if (entry.variantIds.isNotEmpty()) {
-                                                val count = entry.variantIds.count { variantId ->
-                                                    cacheManager.getHistoryById(variantId)?.isRetranslated == true
-                                                }
-                                                map[entry.id] = count
+                                            val count = entry.variantIds.count { vid ->
+                                                retranslateCountById[vid]?.isRetranslated == true
                                             }
+                                            if (count > 0) map[entry.id] = count
                                         }
                                     }
                                 }

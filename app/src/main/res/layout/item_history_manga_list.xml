@@ -52,7 +52,7 @@
                 android:id="@+id/btnToggleImage"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
-                android:text="📷"
+                android:text="@string/history_original_abbr"
                 android:textSize="16sp"
                 android:gravity="center"
                 android:background="#66000000"

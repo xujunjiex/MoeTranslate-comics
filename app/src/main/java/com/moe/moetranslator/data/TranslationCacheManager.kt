@@ -621,6 +621,14 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     /**
+     * 批量获取多条历史记录。
+     */
+    suspend fun getHistoryByIds(ids: List<Long>): List<HistoryEntry> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        dao.getHistoryByIds(ids).map { it.toHistoryEntry() }
+    }
+
+    /**
      * 更新历史记录的 updatedAt 时间戳（缓存命中时调用）。
      */
     suspend fun updateHistoryTimestamp(id: Long) = withContext(Dispatchers.IO) {

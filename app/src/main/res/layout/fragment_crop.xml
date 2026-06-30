@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="32dp"
-        android:text="确认裁剪" />
+        android:text="@string/crop_confirm_action" />
 
     <Button
         android:id="@+id/btnCancelCrop"
@@ -29,6 +29,6 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_margin="16dp"
-        android:text="取消" />
+        android:text="@string/user_cancel" />
 
 </FrameLayout>

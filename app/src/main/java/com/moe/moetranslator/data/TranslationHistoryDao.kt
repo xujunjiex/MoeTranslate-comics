@@ -25,6 +25,9 @@ interface TranslationHistoryDao {
     @Query("SELECT * FROM translation_history WHERE id = :id")
     suspend fun getHistoryById(id: Long): HistoryEntity?
 
+    @Query("SELECT * FROM translation_history WHERE id IN (:ids)")
+    suspend fun getHistoryByIds(ids: List<Long>): List<HistoryEntity>
+
     @Query("DELETE FROM translation_history WHERE id = :id")
     suspend fun deleteHistoryById(id: Int)
 

@@ -692,5 +692,8 @@
     <string name="history_select_variant">Select Size</string>
     <string name="history_variant_label">Variant %d</string>
     <string name="history_variant_info">Variant %1$d (%2$s)</string>
+    <string name="crop_confirm_action">Confirm Crop</string>
+    <string name="history_original_abbr">Orig</string>
+    <string name="history_translated_abbr">Trans</string>
 
 </resources>

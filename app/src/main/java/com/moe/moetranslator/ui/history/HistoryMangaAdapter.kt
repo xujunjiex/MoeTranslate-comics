@@ -132,10 +132,10 @@ class HistoryMangaAdapter(
             // 原图/译文切换
             if (!entry.originalImagePath.isNullOrEmpty()) {
                 btnToggleImage.visibility = View.VISIBLE
-                btnToggleImage.text = "📷"
+                btnToggleImage.text = itemView.context.getString(R.string.history_original_abbr)
                 btnToggleImage.setOnClickListener {
                     showingOriginal = !showingOriginal
-                    btnToggleImage.text = if (showingOriginal) "📄" else "📷"
+                    btnToggleImage.text = if (showingOriginal) itemView.context.getString(R.string.history_translated_abbr) else itemView.context.getString(R.string.history_original_abbr)
                     val path = if (showingOriginal) entry.originalImagePath else (entry.imagePath ?: entry.thumbnailPath)
                     if (path != null && File(path).exists()) {
                         // P1 #7: 后台线程解码避免阻塞主线程
