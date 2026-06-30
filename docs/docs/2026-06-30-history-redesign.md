@@ -13,7 +13,7 @@
 
 ### 核心原则
 
-1. 重翻必须在漫画翻译进程（MangaFloatingService）启动后执行；未启动时广播丢失，HistoryFragment 收到超时后提示"请先启动漫画翻译"
+1. 重翻必须在漫画翻译进程（MangaFloatingService）启动后执行；点击重翻时即时检查，未启动则提示"请先启动漫画翻译"
 2. HistoryFragment 只做裁剪发起，OCR/翻译/渲染全交给 Service
 3. 不新增独立翻译管道，复用 Service 现有能力
 4. Service 通过 `isProcessing` 串行化所有翻译任务，重翻请求到来时如果正忙则拒绝
@@ -122,8 +122,11 @@
 ### 入口
 
 - 管理视图每条记录有"重新翻译"按钮
-- 按钮发送请求后立即置灰（防止重复点击），收到完成广播后恢复
-- 不预先检测悬浮窗状态——Service 收到后如果正忙（isProcessing=true），直接回复 COMPLETE(success=false)，Fragment 弹 Toast"翻译进行中，请稍后"
+- 点击时先用 `ServiceUtils.isServiceRunning()` 检查 MangaFloatingService 是否在运行
+  - 不在 → 直接弹 Toast"请先启动漫画翻译"，不发广播
+  - 在 → 发广播，按钮置灰（防重复点击）
+- Service 收到后如果 isProcessing=true → 立刻回复 COMPLETE(success=false, error="翻译进行中，请稍后")
+- Fragment 收到回复后恢复按钮
 
 ### 流程
 
@@ -284,10 +287,11 @@ extras:
   errorMessage: String?         // success=false 时的错误信息
 ```
 
-### 超时处理
+### 错误处理
 
-- HistoryFragment 发送请求后启动 30 秒超时计时器
-- 超时未收到回复 → 视为"漫画翻译服务未启动"，提示用户先启动翻译
+- Service 未启动 → `ServiceUtils.isServiceRunning()` 即时检查，直接提示不等待
+- Service 忙 → 立刻回复 COMPLETE(success=false)，弹 Toast "翻译进行中，请稍后"
+- 其它失败 → 回复 COMPLETE(success=false, errorMessage)，弹 Toast 显示具体错误
 
 ---
 
