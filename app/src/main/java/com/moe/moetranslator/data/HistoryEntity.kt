@@ -29,6 +29,12 @@ data class HistoryEntity(
     val sessionId: String = "", // 原始创建会话 ID（首次翻译时分配，永不改变，用于按创建排序分组）
     @ColumnInfo(name = "last_session_id", defaultValue = "")
     val lastSessionId: String = "", // 最后修改会话 ID（任何修改时更新为当前会话，用于按修改排序分组）
+    @ColumnInfo(name = "original_image_path")
+    val originalImagePath: String? = null,
+
+    @ColumnInfo(name = "is_retranslated", defaultValue = "0")
+    val isRetranslated: Boolean = false,
+
     @ColumnInfo(name = "updated_at", defaultValue = "0")
     val updatedAt: Long = 0     // 最后修改时间戳（翻译/缓存命中时更新）
 )
