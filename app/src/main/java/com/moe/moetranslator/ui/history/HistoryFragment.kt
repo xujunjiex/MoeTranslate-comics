@@ -143,9 +143,6 @@ class HistoryFragment : Fragment() {
             onItemLongClick = { entry -> showDeleteDialog(entry) },
             displayMode = displayMode,
             isManageView = (viewMode == "manage"),
-            onRetranslateClick = { entry -> handleRetranslateClick(entry) },
-            onDeleteVariantClick = { entry -> handleDeleteVariant(entry) },
-            onSwitchVariant = { entry, position -> handleSwitchVariant(entry, position) },
             onDownloadSessionClick = { session -> downloadSession(session) }
         )
         binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
@@ -348,39 +345,6 @@ class HistoryFragment : Fragment() {
                         mangaGroupAdapter.setSortByUpdated(sortByUpdated)
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
 
-                        // Pre-compute retranslate counts for manage view (batch query)
-                        if (viewMode == "manage") {
-                            val retranslateCountMap = withContext(Dispatchers.IO) {
-                                // Collect all variant IDs across all entries
-                                val allVariantIds = groups.flatMap { group ->
-                                    group.sessions.flatMap { session ->
-                                        session.entries.filter { it.variantIds.isNotEmpty() }.flatMap { it.variantIds }
-                                    }
-                                }
-                                // Batch load all variants
-                                val variantEntries = if (allVariantIds.isNotEmpty()) {
-                                    cacheManager.getHistoryByIds(allVariantIds.distinct())
-                                } else {
-                                    emptyList()
-                                }
-                                val retranslateCountById = variantEntries.groupBy { it.id }.mapValues { (_, list) -> list[0] }
-                                // Build per-entry count
-                                val map = mutableMapOf<Long, Int>()
-                                for (group in groups) {
-                                    for (session in group.sessions) {
-                                        for (entry in session.entries) {
-                                            val count = entry.variantIds.count { vid ->
-                                                retranslateCountById[vid]?.isRetranslated == true
-                                            }
-                                            if (count > 0) map[entry.id] = count
-                                        }
-                                    }
-                                }
-                                map
-                            }
-                            mangaGroupAdapter.retranslateCountMap = retranslateCountMap
-                        }
-
                         mangaGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
                         LogCollector.d(TAG, "loadHistory: manga groups=${groups.size}, sort=${if (sortByUpdated) "default" else "manage"}, display=$displayMode")
@@ -477,72 +441,6 @@ class HistoryFragment : Fragment() {
     // ========== Task 11: Retranslate flow ==========
 
     /**
-     * 处理重新翻译点击
-     */
-    private fun handleRetranslateClick(entry: HistoryEntry) {
-        // 1. 检查服务是否运行
-        if (!ServiceUtils.isServiceRunning(requireContext(), com.moe.moetranslator.manga.MangaFloatingService::class.java)) {
-            Toast.makeText(requireContext(), R.string.history_service_not_running, Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // 2. 检查原图是否存在
-        val imagePath = entry.originalImagePath
-        if (imagePath.isNullOrEmpty() || !File(imagePath).exists()) {
-            Toast.makeText(requireContext(), R.string.history_original_unavailable, Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // 3. 弹出选项：用当前裁剪 / 重新裁剪
-        AlertDialog.Builder(requireContext())
-            .setTitle(R.string.history_retranslate)
-            .setItems(arrayOf(
-                getString(R.string.history_use_current_crop),
-                getString(R.string.history_new_crop)
-            )) { _, which ->
-                when (which) {
-                    0 -> { // 用当前裁剪
-                        lifecycleScope.launch {
-                            val cache = cacheManager.getCacheByHistoryId(entry.id)
-                            if (cache != null && cache.cropLeft >= 0 && cache.cropRight > 0) {
-                                sendRetranslateRequest(
-                                    imagePath = imagePath,
-                                    cropLeft = cache.cropLeft,
-                                    cropTop = cache.cropTop,
-                                    cropRight = cache.cropRight,
-                                    cropBottom = cache.cropBottom
-                                )
-                            } else {
-                                // 没有缓存裁剪区域，用默认全图
-                                sendRetranslateRequest(
-                                    imagePath = imagePath,
-                                    cropLeft = 0,
-                                    cropTop = 0,
-                                    cropRight = 0,
-                                    cropBottom = 0
-                                )
-                            }
-                        }
-                    }
-                    1 -> { // 重新裁剪
-                        showCropFragment(imagePath)
-                    }
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .show()
-    }
-
-    /**
-     * 显示裁剪弹窗
-     */
-    private fun showCropFragment(imagePath: String) {
-        // 先检查是否有缓存的裁剪区域
-        val cropFragment = CropFragment.newInstance(imagePath)
-        cropFragment.show(childFragmentManager, "crop")
-    }
-
-    /**
      * 发送重新翻译广播
      */
     private fun sendRetranslateRequest(
@@ -590,51 +488,6 @@ class HistoryFragment : Fragment() {
         }
         LocalBroadcastManager.getInstance(requireContext())
             .registerReceiver(retranslateCompleteReceiver!!, IntentFilter("com.moe.moetranslator.RETRANSLATE_COMPLETE"))
-    }
-
-    /**
-     * Task 11e: 删除变体
-     */
-    private fun handleDeleteVariant(entry: HistoryEntry) {
-        AlertDialog.Builder(requireContext())
-            .setTitle(R.string.history_delete_variant)
-            .setMessage(R.string.delete_history_confirm)
-            .setPositiveButton(R.string.confirm) { _, _ ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    try {
-                        cacheManager.deleteHistory(entry.id)
-                        LogCollector.d(TAG, "Deleted variant: id=${entry.id}")
-                        loadHistory()
-                        Toast.makeText(requireContext(), R.string.history_deleted, Toast.LENGTH_SHORT).show()
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "Delete variant failed", e)
-                    }
-                }
-            }
-            .setNegativeButton(R.string.user_cancel, null)
-            .show()
-    }
-
-    /**
-     * Task 11f: 切换变体显示
-     */
-    private fun handleSwitchVariant(entry: HistoryEntry, position: Int) {
-        lifecycleScope.launch {
-            try {
-                val variantId = entry.variantIds.getOrNull(position) ?: return@launch
-                val variantEntry = cacheManager.getHistoryById(variantId)
-                if (variantEntry != null) {
-                    val dim = variantEntry.imagePath?.let { path ->
-                        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeFile(path, opts)
-                        "${opts.outWidth}x${opts.outHeight}"
-                    } ?: "?"
-                    Toast.makeText(requireContext(), getString(R.string.history_variant_info, position + 1, dim), Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "Switch variant failed", e)
-            }
-        }
     }
 
     // ========== Task 12: Session ZIP download ==========

@@ -40,10 +40,7 @@ class HistoryMangaGroupAdapter(
     private var displayMode: String = "large",
     private var sortByUpdated: Boolean = false,
     var isManageView: Boolean = false,
-    private val onRetranslateClick: ((HistoryEntry) -> Unit)? = null,
-    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null,
-    var retranslateCountMap: Map<Long, Int> = emptyMap(),
-    private val onSwitchVariant: ((HistoryEntry, Int) -> Unit)? = null,
+    private val onThumbnailClick: ((HistoryEntry) -> Unit)? = null,
     private val onDownloadSessionClick: ((HistorySession) -> Unit)? = null
 ) : ListAdapter<HistoryGroup, HistoryMangaGroupAdapter.GroupViewHolder>(GroupDiffCallback()) {
 
@@ -101,8 +98,7 @@ class HistoryMangaGroupAdapter(
                 },
                 onItemLongClick = onItemLongClick,
                 colorMap = colorMap,
-                retranslateCountMap = retranslateCountMap,
-                onSwitchVariant = onSwitchVariant,
+                onThumbnailClick = onThumbnailClick,
                 onDownloadSessionClick = onDownloadSessionClick
             )
             rvSessions.layoutManager = LinearLayoutManager(itemView.context)
@@ -115,8 +111,7 @@ class HistoryMangaGroupAdapter(
         private val onItemClick: (GroupedHistoryEntry) -> Unit,
         private val onItemLongClick: (HistoryEntry) -> Unit,
         private val colorMap: Map<Long, Int> = emptyMap(),
-        private val retranslateCountMap: Map<Long, Int> = emptyMap(),
-        private val onSwitchVariant: ((HistoryEntry, Int) -> Unit)? = null,
+        private val onThumbnailClick: ((HistoryEntry) -> Unit)? = null,
         private val onDownloadSessionClick: ((HistorySession) -> Unit)? = null
     ) : ListAdapter<HistorySession, MangaSessionAdapter.SessionViewHolder>(SessionDiffCallback()) {
 
@@ -152,12 +147,12 @@ class HistoryMangaGroupAdapter(
                 tvSessionHeader.text = "$startTime - $endTime (${groups.size})"
 
                 val gridAdapter = HistoryMangaAdapter(
-                    onItemClick, onItemLongClick, colorMap, displayMode, sortByUpdated,
-                    isManageView = isManageView,
-                    onRetranslateClick = onRetranslateClick,
-                    onDeleteVariantClick = onDeleteVariantClick,
-                    retranslateCountMap = retranslateCountMap,
-                    onSwitchVariant = onSwitchVariant
+                    onItemClick = onItemClick,
+                    onItemLongClick = onItemLongClick,
+                    colorMap = colorMap,
+                    displayMode = displayMode,
+                    sortByUpdated = sortByUpdated,
+                    onThumbnailClick = onThumbnailClick
                 )
                 val spanCount = when (displayMode) {
                     "list" -> 1
@@ -170,8 +165,8 @@ class HistoryMangaGroupAdapter(
                 rvGrid.adapter = gridAdapter
                 gridAdapter.submitList(groups)
 
-                // 下载按钮
-                btnDownloadSession.visibility = if (groups.isNotEmpty()) View.VISIBLE else View.GONE
+                // 下载按钮 — 仅在管理视图可见
+                btnDownloadSession.visibility = if (isManageView) View.VISIBLE else View.GONE
                 btnDownloadSession.setOnClickListener {
                     onDownloadSessionClick?.invoke(session)
                 }

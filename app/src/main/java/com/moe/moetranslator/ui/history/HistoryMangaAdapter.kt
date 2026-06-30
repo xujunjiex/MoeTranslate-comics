@@ -20,12 +20,9 @@ import java.util.Locale
 /**
  * 漫画历史条目适配器。
  * 支持多种显示模式：list / large / medium / small
- * 支持管理视图模式：isManageView=true 时使用管理布局
  * @param colorMap entryId → 颜色组号（用于跨 session 的 pHash 分组着色）
  * @param displayMode 显示模式
- * @param isManageView 是否管理视图模式
- * @param onRetranslateClick 重新翻译回调
- * @param onDeleteVariantClick 删除尺寸回调
+ * @param onThumbnailClick 缩略图点击回调
  */
 class HistoryMangaAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
@@ -33,11 +30,7 @@ class HistoryMangaAdapter(
     private val colorMap: Map<Long, Int> = emptyMap(),
     private val displayMode: String = "large",
     private val sortByUpdated: Boolean = false,
-    private val isManageView: Boolean = false,
-    private val onRetranslateClick: ((HistoryEntry) -> Unit)? = null,
-    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null,
-    private val retranslateCountMap: Map<Long, Int> = emptyMap(),
-    private val onSwitchVariant: ((HistoryEntry, Int) -> Unit)? = null  // entry, selectedVariantIndex
+    private val onThumbnailClick: ((HistoryEntry) -> Unit)? = null
 ) : ListAdapter<GroupedHistoryEntry, RecyclerView.ViewHolder>(DiffCallback()) {
 
     private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -163,11 +156,10 @@ class HistoryMangaAdapter(
                 tvSizeBadge.visibility = View.VISIBLE
                 badgeContainer.visibility = View.VISIBLE
             }
-            val retranslateCount = retranslateCountMap[entry.id] ?: 0
-            if (retranslateCount > 0) {
-                tvRetranslateBadge.text = "🔄×$retranslateCount"
-                tvRetranslateBadge.visibility = View.VISIBLE
-                badgeContainer.visibility = View.VISIBLE
+
+            // 缩略图点击回调
+            ivThumbnail.setOnClickListener {
+                onThumbnailClick?.invoke(entry)
             }
 
             // 分组颜色
