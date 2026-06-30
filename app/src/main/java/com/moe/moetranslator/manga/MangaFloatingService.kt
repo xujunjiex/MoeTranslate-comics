@@ -5200,8 +5200,6 @@ class MangaFloatingService : LifecycleService() {
         val cropRight = intent.getIntExtra("cropRight", 0)
         val cropBottom = intent.getIntExtra("cropBottom", 0)
         val ocrEngineName = intent.getStringExtra("ocrEngine") ?: "PP_OCR_V5"
-        val openaiProviderIndex = intent.getIntExtra("openaiProviderIndex", 0)
-
         if (isProcessing) {
             sendRetranslateComplete(success = false, errorMessage = "翻译进行中，请稍后")
             return
@@ -5212,7 +5210,7 @@ class MangaFloatingService : LifecycleService() {
             var originalBitmap: android.graphics.Bitmap? = null
             var croppedBitmap: android.graphics.Bitmap? = null
             var renderedBitmap: android.graphics.Bitmap? = null
-            var translator: OpenAITranslation? = null
+            val translator = translatorText
 
             try {
                 // 1. Load original image
@@ -5258,22 +5256,12 @@ class MangaFloatingService : LifecycleService() {
                         return@launch
                     }
 
-                    // 5. Create translator with the specified provider
-                    val providerList = ConfigurationStorage.loadAllProviders(prefs)
-                    val provider = providerList.getOrNull(openaiProviderIndex) ?: run {
-                        sendRetranslateComplete(success = false, errorMessage = "翻译提供商配置无效")
+                    // 5. Check translator is available (use service's current translator)
+                    if (translator == null) {
+                        sendRetranslateComplete(success = false, errorMessage = "翻译器未初始化")
                         isProcessing = false
                         return@launch
                     }
-                    translator = OpenAITranslation(
-                        apiKey = provider.apiKey,
-                        baseUrl = provider.baseUrl,
-                        model = provider.modelName,
-                        systemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt },
-                        userPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt },
-                        continuationType = provider.continuationType,
-                        prefillContent = if (provider.continuationType != OpenAIProviderConfig.CONTINUATION_NONE) "[1] " else ""
-                    )
 
                     // 6. Convert TextBlockInfo to BubbleRegion (matching processMangaScreenshot Step 2)
                     val allBubbles = ocrResults.filter { it.boundingBox != null }.map { block ->
@@ -5297,7 +5285,7 @@ class MangaFloatingService : LifecycleService() {
 
                     // 7. Build numbered text and translate
                     val numberedText = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.texts.first()}" }.joinToString("\n")
-                    val translatedText = translateWithSuspend(translator!!, numberedText)
+                    val translatedText = translateWithSuspend(translator, numberedText)
                     if (translatedText.isEmpty()) {
                         sendRetranslateComplete(success = false, errorMessage = "翻译失败")
                         isProcessing = false
@@ -5350,7 +5338,7 @@ class MangaFloatingService : LifecycleService() {
                             resultBitmap = renderedBitmap!!,
                             sourceLang = config.sourceLang,
                             targetLang = config.targetLang,
-                            translatorName = provider.modelName,
+                            translatorName = "重翻",
                             pHash = PerceptualHash.compute(originalBitmap!!),
                             sessionId = sessionId,
                             lastSessionId = sessionId,
@@ -5380,8 +5368,6 @@ class MangaFloatingService : LifecycleService() {
                 originalBitmap?.recycle()
                 croppedBitmap?.recycle()
                 renderedBitmap?.recycle()
-                // P1 #10: Release translator
-                translator?.release()
                 isProcessing = false
             }
         }
@@ -5402,7 +5388,7 @@ class MangaFloatingService : LifecycleService() {
     /**
      * 将异步翻译回调包装为挂起函数。
      */
-    private suspend fun translateWithSuspend(translator: OpenAITranslation, text: String): String {
+    private suspend fun translateWithSuspend(translator: TranslationTextAPI, text: String): String {
         return suspendCancellableCoroutine { cont ->
             translator.getTranslation(text, config.sourceLang, config.targetLang) { result ->
                 when (result) {
