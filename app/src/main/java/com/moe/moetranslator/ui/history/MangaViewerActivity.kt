@@ -5,7 +5,6 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import android.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
@@ -47,6 +46,8 @@ class MangaViewerActivity : AppCompatActivity() {
     private var isPanelExpanded = false
     private var groupEntryIds: List<Long> = emptyList()
     private var showingOriginal = false
+    private var savedClickedEntryId: Long = -1L
+    private var savedEntryIds: LongArray? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +65,8 @@ class MangaViewerActivity : AppCompatActivity() {
 
         val clickedEntryId = intent.getLongExtra(EXTRA_ENTRY_ID, -1L)
         val entryIds = intent.getLongArrayExtra(EXTRA_ENTRY_IDS)
+        savedClickedEntryId = clickedEntryId
+        savedEntryIds = entryIds
 
         setupViews()
         loadData(clickedEntryId, entryIds)
@@ -119,37 +122,31 @@ class MangaViewerActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
 
-        // 重新翻译按钮
+        // 重新翻译按钮 — 直接发广播，不弹裁剪界面
         binding.btnRetranslate.setOnClickListener {
             val entry = getCurrentVariant()
             if (!com.moe.moetranslator.utils.ServiceUtils.isServiceRunning(
                     this, com.moe.moetranslator.manga.MangaFloatingService::class.java
                 )) {
-                Toast.makeText(this, "请先启动漫画翻译", Toast.LENGTH_SHORT).show()
+                com.moe.moetranslator.utils.UiUtils.showToast(this,"请先启动漫画翻译")
                 return@setOnClickListener
             }
 
             val originalPath = entry.originalImagePath
             if (originalPath.isNullOrEmpty() || !java.io.File(originalPath).exists()) {
-                Toast.makeText(this, "原图不可用", Toast.LENGTH_SHORT).show()
+                com.moe.moetranslator.utils.UiUtils.showToast(this,"原图不可用")
                 return@setOnClickListener
             }
 
             lifecycleScope.launch {
                 val cache = cacheManager.getCacheByHistoryId(entry.id)
-                val presetRect = if (cache != null && cache.cropRight > 0) {
-                    android.graphics.RectF(
-                        cache.cropLeft.toFloat(), cache.cropTop.toFloat(),
-                        cache.cropRight.toFloat(), cache.cropBottom.toFloat()
-                    )
-                } else null
-                val fragment = CropFragment.newInstance(originalPath, presetRect)
-                fragment.show(supportFragmentManager, "CropFragment")
-                supportFragmentManager.setFragmentResultListener(
-                    CropFragment.RESULT_KEY, this@MangaViewerActivity
-                ) { _, bundle ->
-                    sendRetranslateRequest(originalPath, bundle)
+                if (cache == null || cache.cropRight <= 0) {
+                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "无裁剪信息")
+                    return@launch
                 }
+                com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "已发送重翻请求")
+                sendRetranslateRequest(originalPath, entry.id,
+                    cache.cropLeft, cache.cropTop, cache.cropRight, cache.cropBottom)
             }
         }
 
@@ -166,9 +163,6 @@ class MangaViewerActivity : AppCompatActivity() {
                 if (isPanelExpanded) {
                     collapsePanel()
                 }
-                // 更新尺寸切换按钮（根据新页组的变体数）
-                updateSizeSwitcherVisibility(position)
-                // 更新 variant spinner
                 updateVariantSpinner(position)
             }
         })
@@ -186,7 +180,7 @@ class MangaViewerActivity : AppCompatActivity() {
                 val allEntries = cacheManager.getHistory(TranslationCacheManager.MODE_MANGA, limit = 500)
 
                 if (allEntries.isEmpty()) {
-                    Toast.makeText(this@MangaViewerActivity, R.string.no_translation_data, Toast.LENGTH_SHORT).show()
+                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, getString(R.string.no_translation_data))
                     finish()
                     return@launch
                 }
@@ -221,13 +215,13 @@ class MangaViewerActivity : AppCompatActivity() {
 
                 binding.viewPager.setCurrentItem(safeIndex, false)
                 updatePageIndicator(safeIndex)
-                updateSizeSwitcherVisibility(safeIndex)
+                updateVariantSpinner(safeIndex)
                 updateVariantSpinner(safeIndex)
 
                 LogCollector.d(TAG, "加载漫画历史, ${pageGroups.size} 页, 跳转到 #$safeIndex")
             } catch (e: Exception) {
                 LogCollector.e(TAG, "加载数据失败", e)
-                Toast.makeText(this@MangaViewerActivity, R.string.no_translation_data, Toast.LENGTH_SHORT).show()
+                com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, getString(R.string.no_translation_data))
                 finish()
             }
         }
@@ -267,90 +261,6 @@ class MangaViewerActivity : AppCompatActivity() {
     }
 
     /**
-     * 翻页时更新尺寸切换按钮。
-     * 当前页组有多个变体时显示按钮，否则隐藏。
-     */
-    private fun updateSizeSwitcherVisibility(position: Int) {
-        val group = pageGroups.getOrNull(position)
-        if (group == null || group.variants.size <= 1) {
-            binding.sizeSwitcher.visibility = android.view.View.GONE
-            binding.sizeSwitcher.removeAllViews()
-        } else {
-            showSizeSwitcher(group)
-        }
-    }
-
-    /**
-     * 显示尺寸切换按钮（半透明小按钮，在"查看译文"上方）。
-     */
-    private fun showSizeSwitcher(group: PageGroup) {
-        if (group.variants.size <= 1) return
-
-        val container = binding.sizeSwitcher
-        container.removeAllViews()
-
-        val position = binding.viewPager.currentItem
-        val activeId = activeVariantIds[position] ?: group.representative.id
-
-        for ((idx, variant) in group.variants.withIndex()) {
-            val dimStr = getImageDimensions(variant.imagePath ?: variant.thumbnailPath)
-
-            val btn = android.widget.TextView(this).apply {
-                text = dimStr
-                textSize = 10f
-                setTextColor(if (variant.id == activeId) android.graphics.Color.parseColor("#FF9800") else android.graphics.Color.WHITE)
-                setPadding(12, 4, 12, 4)
-                tag = variant.id
-                setOnClickListener {
-                    switchVariant(it.tag as Long)
-                }
-            }
-            container.addView(btn)
-
-            // 分隔线
-            if (idx < group.variants.size - 1) {
-                val divider = android.view.View(this).apply {
-                    setBackgroundColor(android.graphics.Color.parseColor("#33FFFFFF"))
-                }
-                val divParams = android.widget.LinearLayout.LayoutParams(1, android.widget.LinearLayout.LayoutParams.MATCH_PARENT)
-                container.addView(divider, divParams)
-            }
-        }
-
-        container.visibility = android.view.View.VISIBLE
-    }
-
-    /**
-     * 切换当前页的尺寸变体（不翻页，只换图片和译文）。
-     */
-    private fun switchVariant(variantId: Long) {
-        val position = binding.viewPager.currentItem
-        val group = pageGroups.getOrNull(position) ?: return
-        val variant = group.variants.find { it.id == variantId } ?: return
-
-        // 记录活跃变体
-        activeVariantIds[position] = variantId
-
-        // 更新 adapter 的活跃变体并刷新当前页
-        val adapter = binding.viewPager.adapter as? PageGroupAdapter ?: return
-        adapter.setActiveVariant(position, variantId)
-        adapter.notifyItemChanged(position)
-
-        // 更新按钮高亮
-        showSizeSwitcher(group)
-
-        // 如果面板展开，更新译文
-        if (isPanelExpanded) {
-            expandPanel()
-        }
-
-        // 同步更新 spinner 选择
-        updateVariantSpinner(position)
-
-        LogCollector.d(TAG, "switchVariant: entryId=$variantId, size=${variant.imagePath?.let { getImageDimensions(it) }}")
-    }
-
-    /**
      * 更新 variant spinner（尺寸选择器）。
      */
     private fun updateVariantSpinner(position: Int) {
@@ -375,19 +285,20 @@ class MangaViewerActivity : AppCompatActivity() {
     /**
      * 发送重新翻译请求（广播），并注册完成接收器。
      */
-    private fun sendRetranslateRequest(imagePath: String, bundle: android.os.Bundle) {
+    private fun sendRetranslateRequest(imagePath: String, historyIdToDelete: Long,
+                                       cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int) {
         val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(this)
         val intent = android.content.Intent("com.moe.moetranslator.RETRANSLATE_REQUEST").apply {
             putExtra("originalImagePath", imagePath)
-            putExtra("cropLeft", bundle.getInt("cropLeft"))
-            putExtra("cropTop", bundle.getInt("cropTop"))
-            putExtra("cropRight", bundle.getInt("cropRight"))
-            putExtra("cropBottom", bundle.getInt("cropBottom"))
+            putExtra("historyIdToDelete", historyIdToDelete)
+            putExtra("cropLeft", cropLeft)
+            putExtra("cropTop", cropTop)
+            putExtra("cropRight", cropRight)
+            putExtra("cropBottom", cropBottom)
             putExtra("ocrEngine", prefs.getString("history_retranslate_engine", "PP_OCR_V5"))
         }
         androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
 
-        // Register completion receiver
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
                 androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this@MangaViewerActivity)
@@ -395,9 +306,11 @@ class MangaViewerActivity : AppCompatActivity() {
                 val success = intent?.getBooleanExtra("success", false) ?: false
                 val errorMessage = intent?.getStringExtra("errorMessage")
                 runOnUiThread {
-                    Toast.makeText(this@MangaViewerActivity,
-                        if (success) "重新翻译完成" else (errorMessage ?: "重新翻译失败"),
-                        Toast.LENGTH_SHORT).show()
+                    val msg = if (success) "重新翻译完成" else (errorMessage ?: "重新翻译失败")
+                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, msg)
+                    if (success) {
+                        lifecycleScope.launch { loadData(savedClickedEntryId, savedEntryIds) }
+                    }
                 }
             }
         }
@@ -509,7 +422,7 @@ class MangaViewerActivity : AppCompatActivity() {
                                 // 组已空，移除整页
                                 pageGroups.removeAt(position)
                                 if (pageGroups.isEmpty()) {
-                                    Toast.makeText(this@MangaViewerActivity, R.string.history_deleted, Toast.LENGTH_SHORT).show()
+                                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, getString(R.string.history_deleted))
                                     finish()
                                     return@launch
                                 }
@@ -520,10 +433,10 @@ class MangaViewerActivity : AppCompatActivity() {
                                 group.representative = group.variants.first()
                                 activeVariantIds[position] = group.representative.id
                                 binding.viewPager.adapter?.notifyItemChanged(position)
-                                updateSizeSwitcherVisibility(position)
+                                updateVariantSpinner(position)
                             }
                         }
-                        Toast.makeText(this@MangaViewerActivity, R.string.history_deleted, Toast.LENGTH_SHORT).show()
+                        com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, getString(R.string.history_deleted))
                     } catch (e: Exception) {
                         LogCollector.e(TAG, "删除失败", e)
                     }

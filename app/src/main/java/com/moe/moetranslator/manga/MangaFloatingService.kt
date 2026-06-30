@@ -69,9 +69,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 import translationapi.bingtranslation.BingTranslation
 import translationapi.niutrans.NiuTranslation
 import translationapi.openaitranslation.OpenAITranslation
@@ -2960,7 +2958,14 @@ class MangaFloatingService : LifecycleService() {
     private suspend fun renderAndShowMergedOverlay(
         original: Bitmap,
         newBubbles: List<TranslatedBubble>,
-        saveCache: Boolean = true
+        saveCache: Boolean = true,
+        isRetranslate: Boolean = false,
+        historyIdToDelete: Long = 0,
+        originalBitmap: Bitmap? = null,
+        cropLeft: Int = 0,
+        cropTop: Int = 0,
+        cropRight: Int = 0,
+        cropBottom: Int = 0
     ) {
         if (newBubbles.isEmpty()) {
             LogCollector.d(TAG, "renderAndShowMergedOverlay: no content to render")
@@ -2996,10 +3001,30 @@ class MangaFloatingService : LifecycleService() {
                 val ocrTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
                 val transTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
                 LogCollector.d(TAG, "保存缓存: ${newBubbles.size} 个气泡")
-                // 使用实际裁剪坐标（如果有 cropRect）或全屏尺寸
+                // 使用实际裁剪坐标（如果有 cropRect 或重翻）或全屏尺寸
                 val fullWidth = pendingFullBitmap?.width ?: original.width
                 val fullHeight = pendingFullBitmap?.height ?: original.height
-                val useCrop = cropRect != null
+                val saveOrigBmp = if (isRetranslate) originalBitmap else pendingFullBitmap
+                val entryCropLeft: Int
+                val entryCropTop: Int
+                val entryCropRight: Int
+                val entryCropBottom: Int
+                if (isRetranslate) {
+                    entryCropLeft = cropLeft
+                    entryCropTop = cropTop
+                    entryCropRight = cropRight
+                    entryCropBottom = cropBottom
+                } else if (cropRect != null) {
+                    entryCropLeft = cropRect!!.left.toInt()
+                    entryCropTop = cropRect!!.top.toInt()
+                    entryCropRight = cropRect!!.right.toInt()
+                    entryCropBottom = cropRect!!.bottom.toInt()
+                } else {
+                    entryCropLeft = 0
+                    entryCropTop = 0
+                    entryCropRight = fullWidth
+                    entryCropBottom = fullHeight
+                }
                 val entry = CacheEntry(
                     type = TranslationCacheManager.MODE_MANGA,
                     sourceText = ocrTexts.ifEmpty { null },
@@ -3011,20 +3036,24 @@ class MangaFloatingService : LifecycleService() {
                     pHash = currentPHash,
                     sessionId = sessionId,
                     lastSessionId = sessionId,
-                    cropLeft = if (useCrop) cropRect!!.left.toInt() else 0,
-                    cropTop = if (useCrop) cropRect!!.top.toInt() else 0,
-                    cropRight = if (useCrop) cropRect!!.right.toInt() else fullWidth,
-                    cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight
+                    isRetranslated = isRetranslate,
+                    cropLeft = entryCropLeft,
+                    cropTop = entryCropTop,
+                    cropRight = entryCropRight,
+                    cropBottom = entryCropBottom
                 )
-                if (isForceRefreshActive) {
-                    val historyIdToDelete = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
-                    cacheManager.refreshCache(historyIdToDelete, entry, originalBitmap = pendingFullBitmap)
-                    LogCollector.d(TAG, "强制刷新：替换旧缓存和历史, historyId=$historyIdToDelete")
+                if (isRetranslate && historyIdToDelete > 0) {
+                    cacheManager.refreshCache(historyIdToDelete, entry, originalBitmap = saveOrigBmp)
+                    LogCollector.d(TAG, "重翻：替换旧缓存, historyId=$historyIdToDelete")
+                } else if (isForceRefreshActive) {
+                    val refreshId = if (currentPHash == lastCachedPHash) lastCachedHistoryId else 0L
+                    cacheManager.refreshCache(refreshId, entry, originalBitmap = saveOrigBmp)
+                    LogCollector.d(TAG, "强制刷新：替换旧缓存和历史, historyId=$refreshId")
                     lastCachedHistoryId = 0
                     lastCachedPHash = 0
                     isForceRefreshActive = false
                 } else {
-                    cacheManager.saveToCache(entry, originalBitmap = pendingFullBitmap)
+                    cacheManager.saveToCache(entry, originalBitmap = saveOrigBmp)
                 }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "保存缓存失败", e)
@@ -5200,6 +5229,7 @@ class MangaFloatingService : LifecycleService() {
         val cropRight = intent.getIntExtra("cropRight", 0)
         val cropBottom = intent.getIntExtra("cropBottom", 0)
         val ocrEngineName = intent.getStringExtra("ocrEngine") ?: "PP_OCR_V5"
+        val historyIdToDelete = intent.getLongExtra("historyIdToDelete", 0)
         if (isProcessing) {
             sendRetranslateComplete(success = false, errorMessage = "翻译进行中，请稍后")
             return
@@ -5210,7 +5240,6 @@ class MangaFloatingService : LifecycleService() {
             var originalBitmap: android.graphics.Bitmap? = null
             var croppedBitmap: android.graphics.Bitmap? = null
             var renderedBitmap: android.graphics.Bitmap? = null
-            val translator = translatorText
 
             try {
                 // 1. Load original image
@@ -5257,7 +5286,7 @@ class MangaFloatingService : LifecycleService() {
                     }
 
                     // 5. Check translator is available (use service's current translator)
-                    if (translator == null) {
+                    if (translatorText == null) {
                         sendRetranslateComplete(success = false, errorMessage = "翻译器未初始化")
                         isProcessing = false
                         return@launch
@@ -5283,77 +5312,21 @@ class MangaFloatingService : LifecycleService() {
                         return@launch
                     }
 
-                    // 7. Build numbered text and translate
-                    val numberedText = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.texts.first()}" }.joinToString("\n")
-                    val translatedText = translateWithSuspend(translator, numberedText)
-                    if (translatedText.isEmpty()) {
-                        sendRetranslateComplete(success = false, errorMessage = "翻译失败")
-                        isProcessing = false
-                        return@launch
-                    }
-
-                    // 8. Parse numbered translation result back per-bubble
-                    val translatedLines = translatedText.split("\n").mapNotNull { line ->
-                        val match = Regex("""^\[(\d+)]\s*(.*)$""").find(line.trim())
-                        if (match != null) {
-                            val idx = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-                            idx to match.groupValues[2]
-                        } else null
-                    }
-                    val transMap = translatedLines.toMap()
-
-                    // 9. Build TranslatedBubble for rendering
-                    val newBubbles = allBubbles.mapIndexed { i, bubble ->
-                        TranslatedBubble(
-                            rect = bubble.rect,
-                            originalText = bubble.texts.first(),
-                            translatedText = transMap[i + 1] ?: bubble.texts.first(),
-                            backgroundColor = Color.TRANSPARENT,
-                            fontSize = bubble.fontSize,
-                            direction = bubble.direction,
-                            angle = bubble.angle,
-                            centerX = bubble.centerX,
-                            centerY = bubble.centerY
-                        )
-                    }
-
-                    // 10. Render via OverlayRenderer.renderOverlay
-                    renderedBitmap = withContext(Dispatchers.Default) {
-                        OverlayRenderer.renderOverlay(
-                            original = croppedBitmap!!,
-                            regions = newBubbles,
-                            fontSize = config.fontSize,
-                            autoFit = config.autoFontSize,
-                            textColor = config.textColor,
-                            bgColor = config.bgColor
-                        )
-                    }
-
-                    // 11. Save cache with originalBitmap
-                    cacheManager.saveToCache(
-                        entry = CacheEntry(
-                            type = TranslationCacheManager.MODE_MANGA,
-                            sourceText = numberedText,
-                            translatedText = translatedText,
-                            resultBitmap = renderedBitmap!!,
-                            sourceLang = config.sourceLang,
-                            targetLang = config.targetLang,
-                            translatorName = "重翻",
-                            pHash = PerceptualHash.compute(originalBitmap!!),
-                            sessionId = sessionId,
-                            lastSessionId = sessionId,
-                            cropLeft = cropLeft,
-                            cropTop = cropTop,
-                            cropRight = cropRight,
-                            cropBottom = cropBottom,
-                            isRetranslated = true,
-                        ),
-                        originalBitmap = originalBitmap,
+                    // 7. Reuse translateBubbles + renderAndShowMergedOverlay instead of duplicate pipeline
+                    currentPHash = PerceptualHash.compute(originalBitmap!!)
+                    val newBubbles = translateBubbles(allBubbles)
+                    renderAndShowMergedOverlay(
+                        original = croppedBitmap!!,
+                        newBubbles = newBubbles,
+                        saveCache = true,
+                        isRetranslate = true,
+                        historyIdToDelete = historyIdToDelete,
+                        originalBitmap = originalBitmap!!,
+                        cropLeft = cropLeft,
+                        cropTop = cropTop,
+                        cropRight = cropRight,
+                        cropBottom = cropBottom
                     )
-
-                    // renderedBitmap saved to cache (file), safe to recycle
-                    renderedBitmap!!.recycle()
-                    renderedBitmap = null
 
                     sendRetranslateComplete(success = true)
                 } finally {
@@ -5385,23 +5358,6 @@ class MangaFloatingService : LifecycleService() {
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
 
-    /**
-     * 将异步翻译回调包装为挂起函数。
-     */
-    private suspend fun translateWithSuspend(translator: TranslationTextAPI, text: String): String {
-        return suspendCancellableCoroutine { cont ->
-            translator.getTranslation(text, config.sourceLang, config.targetLang) { result ->
-                when (result) {
-                    is TranslationResult.Success -> {
-                        if (cont.isActive) cont.resume(result.translatedText)
-                    }
-                    is TranslationResult.Error -> {
-                        if (cont.isActive) cont.resume("")
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * 对 bitmap 运行检测+OCR，返回带位置信息的文字块列表。

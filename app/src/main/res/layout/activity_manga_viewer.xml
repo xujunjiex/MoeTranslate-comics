@@ -35,87 +35,83 @@
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="#FFFFFF" />
 
-    <!-- 原图/译文切换 -->
-    <ImageButton
-        android:id="@+id/btnToggleImage"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="64dp"
-        android:layout_marginEnd="16dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:src="@android:drawable/ic_menu_camera"
-        android:tint="#FFFFFF"
-        android:contentDescription="切换原图/译文" />
-
-    <!-- 删除按钮 -->
-    <ImageButton
-        android:id="@+id/btnDeleteEntry"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="16dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:src="@android:drawable/ic_menu_delete"
-        android:tint="#FFFF6B6B"
-        android:contentDescription="@string/delete" />
-
-    <!-- 尺寸切换按钮栏 -->
+    <!-- 右上角按钮组：原文/译文切换 + 删除 -->
     <LinearLayout
-        android:id="@+id/sizeSwitcher"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/btnToggleImage"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_camera"
+            android:tint="#FFFFFF"
+            android:contentDescription="切换原图/译文" />
+
+        <ImageButton
+            android:id="@+id/btnDeleteEntry"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_delete"
+            android:tint="#FFFF6B6B"
+            android:contentDescription="@string/delete" />
+    </LinearLayout>
+
+    <!-- 底部控制栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
         android:layout_marginBottom="88dp"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
         android:orientation="horizontal"
-        android:gravity="center"
-        android:background="#66000000"
-        android:paddingHorizontal="4dp"
-        android:paddingVertical="2dp"
-        android:visibility="gone" />
+        android:clipChildren="false">
 
-    <!-- 底部查看译文按钮 -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnShowTranslation"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="120dp"
-        android:text="@string/show_translation"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        app:backgroundTint="#CC333333"
-        app:cornerRadius="20dp"
-        app:icon="@android:drawable/ic_menu_sort_by_size"
-        app:iconTint="#FFFFFF" />
+        <!-- 变体尺寸下拉 -->
+        <Spinner
+            android:id="@+id/spinnerVariant"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginEnd="8dp"
+            android:background="#66000000"
+            android:paddingHorizontal="8dp"
+            android:visibility="gone" />
 
-    <!-- 变体尺寸下拉 -->
-    <Spinner
-        android:id="@+id/spinnerVariant"
-        android:layout_width="wrap_content"
-        android:layout_height="36dp"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="16dp"
-        android:layout_marginBottom="88dp"
-        android:background="#66000000"
-        android:paddingHorizontal="8dp"
-        android:visibility="gone" />
+        <!-- 占位弹簧 -->
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
-    <!-- 重新翻译按钮 -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnRetranslate"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="88dp"
-        android:text="@string/history_retranslate"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        app:backgroundTint="#CC333333"
-        app:cornerRadius="20dp"
-        app:icon="@android:drawable/ic_menu_rotate"
-        app:iconTint="#FFFFFF" />
+        <!-- 详情按钮 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShowTranslation"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="@string/history_detail"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            app:backgroundTint="#CC333333"
+            app:cornerRadius="20dp" />
+
+        <!-- 重新翻译按钮 -->
+        <ImageButton
+            android:id="@+id/btnRetranslate"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_rotate"
+            android:tint="#55AEEA"
+            android:contentDescription="@string/history_retranslate" />
+    </LinearLayout>
 
     <!-- 底部译文面板 -->
     <LinearLayout
@@ -127,7 +123,6 @@
         android:background="#F0222222"
         android:elevation="8dp">
 
-        <!-- 拖拽条 -->
         <View
             android:id="@+id/dragHandle"
             android:layout_width="40dp"
@@ -137,7 +132,6 @@
             android:layout_marginBottom="8dp"
             android:background="#66FFFFFF" />
 
-        <!-- 标题栏 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -164,7 +158,6 @@
                 android:tint="#FFFFFF" />
         </LinearLayout>
 
-        <!-- 翻译信息栏 -->
         <TextView
             android:id="@+id/tvTranslationInfo"
             android:layout_width="match_parent"
@@ -175,7 +168,6 @@
             android:textSize="10sp"
             android:lineSpacingExtra="2dp" />
 
-        <!-- 译文内容列表 -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvTranslationDetail"
             android:layout_width="match_parent"

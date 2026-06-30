@@ -624,6 +624,7 @@
     <string name="history_display_medium">中缩略图</string>
     <string name="history_display_small">小缩略图</string>
     <string name="show_translation">查看译文</string>
+    <string name="history_detail">详情</string>
     <string name="translation_detail">译文详情</string>
     <string name="ocr_original_text">OCR 原文</string>
     <string name="ai_translated_text">AI 译文</string>

@@ -3,7 +3,6 @@ package com.moe.moetranslator.ui.history
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
@@ -128,7 +127,7 @@ class HistoryMangaGroupAdapter(
         inner class SessionViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             private val tvSessionHeader: TextView = view.findViewById(R.id.tvMangaSessionHeader)
             private val rvGrid: RecyclerView = view.findViewById(R.id.rvMangaSessionGrid)
-            private val btnDownloadSession: ImageButton = view.findViewById(R.id.btnDownloadSession)
+            private val btnDownloadSession: TextView = view.findViewById(R.id.btnDownloadSession)
 
             fun bind(session: HistorySession) {
                 val startTime = timeFormat.format(Date(session.startTime))

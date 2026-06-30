@@ -563,6 +563,7 @@
     <string name="history_display_medium">Medium</string>
     <string name="history_display_small">Small</string>
     <string name="show_translation">Show Translation</string>
+    <string name="history_detail">Detail</string>
     <string name="translation_detail">Translation Detail</string>
     <string name="ocr_original_text">OCR Original</string>
     <string name="ai_translated_text">AI Translation</string>

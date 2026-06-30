@@ -19,6 +19,7 @@ package com.moe.moetranslator.translate
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.AttributeSet
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -33,7 +34,10 @@ import android.view.ViewTreeObserver
 const val RECT_MIN_WIDTH = 50f//框选的最小宽度px
 const val RECT_MIN_HEIGHT = 50f//框选的最小高度px
 
-class CropView(ctx:Context) : View(ctx) {
+class CropView @JvmOverloads constructor(
+    ctx: Context,
+    attrs: AttributeSet? = null
+) : View(ctx, attrs) {
     private val mActionMovePoint = Point()  //point，储存x，y两个坐标
     private val mOriPoint = Point() //point，储存原来的x，y两个坐标
     val absolutePointOffset = Point() //point，绝对坐标偏移量
