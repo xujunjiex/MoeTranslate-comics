@@ -37,7 +37,10 @@ class HistoryMangaGroupAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
     private val onItemLongClick: (HistoryEntry) -> Unit,
     private var displayMode: String = "large",
-    private var sortByUpdated: Boolean = false
+    private var sortByUpdated: Boolean = false,
+    var isManageView: Boolean = false,
+    private val onRetranslateClick: ((HistoryEntry) -> Unit)? = null,
+    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null
 ) : ListAdapter<HistoryGroup, HistoryMangaGroupAdapter.GroupViewHolder>(GroupDiffCallback()) {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -137,7 +140,12 @@ class HistoryMangaGroupAdapter(
 
                 tvSessionHeader.text = "$startTime - $endTime (${groups.size})"
 
-                val gridAdapter = HistoryMangaAdapter(onItemClick, onItemLongClick, colorMap, displayMode, sortByUpdated)
+                val gridAdapter = HistoryMangaAdapter(
+                    onItemClick, onItemLongClick, colorMap, displayMode, sortByUpdated,
+                    isManageView = isManageView,
+                    onRetranslateClick = onRetranslateClick,
+                    onDeleteVariantClick = onDeleteVariantClick
+                )
                 val spanCount = when (displayMode) {
                     "list" -> 1
                     "large" -> 2

@@ -4,7 +4,10 @@ import android.graphics.BitmapFactory
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.ImageView
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -20,16 +23,23 @@ import java.util.Locale
 /**
  * 漫画历史条目适配器。
  * 支持多种显示模式：list / large / medium / small
+ * 支持管理视图模式：isManageView=true 时使用管理布局
  * @param colorMap entryId → 颜色组号（用于跨 session 的 pHash 分组着色）
  * @param displayMode 显示模式
+ * @param isManageView 是否管理视图模式
+ * @param onRetranslateClick 重新翻译回调
+ * @param onDeleteVariantClick 删除尺寸回调
  */
 class HistoryMangaAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
     private val onItemLongClick: (HistoryEntry) -> Unit,
     private val colorMap: Map<Long, Int> = emptyMap(),
     private val displayMode: String = "large",
-    private val sortByUpdated: Boolean = false
-) : ListAdapter<GroupedHistoryEntry, HistoryMangaAdapter.ViewHolder>(DiffCallback()) {
+    private val sortByUpdated: Boolean = false,
+    private val isManageView: Boolean = false,
+    private val onRetranslateClick: ((HistoryEntry) -> Unit)? = null,
+    private val onDeleteVariantClick: ((HistoryEntry) -> Unit)? = null
+) : ListAdapter<GroupedHistoryEntry, RecyclerView.ViewHolder>(DiffCallback()) {
 
     private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
     private val shortDateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -60,11 +70,7 @@ class HistoryMangaAdapter(
         )
 
         fun getDisplayName(translatorName: String): String {
-            // 新格式: "OpenAITranslation(gpt-4o) | PP-OCRv5+PP-OCRv5 | 分批 | 自由文字 | box=0.30 unclip=1.6 score=0.50"
-            // 只取第一个 " | " 之前的部分（API名称+模型）
             val apiPart = translatorName.split(" | ").first().trim()
-
-            // 处理 "OpenAITranslation(gpt-4o)" 格式
             val match = Regex("^(\\w+?)\\((.+)\\)$").find(apiPart)
             if (match != null) {
                 val apiClass = match.groupValues[1]
@@ -77,17 +83,22 @@ class HistoryMangaAdapter(
     }
 
     override fun getItemViewType(position: Int): Int {
+        if (isManageView) return 2
         return if (displayMode == "list") 1 else 0
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val layoutId = if (viewType == 1) R.layout.item_history_manga_list else R.layout.item_history_manga
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val layoutId = when (viewType) {
+            2 -> R.layout.item_history_manga_manage
+            1 -> R.layout.item_history_manga_list
+            else -> R.layout.item_history_manga
+        }
         val view = LayoutInflater.from(parent.context).inflate(layoutId, parent, false)
         return ViewHolder(view)
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position))
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        (holder as ViewHolder).bind(getItem(position))
     }
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -97,6 +108,11 @@ class HistoryMangaAdapter(
         private val tvTime: TextView = view.findViewById(R.id.tv_time)
         private val tvSizeBadge: TextView = view.findViewById(R.id.tv_size_badge)
         private val btnToggleImage: TextView = view.findViewById(R.id.btnToggleImage)
+        // 管理视图特有控件
+        private val tvRetranslateBadge: TextView? = view.findViewById(R.id.tvRetranslateBadge)
+        private val spinnerVariant: Spinner? = view.findViewById(R.id.spinnerVariant)
+        private val btnRetranslate: TextView? = view.findViewById(R.id.btnRetranslate)
+        private val btnDeleteVariant: TextView? = view.findViewById(R.id.btnDeleteVariant)
         private var showingOriginal = false
 
         fun bind(grouped: GroupedHistoryEntry) {
@@ -129,7 +145,7 @@ class HistoryMangaAdapter(
                 btnToggleImage.setOnClickListener(null)
             }
 
-            // pHash 显示（最后 8 位十六进制，小模式缩短前缀）
+            // pHash 显示
             if (entry.pHash != 0L) {
                 tvPhash.text = if (isSmall) String.format("%08X", entry.pHash and 0xFFFFFFFFL)
                                else "pHash:${String.format("%08X", entry.pHash and 0xFFFFFFFFL)}"
@@ -163,10 +179,61 @@ class HistoryMangaAdapter(
                 card.setBackgroundTintList(null)
             }
 
+            // 管理视图特有逻辑
+            if (isManageView) {
+                bindManageViews(grouped, entry)
+            }
+
             itemView.setOnClickListener { onItemClick(grouped) }
             itemView.setOnLongClickListener {
                 onItemLongClick(entry)
                 true
+            }
+        }
+
+        private fun bindManageViews(grouped: GroupedHistoryEntry, entry: HistoryEntry) {
+            // 重新翻译计数徽章
+            // 统计组内所有变体中 isRetranslated=true 的数量
+            val retranslateCount = if (!entry.variantIds.isNullOrEmpty()) {
+                entry.variantIds.count { it > 0 }  // placeholder: 实际逻辑在 Task 11
+                0
+            } else {
+                0
+            }
+            tvRetranslateBadge?.apply {
+                if (retranslateCount > 0) {
+                    text = "🔄×$retranslateCount"
+                    visibility = View.VISIBLE
+                } else {
+                    visibility = View.GONE
+                }
+            }
+
+            // 尺寸选择 Spinner
+            spinnerVariant?.apply {
+                if (!entry.variantIds.isNullOrEmpty() && entry.variantIds.size > 1) {
+                    val variantLabels = entry.variantIds.mapIndexed { idx, _ -> "尺寸 ${idx + 1}" }
+                    adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, variantLabels)
+                    visibility = View.VISIBLE
+                    onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                            // Task 11: 切换变体显示
+                        }
+                        override fun onNothingSelected(parent: AdapterView<*>?) {}
+                    }
+                } else {
+                    visibility = View.GONE
+                }
+            }
+
+            // 重新翻译按钮
+            btnRetranslate?.setOnClickListener {
+                onRetranslateClick?.invoke(entry)
+            }
+
+            // 删除此尺寸按钮
+            btnDeleteVariant?.setOnClickListener {
+                onDeleteVariantClick?.invoke(entry)
             }
         }
     }

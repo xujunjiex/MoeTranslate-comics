@@ -99,10 +99,14 @@ class HistoryFragment : Fragment() {
         // 漫画历史：分组适配器
         val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
         val displayMode = prefs.getString("history_display_mode", "large")
+        val viewMode = prefs.getString("history_view_mode", "default")
         mangaGroupAdapter = HistoryMangaGroupAdapter(
             onItemClick = { grouped -> openMangaViewer(grouped) },
             onItemLongClick = { entry -> showDeleteDialog(entry) },
-            displayMode = displayMode
+            displayMode = displayMode,
+            isManageView = (viewMode == "manage"),
+            onRetranslateClick = { entry -> /* Task 11: 重新翻译逻辑 */ },
+            onDeleteVariantClick = { entry -> /* Task 11: 删除尺寸逻辑 */ }
         )
         binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
         binding.rvMangaHistory.adapter = mangaGroupAdapter
@@ -316,6 +320,7 @@ class HistoryFragment : Fragment() {
                         LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "default" else "manage"}")
                     }
                     TranslationCacheManager.MODE_MANGA -> {
+                        mangaGroupAdapter.isManageView = (viewMode == "manage")
                         mangaGroupAdapter.setDisplayMode(displayMode)
                         mangaGroupAdapter.setSortByUpdated(sortByUpdated)
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
