@@ -135,20 +135,14 @@ class HistoryFragment : Fragment() {
 
     private fun showHistorySettingsMenu(anchor: View) {
         val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
-        val sortByUpdated = prefs.getString("history_sort_mode", "created") == "updated"
         val displayMode = prefs.getString("history_display_mode", "large")
 
-        val sortOptions = arrayOf(
-            getString(R.string.history_sort_created),
-            getString(R.string.history_sort_updated)
-        )
         val displayOptions = arrayOf(
             getString(R.string.history_display_list),
             getString(R.string.history_display_large),
             getString(R.string.history_display_medium),
             getString(R.string.history_display_small)
         )
-        val currentSortIdx = if (sortByUpdated) 1 else 0
         val currentDisplayIdx = when (displayMode) {
             "list" -> 0; "large" -> 1; "medium" -> 2; "small" -> 3
             else -> 1
@@ -159,27 +153,6 @@ class HistoryFragment : Fragment() {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(48, 24, 48, 0)
         }
-
-        // 排序标题
-        container.addView(android.widget.TextView(requireContext()).apply {
-            text = "排列方式"
-            textSize = 14f
-            setTextColor(android.graphics.Color.parseColor("#666666"))
-            setPadding(0, 0, 0, 8)
-        })
-
-        // 排序单选
-        val sortGroup = android.widget.RadioGroup(requireContext()).apply {
-            orientation = android.widget.RadioGroup.VERTICAL
-        }
-        sortOptions.forEachIndexed { idx, label ->
-            sortGroup.addView(android.widget.RadioButton(requireContext()).apply {
-                text = label
-                id = idx
-                isChecked = idx == currentSortIdx
-            })
-        }
-        container.addView(sortGroup)
 
         // 显示标题
         container.addView(android.widget.TextView(requireContext()).apply {
@@ -234,11 +207,7 @@ class HistoryFragment : Fragment() {
             .setTitle("历史记录设置")
             .setView(container)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                val newSortIdx = sortGroup.checkedRadioButtonId
                 val newDisplayIdx = displayGroup.checkedRadioButtonId
-                if (newSortIdx >= 0) {
-                    prefs.setString("history_sort_mode", if (newSortIdx == 1) "updated" else "created")
-                }
                 if (newDisplayIdx >= 0) {
                     prefs.setString("history_display_mode", displayValues[newDisplayIdx])
                 }
@@ -335,7 +304,8 @@ class HistoryFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
-                val sortByUpdated = prefs.getString("history_sort_mode", "created") == "updated"
+                val viewMode = prefs.getString("history_view_mode", "default")
+                val sortByUpdated = (viewMode == "default")
                 val displayMode = prefs.getString("history_display_mode", "large")
 
                 when (currentTab) {
@@ -343,7 +313,7 @@ class HistoryFragment : Fragment() {
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
                         gameGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "updated" else "created"}")
+                        LogCollector.d(TAG, "loadHistory: 游戏分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "default" else "manage"}")
                     }
                     TranslationCacheManager.MODE_MANGA -> {
                         mangaGroupAdapter.setDisplayMode(displayMode)
@@ -351,7 +321,7 @@ class HistoryFragment : Fragment() {
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
                         mangaGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: 漫画分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "updated" else "created"}, display=$displayMode")
+                        LogCollector.d(TAG, "loadHistory: 漫画分组, ${groups.size} 个日期组, sort=${if (sortByUpdated) "default" else "manage"}, display=$displayMode")
                     }
                 }
             } catch (e: Exception) {
