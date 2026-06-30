@@ -1,5 +1,6 @@
 package com.moe.moetranslator.ui.history
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.View
@@ -87,6 +88,20 @@ class MangaViewerActivity : AppCompatActivity() {
             confirmDeleteCurrentEntry()
         }
 
+        // 原图/译文切换
+        binding.btnToggleImage.setOnClickListener {
+            showingOriginal = !showingOriginal
+            binding.btnToggleImage.text = if (showingOriginal) "译" else "原"
+            val entry = getCurrentVariant()
+            val path = if (showingOriginal) entry.originalImagePath else (entry.imagePath ?: entry.thumbnailPath)
+            if (path != null && java.io.File(path).exists()) {
+                val bmp = android.graphics.BitmapFactory.decodeFile(path)
+                val adapter = binding.viewPager.adapter as? PageGroupAdapter
+                adapter?.setOverrideImage(bmp)
+                adapter?.notifyItemChanged(binding.viewPager.currentItem)
+            }
+        }
+
         // Variant spinner
         binding.spinnerVariant.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -117,64 +132,33 @@ class MangaViewerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            AlertDialog.Builder(this)
-                .setTitle("重新翻译")
-                .setItems(arrayOf("用当前裁剪", "重新裁剪")) { _, which ->
-                    when (which) {
-                        0 -> {
-                            lifecycleScope.launch {
-                                val cache = cacheManager.getCacheByHistoryId(entry.id)
-                                val rect = if (cache != null && cache.cropRight > 0) {
-                                    android.graphics.RectF(
-                                        cache.cropLeft.toFloat(), cache.cropTop.toFloat(),
-                                        cache.cropRight.toFloat(), cache.cropBottom.toFloat()
-                                    )
-                                } else null
-                                val fragment = CropFragment.newInstance(originalPath, rect)
-                                fragment.show(supportFragmentManager, "CropFragment")
-                                supportFragmentManager.setFragmentResultListener(
-                                    CropFragment.RESULT_KEY, this@MangaViewerActivity
-                                ) { _, bundle ->
-                                    sendRetranslateRequest(originalPath, bundle)
-                                }
-                            }
-                        }
-                        1 -> {
-                            val fragment = CropFragment.newInstance(originalPath, null)
-                            fragment.show(supportFragmentManager, "CropFragment")
-                            supportFragmentManager.setFragmentResultListener(
-                                CropFragment.RESULT_KEY, this@MangaViewerActivity
-                            ) { _, bundle ->
-                                sendRetranslateRequest(originalPath, bundle)
-                            }
-                        }
-                    }
+            lifecycleScope.launch {
+                val cache = cacheManager.getCacheByHistoryId(entry.id)
+                val presetRect = if (cache != null && cache.cropRight > 0) {
+                    android.graphics.RectF(
+                        cache.cropLeft.toFloat(), cache.cropTop.toFloat(),
+                        cache.cropRight.toFloat(), cache.cropBottom.toFloat()
+                    )
+                } else null
+                val fragment = CropFragment.newInstance(originalPath, presetRect)
+                fragment.show(supportFragmentManager, "CropFragment")
+                supportFragmentManager.setFragmentResultListener(
+                    CropFragment.RESULT_KEY, this@MangaViewerActivity
+                ) { _, bundle ->
+                    sendRetranslateRequest(originalPath, bundle)
                 }
-                .show()
-        }
-
-        // 删除尺寸变体按钮
-        binding.btnDeleteVariant.setOnClickListener {
-            val entry = getCurrentVariant()
-            val group = pageGroups.getOrNull(binding.viewPager.currentItem)
-            val variantCount = group?.variants?.size ?: 1
-            AlertDialog.Builder(this)
-                .setMessage(if (variantCount <= 1) "删除此记录？" else "删除此尺寸？")
-                .setPositiveButton("删除") { _, _ ->
-                    lifecycleScope.launch {
-                        cacheManager.deleteHistory(entry.id)
-                        finish()
-                        Toast.makeText(this@MangaViewerActivity, "已删除", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                .setNegativeButton("取消", null)
-                .show()
+            }
         }
 
         // ViewPager 翻页监听
         binding.viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 updatePageIndicator(position)
+                // 翻页时重置原图/译文切换
+                showingOriginal = false
+                binding.btnToggleImage.text = "原"
+                val adapter = binding.viewPager.adapter as? PageGroupAdapter
+                adapter?.setOverrideImage(null)
                 // 翻页时关闭面板
                 if (isPanelExpanded) {
                     collapsePanel()
@@ -640,6 +624,7 @@ class PageGroupAdapter(
 
     // 当前每页显示的变体（position → entryId），null 表示用代表条目
     private val activeVariants = mutableMapOf<Int, Long>()
+    private var overrideBitmap: Bitmap? = null
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView: ZoomableImageView = view.findViewById(R.id.ivFullImage)
@@ -682,7 +667,16 @@ class PageGroupAdapter(
         activeVariants[position] = entryId
     }
 
+    fun setOverrideImage(bitmap: Bitmap?) {
+        overrideBitmap = bitmap
+    }
+
     private fun loadImage(holder: ViewHolder, entry: HistoryEntry) {
+        if (overrideBitmap != null) {
+            holder.imageView.resetZoom()
+            holder.imageView.setImageBitmap(overrideBitmap)
+            return
+        }
         val path = entry.imagePath ?: entry.thumbnailPath
         val isThumbnail = entry.imagePath == null
         if (path != null && java.io.File(path).exists()) {
