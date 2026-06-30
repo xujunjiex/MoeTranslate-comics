@@ -138,8 +138,12 @@ class HistoryMangaAdapter(
                     btnToggleImage.text = if (showingOriginal) "📄" else "📷"
                     val path = if (showingOriginal) entry.originalImagePath else (entry.imagePath ?: entry.thumbnailPath)
                     if (path != null && File(path).exists()) {
-                        val bmp = BitmapFactory.decodeFile(path)
-                        ivThumbnail.setImageBitmap(bmp)
+                        // P1 #7: 后台线程解码避免阻塞主线程
+                        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                        Thread {
+                            val bmp = BitmapFactory.decodeFile(path)
+                            mainHandler.post { ivThumbnail.setImageBitmap(bmp) }
+                        }.start()
                     }
                 }
             } else {
@@ -207,7 +211,7 @@ class HistoryMangaAdapter(
 
             // 尺寸选择 Spinner
             spinnerVariant?.apply {
-                if (!entry.variantIds.isNullOrEmpty() && entry.variantIds.size > 1) {
+                if (entry.variantIds.isNotEmpty() && entry.variantIds.size > 1) {
                     val variantLabels = entry.variantIds.mapIndexed { idx, _ ->
                         itemView.context.getString(R.string.history_variant_label, idx + 1)
                     }

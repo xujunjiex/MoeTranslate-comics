@@ -32,6 +32,7 @@ import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.ServiceUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.ZipEntry
@@ -563,7 +564,6 @@ class HistoryFragment : Fragment() {
             putExtra("openaiProviderIndex", prefs.getString("history_openai_provider_index", "0")?.toIntOrNull() ?: 0)
         }
         LocalBroadcastManager.getInstance(requireContext()).sendBroadcast(intent)
-        Toast.makeText(requireContext(), R.string.history_retranslate_busy, Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -580,7 +580,12 @@ class HistoryFragment : Fragment() {
                         Toast.makeText(requireContext(), R.string.history_retranslate_done, Toast.LENGTH_SHORT).show()
                         loadHistory()
                     } else {
-                        Toast.makeText(requireContext(), errorMessage ?: getString(R.string.translation_failed, "").substringBefore("%s").trim(), Toast.LENGTH_SHORT).show()
+                        // 服务端忙（翻译进行中）显示专用提示，其余显示具体错误
+                        if (errorMessage == "翻译进行中，请稍后") {
+                            Toast.makeText(requireContext(), R.string.history_retranslate_busy, Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(requireContext(), errorMessage ?: getString(R.string.translation_failed, "").substringBefore("%s").trim(), Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
@@ -689,7 +694,7 @@ class HistoryFragment : Fragment() {
     }
 
     private suspend fun showVariantPickerForDownload(entry: HistoryEntry): String? {
-        return suspendCoroutine { cont ->
+        return suspendCancellableCoroutine { cont ->
             lifecycleScope.launch {
                 try {
                     val variants = entry.variantIds.mapNotNull { id ->
@@ -703,16 +708,19 @@ class HistoryFragment : Fragment() {
                         } ?: "?"
                         dim
                     }.toTypedArray()
-                    AlertDialog.Builder(requireContext())
+                    val dialog = AlertDialog.Builder(requireContext())
                         .setTitle(R.string.history_select_variant)
                         .setItems(items) { _, which ->
-                            cont.resume(variants[which].imagePath)
+                            if (cont.isActive) cont.resume(variants[which].imagePath)
                         }
-                        .setOnCancelListener { cont.resume(null) }
+                        .setOnCancelListener {
+                            if (cont.isActive) cont.resume(null)
+                        }
                         .show()
+                    cont.invokeOnCancellation { dialog.dismiss() }
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Variant picker failed", e)
-                    cont.resume(null)
+                    if (cont.isActive) cont.resume(null)
                 }
             }
         }
