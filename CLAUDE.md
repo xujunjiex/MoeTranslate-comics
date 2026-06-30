@@ -437,12 +437,13 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 
 ## UI 规范
 
-- **禁止使用系统弹窗和菜单**：所有弹窗（Dialog）、菜单（Menu）、选择器（Picker）必须使用应用自身的样式，禁止使用系统默认样式
-  - 弹窗：使用 `MaterialAlertDialogBuilder`，禁止 `AlertDialog.Builder`
-  - 选择列表：使用 `MaterialAlertDialogBuilder` + `setItems` / `setSingleChoiceItems`，禁止 `PopupMenu`、`Spinner`
-  - 选项弹窗：使用 `MaterialAlertDialogBuilder` + 自定义 View（RadioGroup 等），禁止 `PopupMenu`
+- **禁止使用系统原生弹窗和选择器**：所有弹窗、菜单、选择器必须使用应用自身的样式，禁止系统原生样式（白色背景、系统字体）
+  - 弹窗：使用 `android.app.AlertDialog` + 自定义布局（⚠️ Material3 主题与 MaterialAlertDialogBuilder 不兼容，会崩溃）
+  - 选择列表/选项：使用 `android.app.AlertDialog` + `setItems` / `setSingleChoiceItems` / 自定义 RadioGroup
   - 底部弹窗：使用 `BottomSheetDialogFragment`，禁止系统 `Dialog`
-- 所有 UI 组件使用 Material Design 组件库（`com.google.android.material.*`）
+  - 下拉选择器：禁止系统 `Spinner`（白色下拉菜单），使用 Material `MaterialAutoCompleteTextView` + `ExposedDropdownMenu` 或自定义下拉
+- **禁止使用系统级窗口**：所有 UI 必须在 Activity/Fragment 内实现，禁止 `TYPE_APPLICATION_OVERLAY` 以外的系统窗口
+- 所有 UI 组件优先使用 Material Design 组件库（`com.google.android.material.*`）
 
 ## 网络配置
 

@@ -5230,6 +5230,7 @@ class MangaFloatingService : LifecycleService() {
         val cropBottom = intent.getIntExtra("cropBottom", 0)
         val ocrEngineName = intent.getStringExtra("ocrEngine") ?: "PP_OCR_V5"
         val historyIdToDelete = intent.getLongExtra("historyIdToDelete", 0)
+        val existingPHash = intent.getLongExtra("existingPHash", 0)
         if (isProcessing) {
             sendRetranslateComplete(success = false, errorMessage = "翻译进行中，请稍后")
             return
@@ -5313,7 +5314,7 @@ class MangaFloatingService : LifecycleService() {
                     }
 
                     // 7. Reuse translateBubbles + renderAndShowMergedOverlay instead of duplicate pipeline
-                    currentPHash = PerceptualHash.compute(originalBitmap!!)
+                    currentPHash = if (existingPHash != 0L) existingPHash else PerceptualHash.compute(originalBitmap!!, centerCrop = true)
                     val newBubbles = translateBubbles(allBubbles)
                     renderAndShowMergedOverlay(
                         original = croppedBitmap!!,

@@ -145,7 +145,7 @@ class MangaViewerActivity : AppCompatActivity() {
                     return@launch
                 }
                 com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "已发送重翻请求")
-                sendRetranslateRequest(originalPath, entry.id,
+                sendRetranslateRequest(originalPath, entry.id, entry.pHash,
                     cache.cropLeft, cache.cropTop, cache.cropRight, cache.cropBottom)
             }
         }
@@ -273,10 +273,9 @@ class MangaViewerActivity : AppCompatActivity() {
         val items = group.variants.map { v ->
             v.imagePath?.let { getImageDimensions(it) } ?: "?"
         }
-        val adapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, items)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        val adapter = android.widget.ArrayAdapter(this, R.layout.spinner_item_dark, items)
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_dark)
         binding.spinnerVariant.adapter = adapter
-
         val activeId = activeVariantIds[position] ?: group.representative.id
         val idx = group.variants.indexOfFirst { it.id == activeId }.coerceAtLeast(0)
         binding.spinnerVariant.setSelection(idx, false)
@@ -285,12 +284,13 @@ class MangaViewerActivity : AppCompatActivity() {
     /**
      * 发送重新翻译请求（广播），并注册完成接收器。
      */
-    private fun sendRetranslateRequest(imagePath: String, historyIdToDelete: Long,
+    private fun sendRetranslateRequest(imagePath: String, historyIdToDelete: Long, existingPHash: Long,
                                        cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int) {
         val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(this)
         val intent = android.content.Intent("com.moe.moetranslator.RETRANSLATE_REQUEST").apply {
             putExtra("originalImagePath", imagePath)
             putExtra("historyIdToDelete", historyIdToDelete)
+            putExtra("existingPHash", existingPHash)
             putExtra("cropLeft", cropLeft)
             putExtra("cropTop", cropTop)
             putExtra("cropRight", cropRight)
@@ -405,11 +405,50 @@ class MangaViewerActivity : AppCompatActivity() {
         isPanelExpanded = false
     }
 
+    private fun showDarkDialog(
+        message: String,
+        title: String? = null,
+        positiveText: String = "确定",
+        negativeText: String? = null,
+        onPositive: () -> Unit = {},
+        onNegative: (() -> Unit)? = null
+    ) {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_dark, null)
+        val tvTitle = view.findViewById<TextView>(R.id.dialogTitle)
+        val tvMessage = view.findViewById<TextView>(R.id.dialogMessage)
+        val btnPositive = view.findViewById<TextView>(R.id.dialogBtnPositive)
+        val btnNegative = view.findViewById<TextView>(R.id.dialogBtnNegative)
+
+        tvMessage.text = message
+        btnPositive.text = positiveText
+
+        if (title != null) {
+            tvTitle.visibility = View.VISIBLE
+            tvTitle.text = title
+        }
+        if (negativeText != null) {
+            btnNegative.visibility = View.VISIBLE
+            btnNegative.text = negativeText
+        }
+
+        val dialog = AlertDialog.Builder(this).setView(view).create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnPositive.setOnClickListener { onPositive(); dialog.dismiss() }
+        if (negativeText != null) {
+            btnNegative.setOnClickListener { onNegative?.invoke(); dialog.dismiss() }
+        }
+
+        dialog.show()
+    }
+
     private fun confirmDeleteCurrentEntry() {
         val entry = getCurrentVariant()
-        AlertDialog.Builder(this)
-            .setMessage(R.string.delete_history_confirm)
-            .setPositiveButton(R.string.delete) { _, _ ->
+        showDarkDialog(
+            message = getString(R.string.delete_history_confirm),
+            positiveText = getString(R.string.delete),
+            negativeText = getString(android.R.string.cancel),
+            onPositive = {
                 lifecycleScope.launch {
                     try {
                         cacheManager.deleteHistory(entry.id)
@@ -442,8 +481,7 @@ class MangaViewerActivity : AppCompatActivity() {
                     }
                 }
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        )
     }
 
     private fun buildDetailList(entry: HistoryEntry): List<TranslationDetailItem> {

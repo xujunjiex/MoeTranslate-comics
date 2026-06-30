@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
@@ -67,7 +68,6 @@ class HistoryFragment : Fragment() {
         setupEngineSelectors()
         setupRecyclerViews()
         switchTab(TranslationCacheManager.MODE_GAME) // 初始化游戏 tab 的视图状态
-        setupClearButton()
         setupClearAllCacheButton()
         setupRefreshButton()
         setupSettingsButton()
@@ -118,12 +118,6 @@ class HistoryFragment : Fragment() {
         binding.rvMangaHistory.adapter = mangaGroupAdapter
     }
 
-    private fun setupClearButton() {
-        binding.btnClearHistory.setOnClickListener {
-            showClearDialog()
-        }
-    }
-
     private fun setupClearAllCacheButton() {
         binding.btnClearAllCache.setOnClickListener {
             showClearAllCacheDialog()
@@ -133,7 +127,7 @@ class HistoryFragment : Fragment() {
     private fun setupRefreshButton() {
         binding.btnRefreshHistory.setOnClickListener {
             loadHistory()
-            Toast.makeText(requireContext(), R.string.history_refreshed, Toast.LENGTH_SHORT).show()
+            com.moe.moetranslator.utils.UiUtils.showToast(requireContext(), getString(R.string.history_refreshed))
         }
     }
 
@@ -221,7 +215,11 @@ class HistoryFragment : Fragment() {
                 loadHistory()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .create()
+            .apply {
+                window?.setBackgroundDrawableResource(android.R.color.transparent)
+                show()
+            }
     }
 
     private fun setupViewModeTabs() {
@@ -254,13 +252,14 @@ class HistoryFragment : Fragment() {
         val savedOcr = prefs.getString("history_retranslate_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
         val ocrIdx = ocrValues.indexOfFirst { it == savedOcr }.coerceAtLeast(0)
 
-        (binding.spinnerOcrEngine as? com.google.android.material.textfield.MaterialAutoCompleteTextView)?.apply {
+        (binding.spinnerOcrEngine as? android.widget.AutoCompleteTextView)?.apply {
             val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, ocrEngines)
             setAdapter(adapter)
             setText(ocrEngines[ocrIdx], false)
             setOnItemClickListener { _, _, position, _ ->
                 prefs.setString("history_retranslate_engine", ocrValues[position])
             }
+            setOnClickListener { showDropDown() }
         }
     }
 
@@ -338,10 +337,49 @@ class HistoryFragment : Fragment() {
         Toast.makeText(requireContext(), R.string.history_copied, Toast.LENGTH_SHORT).show()
     }
 
+    private fun showDarkDialog(
+        message: String,
+        title: String? = null,
+        positiveText: String = "确定",
+        negativeText: String? = null,
+        onPositive: () -> Unit = {},
+        onNegative: (() -> Unit)? = null
+    ) {
+        val view = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_dark, null)
+        val tvTitle = view.findViewById<TextView>(R.id.dialogTitle)
+        val tvMessage = view.findViewById<TextView>(R.id.dialogMessage)
+        val btnPositive = view.findViewById<TextView>(R.id.dialogBtnPositive)
+        val btnNegative = view.findViewById<TextView>(R.id.dialogBtnNegative)
+
+        tvMessage.text = message
+        btnPositive.text = positiveText
+
+        if (title != null) {
+            tvTitle.visibility = View.VISIBLE
+            tvTitle.text = title
+        }
+        if (negativeText != null) {
+            btnNegative.visibility = View.VISIBLE
+            btnNegative.text = negativeText
+        }
+
+        val dialog = AlertDialog.Builder(requireContext()).setView(view).create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnPositive.setOnClickListener { onPositive(); dialog.dismiss() }
+        if (negativeText != null) {
+            btnNegative.setOnClickListener { onNegative?.invoke(); dialog.dismiss() }
+        }
+
+        dialog.show()
+    }
+
     private fun showDeleteDialog(entry: HistoryEntry) {
-        AlertDialog.Builder(requireContext())
-            .setMessage(R.string.delete_history_confirm)
-            .setPositiveButton(R.string.confirm) { _, _ ->
+        showDarkDialog(
+            message = getString(R.string.delete_history_confirm),
+            positiveText = getString(R.string.confirm),
+            negativeText = getString(R.string.user_cancel),
+            onPositive = {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
                         cacheManager.deleteHistory(entry.id)
@@ -353,14 +391,15 @@ class HistoryFragment : Fragment() {
                     }
                 }
             }
-            .setNegativeButton(R.string.user_cancel, null)
-            .show()
+        )
     }
 
     private fun showClearDialog() {
-        AlertDialog.Builder(requireContext())
-            .setMessage(R.string.confirm_clear_history)
-            .setPositiveButton(R.string.confirm) { _, _ ->
+        showDarkDialog(
+            message = getString(R.string.confirm_clear_history),
+            positiveText = getString(R.string.confirm),
+            negativeText = getString(R.string.user_cancel),
+            onPositive = {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
                         cacheManager.clearHistory(currentTab)
@@ -372,15 +411,16 @@ class HistoryFragment : Fragment() {
                     }
                 }
             }
-            .setNegativeButton(R.string.user_cancel, null)
-            .show()
+        )
     }
 
     private fun showClearAllCacheDialog() {
-        AlertDialog.Builder(requireContext())
-            .setTitle(R.string.clear_cache_title)
-            .setMessage(R.string.clear_cache_confirm)
-            .setPositiveButton(R.string.confirm) { _, _ ->
+        showDarkDialog(
+            title = getString(R.string.clear_cache_title),
+            message = getString(R.string.clear_cache_confirm),
+            positiveText = getString(R.string.confirm),
+            negativeText = getString(R.string.user_cancel),
+            onPositive = {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
                         cacheManager.clearAllCache()
@@ -392,8 +432,7 @@ class HistoryFragment : Fragment() {
                     }
                 }
             }
-            .setNegativeButton(R.string.user_cancel, null)
-            .show()
+        )
     }
 
     /**
@@ -420,15 +459,15 @@ class HistoryFragment : Fragment() {
                 val hasMultiVariant = session.entries.any { it.variantCount > 1 }
 
                 if (hasMultiVariant) {
-                    // Just warn, download ALL variants by default
                     withContext(Dispatchers.Main) {
-                        AlertDialog.Builder(requireContext())
-                            .setMessage("该进程组包含多个尺寸的翻译结果，将全部下载。")
-                            .setPositiveButton("全部下载") { _, _ ->
+                        showDarkDialog(
+                            message = "该进程组包含多个尺寸的翻译结果，将全部下载。",
+                            positiveText = "全部下载",
+                            negativeText = "取消",
+                            onPositive = {
                                 lifecycleScope.launch { doDownloadSession(session) }
                             }
-                            .setNegativeButton("取消", null)
-                            .show()
+                        )
                     }
                 } else {
                     doDownloadSession(session)

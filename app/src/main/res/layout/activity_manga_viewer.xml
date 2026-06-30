@@ -82,7 +82,8 @@
             android:layout_marginEnd="8dp"
             android:background="#66000000"
             android:paddingHorizontal="8dp"
-            android:visibility="gone" />
+            android:visibility="gone"
+            android:popupBackground="@drawable/popup_rounded_dark" />
 
         <!-- 占位弹簧 -->
         <View

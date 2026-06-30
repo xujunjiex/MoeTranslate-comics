@@ -28,27 +28,14 @@
             app:tabSelectedTextColor="#333333"
             app:tabTextColor="#888888" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btn_refresh_history"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/refresh_history"
-            android:textColor="#55AEEA"
-            android:textSize="14sp"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
-
-        <TextView
-            android:id="@+id/btn_clear_history"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/clear_history"
-            android:textColor="#F44336"
-            android:textSize="14sp"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_popup_sync"
+            android:tint="#55AEEA"
+            android:contentDescription="@string/refresh_history" />
 
         <ImageButton
             android:id="@+id/btn_clear_all_cache"
@@ -87,20 +74,16 @@
         android:paddingVertical="4dp"
         android:visibility="gone">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/ocrEngineInputLayout"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+        <AutoCompleteTextView
+            android:id="@+id/spinnerOcrEngine"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="引擎">
-
-            <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                android:id="@+id/spinnerOcrEngine"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="none" />
-
-        </com.google.android.material.textfield.TextInputLayout>
+            android:layout_height="40dp"
+            android:inputType="none"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:background="@drawable/custom_radio_button_background"
+            android:paddingHorizontal="12dp"
+            android:completionThreshold="0" />
     </LinearLayout>
 
     <!-- 内容区域 -->
