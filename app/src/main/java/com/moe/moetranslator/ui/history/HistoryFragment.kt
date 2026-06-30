@@ -260,6 +260,8 @@ class HistoryFragment : Fragment() {
                 prefs.setString("history_retranslate_engine", ocrValues[position])
             }
             setOnClickListener { showDropDown() }
+            // 设置下拉菜单背景
+            setDropDownBackgroundDrawable(resources.getDrawable(R.drawable.popup_rounded_light, requireContext().theme))
         }
     }
 

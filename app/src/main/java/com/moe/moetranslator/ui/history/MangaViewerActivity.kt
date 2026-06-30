@@ -15,12 +15,29 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.viewpager2.widget.ViewPager2
 import com.moe.moetranslator.R
+import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.ActivityMangaViewerBinding
+import com.moe.moetranslator.manga.BubbleRegion
+import com.moe.moetranslator.manga.DetectionBridge
+import com.moe.moetranslator.manga.OverlayRenderer
+import com.moe.moetranslator.manga.TextDirection
+import com.moe.moetranslator.manga.TranslatedBubble
+import com.moe.moetranslator.translate.ScreenshotManager
+import com.moe.moetranslator.translate.TranslationResult
+import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.moetranslator.utils.CustomPreference
+import com.moe.moetranslator.utils.Constants
+import com.moe.moetranslator.utils.KeystoreManager
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.PerceptualHash
+import com.moe.moetranslator.me.ConfigurationStorage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -125,19 +142,12 @@ class MangaViewerActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
 
-        // 重新翻译按钮 — 直接发广播，不弹裁剪界面
+        // 重新翻译按钮 — 独立 OCR+翻译+渲染流程，不需要 MangaFloatingService
         binding.btnRetranslate.setOnClickListener {
             val entry = getCurrentVariant()
-            if (!com.moe.moetranslator.utils.ServiceUtils.isServiceRunning(
-                    this, com.moe.moetranslator.manga.MangaFloatingService::class.java
-                )) {
-                com.moe.moetranslator.utils.UiUtils.showToast(this,"请先启动漫画翻译")
-                return@setOnClickListener
-            }
-
             val originalPath = entry.originalImagePath
             if (originalPath.isNullOrEmpty() || !java.io.File(originalPath).exists()) {
-                com.moe.moetranslator.utils.UiUtils.showToast(this,"原图不可用")
+                com.moe.moetranslator.utils.UiUtils.showToast(this, "原图不可用")
                 return@setOnClickListener
             }
 
@@ -147,9 +157,98 @@ class MangaViewerActivity : AppCompatActivity() {
                     com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "无裁剪信息")
                     return@launch
                 }
-                com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "已发送重翻请求")
-                sendRetranslateRequest(originalPath, entry.id, entry.pHash,
-                    cache.cropLeft, cache.cropTop, cache.cropRight, cache.cropBottom)
+
+                binding.btnRetranslate.isEnabled = false
+                try {
+                    withContext(Dispatchers.IO) {
+                        // 1. Load + crop original image
+                        val original = BitmapFactory.decodeFile(originalPath) ?: throw Exception("原图加载失败")
+                        val cropRect = android.graphics.RectF(
+                            cache.cropLeft.toFloat(), cache.cropTop.toFloat(),
+                            cache.cropRight.toFloat(), cache.cropBottom.toFloat()
+                        )
+                        val cropped = ScreenshotManager.cropBitmap(original, cropRect, android.graphics.Point(0, 0))
+
+                        // 2. Read engine config
+                        val prefs = CustomPreference.getInstance(this@MangaViewerActivity)
+                        val detEngine = prefs.getInt("Manga_Det_Engine", 4)
+                        val ocrEngine = prefs.getInt("Manga_Ocr_Engine", 4)
+                        val sourceLang = prefs.getString("Manga_Source_Language", "ja") ?: "ja"
+                        val targetLang = prefs.getString("Manga_Target_Language", "zh") ?: "zh"
+
+                        // 3. OCR via DetectionBridge
+                        val ocrResults = DetectionBridge.runOCR(
+                            cropped, sourceLang, detEngine, ocrEngine, this@MangaViewerActivity
+                        )
+                        if (ocrResults.isEmpty()) throw Exception("OCR 未识别到文字")
+
+                        // 4. Convert to BubbleRegion
+                        val bubbles = ocrResults.filter { it.boundingBox != null }.map { block ->
+                            val rect = block.boundingBox!!
+                            val isVertical = block.isVertical ?: (rect.height() > rect.width())
+                            BubbleRegion(
+                                rect = rect,
+                                texts = listOf(block.text),
+                                fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
+                                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                                angle = block.angle,
+                                centerX = block.centerX,
+                                centerY = block.centerY
+                            )
+                        }
+                        if (bubbles.isEmpty()) throw Exception("无有效文字区域")
+
+                        // 5. Create translator
+                        val translator = createTranslatorFromPrefs(prefs)
+                            ?: throw Exception("翻译器创建失败")
+
+                        // 6. Translate
+                        val translatedBubbles = translateBubblesBatch(translator, bubbles, sourceLang, targetLang)
+                        if (translatedBubbles.isEmpty()) throw Exception("翻译失败")
+
+                        // 7. Render
+                        val rendered = OverlayRenderer.renderOverlay(
+                            original = cropped,
+                            regions = translatedBubbles,
+                            fontSize = prefs.getFloat("Manga_Font_Size", 16f),
+                            autoFit = prefs.getBoolean("Manga_Auto_Font_Size", true),
+                            textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
+                            bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
+                        )
+
+                        // 8. Save — replace old variant
+                        val ocrTexts = bubbles.map { it.texts.first() }
+                        val numberedText = ocrTexts.mapIndexed { i, t -> "[${i + 1}] $t" }.joinToString("\n")
+                        val transText = translatedBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+
+                        cacheManager.refreshCache(entry.id,
+                            CacheEntry(
+                                type = TranslationCacheManager.MODE_MANGA,
+                                sourceText = numberedText,
+                                translatedText = transText,
+                                resultBitmap = rendered,
+                                sourceLang = sourceLang,
+                                targetLang = targetLang,
+                                translatorName = "重翻",
+                                pHash = entry.pHash,
+                                sessionId = "",
+                                lastSessionId = "",
+                                cropLeft = cache.cropLeft,
+                                cropTop = cache.cropTop,
+                                cropRight = cache.cropRight,
+                                cropBottom = cache.cropBottom,
+                                isRetranslated = true,
+                            ), originalBitmap = original
+                        )
+                    }
+                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "重新翻译完成")
+                    loadData(savedClickedEntryId, savedEntryIds)
+                } catch (e: Exception) {
+                    LogCollector.e(TAG, "Retranslate failed", e)
+                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, e.message ?: "重新翻译失败")
+                } finally {
+                    binding.btnRetranslate.isEnabled = true
+                }
             }
         }
 
@@ -290,40 +389,113 @@ class MangaViewerActivity : AppCompatActivity() {
     }
 
     /**
-     * 发送重新翻译请求（广播），并注册完成接收器。
+     * 批量翻译气泡文本（单个请求），解析编号格式的译文。
      */
-    private fun sendRetranslateRequest(imagePath: String, historyIdToDelete: Long, existingPHash: Long,
-                                       cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int) {
-        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(this)
-        val intent = android.content.Intent("com.moe.moetranslator.RETRANSLATE_REQUEST").apply {
-            putExtra("originalImagePath", imagePath)
-            putExtra("historyIdToDelete", historyIdToDelete)
-            putExtra("existingPHash", existingPHash)
-            putExtra("cropLeft", cropLeft)
-            putExtra("cropTop", cropTop)
-            putExtra("cropRight", cropRight)
-            putExtra("cropBottom", cropBottom)
-            putExtra("ocrEngine", prefs.getString("history_retranslate_engine", "PP_OCR_V5"))
-        }
-        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    private suspend fun translateBubblesBatch(
+        translator: TranslationTextAPI,
+        bubbles: List<BubbleRegion>,
+        sourceLang: String,
+        targetLang: String
+    ): List<TranslatedBubble> {
+        val sourceText = bubbles.mapIndexed { i, b -> "[${i + 1}] ${b.texts.first()}" }.joinToString("\n")
 
-        val receiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
-                androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this@MangaViewerActivity)
-                    .unregisterReceiver(this)
-                val success = intent?.getBooleanExtra("success", false) ?: false
-                val errorMessage = intent?.getStringExtra("errorMessage")
-                runOnUiThread {
-                    val msg = if (success) "重新翻译完成" else (errorMessage ?: "重新翻译失败")
-                    com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, msg)
-                    if (success) {
-                        lifecycleScope.launch { loadData(savedClickedEntryId, savedEntryIds) }
+        val translatedText = suspendCancellableCoroutine<String> { cont ->
+            translator.getTranslation(sourceText, sourceLang, targetLang) { result ->
+                when (result) {
+                    is TranslationResult.Success -> {
+                        if (cont.isActive) cont.resume(result.translatedText)
+                    }
+                    is TranslationResult.Error -> {
+                        if (cont.isActive) cont.resume("")
                     }
                 }
             }
         }
-        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
-            .registerReceiver(receiver, android.content.IntentFilter("com.moe.moetranslator.RETRANSLATE_COMPLETE"))
+        if (translatedText.isEmpty()) return emptyList()
+
+        val transLines = translatedText.split("\n").mapNotNull { line ->
+            val m = Regex("""^\[(\d+)]\s*(.*)$""").find(line.trim())
+            if (m != null) m.groupValues[1].toIntOrNull()?.let { it to m.groupValues[2] } else null
+        }
+        val transMap = transLines.toMap()
+
+        return bubbles.mapIndexed { i, bubble ->
+            TranslatedBubble(
+                rect = bubble.rect,
+                originalText = bubble.texts.first(),
+                translatedText = transMap[i + 1] ?: bubble.texts.first(),
+                backgroundColor = android.graphics.Color.TRANSPARENT,
+                fontSize = bubble.fontSize,
+                direction = bubble.direction,
+                angle = bubble.angle,
+                centerX = bubble.centerX,
+                centerY = bubble.centerY
+            )
+        }
+    }
+
+    /**
+     * 根据当前偏好设置创建翻译器实例。
+     * 与 MangaFloatingService.initTranslator 一致的逻辑。
+     */
+    private fun createTranslatorFromPrefs(prefs: CustomPreference): TranslationTextAPI? {
+        val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
+        val textAI = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
+        return when (textApi) {
+            Constants.TextApi.AI.id -> when (textAI) {
+                Constants.TextAI.MLKIT.id -> translationapi.mlkittranslation.MLKitTranslation()
+                Constants.TextAI.NLLB.id -> translationapi.nllbtranslation.NLLBTranslation(this)
+                else -> null
+            }
+            Constants.TextApi.BING.id -> translationapi.bingtranslation.BingTranslation()
+            Constants.TextApi.NIUTRANS.id -> {
+                val key = KeystoreManager.retrieveKey(this, "Niutrans") ?: return null
+                translationapi.niutrans.NiuTranslation(key)
+            }
+            Constants.TextApi.OPENAI.id -> {
+                val providerList = ConfigurationStorage.loadAllProviders(prefs)
+                val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
+                val provider = providerList.getOrNull(selectedIndex) ?: return null
+                translationapi.openaitranslation.OpenAITranslation(
+                    apiKey = provider.apiKey,
+                    baseUrl = provider.baseUrl,
+                    model = provider.modelName,
+                    systemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt },
+                    userPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt },
+                    continuationType = provider.continuationType,
+                    prefillContent = if (provider.continuationType != com.moe.moetranslator.me.OpenAIProviderConfig.CONTINUATION_NONE) "[1] " else ""
+                )
+            }
+            Constants.TextApi.VOLC.id -> {
+                val account = KeystoreManager.retrieveKey(this, "Volc_ACCOUNT") ?: return null
+                val secret = KeystoreManager.retrieveKey(this, "Volc_SECRETKEY") ?: return null
+                translationapi.volctranslation.VolcTranslation(account, secret)
+            }
+            Constants.TextApi.AZURE.id -> {
+                val key = KeystoreManager.retrieveKey(this, "Azure") ?: return null
+                translationapi.azuretranslation.AzureTranslation(key)
+            }
+            Constants.TextApi.DEEPL.id -> {
+                val host = KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST") ?: return null
+                val key = KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY") ?: return null
+                translationapi.deepltranslation.DeepLTranslation(host, key)
+            }
+            Constants.TextApi.BAIDU.id -> {
+                val account = KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT") ?: return null
+                val secret = KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY") ?: return null
+                translationapi.baidutranslation.BaiduTranslationText(account, secret)
+            }
+            Constants.TextApi.TENCENT.id -> {
+                val account = KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT") ?: return null
+                val secret = KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY") ?: return null
+                translationapi.tencentcloud.TencentTranslationText(account, secret)
+            }
+            Constants.TextApi.CUSTOM_TEXT.id -> {
+                val textConfig = ConfigurationStorage.loadTextConfig(prefs, prefs.getInt("Custom_Text_API", 0))
+                if (textConfig != null) translationapi.customtranslation.CustomTranslationText(textConfig) else null
+            }
+            else -> null
+        }
     }
 
     private fun getImageDimensions(path: String?): String {

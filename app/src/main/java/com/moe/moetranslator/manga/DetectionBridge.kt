@@ -1064,6 +1064,55 @@ object DetectionBridge {
     }
 
     /**
+     * 统一 OCR 入口：根据检测引擎和 OCR 引擎整数 ID 自动路由到对应检测+识别方法。
+     * 供 MangaViewerActivity 等非服务组件直接调用。
+     *
+     * @param bitmap 输入图片
+     * @param language 语言代码
+     * @param detEngine 检测引擎整数 ID（对应 DetEngine.value）
+     * @param ocrEngine OCR 引擎整数 ID（对应 OcrEngine.value）
+     * @param context Context
+     * @return TextBlockInfo 列表
+     */
+    suspend fun runOCR(
+        bitmap: Bitmap,
+        language: String,
+        detEngine: Int,
+        ocrEngine: Int,
+        context: Context
+    ): List<TextBlockInfo> {
+        val det = DetEngine.fromValue(detEngine)
+        val ocr = OcrEngine.fromValue(ocrEngine)
+        return when (det) {
+            DetEngine.CTD -> {
+                val ctdOcr = when (ocr) {
+                    OcrEngine.MLKit -> CTDOCREngine.MLKit
+                    OcrEngine.MangaOcr -> CTDOCREngine.MangaOcr
+                    OcrEngine.PPOcrV5 -> CTDOCREngine.PPOcrV5
+                }
+                detectWithCTD(bitmap, language, ctdOcr, context)
+            }
+            DetEngine.MLKIT -> {
+                when (ocr) {
+                    OcrEngine.MangaOcr -> MangaOcrBridge.recognizeWithLocation(bitmap, language)
+                    else -> OCRBridge.recognizeWithLocation(language, bitmap)
+                }
+            }
+            DetEngine.RT_DETR_V2 -> {
+                val rtdetrOcr = when (ocr) {
+                    OcrEngine.MLKit -> CTDOCREngine.MLKit
+                    OcrEngine.MangaOcr -> CTDOCREngine.MangaOcr
+                    OcrEngine.PPOcrV5 -> CTDOCREngine.PPOcrV5
+                }
+                detectWithRTDetrV2(bitmap, language, rtdetrOcr, context)
+            }
+            DetEngine.PP_OCR_V5 -> {
+                detectWithPPOcrV5(bitmap, language, context)
+            }
+        }
+    }
+
+    /**
      * PP-OCRv5 增量渲染：det 检测全部文字行 → 逐行裁剪。
      * 不做 cls/rec/分组，后续分批识别 + TextLineMerger 合并。
      *

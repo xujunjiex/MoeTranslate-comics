@@ -6,10 +6,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.widget.Toast
@@ -35,7 +33,6 @@ import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.moetranslator.MainActivity
 import com.moe.moetranslator.R
 import com.moe.moetranslator.bridge.OCRBridge
@@ -116,10 +113,6 @@ class MangaFloatingService : LifecycleService() {
         const val INCREMENTAL_THRESHOLD = 6       // 触发分批的气泡数量阈值
         const val CLUSTER_THRESHOLD = 250f        // 空间聚类加权距离阈值
 
-        // 重新翻译广播 Action
-        const val ACTION_RETRANSLATE_REQUEST = "com.moe.moetranslator.RETRANSLATE_REQUEST"
-        const val ACTION_RETRANSLATE_COMPLETE = "com.moe.moetranslator.RETRANSLATE_COMPLETE"
-
         // 当前加载的 manga-ocr 版本，用于日志
         @Volatile
         var currentLoadedMangaOcrVersion: String = "unknown"
@@ -165,9 +158,6 @@ class MangaFloatingService : LifecycleService() {
 
     // 翻译状态提示条
     private lateinit var statusOverlay: TranslationStatusOverlay
-
-    // 重新翻译广播接收器
-    private var retranslateReceiver: BroadcastReceiver? = null
 
     // SharedPreferences listener（防止被 GC 回收）
     private var prefChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
@@ -292,9 +282,6 @@ class MangaFloatingService : LifecycleService() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        // 注册重新翻译广播接收器
-        registerRetranslateReceiver()
-
         // 先初始化截图提供者，权限检查在 UI 初始化之前
         initScreenshotProvider()
 
@@ -369,11 +356,6 @@ class MangaFloatingService : LifecycleService() {
         translatorText?.release()
         autoTranslateHandler.removeCallbacksAndMessages(null)
         clearRegionCache()
-
-        // 注销重新翻译广播接收器
-        retranslateReceiver?.let {
-            LocalBroadcastManager.getInstance(this).unregisterReceiver(it)
-        }
 
         // 取消所有协程，等待正在执行的 ONNX 推理完成后再释放资源
         // 防止 session.close() 和 session.run() 并发导致 native 内存损坏
@@ -5196,169 +5178,6 @@ class MangaFloatingService : LifecycleService() {
             super.onMeasure(widthMeasureSpec, limitSpec)
         }
     }
-
-    // ========== 重新翻译（广播接收器） ==========
-
-    /**
-     * 注册重新翻译请求广播接收器。
-     * 历史页面发送 ACTION_RETRANSLATE_REQUEST 触发重新翻译流程。
-     */
-    private fun registerRetranslateReceiver() {
-        retranslateReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action != ACTION_RETRANSLATE_REQUEST) return
-                handleRetranslateRequest(intent)
-            }
-        }
-        LocalBroadcastManager.getInstance(this)
-            .registerReceiver(retranslateReceiver!!, IntentFilter(ACTION_RETRANSLATE_REQUEST))
-    }
-
-    /**
-     * 处理重新翻译请求。
-     * 从 Intent 获取原图路径、裁剪坐标、OCR 引擎和翻译提供商，
-     * 执行完整的 OCR → 翻译 → 渲染 → 缓存流程。
-     */
-    private fun handleRetranslateRequest(intent: Intent) {
-        val originalImagePath = intent.getStringExtra("originalImagePath") ?: run {
-            sendRetranslateComplete(success = false, errorMessage = "原图路径为空")
-            return
-        }
-        val cropLeft = intent.getIntExtra("cropLeft", 0)
-        val cropTop = intent.getIntExtra("cropTop", 0)
-        val cropRight = intent.getIntExtra("cropRight", 0)
-        val cropBottom = intent.getIntExtra("cropBottom", 0)
-        val ocrEngineName = intent.getStringExtra("ocrEngine") ?: "PP_OCR_V5"
-        val historyIdToDelete = intent.getLongExtra("historyIdToDelete", 0)
-        val existingPHash = intent.getLongExtra("existingPHash", 0)
-        if (isProcessing) {
-            sendRetranslateComplete(success = false, errorMessage = "翻译进行中，请稍后")
-            return
-        }
-
-        isProcessing = true
-        lifecycleScope.launch {
-            var originalBitmap: android.graphics.Bitmap? = null
-            var croppedBitmap: android.graphics.Bitmap? = null
-            var renderedBitmap: android.graphics.Bitmap? = null
-
-            try {
-                // 1. Load original image
-                originalBitmap = android.graphics.BitmapFactory.decodeFile(originalImagePath)
-                if (originalBitmap == null) {
-                    sendRetranslateComplete(success = false, errorMessage = "原图加载失败")
-                    isProcessing = false
-                    return@launch
-                }
-
-                // 2. Crop
-                val cropRectF = android.graphics.RectF(cropLeft.toFloat(), cropTop.toFloat(), cropRight.toFloat(), cropBottom.toFloat())
-                croppedBitmap = ScreenshotManager.cropBitmap(originalBitmap!!, cropRectF, android.graphics.Point(0, 0))
-
-                // 3. Save current engine config and temporarily switch
-                val savedDetEngine = config.detEngine
-                val savedOcrEngine = config.ocrEngine
-                when (ocrEngineName) {
-                    "MLKIT" -> { config = config.copy(detEngine = DetEngine.MLKIT, ocrEngine = OcrEngine.MLKit) }
-                    "MANGA_OCR" -> { config = config.copy(detEngine = DetEngine.PP_OCR_V5, ocrEngine = OcrEngine.MangaOcr) }
-                    "PP_OCR_V5" -> { config = config.copy(detEngine = DetEngine.PP_OCR_V5, ocrEngine = OcrEngine.PPOcrV5) }
-                }
-
-                try {
-                    // 4. Initialize engines and run OCR
-                    when (config.detEngine) {
-                        DetEngine.CTD -> initCTDIfNeeded()
-                        DetEngine.MLKIT -> {}
-                        DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
-                        DetEngine.PP_OCR_V5 -> initPPOcrV5IfNeeded()
-                    }
-                    when (config.ocrEngine) {
-                        OcrEngine.MLKit -> {}
-                        OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
-                        OcrEngine.PPOcrV5 -> initPPOcrV5IfNeeded()
-                    }
-
-                    val ocrResults = runOcrOnBitmap(croppedBitmap!!)
-
-                    if (ocrResults.isEmpty()) {
-                        sendRetranslateComplete(success = false, errorMessage = "OCR 未识别到文字")
-                        isProcessing = false
-                        return@launch
-                    }
-
-                    // 5. Check translator is available (use service's current translator)
-                    if (translatorText == null) {
-                        sendRetranslateComplete(success = false, errorMessage = "翻译器未初始化")
-                        isProcessing = false
-                        return@launch
-                    }
-
-                    // 6. Convert TextBlockInfo to BubbleRegion (matching processMangaScreenshot Step 2)
-                    val allBubbles = ocrResults.filter { it.boundingBox != null }.map { block ->
-                        val rect = block.boundingBox!!
-                        val isVertical = block.isVertical ?: (rect.height() > rect.width())
-                        BubbleRegion(
-                            rect = rect,
-                            texts = listOf(block.text),
-                            fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                            direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
-                            angle = block.angle,
-                            centerX = block.centerX,
-                            centerY = block.centerY
-                        )
-                    }
-                    if (allBubbles.isEmpty()) {
-                        sendRetranslateComplete(success = false, errorMessage = "OCR 未识别到文字区域")
-                        isProcessing = false
-                        return@launch
-                    }
-
-                    // 7. Reuse translateBubbles + renderAndShowMergedOverlay instead of duplicate pipeline
-                    currentPHash = if (existingPHash != 0L) existingPHash else PerceptualHash.compute(originalBitmap!!, centerCrop = true)
-                    val newBubbles = translateBubbles(allBubbles)
-                    renderAndShowMergedOverlay(
-                        original = croppedBitmap!!,
-                        newBubbles = newBubbles,
-                        saveCache = true,
-                        isRetranslate = true,
-                        historyIdToDelete = historyIdToDelete,
-                        originalBitmap = originalBitmap!!,
-                        cropLeft = cropLeft,
-                        cropTop = cropTop,
-                        cropRight = cropRight,
-                        cropBottom = cropBottom
-                    )
-
-                    sendRetranslateComplete(success = true)
-                } finally {
-                    // P0 #1: Restore engine config even on exception
-                    config = config.copy(detEngine = savedDetEngine, ocrEngine = savedOcrEngine)
-                }
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "Retranslate failed", e)
-                sendRetranslateComplete(success = false, errorMessage = e.message ?: "未知错误")
-            } finally {
-                // P0 #2: Recycle bitmaps
-                originalBitmap?.recycle()
-                croppedBitmap?.recycle()
-                renderedBitmap?.recycle()
-                isProcessing = false
-            }
-        }
-    }
-
-    /**
-     * 发送重新翻译完成广播。
-     */
-    private fun sendRetranslateComplete(success: Boolean, errorMessage: String? = null, historyId: Long = 0L) {
-        val intent = Intent(ACTION_RETRANSLATE_COMPLETE).apply {
-            putExtra("success", success)
-            if (historyId > 0) putExtra("historyId", historyId)
-            putExtra("errorMessage", errorMessage)
-        }
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-    }
-
 
     /**
      * 对 bitmap 运行检测+OCR，返回带位置信息的文字块列表。
