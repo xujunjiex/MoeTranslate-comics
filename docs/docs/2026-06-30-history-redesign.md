@@ -13,10 +13,10 @@
 
 ### 核心原则
 
-1. 重翻必须在漫画翻译进程（MangaFloatingService）启动后执行
+1. 重翻必须在漫画翻译进程（MangaFloatingService）启动后执行；未启动时广播丢失，HistoryFragment 收到超时后提示"请先启动漫画翻译"
 2. HistoryFragment 只做裁剪发起，OCR/翻译/渲染全交给 Service
 3. 不新增独立翻译管道，复用 Service 现有能力
-4. Service 通过 `isProcessing` 串行化所有翻译任务
+4. Service 通过 `isProcessing` 串行化所有翻译任务，重翻请求到来时如果正忙则拒绝
 
 ---
 
@@ -110,6 +110,10 @@
 - 同 pHash 多变体时，下拉选择器切换当前显示的变体
 - 切换时同步更新：缩略图、尺寸信息、翻译结果文本
 - 原文/译文切换基于当前选中变体
+- **删除此尺寸**：删除当前选中的变体
+  - 删除该变体的 imagePath/thumbnailPath 文件 + PageCache 条目 + History 记录
+  - 如果该 pHash 组只剩一个变体 → 删除整组
+  - 如果删除的是代表变体（representative）→ 换下一个变体为代表
 
 ---
 
@@ -118,7 +122,8 @@
 ### 入口
 
 - 管理视图每条记录有"重新翻译"按钮
-- 悬浮窗翻译进行中（`isProcessing=true`）时按钮置灰
+- 按钮发送请求后立即置灰（防止重复点击），收到完成广播后恢复
+- 不预先检测悬浮窗状态——Service 收到后如果正忙（isProcessing=true），直接回复 COMPLETE(success=false)，Fragment 弹 Toast"翻译进行中，请稍后"
 
 ### 流程
 
@@ -154,10 +159,17 @@ HistoryFragment 收到完成广播 → 刷新列表
 
 ### 裁剪界面
 
-- Fragment 内全屏显示原图
-- 复用 CropView 的框选逻辑（setRect/mRect/onConfirmCrop）
-- 确认后计算 cropRect（绝对像素坐标），发广播
-- 用当前裁剪：cropRect 直接从 PageCacheEntity 的 cropLeft/Top/Right/Bottom 读取
+- 使用新的 Fragment（`CropFragment`），全屏显示原图，支持缩放手势
+- 复用 `CropView` 的框选逻辑（setRect/mRect/onConfirmCrop），宿主改为 Fragment 的 ViewGroup
+- 确认后计算 cropRect（原图像素坐标），回传给 HistoryFragment，然后发广播
+- 用当前裁剪：cropRect 直接从 PageCacheEntity 的 cropLeft/Top/Right/Bottom 读取，自动套用，用户可微调
+
+### 重翻完成后
+
+- Service 删除被替换的旧变体文件（imagePath/thumbnailPath）
+- Service 删除旧变体的 PageCache + History 记录
+- 新记录使用新 historyId，继承旧 sessionId，isRetranslated=true
+- 发 RETRANSLATE_COMPLETE 广播，HistoryFragment 刷新列表
 
 ### 结果
 
@@ -174,12 +186,14 @@ HistoryFragment 收到完成广播 → 刷新列表
 ## 五、进程组下载
 
 - 管理视图每个进程组有下载按钮
+- 使用 `java.util.zip.ZipOutputStream` 打包，无需第三方库
 - 流程：
-  1. 点击下载
-  2. 如果组内某 pHash 记录有多尺寸变体 → 弹窗让用户选保留哪个尺寸
-  3. 所有单尺寸 + 用户选择的多尺寸 → 打包 ZIP
-  4. 通过 ShareSheet 或保存到相册
-- ZIP 内容：仅渲染结果图（JPEG）
+  1. 点击下载 → 弹出进度对话框
+  2. 后台线程：遍历组内所有 pHash 组
+  3. 如果某 pHash 有多个尺寸变体 → 切回主线程弹窗让用户选保留哪个
+  4. 将选中变体的渲染结果图（imagePath）加入 ZIP
+  5. 写入临时文件 → 通过 FileProvider 或 ShareSheet 让用户保存/分享
+- ZIP 内容：仅渲染结果图（JPEG），文件名为 `{sessionId}_{index}.jpg`
 
 ---
 
@@ -267,7 +281,13 @@ action: "com.moe.moetranslator.RETRANSLATE_COMPLETE"
 extras:
   success: Boolean
   historyId: Long              // 新记录的 historyId（success=true 时有效）
+  errorMessage: String?         // success=false 时的错误信息
 ```
+
+### 超时处理
+
+- HistoryFragment 发送请求后启动 30 秒超时计时器
+- 超时未收到回复 → 视为"漫画翻译服务未启动"，提示用户先启动翻译
 
 ---
 
@@ -278,9 +298,11 @@ extras:
 | `HistoryEntity.kt` | 修改 | 新增 2 字段 |
 | `PageCacheEntity.kt` | 修改 | 新增 cropLeft/cropTop/cropRight/cropBottom（替代仅存宽高的 cropWidth/cropHeight）|
 | `TranslationCacheManager.kt` | 修改 | saveToCache 新增 originalBitmap、cropRect 参数 |
-| `HistoryFragment.kt` | 大改 | 视图切换、管理视图 UI、裁剪、广播 |
+| `HistoryFragment.kt` | 大改 | 视图切换、管理视图 UI、广播收发 |
+| `CropFragment.kt` | 新建 | 重翻裁剪界面（全屏原图 + CropView 逻辑） |
 | `MangaFloatingService.kt` | 修改 | 接收广播、retranslate 方法 |
-| `fragment_history.xml` | 修改 | 视图 Tab、引擎选择器、裁剪容器 |
+| `fragment_history.xml` | 修改 | 视图 Tab、引擎选择器 |
+| `fragment_crop.xml` | 新建 | 裁剪界面布局 |
 | `strings.xml` | 修改 | 新增文案 |
 | `TranslationHistoryDatabase.kt` | 修改 | DB 版本 8→9、Migration |
 
