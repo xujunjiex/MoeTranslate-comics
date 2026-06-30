@@ -69,6 +69,40 @@
             android:contentDescription="Settings" />
     </LinearLayout>
 
+    <!-- 视图模式 Tab 和引擎选择器 -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/viewModeTabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?android:colorBackground"
+        app:tabMode="fixed"
+        app:tabGravity="fill" />
+
+    <LinearLayout
+        android:id="@+id/engineSelectorLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp"
+        android:visibility="gone">
+
+        <Spinner
+            android:id="@+id/spinnerOcrEngine"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp" />
+
+        <Spinner
+            android:id="@+id/spinnerTranslateApi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp" />
+
+    </LinearLayout>
+
     <!-- 内容区域 -->
     <FrameLayout
         android:layout_width="match_parent"

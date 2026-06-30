@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -18,6 +20,7 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.FragmentHistoryBinding
+import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.utils.LogCollector
 import kotlinx.coroutines.launch
 
@@ -55,6 +58,8 @@ class HistoryFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         setupTabs()
+        setupViewModeTabs()
+        setupEngineSelectors()
         setupRecyclerViews()
         setupClearButton()
         setupClearAllCacheButton()
@@ -244,7 +249,74 @@ class HistoryFragment : Fragment() {
             .show()
     }
 
+    private fun setupViewModeTabs() {
+        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+
+        binding.viewModeTabLayout.addTab(binding.viewModeTabLayout.newTab().setText("默认视图"))
+        binding.viewModeTabLayout.addTab(binding.viewModeTabLayout.newTab().setText("管理视图"))
+
+        val savedMode = prefs.getString("history_view_mode", "default")
+        if (savedMode == "manage") {
+            binding.viewModeTabLayout.selectTab(binding.viewModeTabLayout.getTabAt(1))
+        }
+
+        binding.viewModeTabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                val isManage = tab?.position == 1
+                prefs.setString("history_view_mode", if (isManage) "manage" else "default")
+                updateEngineSelectorVisibility()
+                loadHistory()
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabReselected(tab: TabLayout.Tab?) {}
+        })
+    }
+
+    private fun setupEngineSelectors() {
+        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+
+        // OCR Engine spinner
+        val ocrEngines = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
+        val ocrValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
+        val savedOcr = prefs.getString("history_ocr_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
+        val ocrIdx = ocrValues.indexOfFirst { it == savedOcr }.coerceAtLeast(0)
+
+        binding.spinnerOcrEngine.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, ocrEngines)
+        binding.spinnerOcrEngine.setSelection(ocrIdx)
+        binding.spinnerOcrEngine.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.setString("history_ocr_engine", ocrValues[position])
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        // Translation provider spinner
+        val providerList = ConfigurationStorage.loadAllProviders(prefs)
+        val providerNames = providerList.map { it.modelName }
+        if (providerNames.isEmpty()) {
+            binding.spinnerTranslateApi.isEnabled = false
+            return
+        }
+        val savedIdx = prefs.getString("history_openai_provider_index", "0")?.toIntOrNull()?.coerceAtMost(providerNames.size - 1) ?: 0
+        binding.spinnerTranslateApi.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, providerNames.toTypedArray())
+        binding.spinnerTranslateApi.setSelection(savedIdx)
+        binding.spinnerTranslateApi.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.setString("history_openai_provider_index", position.toString())
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun updateEngineSelectorVisibility() {
+        val prefs = com.moe.moetranslator.utils.CustomPreference.getInstance(requireContext())
+        val isManageView = prefs.getString("history_view_mode", "default") == "manage"
+        val isMangaTab = currentTab == TranslationCacheManager.MODE_MANGA
+        binding.engineSelectorLayout.visibility = if (isManageView && isMangaTab) View.VISIBLE else View.GONE
+    }
+
     private fun switchTab(tab: Int) {
+        currentTab = tab
         when (tab) {
             TranslationCacheManager.MODE_GAME -> {
                 binding.rvGameHistory.visibility = View.VISIBLE
@@ -255,6 +327,7 @@ class HistoryFragment : Fragment() {
                 binding.rvMangaHistory.visibility = View.VISIBLE
             }
         }
+        updateEngineSelectorVisibility()
         loadHistory()
     }
 
