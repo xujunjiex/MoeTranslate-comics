@@ -96,9 +96,12 @@ class HistoryMangaAdapter(
         private val tvTranslatorName: TextView = view.findViewById(R.id.tv_translator_name)
         private val tvTime: TextView = view.findViewById(R.id.tv_time)
         private val tvSizeBadge: TextView = view.findViewById(R.id.tv_size_badge)
+        private val btnToggleImage: TextView = view.findViewById(R.id.btnToggleImage)
+        private var showingOriginal = false
 
         fun bind(grouped: GroupedHistoryEntry) {
             val entry = grouped.representative
+            showingOriginal = false
 
             // 加载缩略图
             if (entry.thumbnailPath != null && File(entry.thumbnailPath).exists()) {
@@ -106,6 +109,24 @@ class HistoryMangaAdapter(
                 ivThumbnail.setImageBitmap(bitmap)
             } else {
                 ivThumbnail.setImageBitmap(null)
+            }
+
+            // 原图/译文切换
+            if (!entry.originalImagePath.isNullOrEmpty()) {
+                btnToggleImage.visibility = View.VISIBLE
+                btnToggleImage.text = "📷"
+                btnToggleImage.setOnClickListener {
+                    showingOriginal = !showingOriginal
+                    btnToggleImage.text = if (showingOriginal) "📄" else "📷"
+                    val path = if (showingOriginal) entry.originalImagePath else (entry.imagePath ?: entry.thumbnailPath)
+                    if (path != null && File(path).exists()) {
+                        val bmp = BitmapFactory.decodeFile(path)
+                        ivThumbnail.setImageBitmap(bmp)
+                    }
+                }
+            } else {
+                btnToggleImage.visibility = View.GONE
+                btnToggleImage.setOnClickListener(null)
             }
 
             // pHash 显示（最后 8 位十六进制，小模式缩短前缀）

@@ -48,6 +48,22 @@
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
+
+            <!-- 原图/译文切换按钮 -->
+            <TextView
+                android:id="@+id/btnToggleImage"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:text="📷"
+                android:textSize="16sp"
+                android:gravity="center"
+                android:background="#66000000"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_gravity="end|top"
+                android:layout_marginTop="32dp"
+                android:layout_marginEnd="6dp" />
         </FrameLayout>
 
         <!-- 底部信息：pHash + 翻译器 + 时间 -->
