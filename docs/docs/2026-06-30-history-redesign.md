@@ -74,6 +74,13 @@
 
 独立于悬浮窗配置，互不影响。
 
+引擎选择器仅漫画 tab 显示，游戏 tab 隐藏（游戏翻译不需要重翻）。
+
+### CacheEntry 字段更新
+
+`CacheEntry` 中 `cropWidth: Int`/`cropHeight: Int` 废弃，改为 `cropLeft: Int`/`cropTop: Int`/`cropRight: Int`/`cropBottom: Int`。
+所有构造 `CacheEntry` 的调用处同步更新。
+
 ---
 
 ## 三、管理视图 — 卡片结构
@@ -164,7 +171,7 @@ HistoryFragment 收到完成广播 → 刷新列表
 
 - 使用新的 Fragment（`CropFragment`），全屏显示原图，支持缩放手势
 - 复用 `CropView` 的框选逻辑（setRect/mRect/onConfirmCrop），宿主改为 Fragment 的 ViewGroup
-- 确认后计算 cropRect（原图像素坐标），回传给 HistoryFragment，然后发广播
+- 确认后通过 `setFragmentResult()` 将 cropRect（原图像素坐标）回传给 HistoryFragment
 - 用当前裁剪：cropRect 直接从 PageCacheEntity 的 cropLeft/Top/Right/Bottom 读取，自动套用，用户可微调
 
 ### 重翻完成后
@@ -299,12 +306,16 @@ extras:
 
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
-| `HistoryEntity.kt` | 修改 | 新增 2 字段 |
-| `PageCacheEntity.kt` | 修改 | 新增 cropLeft/cropTop/cropRight/cropBottom（替代仅存宽高的 cropWidth/cropHeight）|
-| `TranslationCacheManager.kt` | 修改 | saveToCache 新增 originalBitmap、cropRect 参数 |
-| `HistoryFragment.kt` | 大改 | 视图切换、管理视图 UI、广播收发 |
-| `CropFragment.kt` | 新建 | 重翻裁剪界面（全屏原图 + CropView 逻辑） |
-| `MangaFloatingService.kt` | 修改 | 接收广播、retranslate 方法 |
+| `HistoryEntity.kt` | 修改 | 新增 `originalImagePath`、`isRetranslated` |
+| `PageCacheEntity.kt` | 修改 | 新增 `cropLeft/cropTop/cropRight/cropBottom`；废弃 `cropWidth/cropHeight` |
+| `HistoryEntry.kt` (data class, 在 TranslationCacheManager.kt 内) | 修改 | 新增 `originalImagePath`、`isRetranslated` |
+| `CacheEntry.kt` (data class, 在 TranslationCacheManager.kt 内) | 修改 | 废弃 `cropWidth/cropHeight`，改用 `cropLeft/cropTop/cropRight/cropBottom` |
+| `TranslationCacheManager.kt` | 修改 | `saveToCache` 新增 `originalBitmap` 参数；`buildCacheResult`/`findCache` 适配新 cropRect 字段 |
+| `HistoryFragment.kt` | 大改 | 视图切换、管理视图 UI、引擎选择、广播收发、裁剪发起 |
+| `HistoryGroupAdapter.kt` | 修改 | 管理视图卡片布局（原文/译文切换、重翻角标、多尺寸下拉、操作按钮） |
+| `HistoryMangaGroupAdapter.kt` | 修改 | 默认视图卡片布局（原文/译文切换） |
+| `CropFragment.kt` | 新建 | 重翻裁剪界面（全屏原图 + CropView 逻辑），结果通过 `setFragmentResult()` 回传 |
+| `MangaFloatingService.kt` | 修改 | 注册/注销 broadcast receiver、retranslate 方法 |
 | `fragment_history.xml` | 修改 | 视图 Tab、引擎选择器 |
 | `fragment_crop.xml` | 新建 | 裁剪界面布局 |
 | `strings.xml` | 修改 | 新增文案 |
