@@ -31,6 +31,7 @@ class MangaViewerActivity : AppCompatActivity() {
         private const val TAG = "MangaViewerActivity"
         const val EXTRA_ENTRY_ID = "entry_id"
         const val EXTRA_ENTRY_IDS = "entry_ids"  // 同 pHash 多尺寸条目
+        const val EXTRA_IS_MANAGE_VIEW = "is_manage_view"
     }
 
     private lateinit var binding: ActivityMangaViewerBinding
@@ -48,6 +49,7 @@ class MangaViewerActivity : AppCompatActivity() {
     private var showingOriginal = false
     private var savedClickedEntryId: Long = -1L
     private var savedEntryIds: LongArray? = null
+    private var isManageView = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +69,7 @@ class MangaViewerActivity : AppCompatActivity() {
         val entryIds = intent.getLongArrayExtra(EXTRA_ENTRY_IDS)
         savedClickedEntryId = clickedEntryId
         savedEntryIds = entryIds
+        isManageView = intent.getBooleanExtra(EXTRA_IS_MANAGE_VIEW, false)
 
         setupViews()
         loadData(clickedEntryId, entryIds)
@@ -148,6 +151,11 @@ class MangaViewerActivity : AppCompatActivity() {
                 sendRetranslateRequest(originalPath, entry.id, entry.pHash,
                     cache.cropLeft, cache.cropTop, cache.cropRight, cache.cropBottom)
             }
+        }
+
+        // 非管理视图隐藏重新翻译按钮
+        if (!isManageView) {
+            binding.btnRetranslate.visibility = View.GONE
         }
 
         // ViewPager 翻页监听

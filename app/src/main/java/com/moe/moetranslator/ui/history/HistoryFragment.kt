@@ -345,7 +345,7 @@ class HistoryFragment : Fragment() {
         onPositive: () -> Unit = {},
         onNegative: (() -> Unit)? = null
     ) {
-        val view = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_dark, null)
+        val view = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_light, null)
         val tvTitle = view.findViewById<TextView>(R.id.dialogTitle)
         val tvMessage = view.findViewById<TextView>(R.id.dialogMessage)
         val btnPositive = view.findViewById<TextView>(R.id.dialogBtnPositive)
@@ -439,9 +439,12 @@ class HistoryFragment : Fragment() {
      * 打开漫画图片浏览页（支持同 pHash 多尺寸切换）
      */
     private fun openMangaViewer(grouped: GroupedHistoryEntry) {
+        val prefs = CustomPreference.getInstance(requireContext())
+        val isManage = prefs.getString("history_view_mode", "default") == "manage"
         val intent = Intent(requireContext(), MangaViewerActivity::class.java).apply {
             putExtra(MangaViewerActivity.EXTRA_ENTRY_ID, grouped.representative.id)
             putExtra(MangaViewerActivity.EXTRA_ENTRY_IDS, grouped.allEntryIds.toLongArray())
+            putExtra(MangaViewerActivity.EXTRA_IS_MANAGE_VIEW, isManage)
         }
         startActivity(intent)
     }
