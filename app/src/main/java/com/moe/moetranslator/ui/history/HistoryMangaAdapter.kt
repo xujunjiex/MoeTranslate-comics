@@ -4,10 +4,7 @@ import android.graphics.BitmapFactory
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.ImageView
-import android.widget.Spinner
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -85,16 +82,11 @@ class HistoryMangaAdapter(
     }
 
     override fun getItemViewType(position: Int): Int {
-        if (isManageView) return 2
         return if (displayMode == "list") 1 else 0
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        val layoutId = when (viewType) {
-            2 -> R.layout.item_history_manga_manage
-            1 -> R.layout.item_history_manga_list
-            else -> R.layout.item_history_manga
-        }
+        val layoutId = if (viewType == 1) R.layout.item_history_manga_list else R.layout.item_history_manga
         val view = LayoutInflater.from(parent.context).inflate(layoutId, parent, false)
         return ViewHolder(view)
     }
@@ -108,13 +100,10 @@ class HistoryMangaAdapter(
         private val tvPhash: TextView = view.findViewById(R.id.tv_phash)
         private val tvTranslatorName: TextView = view.findViewById(R.id.tv_translator_name)
         private val tvTime: TextView = view.findViewById(R.id.tv_time)
+        private val badgeContainer: View = view.findViewById(R.id.badgeContainer)
         private val tvSizeBadge: TextView = view.findViewById(R.id.tv_size_badge)
+        private val tvRetranslateBadge: TextView = view.findViewById(R.id.tvRetranslateBadge)
         private val btnToggleImage: TextView = view.findViewById(R.id.btnToggleImage)
-        // 管理视图特有控件
-        private val tvRetranslateBadge: TextView? = view.findViewById(R.id.tvRetranslateBadge)
-        private val spinnerVariant: Spinner? = view.findViewById(R.id.spinnerVariant)
-        private val btnRetranslate: TextView? = view.findViewById(R.id.btnRetranslate)
-        private val btnDeleteVariant: TextView? = view.findViewById(R.id.btnDeleteVariant)
         private var showingOriginal = false
 
         fun bind(grouped: GroupedHistoryEntry) {
@@ -165,12 +154,20 @@ class HistoryMangaAdapter(
             tvTime.text = if (isSmall) shortDateFormat.format(Date(displayTime))
                           else fullDateFormat.format(Date(displayTime))
 
-            // 尺寸数量徽章
+            // 尺寸数量徽章 + 重新翻译徽章
+            badgeContainer.visibility = View.GONE
+            tvSizeBadge.visibility = View.GONE
+            tvRetranslateBadge.visibility = View.GONE
             if (grouped.groupSize > 1) {
                 tvSizeBadge.text = "×${grouped.groupSize}"
                 tvSizeBadge.visibility = View.VISIBLE
-            } else {
-                tvSizeBadge.visibility = View.GONE
+                badgeContainer.visibility = View.VISIBLE
+            }
+            val retranslateCount = retranslateCountMap[entry.id] ?: 0
+            if (retranslateCount > 0) {
+                tvRetranslateBadge.text = "🔄×$retranslateCount"
+                tvRetranslateBadge.visibility = View.VISIBLE
+                badgeContainer.visibility = View.VISIBLE
             }
 
             // 分组颜色
@@ -185,11 +182,6 @@ class HistoryMangaAdapter(
                 card.setBackgroundTintList(null)
             }
 
-            // 管理视图特有逻辑
-            if (isManageView) {
-                bindManageViews(grouped, entry)
-            }
-
             itemView.setOnClickListener { onItemClick(grouped) }
             itemView.setOnLongClickListener {
                 onItemLongClick(entry)
@@ -197,52 +189,6 @@ class HistoryMangaAdapter(
             }
         }
 
-        private fun bindManageViews(grouped: GroupedHistoryEntry, entry: HistoryEntry) {
-            // 重新翻译计数徽章
-            val retranslateCount = retranslateCountMap[entry.id] ?: 0
-            tvRetranslateBadge?.apply {
-                if (retranslateCount > 0) {
-                    text = "🔄×$retranslateCount"
-                    visibility = View.VISIBLE
-                } else {
-                    visibility = View.GONE
-                }
-            }
-
-            // 尺寸选择 Spinner
-            spinnerVariant?.apply {
-                if (entry.variantIds.isNotEmpty() && entry.variantIds.size > 1) {
-                    val variantLabels = entry.variantIds.mapIndexed { idx, _ ->
-                        itemView.context.getString(R.string.history_variant_label, idx + 1)
-                    }
-                    adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, variantLabels)
-                    visibility = View.VISIBLE
-                    val currentIdx = entry.variantIds.indexOf(entry.id).coerceAtLeast(0)
-                    // 先设置选中，再设置 listener，避免触发回调
-                    setSelection(currentIdx, false)
-                    onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                            if (position >= 0 && position < entry.variantIds.size && position != entry.variantIds.indexOf(entry.id)) {
-                                onSwitchVariant?.invoke(entry, position)
-                            }
-                        }
-                        override fun onNothingSelected(parent: AdapterView<*>?) {}
-                    }
-                } else {
-                    visibility = View.GONE
-                }
-            }
-
-            // 重新翻译按钮
-            btnRetranslate?.setOnClickListener {
-                onRetranslateClick?.invoke(entry)
-            }
-
-            // 删除此尺寸按钮
-            btnDeleteVariant?.setOnClickListener {
-                onDeleteVariantClick?.invoke(entry)
-            }
-        }
     }
 
     class DiffCallback : DiffUtil.ItemCallback<GroupedHistoryEntry>() {

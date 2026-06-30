@@ -25,7 +25,6 @@ import com.moe.moetranslator.R
 import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.FragmentHistoryBinding
-import com.moe.moetranslator.me.ConfigurationStorage
 import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.LogCollector
 import com.moe.moetranslator.utils.ServiceUtils
@@ -284,33 +283,18 @@ class HistoryFragment : Fragment() {
 
     private fun setupEngineSelectors() {
         val prefs = CustomPreference.getInstance(requireContext())
-
-        // OCR Engine
         val ocrEngines = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
         val ocrValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
-        val savedOcr = prefs.getString("history_ocr_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
+        val savedOcr = prefs.getString("history_retranslate_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
         val ocrIdx = ocrValues.indexOfFirst { it == savedOcr }.coerceAtLeast(0)
 
-        val ocrAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, ocrEngines)
-        binding.spinnerOcrEngine.setAdapter(ocrAdapter)
-        binding.spinnerOcrEngine.setText(ocrEngines[ocrIdx], false)
-        binding.spinnerOcrEngine.setOnItemClickListener { _, _, position, _ ->
-            prefs.setString("history_ocr_engine", ocrValues[position])
-        }
-
-        // Translation API
-        val providerList = ConfigurationStorage.loadAllProviders(prefs)
-        val providerNames = providerList.map { it.modelName }
-        if (providerNames.isEmpty()) {
-            binding.spinnerTranslateApi.isEnabled = false
-            return
-        }
-        val savedIdx = prefs.getString("history_openai_provider_index", "0")?.toIntOrNull()?.coerceAtMost(providerNames.size - 1) ?: 0
-        val translateAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, providerNames.toTypedArray())
-        binding.spinnerTranslateApi.setAdapter(translateAdapter)
-        binding.spinnerTranslateApi.setText(providerNames[savedIdx], false)
-        binding.spinnerTranslateApi.setOnItemClickListener { _, _, position, _ ->
-            prefs.setString("history_openai_provider_index", position.toString())
+        (binding.spinnerOcrEngine as? com.google.android.material.textfield.MaterialAutoCompleteTextView)?.apply {
+            val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, ocrEngines)
+            setAdapter(adapter)
+            setText(ocrEngines[ocrIdx], false)
+            setOnItemClickListener { _, _, position, _ ->
+                prefs.setString("history_retranslate_engine", ocrValues[position])
+            }
         }
     }
 
@@ -323,6 +307,12 @@ class HistoryFragment : Fragment() {
 
     private fun switchTab(tab: Int) {
         currentTab = tab
+        // Game tab: hide view mode switching and engine selector
+        val isManga = tab == TranslationCacheManager.MODE_MANGA
+        binding.viewModeTabLayout.visibility = if (isManga) View.VISIBLE else View.GONE
+        if (!isManga) {
+            binding.engineSelectorLayout.visibility = View.GONE
+        }
         when (tab) {
             TranslationCacheManager.MODE_GAME -> {
                 binding.rvGameHistory.visibility = View.VISIBLE
@@ -569,8 +559,7 @@ class HistoryFragment : Fragment() {
             putExtra("cropTop", cropTop)
             putExtra("cropRight", cropRight)
             putExtra("cropBottom", cropBottom)
-            putExtra("ocrEngine", prefs.getString("history_ocr_engine", "PP_OCR_V5"))
-            putExtra("openaiProviderIndex", prefs.getString("history_openai_provider_index", "0")?.toIntOrNull() ?: 0)
+            putExtra("ocrEngine", prefs.getString("history_retranslate_engine", "PP_OCR_V5"))
         }
         LocalBroadcastManager.getInstance(requireContext()).sendBroadcast(intent)
     }

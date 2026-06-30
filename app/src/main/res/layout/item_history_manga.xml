@@ -31,23 +31,46 @@
                 android:maxHeight="200dp"
                 android:scaleType="fitCenter" />
 
-            <!-- 尺寸数量徽章 -->
-            <TextView
-                android:id="@+id/tv_size_badge"
+            <!-- 🔄重新翻译 + 尺寸数量徽章 -->
+            <LinearLayout
+                android:id="@+id/badgeContainer"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end|top"
                 android:layout_marginTop="6dp"
                 android:layout_marginEnd="6dp"
-                android:background="@drawable/badge_background"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:textColor="#FFFFFF"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvRetranslateBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔄"
+                    android:textSize="14sp"
+                    android:background="#CCFF6600"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginEnd="4dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tv_size_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/badge_background"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <!-- 原图/译文切换按钮 -->
             <TextView

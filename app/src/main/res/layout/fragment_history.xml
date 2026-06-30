@@ -90,11 +90,9 @@
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/ocrEngineInputLayout"
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:hint="@string/game_ocr_engine_label">
+            android:hint="引擎">
 
             <com.google.android.material.textfield.MaterialAutoCompleteTextView
                 android:id="@+id/spinnerOcrEngine"
@@ -103,24 +101,6 @@
                 android:inputType="none" />
 
         </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/translateInputLayout"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:hint="@string/translation_mode">
-
-            <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                android:id="@+id/spinnerTranslateApi"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="none" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
     </LinearLayout>
 
     <!-- 内容区域 -->
