@@ -410,7 +410,38 @@ private fun createTranslator(prefs: CustomPreference): TranslationTextAPI? {
 
 ---
 
-### Task 7: 最终验证
+---
+
+### Task 7: 修复清除按钮 — 只清当前 tab
+
+**漏洞：** 桶形清除按钮调用 `cacheManager.clearAllCache()`，同时清除游戏和漫画两边历史。
+
+**Files:**
+- Modify: `app/src/main/java/com/moe/moetranslator/ui/history/HistoryFragment.kt`
+
+找到 `showClearAllCacheDialog()` 方法，修改：
+
+```kotlin
+// 当前（错误）：
+cacheManager.clearAllCache()
+
+// 改为：
+cacheManager.clearHistory(currentTab)
+```
+
+同时修改弹窗提示文案为当前 tab 名称：
+
+```kotlin
+// 对话框标题改为：
+val tabName = if (currentTab == TranslationCacheManager.MODE_GAME) "游戏" else "漫画"
+.setTitle("清空${tabName}缓存")
+```
+
+编译 → commit。
+
+---
+
+### Task 8: 最终验证
 
 ```bash
 ./gradlew assembleDebug
@@ -429,6 +460,7 @@ private fun createTranslator(prefs: CustomPreference): TranslationTextAPI? {
 | `manga/DetectionBridge.kt` | 修改 | + ocrToBubbleRegions() |
 | `manga/MangaFloatingService.kt` | 修改 | translate* 改为代理；OCR 加锁 |
 | `ui/history/MangaViewerActivity.kt` | 修改 | 删重复代码；修复引擎初始化；加锁；调公共方法 |
+| `ui/history/HistoryFragment.kt` | 修改 | 清除按钮只清当前 tab |
 
 ## 修复对照
 
@@ -441,3 +473,4 @@ private fun createTranslator(prefs: CustomPreference): TranslationTextAPI? {
 | 忽略管理视图引擎配置 | `mapEngineToDetOcr()` 正确映射 3 个选项 |
 | 无 OCR 互斥锁 | OcrLock.tryAcquire() 保护 |
 | detEngine 映射错误 | 从 `history_retranslate_engine` 映射出正确 det+ocr 对 |
+| 清除按钮清了两边 | `clearAllCache()` → `clearHistory(currentTab)`，只清当前 tab |

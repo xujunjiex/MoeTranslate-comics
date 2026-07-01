@@ -19,12 +19,17 @@ import com.moe.moetranslator.data.CacheEntry
 import com.moe.moetranslator.data.HistoryEntry
 import com.moe.moetranslator.data.TranslationCacheManager
 import com.moe.moetranslator.databinding.ActivityMangaViewerBinding
+import com.moe.moetranslator.manga.BubbleRegion
+import com.moe.moetranslator.manga.ComicBubbleDetector
+import com.moe.moetranslator.manga.CTDDetector
 import com.moe.moetranslator.manga.DetEngine
 import com.moe.moetranslator.manga.DetectionBridge
+import com.moe.moetranslator.manga.MangaOcrRecognizer
 import com.moe.moetranslator.manga.OcrEngine
 import com.moe.moetranslator.manga.OcrLock
 import com.moe.moetranslator.manga.OverlayRenderer
 import com.moe.moetranslator.manga.PPOcrV5Engine
+import com.moe.moetranslator.manga.TextDirection
 import com.moe.moetranslator.manga.TranslatedBubble
 import com.moe.moetranslator.manga.TranslateUtils
 import com.moe.moetranslator.translate.ScreenshotManager
@@ -466,9 +471,19 @@ class MangaViewerActivity : AppCompatActivity() {
     /**
      * 初始化检测和识别所需的引擎。
      */
-    private fun initializeEngines(det: DetEngine, ocr: OcrEngine) {
-        if (det == DetEngine.PP_OCR_V5 || ocr == OcrEngine.PPOcrV5 || ocr == OcrEngine.MangaOcr) {
-            PPOcrV5Engine.initialize(this@MangaViewerActivity)
+    private suspend fun initializeEngines(det: DetEngine, ocr: OcrEngine) {
+        // Det 引擎
+        when (det) {
+            DetEngine.PP_OCR_V5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
+            DetEngine.RT_DETR_V2 -> ComicBubbleDetector.initialize(this@MangaViewerActivity)
+            DetEngine.CTD -> CTDDetector.initialize(this@MangaViewerActivity)
+            DetEngine.MLKIT -> {} // 无需初始化
+        }
+        // Ocr 引擎
+        when (ocr) {
+            OcrEngine.PPOcrV5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
+            OcrEngine.MangaOcr -> MangaOcrRecognizer.initialize(this@MangaViewerActivity)
+            OcrEngine.MLKit -> {} // 无需初始化
         }
     }
 

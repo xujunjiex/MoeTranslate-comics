@@ -69,7 +69,6 @@ class HistoryFragment : Fragment() {
 
         setupTabs()
         setupViewModeTabs()
-        setupEngineSelectors()
         setupRecyclerViews()
         switchTab(TranslationCacheManager.MODE_GAME) // 初始化游戏 tab 的视图状态
         setupClearAllCacheButton()
@@ -275,26 +274,7 @@ class HistoryFragment : Fragment() {
         })
     }
 
-    private fun setupEngineSelectors() {
-        val prefs = CustomPreference.getInstance(requireContext())
-        val ocrEngines = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
-        val ocrValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
-        val savedOcr = prefs.getString("history_retranslate_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
-        val ocrIdx = ocrValues.indexOfFirst { it == savedOcr }.coerceAtLeast(0)
-
-        (binding.spinnerOcrEngine as? android.widget.AutoCompleteTextView)?.apply {
-            val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, ocrEngines)
-            setAdapter(adapter)
-            setText(ocrEngines[ocrIdx], false)
-            setOnItemClickListener { _, _, position, _ ->
-                prefs.setString("history_retranslate_engine", ocrValues[position])
-            }
-            setOnClickListener { showDropDown() }
-            // 设置下拉菜单背景
-            setDropDownBackgroundDrawable(resources.getDrawable(R.drawable.popup_rounded_light, requireContext().theme))
-        }
-    }
-
+    // 引擎选择已移入设置弹窗，不再在主界面显示
     private fun updateEngineSelectorVisibility() {
         val prefs = CustomPreference.getInstance(requireContext())
         val isManageView = prefs.getString("history_view_mode", "default") == "manage"

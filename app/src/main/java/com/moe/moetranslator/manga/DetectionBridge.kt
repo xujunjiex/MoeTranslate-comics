@@ -1113,6 +1113,25 @@ object DetectionBridge {
     }
 
     /**
+     * 将 OCR 结果转换为 BubbleRegion 列表（正常翻译和重翻共用）。
+     */
+    fun ocrToBubbleRegions(ocrResults: List<TextBlockInfo>): List<BubbleRegion> {
+        return ocrResults.filter { it.boundingBox != null }.map { block ->
+            val rect = block.boundingBox!!
+            val isVertical = block.isVertical ?: (rect.height() > rect.width())
+            BubbleRegion(
+                rect = rect,
+                texts = listOf(block.text),
+                fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
+                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                angle = block.angle,
+                centerX = block.centerX,
+                centerY = block.centerY
+            )
+        }
+    }
+
+    /**
      * PP-OCRv5 增量渲染：det 检测全部文字行 → 逐行裁剪。
      * 不做 cls/rec/分组，后续分批识别 + TextLineMerger 合并。
      *

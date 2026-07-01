@@ -70,17 +70,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingHorizontal="8dp"
-        android:paddingVertical="4dp"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:background="#F5F9FC"
         android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="重翻引擎"
+            android:textColor="#666666"
+            android:textSize="13sp"
+            android:layout_marginEnd="8dp" />
 
         <AutoCompleteTextView
             android:id="@+id/spinnerOcrEngine"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
             android:inputType="none"
             android:textColor="#333333"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:background="@drawable/custom_radio_button_background"
             android:paddingHorizontal="12dp"
             android:completionThreshold="0" />
