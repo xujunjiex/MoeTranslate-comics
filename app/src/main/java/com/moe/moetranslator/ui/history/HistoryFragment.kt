@@ -11,7 +11,6 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -46,6 +45,10 @@ class HistoryFragment : Fragment() {
 
     // 0=游戏, 1=漫画
     private var currentTab = TranslationCacheManager.MODE_GAME
+
+    // SAF 下载
+    private var pendingDownloadZip: File? = null
+    private val REQUEST_DOWNLOAD_ZIP = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -221,7 +224,7 @@ class HistoryFragment : Fragment() {
             .setNegativeButton(android.R.string.cancel, null)
             .create()
             .apply {
-                window?.setBackgroundDrawableResource(android.R.color.transparent)
+                window?.setBackgroundDrawableResource(R.drawable.dialog_background_light)
                 show()
             }
     }
@@ -513,15 +516,40 @@ class HistoryFragment : Fragment() {
                 }
             }
             withContext(Dispatchers.Main) {
-                val uri = FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", zipFile)
-                val share = Intent(Intent.ACTION_SEND).apply {
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
                     type = "application/zip"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.zip")
                 }
-                startActivity(Intent.createChooser(share, "分享进程组"))
+                pendingDownloadZip = zipFile
+                startActivityForResult(intent, REQUEST_DOWNLOAD_ZIP)
             }
         }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_DOWNLOAD_ZIP && resultCode == Activity.RESULT_OK) {
+            data?.data?.let { uri ->
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            pendingDownloadZip?.let { zip ->
+                                requireContext().contentResolver.openOutputStream(uri)?.use { out ->
+                                    zip.inputStream().use { it.copyTo(out) }
+                                }
+                                zip.delete()
+                            }
+                        }
+                        com.moe.moetranslator.utils.UiUtils.showToast(requireContext(), "下载完成")
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "Download save failed", e)
+                        com.moe.moetranslator.utils.UiUtils.showToast(requireContext(), "下载失败")
+                    }
+                }
+            }
+            pendingDownloadZip = null
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onDestroyView() {

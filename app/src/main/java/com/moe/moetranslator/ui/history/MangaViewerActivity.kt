@@ -67,6 +67,7 @@ class MangaViewerActivity : AppCompatActivity() {
     private var savedClickedEntryId: Long = -1L
     private var savedEntryIds: LongArray? = null
     private var isManageView = false
+    private var currentPagePosition = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -273,7 +274,11 @@ class MangaViewerActivity : AppCompatActivity() {
                 binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 adapter?.setOverrideImage(null)
-                adapter?.notifyItemChanged(position)
+                // 只通知旧页面清除 override（不通知新页面，避免闪屏）
+                if (currentPagePosition != position) {
+                    adapter?.notifyItemChanged(currentPagePosition)
+                }
+                currentPagePosition = position
                 // 翻页时关闭面板
                 if (isPanelExpanded) {
                     collapsePanel()
