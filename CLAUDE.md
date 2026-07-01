@@ -64,14 +64,14 @@ adb devices
 
 **包结构** (`app/src/main/java/com/moe/moetranslator/`):
 
-- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`ScreenShotAccessibilityService`（截屏）、`OCRTextRecognizer`（ML Kit OCR）、`TranslationTextAPI`/`TranslationPicAPI`（翻译接口）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器，含锁定/关闭按钮）、`CropView`（框选视图，含内置确认按钮）
-- `manga/` — 漫画翻译引擎：气泡检测 + OCR + 翻译 + 竖排文字渲染
-- `bridge/` — 桥接层：`OCRBridge`、`TranslateBridge`、`ScreenshotBridge`
+- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）
+- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`CTDDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
+- `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，6 条 FAQ）
 - `launch/` — 首次启动引导
 - `utils/` — 工具类：`Constants`（枚举定义）、`CustomPreference`（配置封装）、`LogCollector`（日志收集）、`PixelCompare`（像素比较）、`UiUtils`（Toast 统一）、`ServiceUtils`（服务状态检测）、`UpdateChecker`（检查更新）
 - `data/` — Room 数据库、`TranslationCacheManager`、`HistoryEntity`/`PageCacheEntity`
-- `ui/history/` — 历史记录 UI：`HistoryFragment`、`HistoryGroupAdapter`（游戏分组）、`HistoryMangaGroupAdapter`（漫画分组）、`HistoryGameAdapter`、`HistoryMangaAdapter`、`MangaViewerActivity`（全屏图片浏览+译文详情）
+- `ui/history/` — 历史记录 UI：`HistoryFragment`（双视图：默认/管理）、`HistoryGroupAdapter`（游戏分组）、`HistoryMangaGroupAdapter`（漫画分组）、`HistoryGameAdapter`、`HistoryMangaAdapter`、`MangaViewerActivity`（全屏图片浏览+译文详情+重翻操作）、`CropFragment`（重翻裁剪界面）
 
 **翻译 API 实现** (`app/src/main/java/translationapi/`):
 每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`mlkittranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`
@@ -357,7 +357,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 `TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
 - 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.85）
 - 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
-- Room 数据库 `translation_history.db`，version 8，`fallbackToDestructiveMigration`
+- Room 数据库 `translation_history.db`，version 9，`fallbackToDestructiveMigration`
 - 历史 UI：`ui/history/HistoryFragment`，游戏和漫画均按时间+会话分组显示
 - 漫画图片浏览：`MangaViewerActivity` 全屏翻页 + 底部译文详情面板
 

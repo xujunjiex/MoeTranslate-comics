@@ -128,11 +128,15 @@
 
 ### 📚 翻译历史
 
-- 游戏和漫画翻译记录按时间 + 会话分组保存
-- **双 sessionId 架构：** 原始 sessionId（按创建排序） + lastSessionId（按修改排序），翻页历史位置固定
+- **双视图架构：** 默认视图（按修改时间排序）和管理视图（按进程 sessionId 分组）
+- **双 sessionId 架构：** 原始 sessionId（按创建排序） + lastSessionId（按修改排序）
 - 漫画翻译支持全屏翻页浏览原图 + 译文详情面板 + 尺寸变体切换
+- **管理视图重新翻译：** 加载原始截图 → 裁剪 → OCR → 翻译 → 渲染 → 替换原变体，无需启动翻译服务
+- **管理视图引擎选择：** 独立 OCR 引擎配置（PP-OCRv5 / manga-ocr / ML Kit），不影响悬浮窗设置
+- **管理视图进程组下载：** 打包 ZIP 通过 SAF 文件选择器保存
+- **原文/译文切换：** 详情页可切换查看原始图片或翻译渲染图
 - 同 pHash 页面分组显示，多尺寸变体可切换
-- Room 数据库本地持久化
+- Room 数据库本地持久化，version 9
 
 ### ⚙️ 个性化设置
 
@@ -211,14 +215,14 @@ app 内置检查更新功能，支持：
 
 ## 项目结构
 
-- `translate/` — 游戏/视频翻译引擎（FloatingBallService、AutoTranslateEngine、GameOcrEngine、CropView、TranslationResultView、Shooter、ScreenshotManager、ScreenshotProvider、Dialogs）
-- `manga/` — 漫画翻译引擎（MangaFloatingService、气泡检测 + OCR + 翻译 + 竖排渲染、TextRegionMerger、GeometryUtils、OnnxUtils）
-- `bridge/` — 桥接层（OCRBridge、TranslateBridge、ScreenshotBridge、DetectionBridge）
+- `translate/` — 游戏/视频翻译引擎（FloatingBallService、AutoTranslateEngine、GameOcrEngine、CropView、TranslationResultView、Shooter、ScreenshotManager、ScreenshotProvider、MediaProjectionProvider、AccessibilityProvider、Dialogs）
+- `manga/` — 漫画翻译引擎（MangaFloatingService、DetectionBridge、PPOcrV5Engine、ComicBubbleDetector、CTDDetector、MangaOcrBridge、TextRegionMerger、OverlayRenderer、TranslateUtils、OcrLock、GeometryUtils、OnnxUtils）
+- `bridge/` — 桥接层（OCRBridge、DetectionBridge、TranslateBridge、ScreenshotBridge）
 - `me/` — 设置和 API 配置（PersonalizationConfig、APIConfig、TranslationMode、AboutMe、FAQPage、Developer）
 - `launch/` — 首次启动引导
-- `utils/` — 工具类（PixelCompare、PerceptualHash、LogCollector、UpdateChecker、NotificationChecker、UiUtils、ServiceUtils、Constants、CustomPreference）
-- `data/` — Room 数据库、TranslationCacheManager
-- `ui/history/` — 历史记录 UI（HistoryFragment、MangaViewerActivity）
+- `utils/` — 工具类（PixelCompare、PerceptualHash、LogCollector、UpdateChecker、NotificationChecker、UiUtils、ServiceUtils、Constants、CustomPreference、KeystoreManager）
+- `data/` — Room 数据库、TranslationCacheManager、HistoryEntity、PageCacheEntity
+- `ui/history/` — 历史记录 UI（HistoryFragment、MangaViewerActivity、CropFragment、HistoryGroupAdapter、HistoryMangaGroupAdapter）
 - `translationapi/` — 翻译 API 实现（openaitranslation、bingtranslation、mlkittranslation、nllbtranslation、niutrans、volctranslation、deepltranslation、baidutranslation、tencentcloud、azuretranslation、customtranslation）
 
 ## 致谢

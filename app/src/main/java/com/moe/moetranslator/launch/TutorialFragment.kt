@@ -26,8 +26,10 @@ import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.drawable.BitmapDrawable
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.TextView
 import com.moe.moetranslator.MainActivity
 import com.moe.moetranslator.R
 import nl.dionsegijn.konfetti.core.Party
@@ -98,16 +100,29 @@ class TutorialFragment(val position:Int) : Fragment() {
             }
 
             1->{
-                root = inflater.inflate(R.layout.fragment_tutorial_1_2_3,container,false)
-                val tuimg = root.findViewById<ImageView>(R.id.FrimageView)
-                tuimg.setImageResource(R.drawable.tutorial_accessibility)
-                val next = root.findViewById<Button>(R.id.next)
-                val grant = root.findViewById<Button>(R.id.grant)
-                next.setOnClickListener{
-                    val activity = activity as FirstLaunchPage
-                    activity.nextPage()
+                root = inflater.inflate(R.layout.fragment_tutorial_model,container,false)
+                val tuimg1 = root.findViewById<ImageView>(R.id.FrimageView)
+                tuimg1.setImageResource(R.drawable.tutorial_screenshot)
+                applyRoundedCorners(tuimg1)
+                (tuimg1.layoutParams as? android.widget.RelativeLayout.LayoutParams)?.topMargin = 32
+                val desc1 = root.findViewById<TextView>(R.id.descText)
+                setTitleAndDesc(root, getString(R.string.tutorial_screenshot_intro))
+                root.findViewById<Button>(R.id.next).setOnClickListener {
+                    (activity as FirstLaunchPage).nextPage()
                 }
-                grant.setOnClickListener {
+            }
+
+            2->{
+                root = inflater.inflate(R.layout.fragment_tutorial_1_2_3,container,false)
+                val tuimg2 = root.findViewById<ImageView>(R.id.FrimageView)
+                tuimg2.setImageResource(R.drawable.tutorial_accessibility)
+                root.findViewById<TextView>(R.id.skipHint).apply {
+                    visibility = View.VISIBLE
+                    text = getString(R.string.tutorial_skip_accessibility)
+                }
+                val next2 = root.findViewById<Button>(R.id.next)
+                val grant2 = root.findViewById<Button>(R.id.grant)
+                grant2.setOnClickListener {
                     val dialog = AlertDialog.Builder(requireContext())
                         .setTitle(R.string.tutorial_access_title)
                         .setMessage(R.string.tutorial_access_content)
@@ -124,7 +139,7 @@ class TutorialFragment(val position:Int) : Fragment() {
                 }
             }
 
-            2->{
+            3->{
                 root = inflater.inflate(R.layout.fragment_tutorial_1_2_3,container,false)
                 val tuimg = root.findViewById<ImageView>(R.id.FrimageView)
                 tuimg.setImageResource(R.drawable.tutorial_notify)
@@ -143,7 +158,7 @@ class TutorialFragment(val position:Int) : Fragment() {
                 }
             }
 
-            3->{
+            4->{
                 root = inflater.inflate(R.layout.fragment_tutorial_1_2_3,container,false)
                 val tuimg = root.findViewById<ImageView>(R.id.FrimageView)
                 tuimg.setImageResource(R.drawable.tutorial_ball)
@@ -162,7 +177,29 @@ class TutorialFragment(val position:Int) : Fragment() {
                 }
             }
 
-            4->{
+            5->{
+                root = inflater.inflate(R.layout.fragment_tutorial_model,container,false)
+                val tuimg5 = root.findViewById<ImageView>(R.id.FrimageView)
+                tuimg5.setImageResource(R.drawable.tutorial_models)
+                applyRoundedCorners(tuimg5)
+                setTitleAndDesc(root, getString(R.string.tutorial_model_switch))
+                root.findViewById<Button>(R.id.next).setOnClickListener {
+                    (activity as FirstLaunchPage).nextPage()
+                }
+            }
+
+            6->{
+                root = inflater.inflate(R.layout.fragment_tutorial_model,container,false)
+                val tuimg6 = root.findViewById<ImageView>(R.id.FrimageView)
+                tuimg6.setImageResource(R.drawable.tutorial_manga_download)
+                applyRoundedCorners(tuimg6)
+                setTitleAndDesc(root, getString(R.string.tutorial_manga_download))
+                root.findViewById<Button>(R.id.next).setOnClickListener {
+                    (activity as FirstLaunchPage).nextPage()
+                }
+            }
+
+            7->{
                 root = inflater.inflate(R.layout.fragment_tutorial_last,container,false)
                 val cele = root.findViewById<KonfettiView>(R.id.konfettiView)
                 val again = root.findViewById<Button>(R.id.again)
@@ -183,5 +220,22 @@ class TutorialFragment(val position:Int) : Fragment() {
         return root
     }
 
+    private fun applyRoundedCorners(imageView: ImageView) {
+        val d = imageView.drawable ?: return
+        val bmp = (d as? BitmapDrawable)?.bitmap ?: return
+        val r = androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(resources, bmp)
+        r.cornerRadius = 16f
+        imageView.setImageDrawable(r)
+    }
 
+    private fun setTitleAndDesc(root: View, text: String) {
+        val splitIdx = text.indexOf('\n')
+        if (splitIdx > 0) {
+            root.findViewById<TextView>(R.id.titleText).text = text.substring(0, splitIdx)
+            root.findViewById<TextView>(R.id.descText).text = text.substring(splitIdx + 1).trimStart()
+        } else {
+            root.findViewById<TextView>(R.id.titleText).text = text
+            root.findViewById<TextView>(R.id.descText).visibility = View.GONE
+        }
+    }
 }

@@ -300,6 +300,10 @@
     <string name="tutorial_last_again">其实我还想再看一遍撒花</string>
     <string name="tutorial_enter">Let\'s Go !</string>
     <string name="tutorial_permission">授权时间！</string>
+    <string name="tutorial_skip_accessibility">使用录屏模式可跳过此页</string>
+    <string name="tutorial_screenshot_intro">截图授权方式\n\n星译支持两种截图方式，可在设置中随时切换：\n\n录屏授权（推荐，默认）\n点击翻译后，系统弹出授权窗口，选择「全屏共享」\n或仅共享某个应用。开箱即用，无需配置系统设置。\n翻页时自感应触发翻译，每次启动需弹窗授权，\n状态栏会显示录制中的通知。\n\n无障碍服务\n需前往系统设置中手动开启无障碍权限。\n一次授权永久有效，状态栏干净无通知。</string>
+    <string name="tutorial_model_switch">模型介绍\n\nML Kit\n速度最快，日文中文等识别精度较低，\n适合识别英文漫画翻译或者简单的各语言游戏和字幕翻译。\n\nPP-OCRv5\n支持多语言翻译，兼顾通用性，\n可以准确识别倾斜文字，速度和精度兼顾。\n\nmanga-ocr\n专门处理竖排日文，日文识别精度最高，\n需从模型管理页面下载。配合 RT-DETR-V2 使用效果最佳。</string>
+    <string name="tutorial_manga_download">manga-ocr 下载指南\n\n需从模型管理页面下载 2 个模型（国内需开启代理）：\n\n1. RT-DETR-V2 检测器（~11MB）\n   用于检测气泡和文字区域\n\n2. manga-ocr 模型（~135MB）\n   竖排日文识别，精度最高\n\n前往设置 → 模型管理，分别下载即可。\nGitHub/HuggingFace 无法直连，请开启代理。</string>
     <string name="faq_q1">为什么我的HarmonyOS版本大于等于3.0，但还是提示安卓版本过低？</string>
     <string name="faq_a1">这是由于华为更新HarmonyOS后（注意并不是HarmonyOS NEXT），其底层的Android API不再能被用户直观地看出。对于<b><u>大部分较新款</u></b>的华为手机，HarmonyOS 2.0对应Android 10 (API 29)；HarmonyOS 3.0对应Android 12 (API 31)。但对于部分较旧的华为机型，虽然更新了HarmonyOS 3.0，但实际上并未更新底层的Android API，一些机型底层的Android版本仍为Android 10。因此<b><u>系统仍没有达到本软件要求</u></b>的Android 11 (API 30)。下面是一些已知的型号：\n\n搭载麒麟980及以下的机型，如mate20，P30，Nova5等机型，HarmonyOS 3.0对应的Android版本是10 (API 29)。这些机型的HarmonyOS 3.0其实并不是真正的3.0，功能缺失比较多，主要升级是：更新了版本号，使用了3.0的新主题，增加了一些不依赖Android 12的小功能。</string>
     <string name="faq_q2">为什么我已经授予了无障碍权限，但软件依旧提示没有获取到无障碍权限？</string>
