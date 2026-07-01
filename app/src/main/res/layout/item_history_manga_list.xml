@@ -17,18 +17,18 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:padding="8dp">
 
-        <!-- 左侧小缩略图 -->
+        <!-- 左侧缩略图 + badge overlay -->
         <FrameLayout
-            android:layout_width="56dp"
-            android:layout_height="56dp">
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:layout_gravity="center_vertical">
 
             <ImageView
                 android:id="@+id/iv_thumbnail"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
                 android:scaleType="centerCrop" />
 
             <!-- 🔄重新翻译徽章（左上） -->
@@ -37,12 +37,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="start|top"
-                android:layout_marginStart="2dp"
-                android:layout_marginTop="2dp"
+                android:layout_marginStart="1dp"
+                android:layout_marginTop="1dp"
                 android:text="🔄"
-                android:textSize="11sp"
-                android:paddingStart="2dp"
-                android:paddingEnd="2dp"
+                android:textSize="10sp"
+                android:paddingStart="1dp"
+                android:paddingEnd="1dp"
                 android:textColor="#55AEEA"
                 android:visibility="gone" />
 
@@ -52,6 +52,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end|top"
+                android:layout_marginTop="1dp"
+                android:layout_marginEnd="1dp"
                 android:orientation="horizontal"
                 android:visibility="gone">
 
@@ -60,63 +62,57 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/badge_background"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp"
                     android:paddingTop="1dp"
                     android:paddingBottom="1dp"
                     android:textColor="#FFFFFF"
-                    android:textSize="8sp"
+                    android:textSize="7sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
             </LinearLayout>
 
         </FrameLayout>
 
-        <!-- 右侧信息 -->
+        <!-- 右侧信息区 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="10dp"
             android:orientation="vertical"
-            android:layout_marginStart="10dp">
+            android:gravity="center_vertical">
 
-            <!-- pHash -->
+            <!-- 模型名 -->
             <TextView
-                android:id="@+id/tv_phash"
+                android:id="@+id/tv_translator_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#333333"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:maxLines="1" />
+
+            <!-- 创建时间 -->
+            <TextView
+                android:id="@+id/tv_create_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#999999"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:maxLines="1" />
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:layout_marginTop="2dp" />
 
-            <!-- 翻译器 + 时间 -->
-            <LinearLayout
-                android:layout_width="match_parent"
+            <!-- 修改时间 -->
+            <TextView
+                android:id="@+id/tv_modify_time"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="2dp">
+                android:textColor="#999999"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:layout_marginTop="1dp" />
 
-                <TextView
-                    android:id="@+id/tv_translator_name"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textColor="#666666"
-                    android:textSize="11sp"
-                    android:maxLines="1" />
-
-                <TextView
-                    android:id="@+id/tv_time"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#999999"
-                    android:textSize="11sp"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:layout_marginStart="8dp" />
-            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

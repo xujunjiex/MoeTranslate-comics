@@ -1,6 +1,7 @@
 package com.moe.moetranslator.ui.history
 
 import android.graphics.BitmapFactory
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -35,8 +36,10 @@ class HistoryMangaAdapter(
 ) : ListAdapter<GroupedHistoryEntry, RecyclerView.ViewHolder>(DiffCallback()) {
 
     private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    private val monthTimeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
     private val shortDateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val isSmall get() = displayMode == "small"
+    private val isMedium get() = displayMode == "medium"
 
     companion object {
         private val GROUP_COLORS = intArrayOf(
@@ -80,24 +83,28 @@ class HistoryMangaAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val layoutId = if (viewType == 1) R.layout.item_history_manga_list else R.layout.item_history_manga
         val view = LayoutInflater.from(parent.context).inflate(layoutId, parent, false)
-        return ViewHolder(view)
+        return ViewHolder(view, viewType)
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         (holder as ViewHolder).bind(getItem(position))
     }
 
-    inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    inner class ViewHolder(view: View, private val viewType: Int) : RecyclerView.ViewHolder(view) {
         private val ivThumbnail: ImageView = view.findViewById(R.id.iv_thumbnail)
-        private val tvPhash: TextView = view.findViewById(R.id.tv_phash)
         private val tvTranslatorName: TextView = view.findViewById(R.id.tv_translator_name)
-        private val tvTime: TextView = view.findViewById(R.id.tv_time)
+        // Card mode (viewType == 0):
+        private val tvTime: TextView? = if (viewType == 0) view.findViewById(R.id.tv_time) else null
+        // List mode (viewType == 1):
+        private val tvCreateTime: TextView? = if (viewType == 1) view.findViewById(R.id.tv_create_time) else null
+        private val tvModifyTime: TextView? = if (viewType == 1) view.findViewById(R.id.tv_modify_time) else null
         private val badgeContainer: View = view.findViewById(R.id.badgeContainer)
         private val tvSizeBadge: TextView = view.findViewById(R.id.tv_size_badge)
         private val tvRetranslateBadge: TextView = view.findViewById(R.id.tvRetranslateBadge)
 
         fun bind(grouped: GroupedHistoryEntry) {
             val entry = grouped.representative
+
             // 加载缩略图
             if (entry.thumbnailPath != null && File(entry.thumbnailPath).exists()) {
                 val bitmap = BitmapFactory.decodeFile(entry.thumbnailPath)
@@ -106,23 +113,46 @@ class HistoryMangaAdapter(
                 ivThumbnail.setImageBitmap(null)
             }
 
-            // pHash 显示
-            if (entry.pHash != 0L) {
-                tvPhash.text = if (isSmall) String.format("%08X", entry.pHash and 0xFFFFFFFFL)
-                               else "pHash:${String.format("%08X", entry.pHash and 0xFFFFFFFFL)}"
-                tvPhash.visibility = View.VISIBLE
-            } else {
-                tvPhash.visibility = View.GONE
-            }
-
+            // 翻译器名（模型名）
             tvTranslatorName.text = getDisplayName(entry.translatorName)
-            // 创建时间 + 修改时间
-            val createdStr = shortDateFormat.format(Date(entry.createdAt))
-            val updatedStr = shortDateFormat.format(Date(entry.updatedAt))
-            if (entry.createdAt != entry.updatedAt) {
-                tvTime.text = "创$createdStr 改$updatedStr"
+
+            if (viewType == 1) {
+                // === List 模式：完整时间信息 ===
+                val createdStr = fullDateFormat.format(Date(entry.createdAt))
+                val updatedStr = fullDateFormat.format(Date(entry.updatedAt))
+                tvCreateTime?.text = "创建 $createdStr"
+                tvModifyTime?.text = "修改 $updatedStr"
+
+                // 如果创建时间和修改时间相同，隐藏修改时间避免冗余
+                if (entry.createdAt == entry.updatedAt) {
+                    tvModifyTime?.visibility = View.GONE
+                } else {
+                    tvModifyTime?.visibility = View.VISIBLE
+                }
             } else {
-                tvTime.text = createdStr
+                // === Card 模式（large / medium / small）===
+                val updatedStr = if (isSmall) {
+                    shortDateFormat.format(Date(entry.updatedAt))
+                } else {
+                    monthTimeFormat.format(Date(entry.updatedAt))
+                }
+                tvTime?.text = if (isSmall) {
+                    updatedStr
+                } else {
+                    "修改 $updatedStr"
+                }
+
+                // 根据显示模式调整文字大小
+                if (isMedium) {
+                    tvTranslatorName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    tvTime?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                } else if (isSmall) {
+                    tvTranslatorName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    tvTime?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+                } else {
+                    tvTranslatorName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    tvTime?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                }
             }
 
             // 徽章：左上🔄重新翻译标记（仅管理视图）、右上尺寸数量
