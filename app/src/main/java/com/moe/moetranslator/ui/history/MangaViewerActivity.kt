@@ -489,7 +489,7 @@ class MangaViewerActivity : AppCompatActivity() {
 
     private fun buildRetranslateName(translator: TranslationTextAPI, det: DetEngine, ocr: OcrEngine, prefs: CustomPreference): String {
         val model = translator.modelName ?: ""
-        val apiStr = if (model.isNotEmpty()) "🔄$model" else "🔄${translator.javaClass.simpleName}"
+        val apiStr = if (model.isNotEmpty()) model else translator.javaClass.simpleName
         val detStr = when (det) {
             DetEngine.CTD -> "CTD"; DetEngine.MLKIT -> "MLKit"
             DetEngine.RT_DETR_V2 -> "RT-DETR"; DetEngine.PP_OCR_V5 -> "PP-OCRv5"
@@ -565,7 +565,8 @@ class MangaViewerActivity : AppCompatActivity() {
         val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val createdStr = fullDateFormat.format(Date(entry.createdAt))
         val updatedStr = fullDateFormat.format(Date(entry.updatedAt))
-        binding.tvTranslationInfo.text = "$fullInfo\n尺寸: $dimStr  |  ${entry.sourceLang} → ${entry.targetLang}  |  $timeStr\n创建: $createdStr\n修改: $updatedStr"
+        val phashStr = if (entry.pHash != 0L) "pHash:${String.format("%08X", entry.pHash and 0xFFFFFFFFL)}" else ""
+        binding.tvTranslationInfo.text = "$fullInfo\n尺寸: $dimStr  |  ${entry.sourceLang} → ${entry.targetLang}  |  $timeStr\n创建: $createdStr\n修改: $updatedStr\n$phashStr"
 
         val detailList = buildDetailList(entry)
         LogCollector.d(TAG, "expandPanel: detailList size=${detailList.size}")

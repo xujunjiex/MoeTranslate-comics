@@ -98,6 +98,7 @@ class HistoryMangaAdapter(
         // List mode (viewType == 1):
         private val tvCreateTime: TextView? = if (viewType == 1) view.findViewById(R.id.tv_create_time) else null
         private val tvModifyTime: TextView? = if (viewType == 1) view.findViewById(R.id.tv_modify_time) else null
+        private val tvPhash: TextView = view.findViewById(R.id.tv_phash)
         private val badgeContainer: View = view.findViewById(R.id.badgeContainer)
         private val tvSizeBadge: TextView = view.findViewById(R.id.tv_size_badge)
         private val tvRetranslateBadge: TextView = view.findViewById(R.id.tvRetranslateBadge)
@@ -115,6 +116,9 @@ class HistoryMangaAdapter(
 
             // 翻译器名（模型名）
             tvTranslatorName.text = getDisplayName(entry.translatorName)
+
+            // pHash
+            tvPhash.text = if (entry.pHash != 0L) String.format("%08X", entry.pHash and 0xFFFFFFFFL) else ""
 
             if (viewType == 1) {
                 // === List 模式：完整时间信息 ===

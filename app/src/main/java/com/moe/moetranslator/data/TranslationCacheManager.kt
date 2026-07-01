@@ -553,7 +553,7 @@ class TranslationCacheManager(private val context: Context) {
                 HistoryGroup(dateLabel = dateLabel, sessions = listOf(session))
             }
         } else {
-            // 按创建排序：日期组 = createdAt 日期，进程组 = sessionId（永不改变）
+            // 按创建排序：日期组 = createdAt 日期，进程组 = sessionId，组内按 createdAt ASC
             val groupedByDate = entries.groupBy { getDateLabel(it.createdAt) }
 
             groupedByDate.entries.sortedByDescending { entry ->
@@ -565,7 +565,7 @@ class TranslationCacheManager(private val context: Context) {
                             sessionId = sessionId,
                             startTime = sessionEntries.minOf { it.createdAt },
                             endTime = sessionEntries.maxOf { it.createdAt },
-                            entries = sessionEntries.sortedByDescending { it.updatedAt }
+                            entries = sessionEntries.sortedBy { it.createdAt }
                         )
                     }
                     .sortedByDescending { it.startTime }

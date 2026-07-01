@@ -113,6 +113,17 @@
                 android:maxLines="1"
                 android:layout_marginTop="1dp" />
 
+            <!-- pHash -->
+            <TextView
+                android:id="@+id/tv_phash"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#BBBBBB"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:layout_marginTop="1dp" />
+
         </LinearLayout>
     </LinearLayout>
 

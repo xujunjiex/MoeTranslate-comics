@@ -18,33 +18,38 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- Badge bar（顶部） -->
+        <!-- 缩略图 + 悬浮徽章 -->
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="4dp">
+            android:layout_height="wrap_content">
 
-            <!-- 🔄重新翻译徽章（左上） -->
+            <ImageView
+                android:id="@+id/iv_thumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
+                android:maxHeight="200dp"
+                android:scaleType="fitCenter" />
+
             <TextView
                 android:id="@+id/tvRetranslateBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="start|top"
+                android:layout_marginStart="4dp"
+                android:layout_marginTop="4dp"
                 android:text="🔄"
-                android:textSize="11sp"
-                android:paddingStart="2dp"
-                android:paddingEnd="2dp"
+                android:textSize="12sp"
                 android:textColor="#55AEEA"
                 android:visibility="gone" />
 
-            <!-- 尺寸数量徽章（右上） -->
             <LinearLayout
                 android:id="@+id/badgeContainer"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end|top"
+                android:layout_marginTop="4dp"
+                android:layout_marginEnd="4dp"
                 android:orientation="horizontal"
                 android:visibility="gone">
 
@@ -64,15 +69,6 @@
             </LinearLayout>
 
         </FrameLayout>
-
-        <!-- 缩略图 -->
-        <ImageView
-            android:id="@+id/iv_thumbnail"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:adjustViewBounds="true"
-            android:maxHeight="200dp"
-            android:scaleType="fitCenter" />
 
         <!-- 底部信息区 -->
         <LinearLayout
@@ -101,6 +97,17 @@
                 android:textColor="#999999"
                 android:textSize="11sp"
                 android:layout_marginTop="2dp" />
+
+            <!-- pHash -->
+            <TextView
+                android:id="@+id/tv_phash"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#BBBBBB"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:layout_marginTop="1dp" />
         </LinearLayout>
     </LinearLayout>
 
