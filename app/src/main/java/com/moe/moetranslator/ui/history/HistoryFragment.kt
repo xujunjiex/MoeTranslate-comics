@@ -15,6 +15,7 @@ import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import android.app.Activity
 import android.app.AlertDialog
 import com.google.android.material.tabs.TabLayout
 import com.moe.moetranslator.R
@@ -112,6 +113,9 @@ class HistoryFragment : Fragment() {
             onItemLongClick = { entry -> showDeleteDialog(entry) },
             displayMode = displayMode,
             isManageView = (viewMode == "manage"),
+            onThumbnailClick = { entry ->
+                openMangaViewer(GroupedHistoryEntry(entry, 1, listOf(entry.id)))
+            },
             onDownloadSessionClick = { session -> downloadSession(session) }
         )
         binding.rvMangaHistory.layoutManager = LinearLayoutManager(requireContext())
@@ -449,6 +453,10 @@ class HistoryFragment : Fragment() {
             putExtra(MangaViewerActivity.EXTRA_IS_MANAGE_VIEW, isManage)
         }
         startActivity(intent)
+        (requireContext() as? Activity)?.overridePendingTransition(
+            android.R.anim.fade_in,
+            android.R.anim.fade_out
+        )
     }
 
 

@@ -125,6 +125,13 @@ class MangaViewerActivity : AppCompatActivity() {
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 adapter?.setOverrideImage(bmp)
                 adapter?.notifyItemChanged(binding.viewPager.currentItem)
+                // 直接更新当前可见页面的图片（notifyItemChanged 在 ViewPager2 第一页可能不触发 rebind）
+                val recyclerView = binding.viewPager.getChildAt(0) as? RecyclerView
+                val viewHolder = recyclerView?.findViewHolderForAdapterPosition(binding.viewPager.currentItem) as? PageGroupAdapter.ViewHolder
+                if (viewHolder != null) {
+                    viewHolder.imageView.setImageBitmap(bmp)
+                    viewHolder.imageView.resetZoom()
+                }
             }
         }
 
@@ -266,6 +273,7 @@ class MangaViewerActivity : AppCompatActivity() {
                 binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 adapter?.setOverrideImage(null)
+                adapter?.notifyItemChanged(position)
                 // 翻页时关闭面板
                 if (isPanelExpanded) {
                     collapsePanel()
@@ -706,6 +714,11 @@ class MangaViewerActivity : AppCompatActivity() {
         val regex = Regex("""\[(\d+)]\s*""")
         val parts = regex.split(text).filter { it.isNotBlank() }
         return parts.map { it.trim() }
+    }
+
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(0, android.R.anim.fade_out)
     }
 
     override fun onDestroy() {
