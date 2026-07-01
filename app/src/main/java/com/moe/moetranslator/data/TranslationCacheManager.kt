@@ -532,62 +532,32 @@ class TranslationCacheManager(private val context: Context) {
             rawEntries
         }
 
-        val calendar = java.util.Calendar.getInstance()
-        val today = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.HOUR_OF_DAY, 0)
-            set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-        }
-        val yesterday = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
-        val threeDaysAgo = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -3) }
-        val sevenDaysAgo = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -7) }
-
         fun getDateLabel(timestamp: Long): String {
-            calendar.timeInMillis = timestamp
-            return when {
-                timestamp >= today.timeInMillis -> "今天"
-                timestamp >= yesterday.timeInMillis -> "昨天"
-                timestamp >= threeDaysAgo.timeInMillis -> "3天前"
-                timestamp >= sevenDaysAgo.timeInMillis -> "7天前"
-                else -> {
-                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    sdf.format(java.util.Date(timestamp))
-                }
-            }
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            return sdf.format(java.util.Date(timestamp))
         }
-
-        // 日期排序优先级
-        val dateOrder = listOf("今天", "昨天", "3天前", "7天前")
 
         if (sortByUpdated) {
-            // 按修改排序：日期组 = updatedAt 日期，进程组 = lastSessionId（修改时更新为当前会话）
+            // 默认视图：按修改时间排序，日期分组，无进程分组
             val groupedByDate = entries.groupBy { getDateLabel(it.updatedAt) }
 
             groupedByDate.entries.sortedByDescending { entry ->
-                val idx = dateOrder.indexOf(entry.key)
-                if (idx >= 0) (-idx).toLong() else Long.MAX_VALUE - entry.value.maxOf { it.updatedAt }
+                entry.value.maxOf { it.updatedAt }
             }.map { (dateLabel, dateEntries) ->
-                val sessions = dateEntries.groupBy { it.lastSessionId.ifEmpty { it.sessionId } }
-                    .map { (sessionId, sessionEntries) ->
-                        HistorySession(
-                            sessionId = sessionId,
-                            startTime = sessionEntries.maxOf { it.updatedAt },
-                            endTime = sessionEntries.maxOf { it.updatedAt },
-                            entries = sessionEntries.sortedByDescending { it.updatedAt }
-                        )
-                    }
-                    .sortedByDescending { it.startTime }
-
-                HistoryGroup(dateLabel = dateLabel, sessions = sessions)
+                val session = HistorySession(
+                    sessionId = dateLabel,  // date as session ID
+                    startTime = dateEntries.minOf { it.createdAt },
+                    endTime = dateEntries.maxOf { it.updatedAt },
+                    entries = dateEntries.sortedByDescending { it.updatedAt }
+                )
+                HistoryGroup(dateLabel = dateLabel, sessions = listOf(session))
             }
         } else {
             // 按创建排序：日期组 = createdAt 日期，进程组 = sessionId（永不改变）
             val groupedByDate = entries.groupBy { getDateLabel(it.createdAt) }
 
             groupedByDate.entries.sortedByDescending { entry ->
-                val idx = dateOrder.indexOf(entry.key)
-                if (idx >= 0) (-idx).toLong() else Long.MAX_VALUE - entry.value.maxOf { it.createdAt }
+                entry.value.maxOf { it.createdAt }
             }.map { (dateLabel, dateEntries) ->
                 val sessions = dateEntries.groupBy { it.sessionId }
                     .map { (sessionId, sessionEntries) ->

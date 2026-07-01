@@ -151,7 +151,8 @@ class HistoryMangaGroupAdapter(
                     colorMap = colorMap,
                     displayMode = displayMode,
                     sortByUpdated = sortByUpdated,
-                    onThumbnailClick = onThumbnailClick
+                    onThumbnailClick = onThumbnailClick,
+                    isManageView = isManageView
                 )
                 val spanCount = when (displayMode) {
                     "list" -> 1

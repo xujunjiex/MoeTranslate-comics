@@ -30,7 +30,8 @@ class HistoryMangaAdapter(
     private val colorMap: Map<Long, Int> = emptyMap(),
     private val displayMode: String = "large",
     private val sortByUpdated: Boolean = false,
-    private val onThumbnailClick: ((HistoryEntry) -> Unit)? = null
+    private val onThumbnailClick: ((HistoryEntry) -> Unit)? = null,
+    private val isManageView: Boolean = false
 ) : ListAdapter<GroupedHistoryEntry, RecyclerView.ViewHolder>(DiffCallback()) {
 
     private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -65,10 +66,8 @@ class HistoryMangaAdapter(
             val apiPart = translatorName.split(" | ").first().trim()
             val match = Regex("^(\\w+?)\\((.+)\\)$").find(apiPart)
             if (match != null) {
-                val apiClass = match.groupValues[1]
                 val model = match.groupValues[2]
-                val friendlyName = TRANSLATOR_DISPLAY_NAMES[apiClass] ?: apiClass
-                return "$friendlyName($model)"
+                return model  // 只显示模型名，不要 API 前缀
             }
             return TRANSLATOR_DISPLAY_NAMES[apiPart] ?: apiPart
         }
@@ -117,11 +116,16 @@ class HistoryMangaAdapter(
             }
 
             tvTranslatorName.text = getDisplayName(entry.translatorName)
-            val displayTime = entry.updatedAt
-            tvTime.text = if (isSmall) shortDateFormat.format(Date(displayTime))
-                          else fullDateFormat.format(Date(displayTime))
+            // 创建时间 + 修改时间
+            val createdStr = shortDateFormat.format(Date(entry.createdAt))
+            val updatedStr = shortDateFormat.format(Date(entry.updatedAt))
+            if (entry.createdAt != entry.updatedAt) {
+                tvTime.text = "创$createdStr 改$updatedStr"
+            } else {
+                tvTime.text = createdStr
+            }
 
-            // 尺寸数量徽章 + 重新翻译徽章
+            // 徽章：左上🔄重新翻译标记（仅管理视图）、右上尺寸数量
             badgeContainer.visibility = View.GONE
             tvSizeBadge.visibility = View.GONE
             tvRetranslateBadge.visibility = View.GONE
@@ -129,6 +133,9 @@ class HistoryMangaAdapter(
                 tvSizeBadge.text = "×${grouped.groupSize}"
                 tvSizeBadge.visibility = View.VISIBLE
                 badgeContainer.visibility = View.VISIBLE
+            }
+            if (isManageView && entry.isRetranslated) {
+                tvRetranslateBadge.visibility = View.VISIBLE
             }
 
             // 缩略图点击回调

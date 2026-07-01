@@ -225,7 +225,7 @@ class MangaViewerActivity : AppCompatActivity() {
                             type = TranslationCacheManager.MODE_MANGA,
                             sourceText = numberedText, translatedText = transText,
                             resultBitmap = rendered, sourceLang = sourceLang, targetLang = targetLang,
-                            translatorName = "重翻", pHash = entry.pHash,
+                            translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs), pHash = entry.pHash,
                             sessionId = "", lastSessionId = "",
                             cropLeft = cache.cropLeft, cropTop = cache.cropTop,
                             cropRight = cache.cropRight, cropBottom = cache.cropBottom,
@@ -487,6 +487,26 @@ class MangaViewerActivity : AppCompatActivity() {
         }
     }
 
+    private fun buildRetranslateName(translator: TranslationTextAPI, det: DetEngine, ocr: OcrEngine, prefs: CustomPreference): String {
+        val model = translator.modelName ?: ""
+        val apiStr = if (model.isNotEmpty()) "🔄$model" else "🔄${translator.javaClass.simpleName}"
+        val detStr = when (det) {
+            DetEngine.CTD -> "CTD"; DetEngine.MLKIT -> "MLKit"
+            DetEngine.RT_DETR_V2 -> "RT-DETR"; DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+        }
+        val ocrStr = when (ocr) {
+            OcrEngine.MLKit -> "MLKit"; OcrEngine.MangaOcr -> "manga-ocr"; OcrEngine.PPOcrV5 -> "PP-OCRv5"
+        }
+        val parts = mutableListOf(apiStr, "$detStr+$ocrStr")
+        if (det == DetEngine.PP_OCR_V5 || ocr == OcrEngine.PPOcrV5) {
+            val box = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
+            val unclip = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
+            val score = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
+            parts.add("box=%.2f unclip=%.1f score=%.2f".format(box, unclip, score))
+        }
+        return parts.joinToString(" | ")
+    }
+
     private fun getImageDimensions(path: String?): String {
         if (path == null) return "?"
         return try {
@@ -542,7 +562,10 @@ class MangaViewerActivity : AppCompatActivity() {
 
         // 完整参数信息（translatorName 包含所有参数）
         val fullInfo = entry.translatorName
-        binding.tvTranslationInfo.text = "$fullInfo\n尺寸: $dimStr  |  ${entry.sourceLang} → ${entry.targetLang}  |  $timeStr"
+        val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val createdStr = fullDateFormat.format(Date(entry.createdAt))
+        val updatedStr = fullDateFormat.format(Date(entry.updatedAt))
+        binding.tvTranslationInfo.text = "$fullInfo\n尺寸: $dimStr  |  ${entry.sourceLang} → ${entry.targetLang}  |  $timeStr\n创建: $createdStr\n修改: $updatedStr"
 
         val detailList = buildDetailList(entry)
         LogCollector.d(TAG, "expandPanel: detailList size=${detailList.size}")
