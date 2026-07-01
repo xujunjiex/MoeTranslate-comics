@@ -96,4 +96,10 @@ interface TranslationHistoryDao {
      */
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode AND cropWidth = :cropWidth AND cropHeight = :cropHeight LIMIT 1")
     suspend fun findCacheByHashAndSize(pHash: Long, mode: Int, cropWidth: Int, cropHeight: Int): PageCacheEntity?
+
+    /**
+     * 按 pHash + crop rect 精确查找缓存（使用新的 cropLeft/cropTop/cropRight/cropBottom 字段）。
+     */
+    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode AND crop_left = :cropLeft AND crop_top = :cropTop AND crop_right = :cropRight AND crop_bottom = :cropBottom LIMIT 1")
+    suspend fun findCacheByHashAndCropRect(pHash: Long, mode: Int, cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int): PageCacheEntity?
 }

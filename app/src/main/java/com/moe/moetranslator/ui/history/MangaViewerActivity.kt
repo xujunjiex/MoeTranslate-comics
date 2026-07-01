@@ -231,6 +231,10 @@ class MangaViewerActivity : AppCompatActivity() {
                             cropRight = cache.cropRight, cropBottom = cache.cropBottom,
                             isRetranslated = true,
                         ), originalBitmap = original)
+                        // Recycle bitmaps after saving to disk
+                        rendered.recycle()
+                        cropped.recycle()
+                        original.recycle()
                     }
                     com.moe.moetranslator.utils.UiUtils.showToast(this@MangaViewerActivity, "重新翻译完成")
                     val currentPos = savedPosition

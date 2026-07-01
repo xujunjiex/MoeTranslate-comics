@@ -2526,13 +2526,6 @@ class MangaFloatingService : LifecycleService() {
                 forceRefresh = false
             }
 
-            // 分批渲染：在检测之前尝试分批流程
-            if (incrementalTranslateFlow(bitmap)) {
-                LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
-                return
-            }
-            LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
-
             // OcrLock: 保护 ONNX 模型的多线程访问（PP-OCRv5/CTD/manga-ocr 等单例引擎）
             if (!com.moe.moetranslator.manga.OcrLock.tryAcquire()) {
                 scheduleNextDetection(DETECT_INTERVAL_MS)
@@ -2541,6 +2534,12 @@ class MangaFloatingService : LifecycleService() {
             }
             var ocrTextBlocks: List<TextBlockInfo> = emptyList()
             try {
+                // 分批渲染：在检测之前尝试分批流程
+                if (incrementalTranslateFlow(bitmap)) {
+                    LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
+                    return
+                }
+                LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
                 // 确保选中的模型已初始化
                 when (config.detEngine) {
                     DetEngine.CTD -> initCTDIfNeeded()

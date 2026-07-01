@@ -42,6 +42,21 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
             }
         }
 
+        // 版本 5 → 6：无 schema 变更（版本号跳转，迁移为空）
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) { /* no schema change needed */ }
+        }
+
+        // 版本 6 → 7：无 schema 变更（版本号跳转，迁移为空）
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) { /* no schema change needed */ }
+        }
+
+        // 版本 7 → 8：无 schema 变更（版本号跳转，迁移为空）
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) { /* no schema change needed */ }
+        }
+
         // 版本 8 → 9：translation_history 添加 original_image_path / is_retranslated
         // page_cache 添加 crop_left / crop_top / crop_right / crop_bottom
         val MIGRATION_8_9 = object : Migration(8, 9) {
@@ -61,7 +76,7 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
                     context.applicationContext,
                     TranslationHistoryDatabase::class.java,
                     "translation_history.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_8_9)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
             }

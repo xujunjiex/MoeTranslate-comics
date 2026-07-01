@@ -287,7 +287,9 @@ class TranslationCacheManager(private val context: Context) {
             val dedupWidth = entry.cropRight - entry.cropLeft
             val dedupHeight = entry.cropBottom - entry.cropTop
             if (dedupWidth > 0 && dedupHeight > 0) {
-                oldCacheToDelete = dao.findCacheByHashAndSize(entry.pHash, MODE_MANGA, dedupWidth, dedupHeight)
+                // 优先使用新 crop rect 查询（精确匹配裁剪区域），无结果时 fallback 到旧的 cropWidth/cropHeight 查询
+                oldCacheToDelete = dao.findCacheByHashAndCropRect(entry.pHash, MODE_MANGA, entry.cropLeft, entry.cropTop, entry.cropRight, entry.cropBottom)
+                    ?: dao.findCacheByHashAndSize(entry.pHash, MODE_MANGA, dedupWidth, dedupHeight)
                 if (oldCacheToDelete != null) {
                     oldHistoryToDelete = dao.getHistoryById(oldCacheToDelete.historyId)
                 }
@@ -381,8 +383,8 @@ class TranslationCacheManager(private val context: Context) {
             mode = entry.type,
             lastAccessedAt = System.currentTimeMillis(),
             createdAt = System.currentTimeMillis(),
-            cropWidth = 0,  // deprecated, keep at 0
-            cropHeight = 0,  // deprecated, keep at 0
+            cropWidth = (entry.cropRight - entry.cropLeft).coerceAtLeast(0),
+            cropHeight = (entry.cropBottom - entry.cropTop).coerceAtLeast(0),
             cropLeft = entry.cropLeft,
             cropTop = entry.cropTop,
             cropRight = entry.cropRight,

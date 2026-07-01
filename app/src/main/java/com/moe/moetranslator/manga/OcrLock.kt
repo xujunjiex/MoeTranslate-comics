@@ -21,4 +21,18 @@ object OcrLock {
     fun release() {
         isRunning = false
     }
+
+    /**
+     * 安全地获取锁并执行代码块。获取失败时抛出 RejectedExecutionException。
+     */
+    inline fun <T> use(block: () -> T): T {
+        if (!tryAcquire()) {
+            throw java.util.concurrent.RejectedExecutionException("OcrLock is busy")
+        }
+        try {
+            return block()
+        } finally {
+            release()
+        }
+    }
 }
