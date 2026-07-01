@@ -210,6 +210,25 @@ class HistoryFragment : Fragment() {
         })
         container.addView(cacheSeekBar)
 
+        // 重翻引擎选择
+        container.addView(android.widget.TextView(requireContext()).apply {
+            text = "重翻引擎"
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#666666"))
+            setPadding(0, 24, 0, 8)
+        })
+        val engineValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
+        val engineNames = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
+        val savedEngine = prefs.getString("history_retranslate_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
+        val currentEngineIdx = engineValues.indexOfFirst { it == savedEngine }.coerceAtLeast(0)
+        val engineGroup = android.widget.RadioGroup(requireContext()).apply { orientation = android.widget.RadioGroup.VERTICAL }
+        engineNames.forEachIndexed { idx, name ->
+            engineGroup.addView(android.widget.RadioButton(requireContext()).apply {
+                text = name; id = idx; isChecked = idx == currentEngineIdx
+            })
+        }
+        container.addView(engineGroup)
+
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.history_settings_title)
             .setView(container)
@@ -219,6 +238,10 @@ class HistoryFragment : Fragment() {
                     prefs.setString("history_display_mode", displayValues[newDisplayIdx])
                 }
                 prefs.setString("translation_cache_count", cacheCountValues[cacheSeekBar.progress].toString())
+                val newEngineIdx = engineGroup.checkedRadioButtonId
+                if (newEngineIdx >= 0) {
+                    prefs.setString("history_retranslate_engine", engineValues[newEngineIdx])
+                }
                 loadHistory()
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -276,7 +299,7 @@ class HistoryFragment : Fragment() {
         val prefs = CustomPreference.getInstance(requireContext())
         val isManageView = prefs.getString("history_view_mode", "default") == "manage"
         val isMangaTab = currentTab == TranslationCacheManager.MODE_MANGA
-        binding.engineSelectorLayout.visibility = if (isManageView && isMangaTab) View.VISIBLE else View.GONE
+        binding.engineSelectorLayout.visibility = View.GONE // 引擎选择已移入设置弹窗
     }
 
     private fun switchTab(tab: Int) {
@@ -432,8 +455,8 @@ class HistoryFragment : Fragment() {
             onPositive = {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        cacheManager.clearAllCache()
-                        LogCollector.d(TAG, "Cleared all cache")
+                        cacheManager.clearHistory(currentTab)
+                        LogCollector.d(TAG, "Cleared history: type=$currentTab")
                         loadHistory()
                         Toast.makeText(requireContext(), R.string.history_cleared, Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
