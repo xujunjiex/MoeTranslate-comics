@@ -197,7 +197,7 @@ class MangaViewerActivity : AppCompatActivity() {
 
                         initializeEngines(detEngine, ocrEngine)
 
-                        val ocrResults = DetectionBridge.runOCR(cropped, sourceLang, detEngine.ordinal, ocrEngine.ordinal, this@MangaViewerActivity)
+                        val ocrResults = DetectionBridge.runOCR(cropped, sourceLang, detEngine.value, ocrEngine.value, this@MangaViewerActivity)
                         if (ocrResults.isEmpty()) throw Exception("OCR 未识别到文字")
 
                         val bubbles = DetectionBridge.ocrToBubbleRegions(ocrResults)
