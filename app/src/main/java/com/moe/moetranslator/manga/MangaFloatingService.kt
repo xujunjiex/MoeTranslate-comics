@@ -50,7 +50,6 @@ import com.moe.moetranslator.translate.ScreenshotManager
 import com.moe.moetranslator.translate.MediaProjectionIntentHolder
 import com.moe.moetranslator.translate.ScreenshotProvider
 import com.moe.moetranslator.translate.ScreenCapturePermissionActivity
-import com.moe.moetranslator.translate.TranslationResult
 import com.moe.moetranslator.translate.TranslationTextAPI
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.CustomPreference
@@ -61,9 +60,7 @@ import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -2536,83 +2533,95 @@ class MangaFloatingService : LifecycleService() {
             }
             LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
 
-            // 确保选中的模型已初始化
-            when (config.detEngine) {
-                DetEngine.CTD -> initCTDIfNeeded()
-                DetEngine.MLKIT -> {}
-                DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
-                DetEngine.PP_OCR_V5 -> initPPOcrV5IfNeeded()
+            // OcrLock: 保护 ONNX 模型的多线程访问（PP-OCRv5/CTD/manga-ocr 等单例引擎）
+            if (!com.moe.moetranslator.manga.OcrLock.tryAcquire()) {
+                scheduleNextDetection(DETECT_INTERVAL_MS)
+                isProcessing = false
+                return
             }
-            when (config.ocrEngine) {
-                OcrEngine.MLKit -> {}
-                OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
-                OcrEngine.PPOcrV5 -> initPPOcrV5IfNeeded()
-            }
-
-            // Step 1: 文字检测 + 识别
-            showProgressOverlay("文字识别中...")
-            val (ppRecLang, ppHint) = if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) {
-                PPOcrV5Engine.resolveRecLang(this@MangaFloatingService, config.sourceLang)
-            } else {
-                Pair(PPOcrV5Engine.getRecLang(config.sourceLang), null)
-            }
-            if (ppHint != null) {
-                showToast(ppHint, true)
-            }
-            // 非默认模型时提示
-            if (ppRecLang != null && ppRecLang != PPOcrV5Engine.RecLang.ZH && ppRecLang != PPOcrV5Engine.RecLang.JA) {
-                showToast("使用专用识别模型: rec_${ppRecLang.code}", false)
-            }
-            LogCollector.d(TAG, "Step 1 配置: detEngine=${config.detEngine}, ocrEngine=${config.ocrEngine}, sourceLang=${config.sourceLang}" +
-                if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
-            val textBlocks: List<TextBlockInfo> = withContext(Dispatchers.IO) {
+            var ocrTextBlocks: List<TextBlockInfo> = emptyList()
+            try {
+                // 确保选中的模型已初始化
                 when (config.detEngine) {
-                    DetEngine.CTD -> {
-                        val ctdOcrEngine = when (config.ocrEngine) {
-                            OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                            OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                            OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
-                        }
-                        LogCollector.d(TAG, "使用 CTD(检测) + ${ctdOcrEngine.name}(识别), lang=${config.sourceLang}" +
-                            if (ctdOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
-                        DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine, this@MangaFloatingService)
-                    }
-                    DetEngine.MLKIT -> {
-                        when (config.ocrEngine) {
-                            OcrEngine.MLKit -> {
-                                LogCollector.d(TAG, "使用 ML Kit(检测+识别), lang=${config.sourceLang}")
-                                OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+                    DetEngine.CTD -> initCTDIfNeeded()
+                    DetEngine.MLKIT -> {}
+                    DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
+                    DetEngine.PP_OCR_V5 -> initPPOcrV5IfNeeded()
+                }
+                when (config.ocrEngine) {
+                    OcrEngine.MLKit -> {}
+                    OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
+                    OcrEngine.PPOcrV5 -> initPPOcrV5IfNeeded()
+                }
+
+                // Step 1: 文字检测 + 识别
+                showProgressOverlay("文字识别中...")
+                val (ppRecLang, ppHint) = if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) {
+                    PPOcrV5Engine.resolveRecLang(this@MangaFloatingService, config.sourceLang)
+                } else {
+                    Pair(PPOcrV5Engine.getRecLang(config.sourceLang), null)
+                }
+                if (ppHint != null) {
+                    showToast(ppHint, true)
+                }
+                // 非默认模型时提示
+                if (ppRecLang != null && ppRecLang != PPOcrV5Engine.RecLang.ZH && ppRecLang != PPOcrV5Engine.RecLang.JA) {
+                    showToast("使用专用识别模型: rec_${ppRecLang.code}", false)
+                }
+                LogCollector.d(TAG, "Step 1 配置: detEngine=${config.detEngine}, ocrEngine=${config.ocrEngine}, sourceLang=${config.sourceLang}" +
+                    if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
+                ocrTextBlocks = withContext(Dispatchers.IO) {
+                    when (config.detEngine) {
+                        DetEngine.CTD -> {
+                            val ctdOcrEngine = when (config.ocrEngine) {
+                                OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
+                                OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
+                                OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
                             }
-                            OcrEngine.MangaOcr -> {
-                                LogCollector.d(TAG, "使用 ML Kit(检测) + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion})(识别), lang=${config.sourceLang}")
-                                MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
-                            }
-                            OcrEngine.PPOcrV5 -> {
-                                LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
-                                DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
+                            LogCollector.d(TAG, "使用 CTD(检测) + ${ctdOcrEngine.name}(识别), lang=${config.sourceLang}" +
+                                if (ctdOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
+                            DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine, this@MangaFloatingService)
+                        }
+                        DetEngine.MLKIT -> {
+                            when (config.ocrEngine) {
+                                OcrEngine.MLKit -> {
+                                    LogCollector.d(TAG, "使用 ML Kit(检测+识别), lang=${config.sourceLang}")
+                                    OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
+                                }
+                                OcrEngine.MangaOcr -> {
+                                    LogCollector.d(TAG, "使用 ML Kit(检测) + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion})(识别), lang=${config.sourceLang}")
+                                    MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
+                                }
+                                OcrEngine.PPOcrV5 -> {
+                                    LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
+                                    DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
+                                }
                             }
                         }
-                    }
-                    DetEngine.RT_DETR_V2 -> {
-                        // RT-DETR-V2 气泡检测 + 指定 OCR 引擎识别
-                        val rtdetrOcrEngine = when (config.ocrEngine) {
-                            OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                            OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                            OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
+                        DetEngine.RT_DETR_V2 -> {
+                            // RT-DETR-V2 气泡检测 + 指定 OCR 引擎识别
+                            val rtdetrOcrEngine = when (config.ocrEngine) {
+                                OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
+                                OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
+                                OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
+                            }
+                            LogCollector.d(TAG, "使用 RT-DETR-V2(检测) + ${rtdetrOcrEngine.name}(识别), lang=${config.sourceLang}" +
+                                if (rtdetrOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
+                            DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService, config.keepTextFree)
                         }
-                        LogCollector.d(TAG, "使用 RT-DETR-V2(检测) + ${rtdetrOcrEngine.name}(识别), lang=${config.sourceLang}" +
-                            if (rtdetrOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
-                        DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService, config.keepTextFree)
-                    }
-                    DetEngine.PP_OCR_V5 -> {
-                        LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
-                        DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
+                        DetEngine.PP_OCR_V5 -> {
+                            LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
+                            DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
+                        }
                     }
                 }
+                LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR done, found ${ocrTextBlocks.size} text blocks")
+            } finally {
+                com.moe.moetranslator.manga.OcrLock.release()
             }
-            LogCollector.d(TAG, "processMangaScreenshot: Step 1 - OCR done, found ${textBlocks.size} text blocks")
 
-            if (textBlocks.isEmpty()) {
+            // No text handling — outside OcrLock (early return if empty)
+            if (ocrTextBlocks.isEmpty()) {
                 LogCollector.d(TAG, "processMangaScreenshot: No text found, returning early")
                 if (isAutoTranslating) {
                     consecutiveEmptyCount++
@@ -2638,10 +2647,10 @@ class MangaFloatingService : LifecycleService() {
             val needsPostMerge = config.detEngine == DetEngine.MLKIT
             val allBubbles = if (needsPostMerge) {
                 LogCollector.d(TAG, "processMangaScreenshot: Step 2 - BubbleDetector 后合并")
-                BubbleDetector.detectBubbles(textBlocks, config)
+                BubbleDetector.detectBubbles(ocrTextBlocks, config)
             } else {
                 LogCollector.d(TAG, "processMangaScreenshot: Step 2 - 已前合并，跳过后合并")
-                textBlocks.filter { it.boundingBox != null }.map { block ->
+                ocrTextBlocks.filter { it.boundingBox != null }.map { block ->
                     val rect = block.boundingBox!!
                     val isVertical = block.isVertical ?: (rect.height() > rect.width())
                     if (kotlin.math.abs(block.angle) > 0.5f) {
@@ -2718,7 +2727,7 @@ class MangaFloatingService : LifecycleService() {
         val needTranslation = mutableListOf<BubbleRegion>()
 
         for (bubble in bubbles) {
-            val combinedText = bubble.texts.map { cleanOcrText(it) }.filter { it.isNotBlank() }.joinToString("")
+            val combinedText = bubble.texts.map { TranslateUtils.cleanOcrText(it) }.filter { it.isNotBlank() }.joinToString("")
             if (combinedText.isBlank()) continue
 
             // 精确匹配
@@ -3043,13 +3052,6 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    private fun cleanOcrText(text: String): String {
-        return text
-            .replace(Regex("[\\n\\r]+"), "")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
-
     /** 构建翻译器显示名：API名(模型名) + 检测器 + 识别器 + 分批等参数 */
     private fun buildTranslatorDisplayName(): String {
         val apiName = translatorText?.javaClass?.simpleName ?: "Unknown"
@@ -3099,339 +3101,12 @@ class MangaFloatingService : LifecycleService() {
         return parts.joinToString(" | ")
     }
 
-    /**
-     * 检查文本是否仅包含符号/标点（不含实际文字内容）。
-     * 用于过滤漫画中的纯符号表达，避免提交给翻译模型导致文字被缩小。
-     */
-    private fun isSymbolOnlyText(text: String): Boolean {
-        if (text.isBlank()) return true
-        val stripped = text.replace(Regex("\\s+"), "")
-        if (stripped.isEmpty()) return true
-        return stripped.all { ch ->
-            val type = Character.getType(ch).toByte()
-            type == Character.START_PUNCTUATION ||
-            type == Character.END_PUNCTUATION ||
-            type == Character.DASH_PUNCTUATION ||
-            type == Character.OTHER_PUNCTUATION ||
-            type == Character.MATH_SYMBOL ||
-            type == Character.CURRENCY_SYMBOL ||
-            type == Character.MODIFIER_SYMBOL ||
-            type == Character.OTHER_SYMBOL ||
-            ch == '♡' || ch == '♥' || ch == '♪' || ch == '♫' ||
-            ch == '〜' || ch == '～' || ch == '…' || ch == '─'
-        }
-    }
-
     private suspend fun translateBubbles(
         bubbles: List<BubbleRegion>,
         forceContext: Boolean = false
     ): List<TranslatedBubble> {
-        LogCollector.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translatorText=${translatorText?.javaClass?.simpleName}")
-        if (translatorText == null) {
-            LogCollector.e(TAG, "translateBubbles: translatorText is NULL!")
-            throw RuntimeException("Translation API not initialized")
-        }
-
-        // 准备气泡数据：清理文本，过滤空的，分离纯符号气泡
-        val preparedBubbles = mutableListOf<Pair<BubbleRegion, String>>()
-        val symbolOnlyBubbles = mutableListOf<TranslatedBubble>()
-
-        for (bubble in bubbles) {
-            val cleaned = bubble.texts.map { cleanOcrText(it) }.filter { it.isNotBlank() }
-            if (cleaned.isEmpty()) continue
-            val combinedText = cleaned.joinToString("")
-
-            if (isSymbolOnlyText(combinedText)) {
-                // 纯符号气泡：跳过翻译，保留原文
-                LogCollector.d(TAG, "translateBubbles: skipping symbol-only: '$combinedText'")
-                symbolOnlyBubbles.add(TranslatedBubble(
-                    rect = bubble.rect,
-                    originalText = combinedText,
-                    translatedText = combinedText,
-                    backgroundColor = Color.TRANSPARENT,
-                    fontSize = bubble.fontSize,
-                    direction = bubble.direction,
-                    angle = bubble.angle,
-                    centerX = bubble.centerX,
-                    centerY = bubble.centerY
-                ))
-            } else {
-                preparedBubbles.add(bubble to combinedText)
-            }
-        }
-        if (preparedBubbles.isEmpty()) return symbolOnlyBubbles
-
-        // AI翻译（OpenAI兼容）用批量请求，机器翻译用逐个请求
-        val isAI = translatorText is translationapi.openaitranslation.OpenAITranslation
-                || translatorText?.javaClass?.simpleName?.contains("Custom") == true
-
-        val translatedResults = if (isAI && preparedBubbles.size > 1) {
-            translateBubblesBatch(preparedBubbles, forceContext)
-        } else {
-            translateBubblesSequential(preparedBubbles)
-        }
-
-        return symbolOnlyBubbles + translatedResults
-    }
-
-    /**
-     * AI翻译：所有气泡合并为一次请求，用编号分隔
-     */
-    private suspend fun translateBubblesBatch(
-        bubbles: List<Pair<BubbleRegion, String>>,
-        forceContext: Boolean = false
-    ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
-        LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles in 1 request, forceContext=$forceContext")
-
-        // 构建带编号的文本，格式说明由用户提示词中的模板提供
-        val numberedText = bubbles.mapIndexed { index, (_, text) ->
-            "[${index + 1}] $text"
-        }.joinToString("\n")
-
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var resultText: String? = null
-        var errorMsg: String? = null
-
-        // 分批渲染强制开启上下文（仅批次间传递）；正常漫画翻译不使用上下文
-        val currentContextEnabled = forceContext
-        val currentContextMaxCount = try {
-            prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
-        } catch (e: Exception) { 5 }
-
-        // 更新 AI 上下文（仅 OpenAI 兼容 API）
-        (translatorText as? translationapi.openaitranslation.OpenAITranslation)?.updateContext(
-            if (currentContextEnabled) contextHistory.toList() else emptyList(),
-            currentContextEnabled
-        )
-
-        // 直接调用翻译API，使用用户在设置页面配置的系统提示词和用户提示词
-        // numberedText 会替换用户提示词中的 usesourcetext 占位符
-        translatorText?.getTranslation(
-            numberedText,
-            config.sourceLang,
-            config.targetLang
-        ) { result ->
-            when (result) {
-                is TranslationResult.Success -> {
-                    resultText = result.translatedText
-                }
-                is TranslationResult.Error -> {
-                    errorMsg = result.error.message ?: "Unknown error"
-                }
-            }
-            latch.countDown()
-        } ?: run {
-            errorMsg = "translatorText is null"
-            latch.countDown()
-        }
-
-        val completed = latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
-        if (!completed) {
-            throw RuntimeException("AI batch translation timeout (60s)")
-        }
-        if (errorMsg != null) {
-            throw RuntimeException("AI batch translation failed: $errorMsg")
-        }
-
-        // 按编号解析结果（支持JSON格式和编号格式）
-        val result = resultText!!.trim()
-        val translations = if (result.startsWith("{")) {
-            parseJsonTranslations(result, bubbles.size)
-        } else {
-            parseNumberedTranslations(result, bubbles.size)
-        }
-        LogCollector.d(TAG, "translateBubblesBatch: parsed ${translations.size} translations")
-
-        // 更新 AI 上下文历史（仅 OpenAI 兼容 API）
-        if (currentContextEnabled && translations.isNotEmpty()) {
-            val sourceText = bubbles.map { it.second }.joinToString("\n")
-            val translatedText = translations.joinToString("\n")
-            contextHistory.addLast(Pair(sourceText, translatedText))
-            while (contextHistory.size > currentContextMaxCount) {
-                contextHistory.removeFirst()
-            }
-            LogCollector.d(TAG, "上下文已更新: ${contextHistory.size}/$currentContextMaxCount 轮")
-        }
-
-        // 输出翻译结果
-        for (i in translations.indices) {
-            val (bubble, original) = bubbles[i]
-            val translated = translations[i]
-            LogCollector.d(TAG, "翻译结果[$i]: orig='$original' → trans='$translated'")
-        }
-
-        bubbles.mapIndexed { index, (bubble, originalText) ->
-            if (kotlin.math.abs(bubble.angle) > 0.5f) {
-                LogCollector.d(TAG, "TranslatedBubble[$index]: angle=${bubble.angle}, cx=${bubble.centerX}, cy=${bubble.centerY}, text='${originalText.take(15)}'")
-            }
-            TranslatedBubble(
-                rect = bubble.rect,
-                originalText = originalText,
-                translatedText = translations.getOrElse(index) { originalText },
-                backgroundColor = Color.TRANSPARENT,
-                fontSize = bubble.fontSize,
-                direction = bubble.direction,
-                angle = bubble.angle,
-                centerX = bubble.centerX,
-                centerY = bubble.centerY
-            )
-        }
-    }
-
-    /**
-     * 解析JSON格式的翻译结果
-     * 支持格式:
-     *   1. {"translations": ["译文1", "译文2"]}
-     *   2. ["译文1", "译文2"]
-     *   3. [{"translations": ["译文1"]}, ...] (模型可能返回的混合格式)
-     */
-    private fun parseJsonTranslations(text: String, expectedCount: Int): List<String> {
-        return try {
-            val results = mutableListOf<String>()
-
-            // 尝试解析为 JSON 对象 {"translations": [...]}
-            try {
-                val jsonObject = org.json.JSONObject(text)
-                val translations = jsonObject.getJSONArray("translations")
-                for (i in 0 until translations.length().coerceAtMost(expectedCount)) {
-                    results.add(translations.getString(i))
-                }
-            } catch (_: Exception) {
-                // 尝试解析为 JSON 数组
-                val jsonArray = org.json.JSONArray(text)
-                for (i in 0 until jsonArray.length().coerceAtMost(expectedCount)) {
-                    val item = jsonArray.get(i)
-                    when (item) {
-                        is String -> results.add(item)
-                        is org.json.JSONObject -> {
-                            // 处理 {"translations": ["译文"]} 格式的数组元素
-                            if (item.has("translations")) {
-                                val arr = item.getJSONArray("translations")
-                                if (arr.length() > 0) results.add(arr.getString(0))
-                            }
-                        }
-                        // 跳过数字等其他类型（如 [2], [3]）
-                    }
-                }
-            }
-
-            // 补齐不足的部分
-            while (results.size < expectedCount) {
-                results.add("")
-            }
-            results.take(expectedCount)
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "Failed to parse JSON translations: ${text.take(200)}", e)
-            List(expectedCount) { "" }
-        }
-    }
-
-    /**
-     * 解析带编号的翻译结果
-     * 支持格式: "[1] 翻译文本" 或 "1. 翻译文本" 或 "1、翻译文本"
-     */
-    private fun parseNumberedTranslations(text: String, expectedCount: Int): List<String> {
-        val results = mutableListOf<String>()
-        // 匹配 [N] 或 N. 或 N、开头的行
-        val pattern = Regex("""\[(\d+)]\s*([\s\S]*?)(?=\[\d+]|$)""")
-        val matches = pattern.findAll(text).toList()
-
-        if (matches.size >= expectedCount) {
-            for (match in matches.take(expectedCount)) {
-                results.add(match.groupValues[2].trim())
-            }
-        } else {
-            // 降级：按行拆分
-            val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
-            for (line in lines) {
-                val cleaned = line.replace(Regex("""^\[?\d+]?[.、\s]*"""), "").trim()
-                if (cleaned.isNotBlank()) {
-                    results.add(cleaned)
-                }
-            }
-        }
-
-        // 补齐不足的部分
-        while (results.size < expectedCount) {
-            results.add("")
-        }
-        return results.take(expectedCount)
-    }
-
-    /**
-     * 机器翻译：逐个气泡请求
-     */
-    private suspend fun translateBubblesSequential(
-        bubbles: List<Pair<BubbleRegion, String>>
-    ): List<TranslatedBubble> = coroutineScope {
-        LogCollector.d(TAG, "translateBubblesConcurrent: ${bubbles.size} bubbles, concurrent")
-
-        val deferreds = bubbles.map { (bubble, combinedText) ->
-            async(Dispatchers.IO) {
-                LogCollector.d(TAG, "translateBubblesConcurrent: translating '$combinedText'")
-
-                val latch = java.util.concurrent.CountDownLatch(1)
-                var successResult: TranslatedBubble? = null
-                var errorMsg: String? = null
-
-                translatorText?.getTranslation(
-                    combinedText,
-                    config.sourceLang,
-                    config.targetLang
-                ) { result ->
-                    when (result) {
-                        is TranslationResult.Success -> {
-                            LogCollector.d(TAG, "translateBubblesConcurrent: SUCCESS for '$combinedText'")
-                            successResult = TranslatedBubble(
-                                rect = bubble.rect,
-                                originalText = combinedText,
-                                translatedText = result.translatedText,
-                                backgroundColor = Color.TRANSPARENT,
-                                fontSize = bubble.fontSize,
-                                direction = bubble.direction,
-                                angle = bubble.angle,
-                                centerX = bubble.centerX,
-                                centerY = bubble.centerY
-                            )
-                        }
-                        is TranslationResult.Error -> {
-                            errorMsg = result.error.message ?: "Unknown error"
-                            LogCollector.e(TAG, "translateBubblesConcurrent: ERROR: $errorMsg")
-                        }
-                    }
-                    latch.countDown()
-                } ?: run {
-                    errorMsg = "translatorText is null"
-                    latch.countDown()
-                }
-
-                val completed = latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
-                if (!completed) {
-                    errorMsg = "Translation timeout (30s)"
-                }
-
-                Pair(successResult, errorMsg)
-            }
-        }
-
-        val allResults = deferreds.awaitAll()
-        val results = mutableListOf<TranslatedBubble>()
-        val errors = mutableListOf<String>()
-
-        for ((successResult, errorMsg) in allResults) {
-            if (successResult != null) {
-                results.add(successResult)
-            } else if (errorMsg != null) {
-                errors.add(errorMsg)
-            }
-        }
-
-        LogCollector.d(TAG, "translateBubblesConcurrent: ${results.size} successful out of ${bubbles.size}")
-        if (results.isEmpty() && bubbles.isNotEmpty()) {
-            val errorDetail = errors.distinct().joinToString("; ")
-            throw RuntimeException("All bubbles failed to translate: $errorDetail")
-        }
-        results
+        if (translatorText == null) throw RuntimeException("Translation API not initialized")
+        return TranslateUtils.translateBubbles(translatorText!!, bubbles, config.sourceLang, config.targetLang, prefs, contextHistory, forceContext)
     }
 
     // ---------- Result overlay ----------
