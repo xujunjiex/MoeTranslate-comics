@@ -24,6 +24,11 @@ object PerceptualHash {
     private const val HASH_ROWS = 8
     private const val HASH_COLS = 9  // 9 列产生 8×8=64 位哈希（每行 8 对比较）
 
+    // 256-bit 扩展哈希参数（17×16 分辨率，用于漫画缓存匹配）
+    private const val EXT_HASH_COLS = 17
+    private const val EXT_HASH_ROWS = 16
+    private const val EXT_HASH_PARTS = 4      // 256 bits / 64 bits per Long
+
     // 直方图预筛参数
     private const val HIST_BINS = 16          // 亮度分箱数
     private const val HIST_SIZE = 32          // 缩放尺寸
@@ -152,6 +157,60 @@ object PerceptualHash {
      */
     fun isSimilar(hash1: Long, hash2: Long, threshold: Float = 0.92f): Boolean {
         return similarity(hash1, hash2) >= threshold
+    }
+
+    /**
+     * 256-bit 扩展感知哈希 — 17×16 dHash。
+     * 将图片缩放到 17×16 后做 16×16 = 256 次相邻像素比较，
+     * 结果打包为 4 个 Long。
+     *
+     * 用于漫画缓存匹配，相比 64-bit 版本能更好区分不同页面。
+     * @return LongArray(4)，共 256 位
+     */
+    fun computeExtended(bitmap: Bitmap, centerCrop: Boolean = false): LongArray {
+        val target = if (centerCrop) {
+            val cropW = (bitmap.width * 0.7f).toInt().coerceAtLeast(EXT_HASH_COLS)
+            val cropH = (bitmap.height * 0.7f).toInt().coerceAtLeast(EXT_HASH_ROWS)
+            val x = (bitmap.width - cropW) / 2
+            val y = (bitmap.height - cropH) / 2
+            Bitmap.createBitmap(bitmap, x, y, cropW, cropH)
+        } else {
+            bitmap
+        }
+
+        val scaled = Bitmap.createScaledBitmap(target, EXT_HASH_COLS, EXT_HASH_ROWS, true)
+        val pixels = IntArray(EXT_HASH_COLS * EXT_HASH_ROWS)
+        scaled.getPixels(pixels, 0, EXT_HASH_COLS, 0, 0, EXT_HASH_COLS, EXT_HASH_ROWS)
+        if (scaled !== target) scaled.recycle()
+        if (target !== bitmap && centerCrop) target.recycle()
+
+        val hashes = LongArray(EXT_HASH_PARTS)
+        var bitIndex = 0
+        for (row in 0 until EXT_HASH_ROWS) {
+            val rowOffset = row * EXT_HASH_COLS
+            for (col in 0 until EXT_HASH_COLS - 1) {
+                val leftGray = grayscale(pixels[rowOffset + col])
+                val rightGray = grayscale(pixels[rowOffset + col + 1])
+                if (leftGray > rightGray) {
+                    hashes[bitIndex / 64] = hashes[bitIndex / 64] or (1L shl (bitIndex % 64))
+                }
+                bitIndex++
+            }
+        }
+        return hashes
+    }
+
+    /**
+     * 计算两个扩展哈希的相似度。
+     * @return 0.0 ~ 1.0，1.0 表示完全相同
+     */
+    fun similarity(a: LongArray, b: LongArray): Float {
+        require(a.size == b.size) { "Hash arrays must have same size, got ${a.size} and ${b.size}" }
+        var totalDiff = 0L
+        for (i in a.indices) {
+            totalDiff += java.lang.Long.bitCount(a[i] xor b[i])
+        }
+        return 1f - totalDiff.toFloat() / (a.size * 64f)
     }
 
     /**

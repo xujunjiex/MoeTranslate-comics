@@ -26,7 +26,10 @@ data class PageCacheEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val historyId: Long,        // FK -> translation_history.id
-    val pHash: Long,            // 感知哈希值
+    val pHash: Long,            // 感知哈希值（64 位低段，后向兼容）
+    val pHash2: Long = 0,       // 扩展哈希（256-bit 第 2 段）
+    val pHash3: Long = 0,       // 扩展哈希（256-bit 第 3 段）
+    val pHash4: Long = 0,       // 扩展哈希（256-bit 第 4 段）
     val mode: Int,              // 0=游戏, 1=漫画
     val lastAccessedAt: Long,   // 最后访问时间（LRU）
     val createdAt: Long,        // 创建时间

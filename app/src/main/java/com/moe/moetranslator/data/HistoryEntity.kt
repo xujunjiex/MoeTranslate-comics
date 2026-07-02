@@ -22,7 +22,10 @@ data class HistoryEntity(
     val sourceLang: String,     // 源语言代码
     val targetLang: String,     // 目标语言代码
     val translatorName: String, // 翻译器名称
-    val pHash: Long,            // 感知哈希值
+    val pHash: Long,            // 感知哈希值（64 位低段，后向兼容）
+    val pHash2: Long = 0,       // 扩展哈希（256-bit 第 2 段）
+    val pHash3: Long = 0,       // 扩展哈希（256-bit 第 3 段）
+    val pHash4: Long = 0,       // 扩展哈希（256-bit 第 4 段）
     @ColumnInfo(name = "created_at", defaultValue = "0")
     val createdAt: Long = 0,    // session 创建时间（继承自同 pHash 旧记录，永不改变）
     @ColumnInfo(name = "session_id", defaultValue = "")

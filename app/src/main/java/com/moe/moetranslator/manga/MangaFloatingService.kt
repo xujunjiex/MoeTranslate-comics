@@ -59,6 +59,7 @@ import com.moe.moetranslator.utils.TranslationStatusOverlay
 import com.moe.moetranslator.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -217,6 +218,10 @@ class MangaFloatingService : LifecycleService() {
     // 翻译会话 ID（每次服务启动生成新的）
     private val sessionId = java.util.UUID.randomUUID().toString()
     private var currentPHash = 0L
+    private var currentExtHashes: LongArray? = null  // 256-bit 扩展哈希（用于缓存匹配和存储）
+    private var pendingCleanScreenshot = false       // 无障碍：等待干净截图到来
+    private var pendingDetectionPHash = 0L           // 检测截图的 pHash（用于保持状态机稳定）
+    private var pendingDetectionExtHashes: LongArray? = null
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
 
     // 当前翻译的原始全屏截图（未裁剪），用于缓存 originalBitmap
@@ -1757,6 +1762,8 @@ class MangaFloatingService : LifecycleService() {
         val provider = screenshotProvider ?: return false
         LogCollector.d(TAG, "takeScreenshotWithProvider: provider=${provider.javaClass.simpleName}, cropRect=$cropRect")
 
+        var ballWasShowing = false
+
         if (provider is MediaProjectionProvider) {
             // MediaProjection 模式：需要已初始化（权限在服务启动时请求）
             if (!provider.ensureInitialized()) {
@@ -1764,8 +1771,19 @@ class MangaFloatingService : LifecycleService() {
                 showToast("录屏权限未授予，无法截图", true)
                 return false
             }
+            // 手动模式：截图前隐藏悬浮球，避免遮挡框选内容影响缓存
+            if (!isAutoTranslating) {
+                ballWasShowing = ::floatingBallView.isInitialized &&
+                    isViewAdded(floatingBallView) &&
+                    floatingBallView.visibility == View.VISIBLE
+                if (ballWasShowing) {
+                    floatingBallView.visibility = View.GONE
+                    LogCollector.d(TAG, "takeScreenshotWithProvider: 隐藏悬浮球")
+                }
+            }
             // 异步截图：先获取全屏，再由服务层裁剪（保留全屏 bitmap 供缓存使用）
             lifecycleScope.launch {
+                if (ballWasShowing) delay(50)
                 LogCollector.d(TAG, "Taking MediaProjection screenshot")
                 try {
                     val fullBitmap = provider.takeScreenshot(null, offset)
@@ -1780,7 +1798,6 @@ class MangaFloatingService : LifecycleService() {
                     } else {
                         LogCollector.w(TAG, "Screenshot returned null")
                         isProcessing = false
-                        // 截图失败，恢复自动检测循环
                         if (isAutoTranslating) {
                             scheduleNextDetection(DETECT_INTERVAL_MS)
                         }
@@ -1791,14 +1808,34 @@ class MangaFloatingService : LifecycleService() {
                     if (isAutoTranslating) {
                         scheduleNextDetection(DETECT_INTERVAL_MS)
                     }
+                } finally {
+                    if (ballWasShowing) {
+                        floatingBallView.visibility = View.VISIBLE
+                        LogCollector.d(TAG, "takeScreenshotWithProvider: 恢复悬浮球")
+                    }
                 }
             }
             return true
         } else {
-            // AccessibilityService 模式：直接调用
-            LogCollector.d(TAG, "Taking AccessibilityService screenshot")
+            // AccessibilityService 模式：手动模式同样隐藏悬浮球
+            if (!isAutoTranslating) {
+                ballWasShowing = ::floatingBallView.isInitialized &&
+                    isViewAdded(floatingBallView) &&
+                    floatingBallView.visibility == View.VISIBLE
+                if (ballWasShowing) {
+                    floatingBallView.visibility = View.GONE
+                }
+            }
             lifecycleScope.launch {
-                provider.takeScreenshot(cropRect, offset)
+                if (ballWasShowing) delay(50)
+                LogCollector.d(TAG, "Taking AccessibilityService screenshot")
+                try {
+                    provider.takeScreenshot(cropRect, offset)
+                } finally {
+                    if (ballWasShowing) {
+                        floatingBallView.visibility = View.VISIBLE
+                    }
+                }
             }
             return true
         }
@@ -1869,11 +1906,25 @@ class MangaFloatingService : LifecycleService() {
                 // ocrBitmap: 用于 OCR 和翻译流程的 bitmap（裁剪后或全屏）
                 val ocrBitmap = data.croppedBitmap ?: data.fullBitmap
                 LogCollector.d(TAG, "Screenshot collector: RECEIVED! full=${data.fullBitmap.width}x${data.fullBitmap.height}, ocr=${ocrBitmap.width}x${ocrBitmap.height}")
+
+                // 无障碍：拦截等待中的干净截图（悬浮球已隐藏）
+                if (pendingCleanScreenshot) {
+                    pendingCleanScreenshot = false
+                    val detPHash = pendingDetectionPHash.also { pendingDetectionPHash = 0L }
+                    val detExtHashes = pendingDetectionExtHashes.also { pendingDetectionExtHashes = null }
+                    LogCollector.d(TAG, "Screenshot collector: 收到干净截图，开始翻译")
+                    showProgressOverlay(getString(R.string.manga_translating))
+                    processMangaScreenshot(ocrBitmap, detPHash, detExtHashes)
+                    return@collect
+                }
+
                 try {
                     // 自动翻译模式：pHash 门控（手动翻译时跳过）
                     if (isAutoTranslating && !isManualTranslating) {
                         // 用全屏截图计算稳定的 pHash（不受框选偏移影响）
                         val pHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
+                        // 256-bit 扩展哈希（用于缓存精确匹配）
+                        val extHashes = PerceptualHash.computeExtended(data.fullBitmap, centerCrop = true)
                         // 保存全屏 bitmap 引用用于缓存（不要在翻译前释放）
                         pendingFullBitmap = data.fullBitmap
                         val shouldTranslate = processAutoDetectPHash(pHash)
@@ -1885,38 +1936,80 @@ class MangaFloatingService : LifecycleService() {
                             // 不关闭进度条，保持"自动检测中"显示
                             return@collect
                         }
-                        // P5: restricted check 延迟到真正翻译时才执行（MOTION 阶段跳过）
-                        if (isRestrictedScreenshot(ocrBitmap)) {
-                            LogCollector.d(TAG, "Screenshot collector: 检测到受限区域截图，跳过翻译")
+                        // pHash 通过门控
+                        val offset = cropView.absolutePointOffset
+                        val isMP = screenshotProvider is MediaProjectionProvider
+
+                        if (isMP) {
+                            // MP：先截图（截图瞬间隐藏球），再显示进度条
+                            var cleanFull: Bitmap? = null
+                            try {
+                                if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
+                                    floatingBallView.visibility = View.GONE
+                                }
+                                delay(50)
+                                cleanFull = screenshotProvider?.takeScreenshot(null, offset)
+                            } catch (e: Exception) {
+                                LogCollector.w(TAG, "重新截图失败: ${e.message}")
+                            } finally {
+                                if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
+                                    floatingBallView.visibility = View.VISIBLE
+                                }
+                            }
+                            showProgressOverlay(getString(R.string.manga_translating))
+                            if (cleanFull != null) {
+                                if (data.croppedBitmap != null) { data.fullBitmap.recycle(); data.croppedBitmap.recycle() }
+                                else { data.fullBitmap.recycle() }
+                                val currentCropRect = cropRect
+                                val cleanOcr = if (data.croppedBitmap != null && currentCropRect != null) {
+                                    ScreenshotManager.cropBitmap(cleanFull, currentCropRect, offset) ?: cleanFull
+                                } else cleanFull
+                                pendingFullBitmap = cleanFull
+                                val cleanPHash = PerceptualHash.compute(cleanFull, centerCrop = true)
+                                val cleanExtHashes = PerceptualHash.computeExtended(cleanFull, centerCrop = true)
+                                processMangaScreenshot(cleanOcr, cleanPHash, cleanExtHashes)
+                            } else {
+                                processMangaScreenshot(ocrBitmap, pHash, extHashes)
+                            }
+                        } else {
+                            // 无障碍：等 300ms 冷却，截图瞬间隐藏球，结果走 flow 回来
+                            lifecycleScope.launch {
+                                delay(300)
+                                if (!isAutoTranslating) return@launch
+                                try {
+                                    if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
+                                        floatingBallView.visibility = View.GONE
+                                    }
+                                    // 等一帧让 SurfaceFlinger 刷新不带球的画面
+                                    delay(50)
+                                    screenshotProvider?.takeScreenshot(null, offset)
+                                } catch (e: Exception) {
+                                    LogCollector.w(TAG, "无障碍重新截图失败", e)
+                                } finally {
+                                    if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
+                                        floatingBallView.visibility = View.VISIBLE
+                                    }
+                                }
+                            }
+                            // 保存检测截图的 pHash 用于状态机，等下一张截图来翻译
+                            pendingDetectionPHash = pHash
+                            pendingDetectionExtHashes = extHashes
+                            pendingCleanScreenshot = true
                             ocrBitmap.recycle()
                             pendingFullBitmap = null
                             if (data.croppedBitmap != null) data.fullBitmap.recycle()
-                            isProcessing = false
-                            statusOverlay.showError("该区域无法截图，可能是受限内容（安全应用/DRM保护）")
-                            scheduleNextDetection(DETECT_INTERVAL_MS)
                             return@collect
                         }
-                        // pHash 通过门控，切换为"翻译中"，执行 OCR + 翻译
-                        showProgressOverlay(getString(R.string.manga_translating))
-                        processMangaScreenshot(ocrBitmap, pHash)
                     } else {
-                        // 手动模式：先检测受限区域，再翻译
-                        if (isRestrictedScreenshot(ocrBitmap)) {
-                            LogCollector.d(TAG, "Screenshot collector: 检测到受限区域截图，跳过翻译")
-                            ocrBitmap.recycle()
-                            if (data.croppedBitmap != null) data.fullBitmap.recycle()
-                            isProcessing = false
-                            isManualTranslating = false
-                            statusOverlay.showError("该区域无法截图，可能是受限内容（安全应用/DRM保护）")
-                            return@collect
-                        }
                         // 手动模式：用全屏截图计算稳定的缓存 pHash
                         val cachePHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
+                        // 256-bit 扩展哈希（用于缓存精确匹配）
+                        val extHashes = PerceptualHash.computeExtended(data.fullBitmap, centerCrop = true)
                         // 保存全屏 bitmap 引用用于缓存（不要在翻译前释放）
                         pendingFullBitmap = data.fullBitmap
                         showProgressOverlay("检测中...")
                         try {
-                            processMangaScreenshot(ocrBitmap, cachePHash)
+                            processMangaScreenshot(ocrBitmap, cachePHash, extHashes)
                         } finally {
                             isManualTranslating = false  // 无论成功失败，恢复自动检测
                         }
@@ -2093,7 +2186,10 @@ class MangaFloatingService : LifecycleService() {
                 sourceLang = config.sourceLang,
                 targetLang = config.targetLang,
                 translatorName = translatorName,
-                pHash = currentPHash,
+                pHash = (currentExtHashes?.getOrElse(0) { currentPHash }) ?: currentPHash,
+                pHash2 = currentExtHashes?.getOrElse(1) { 0L } ?: 0L,
+                pHash3 = currentExtHashes?.getOrElse(2) { 0L } ?: 0L,
+                pHash4 = currentExtHashes?.getOrElse(3) { 0L } ?: 0L,
                 sessionId = sessionId,
                 lastSessionId = sessionId,
                 cropLeft = if (useCrop) cropRect!!.left.toInt() else 0,
@@ -2354,7 +2450,7 @@ class MangaFloatingService : LifecycleService() {
         if (isAutoTranslating) scheduleNextDetection(DETECT_INTERVAL_MS)
     }
 
-    private suspend fun processMangaScreenshot(bitmap: Bitmap, precomputedPHash: Long? = null) {
+    private suspend fun processMangaScreenshot(bitmap: Bitmap, precomputedPHash: Long? = null, precomputedExtHashes: LongArray? = null) {
         try {
             LogCollector.d(TAG, "processMangaScreenshot: START")
 
@@ -2371,6 +2467,9 @@ class MangaFloatingService : LifecycleService() {
             // 使用全屏截图计算的稳定 pHash（不受框选偏移影响）
             // collector 已传入全屏 pHash，fallback 到 bitmap 计算（理论上不会走到）
             currentPHash = precomputedPHash ?: PerceptualHash.compute(bitmap, centerCrop = true)
+            // 256-bit 扩展哈希（用于缓存精确匹配和存储）
+            currentExtHashes = precomputedExtHashes
+                ?: PerceptualHash.computeExtended(pendingFullBitmap ?: bitmap, centerCrop = true)
 
             // 调试模式：最高优先级，跳过缓存直接检测
             val isDebugMode = when (config.detEngine) {
@@ -2506,10 +2605,13 @@ class MangaFloatingService : LifecycleService() {
                 return
             }
 
-            // 全局缓存检查
+            // 全局缓存检查（使用 256-bit 扩展哈希）
             isForceRefreshActive = forceRefresh
             if (!isForceRefreshActive) {
-                val cached = cacheManager.findCache(currentPHash, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height, sessionId)
+                // 计算或获取扩展哈希
+                val extHashes = precomputedExtHashes
+                    ?: PerceptualHash.computeExtended(pendingFullBitmap ?: bitmap, centerCrop = true)
+                val cached = cacheManager.findCacheExt(extHashes, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height, sessionId)
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
                     lastCachedHistoryId = cached.historyId
@@ -2676,9 +2778,9 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Incremental translate ${allBubbles.size} bubbles")
                 newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
             } else {
-                // 手动翻译：翻译全部 bubbles
-                LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Full translate ${allBubbles.size} bubbles")
-                newTranslatedBubbles = translateBubbles(allBubbles)
+                // 手动翻译：同样走文本缓存匹配（translatedRegions 跨页有效）
+                LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Manual translate with cache ${allBubbles.size} bubbles")
+                newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
             }
             LogCollector.d(TAG, "processMangaScreenshot: Step 3 - done, got ${newTranslatedBubbles.size} results")
 
@@ -2866,66 +2968,6 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 检测截图是否来自受限区域（全黑、纯色覆盖、DRM保护等）。
-     * 两种检测：
-     * 1. 全黑检测：95%+ 像素亮度极低
-     * 2. 低方差检测：像素颜色几乎一致（纯色覆盖层）
-     */
-    private fun isRestrictedScreenshot(bitmap: Bitmap): Boolean {
-        val w = bitmap.width
-        val h = bitmap.height
-        if (w == 0 || h == 0) return true
-
-        // 采样 10x10 网格
-        val stepX = (w / 10).coerceAtLeast(1)
-        val stepY = (h / 10).coerceAtLeast(1)
-        val pixels = mutableListOf<Triple<Int, Int, Int>>()
-        var blackCount = 0
-
-        for (iy in 0 until 10) {
-            for (ix in 0 until 10) {
-                val px = (ix * stepX + stepX / 2).coerceIn(0, w - 1)
-                val py = (iy * stepY + stepY / 2).coerceIn(0, h - 1)
-                val pixel = bitmap.getPixel(px, py)
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-                pixels.add(Triple(r, g, b))
-                // 亮度阈值：RGB 均 < 16 视为黑色
-                if (r < 16 && g < 16 && b < 16) {
-                    blackCount++
-                }
-            }
-        }
-
-        // 检测1：全黑
-        val blackRatio = blackCount.toFloat() / pixels.size
-        if (blackRatio > 0.95f) {
-            LogCollector.d(TAG, "isRestrictedScreenshot: 全黑 (${(blackRatio * 100).toInt()}%)")
-            return true
-        }
-
-        // 检测2：低方差（纯色覆盖层，如DRM保护、安全应用遮罩）
-        // 计算 RGB 各通道的方差
-        val avgR = pixels.sumOf { it.first } / pixels.size
-        val avgG = pixels.sumOf { it.second } / pixels.size
-        val avgB = pixels.sumOf { it.third } / pixels.size
-        var varianceSum = 0.0
-        for ((r, g, b) in pixels) {
-            varianceSum += (r - avgR) * (r - avgR) + (g - avgG) * (g - avgG) + (b - avgB) * (b - avgB)
-        }
-        val avgVariance = varianceSum / pixels.size
-        // 方差极低（<50）说明像素几乎一致
-        if (avgVariance < 50.0) {
-            LogCollector.d(TAG, "isRestrictedScreenshot: 低方差覆盖层 (variance=${String.format("%.1f", avgVariance)}, avgRGB=($avgR,$avgG,$avgB))")
-            return true
-        }
-
-        LogCollector.d(TAG, "isRestrictedScreenshot: 正常截图 (black=${(blackRatio * 100).toInt()}%, variance=${String.format("%.1f", avgVariance)})")
-        return false
-    }
-
-    /**
      * 清除过期的缓存区域（超过 TTL）。
      */
     private fun evictExpiredRegions() {
@@ -3023,7 +3065,10 @@ class MangaFloatingService : LifecycleService() {
                     sourceLang = config.sourceLang,
                     targetLang = config.targetLang,
                     translatorName = translatorName,
-                    pHash = currentPHash,
+                    pHash = (currentExtHashes?.getOrElse(0) { currentPHash }) ?: currentPHash,
+                    pHash2 = currentExtHashes?.getOrElse(1) { 0L } ?: 0L,
+                    pHash3 = currentExtHashes?.getOrElse(2) { 0L } ?: 0L,
+                    pHash4 = currentExtHashes?.getOrElse(3) { 0L } ?: 0L,
                     sessionId = sessionId,
                     lastSessionId = sessionId,
                     isRetranslated = isRetranslate,

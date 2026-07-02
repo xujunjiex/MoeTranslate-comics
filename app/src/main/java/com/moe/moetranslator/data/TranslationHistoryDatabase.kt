@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [HistoryEntity::class, PageCacheEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class TranslationHistoryDatabase : RoomDatabase() {
@@ -70,13 +70,25 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
             }
         }
 
+        // 版本 9 → 10：translation_history 和 page_cache 添加 pHash2/pHash3/pHash4（256-bit 扩展感知哈希）
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE translation_history ADD COLUMN pHash2 INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE translation_history ADD COLUMN pHash3 INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE translation_history ADD COLUMN pHash4 INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE page_cache ADD COLUMN pHash2 INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE page_cache ADD COLUMN pHash3 INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE page_cache ADD COLUMN pHash4 INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): TranslationHistoryDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     TranslationHistoryDatabase::class.java,
                     "translation_history.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
             }

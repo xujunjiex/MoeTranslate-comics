@@ -358,10 +358,13 @@ class MangaViewerActivity : AppCompatActivity() {
                 continue
             }
 
-            // 找同 pHash 的条目
+            // 找同 pHash 的条目（使用 256-bit 扩展哈希）
             val variants = allEntries.filter {
                 it.id !in used && it.pHash != 0L &&
-                    PerceptualHash.similarity(entry.pHash, it.pHash) >= 0.85f
+                    PerceptualHash.similarity(
+                        longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4),
+                        longArrayOf(it.pHash, it.pHash2, it.pHash3, it.pHash4)
+                    ) >= 0.85f
             }
             variants.forEach { used.add(it.id) }
 

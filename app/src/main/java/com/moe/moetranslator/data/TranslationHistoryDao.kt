@@ -102,4 +102,12 @@ interface TranslationHistoryDao {
      */
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode AND crop_left = :cropLeft AND crop_top = :cropTop AND crop_right = :cropRight AND crop_bottom = :cropBottom LIMIT 1")
     suspend fun findCacheByHashAndCropRect(pHash: Long, mode: Int, cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int): PageCacheEntity?
+
+    // ========== Extended 256-bit hash (version 10+) ==========
+
+    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND pHash2 = :pHash2 AND pHash3 = :pHash3 AND pHash4 = :pHash4 AND mode = :mode LIMIT 1")
+    suspend fun findCacheByExactHashExtended(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long, mode: Int): PageCacheEntity?
+
+    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND pHash2 = :pHash2 AND pHash3 = :pHash3 AND pHash4 = :pHash4 AND mode = :mode AND crop_left = :cropLeft AND crop_top = :cropTop AND crop_right = :cropRight AND crop_bottom = :cropBottom LIMIT 1")
+    suspend fun findCacheByHashAndCropRectExtended(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long, mode: Int, cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int): PageCacheEntity?
 }
