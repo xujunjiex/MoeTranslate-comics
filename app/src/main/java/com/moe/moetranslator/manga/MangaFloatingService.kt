@@ -2775,18 +2775,9 @@ class MangaFloatingService : LifecycleService() {
             }
             LogCollector.d(TAG, "processMangaScreenshot: Step 2 - Detected ${allBubbles.size} bubbles")
 
-            // Step 3: Translate
-            val newTranslatedBubbles: List<TranslatedBubble>
-            if (isAutoTranslating) {
-                // 自动翻译：直接传入全部气泡，由 incrementalTranslateBubbles 内部做文本级缓存匹配
-                // （不再用 IoU 坐标过滤 — 坐标在滚动时会变，文本匹配更可靠）
-                LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Incremental translate ${allBubbles.size} bubbles")
-                newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
-            } else {
-                // 手动翻译：同样走文本缓存匹配（translatedRegions 跨页有效）
-                LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Manual translate with cache ${allBubbles.size} bubbles")
-                newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
-            }
+            // Step 3: 翻译（走文本缓存匹配，自动/手动均适用）
+            LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Translate ${allBubbles.size} bubbles")
+            val newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
             LogCollector.d(TAG, "processMangaScreenshot: Step 3 - done, got ${newTranslatedBubbles.size} results")
 
             // Step 4: 合并已缓存翻译 + 新翻译，渲染 overlay

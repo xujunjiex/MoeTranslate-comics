@@ -42,9 +42,6 @@ interface TranslationHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCache(entry: PageCacheEntity): Long
 
-    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode LIMIT 1")
-    suspend fun findCacheByExactHash(pHash: Long, mode: Int): PageCacheEntity?
-
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode")
     suspend fun findAllCacheByHash(pHash: Long, mode: Int): List<PageCacheEntity>
 
@@ -108,6 +105,4 @@ interface TranslationHistoryDao {
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND pHash2 = :pHash2 AND pHash3 = :pHash3 AND pHash4 = :pHash4 AND mode = :mode LIMIT 1")
     suspend fun findCacheByExactHashExtended(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long, mode: Int): PageCacheEntity?
 
-    @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND pHash2 = :pHash2 AND pHash3 = :pHash3 AND pHash4 = :pHash4 AND mode = :mode AND crop_left = :cropLeft AND crop_top = :cropTop AND crop_right = :cropRight AND crop_bottom = :cropBottom LIMIT 1")
-    suspend fun findCacheByHashAndCropRectExtended(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long, mode: Int, cropLeft: Int, cropTop: Int, cropRight: Int, cropBottom: Int): PageCacheEntity?
 }
