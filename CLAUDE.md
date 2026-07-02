@@ -82,7 +82,60 @@ adb devices
 
 **截图流程：** `ScreenshotProvider`（双模式）→ `ScreenshotManager.screenshotFlow`（SharedFlow）→ `FloatingBallService` / `MangaFloatingService` 接收处理
 
-**翻译提示词架构：**
+**漫画翻译缓存机制：**
+
+三层缓存结构，截图后按以下顺序查找：
+
+```
+截图
+  ↓
+IMAGE CACHE (findCacheExt) ─── 256-bit hash
+  │ 精确匹配（4段全等）或相似度匹配（≥0.95）→ 直接显示
+  │ 未命中 → OCR
+  ↓
+TEXT CACHE (translatedRegions + incrementalTranslateBubbles)
+  │ 精确匹配（hashCode + 字符串==）或加权编辑距离模糊匹配 → 复用译文
+  │ 未命中 → 调翻译 API
+  ↓
+翻译 API → 渲染 → saveToCache
+```
+
+| 缓存 | 触发函数 | 匹配算法 | 节省步骤 |
+|------|---------|---------|---------|
+| IMAGE | `TranslationCacheManager.findCacheExt` | 256-bit pHash（SQL + 遍历） | OCR + 翻译 + 渲染 |
+| TEXT | `incrementalTranslateBubbles` | `TextSimilarity.weightedLevenshtein` | 翻译 API 调用 |
+| DB 历史 | `MangaViewerActivity` | 256-bit hash 相似度分组 (≥0.85) | 用户翻历史时复用 |
+
+**两种 pHash 算法并存：**
+- `PerceptualHash.compute()` — 9×8 dHash，64 位（1×Long），用于自动翻译状态机翻页判断（`PHASH_STABLE_THRESHOLD=0.95`、`PHASH_NEW_PAGE_THRESHOLD=0.60`）
+- `PerceptualHash.computeExtended()` — 17×16 dHash，256 位（4×Long），用于缓存匹配（`SIMILARITY_THRESHOLD_MANGA=0.95`）
+
+**缓存保存（`saveToCache`）** 写入 4 段 hash：
+```kotlin
+pHash  = currentExtHashes[0]   // 17×16 第 0 段（兼容旧版）
+pHash2 = currentExtHashes[1]
+pHash3 = currentExtHashes[2]
+pHash4 = currentExtHashes[3]
+```
+
+**`processMangaScreenshot` 函数签名变化：**
+```kotlin
+private suspend fun processMangaScreenshot(
+    bitmap: Bitmap,
+    precomputedPHash: Long? = null,
+    precomputedExtHashes: LongArray? = null  // ← 新增：从 collector 传入避免重复计算
+)
+```
+
+**自动翻译干净截图流程（`pendingCleanScreenshot` 标志）：**
+
+检测 STABLE 后，无障碍模式触发异步重新截图（等 300ms 冷却 → 隐藏球 → `takeScreenshot()` → 标志置位 → 恢复球）。下一张 flow 截图到达时被标志拦截，用隐藏球后的干净图作为缓存 hash，避免球的像素干扰缓存命中。
+
+**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 仅手动模式隐藏悬浮球 `delay(50)`（让 SurfaceFlinger 刷新不带球的画面），截图后 `finally` 块恢复球。自动模式由上述 `pendingCleanScreenshot` 机制处理。
+
+**DB 版本 10（MIGRATION_9_10）：** 增加 `pHash2`/`pHash3`/`pHash4` 三列存 256 位扩展 hash。
+
+
 
 提示词仅对 OpenAI 兼容 API 生效（火山/智谱/DeepSeek/通义千问/用户自建），非 OpenAI API（Volc/DeepL/Baidu/Azure/腾讯/Bing/Niutrans/NLLB）为纯机器翻译，不接受提示词配置。
 
@@ -267,10 +320,10 @@ PP-OCRv5 检测框可能倾斜（QuadBox 4 顶点非正交），全链路处理�
 - 全屏和调试模式不能用 `MATCH_PARENT`，用 `getScreenSize()` 获取真实尺寸
 - 配合 `FIT_XY` + `FLAG_LAYOUT_NO_LIMITS`
 
-**受限区域截图检测：**
-- 系统 `takeScreenshot()` API 对受限区域（DRM/安全应用）返回 `onSuccess` + 全黑 bitmap，不会调用 `onFailure`
-- `isRestrictedScreenshot()` 在截图收集阶段检测：全黑（95%+ 像素亮度 < 16）或低方差（纯色覆盖层，方差 < 50）
-- 检测到后提示用户"该区域无法截图，可能是受限内容"
+**受限区域截图：**
+- 系统 `takeScreenshot()` API 对受限区域（DRM/安全应用、相册/银行/支付）返回 `onSuccess` + 全黑 bitmap 或无文字图片
+- 此检测已移除（之前用的 `isRestrictedScreenshot()` 因大面积白底/黑底误判严重已删除）
+- 提示信息在 FAQ Q10 说明
 
 **统一框选确认按钮：**
 - 游戏翻译和漫画翻译共用 `CropView` 内置确认按钮
@@ -357,7 +410,8 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 `TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
 - 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.85）
 - 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
-- Room 数据库 `translation_history.db`，version 9，`fallbackToDestructiveMigration`
+- Room 数据库 `translation_history.db`，version 10，`fallbackToDestructiveMigration`
+  - v9→v10 迁移：`ALTER TABLE ... ADD COLUMN pHash2/pHash3/pHash4 INTEGER NOT NULL DEFAULT 0`（256-bit 扩展 hash）
 - 历史 UI：`ui/history/HistoryFragment`，游戏和漫画均按时间+会话分组显示
 - 漫画图片浏览：`MangaViewerActivity` 全屏翻页 + 底部译文详情面板
 
