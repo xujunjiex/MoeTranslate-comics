@@ -118,7 +118,7 @@ class HistoryMangaAdapter(
             tvTranslatorName.text = getDisplayName(entry.translatorName)
 
             // pHash
-            tvPhash.text = if (entry.pHash != 0L) String.format("%08X", entry.pHash and 0xFFFFFFFFL) else ""
+            tvPhash.text = if (entry.pHash != 0L) String.format("%016X", entry.pHash) else ""
 
             if (viewType == 1) {
                 // === List 模式：完整时间信息 ===

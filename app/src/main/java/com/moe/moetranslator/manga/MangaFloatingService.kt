@@ -1909,12 +1909,17 @@ class MangaFloatingService : LifecycleService() {
 
                 // 无障碍：拦截等待中的干净截图（悬浮球已隐藏）
                 if (pendingCleanScreenshot) {
-                    pendingCleanScreenshot = false
-                    val detPHash = pendingDetectionPHash.also { pendingDetectionPHash = 0L }
-                    val detExtHashes = pendingDetectionExtHashes.also { pendingDetectionExtHashes = null }
-                    LogCollector.d(TAG, "Screenshot collector: 收到干净截图，开始翻译")
-                    showProgressOverlay(getString(R.string.manga_translating))
-                    processMangaScreenshot(ocrBitmap, detPHash, detExtHashes)
+                    try {
+                        pendingCleanScreenshot = false
+                        val detPHash = pendingDetectionPHash.also { pendingDetectionPHash = 0L }
+                        val detExtHashes = pendingDetectionExtHashes.also { pendingDetectionExtHashes = null }
+                        LogCollector.d(TAG, "Screenshot collector: 收到干净截图，开始翻译")
+                        showProgressOverlay(getString(R.string.manga_translating))
+                        processMangaScreenshot(ocrBitmap, detPHash, detExtHashes)
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "处理干净截图失败", e)
+                        isProcessing = false
+                    }
                     return@collect
                 }
 
@@ -1973,6 +1978,8 @@ class MangaFloatingService : LifecycleService() {
                             }
                         } else {
                             // 无障碍：等 300ms 冷却，截图瞬间隐藏球，结果走 flow 回来
+                            val savedPHash = pHash
+                            val savedExtHashes = extHashes
                             lifecycleScope.launch {
                                 delay(300)
                                 if (!isAutoTranslating) return@launch
@@ -1980,9 +1987,12 @@ class MangaFloatingService : LifecycleService() {
                                     if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
                                         floatingBallView.visibility = View.GONE
                                     }
-                                    // 等一帧让 SurfaceFlinger 刷新不带球的画面
                                     delay(50)
                                     screenshotProvider?.takeScreenshot(null, offset)
+                                    // 截图已触发，设拦截标志（球已隐藏，后面的截图是干净的）
+                                    pendingDetectionPHash = savedPHash
+                                    pendingDetectionExtHashes = savedExtHashes
+                                    pendingCleanScreenshot = true
                                 } catch (e: Exception) {
                                     LogCollector.w(TAG, "无障碍重新截图失败", e)
                                 } finally {
@@ -1991,10 +2001,6 @@ class MangaFloatingService : LifecycleService() {
                                     }
                                 }
                             }
-                            // 保存检测截图的 pHash 用于状态机，等下一张截图来翻译
-                            pendingDetectionPHash = pHash
-                            pendingDetectionExtHashes = extHashes
-                            pendingCleanScreenshot = true
                             ocrBitmap.recycle()
                             pendingFullBitmap = null
                             if (data.croppedBitmap != null) data.fullBitmap.recycle()
@@ -2608,10 +2614,9 @@ class MangaFloatingService : LifecycleService() {
             // 全局缓存检查（使用 256-bit 扩展哈希）
             isForceRefreshActive = forceRefresh
             if (!isForceRefreshActive) {
-                // 计算或获取扩展哈希
-                val extHashes = precomputedExtHashes
+                val extHashesForCache = currentExtHashes
                     ?: PerceptualHash.computeExtended(pendingFullBitmap ?: bitmap, centerCrop = true)
-                val cached = cacheManager.findCacheExt(extHashes, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height, sessionId)
+                val cached = cacheManager.findCacheExt(extHashesForCache, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height, sessionId)
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
                     lastCachedHistoryId = cached.historyId
