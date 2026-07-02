@@ -17,6 +17,7 @@ class MediaProjectionProvider(private val context: Context) : ScreenshotProvider
 
     private val shooter = Shooter(context)
     private var isInitialized = false
+    val frameSeq: Long get() = shooter.frameSeq  // 诊断：检测 VirtualDisplay 是否还在产帧
 
     override fun isAvailable(): Boolean {
         return MediaProjectionIntentHolder.intent != null

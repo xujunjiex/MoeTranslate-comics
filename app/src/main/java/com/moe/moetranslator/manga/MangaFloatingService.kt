@@ -219,10 +219,12 @@ class MangaFloatingService : LifecycleService() {
     private val sessionId = java.util.UUID.randomUUID().toString()
     private var currentPHash = 0L
     private var currentExtHashes: LongArray? = null  // 256-bit 扩展哈希（用于缓存匹配和存储）
-    private var pendingCleanScreenshot = false       // 无障碍：等待干净截图到来
-    private var pendingDetectionPHash = 0L           // 检测截图的 pHash（用于保持状态机稳定）
-    private var pendingDetectionExtHashes: LongArray? = null
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
+
+    // 无障碍重截图：干净截图到达后拦截处理
+    private var pendingCleanScreenshot = false
+    private var pendingDetectionPHash = 0L
+    private var pendingDetectionExtHashes: LongArray? = null
 
     // 当前翻译的原始全屏截图（未裁剪），用于缓存 originalBitmap
     // 注意：MediaProjectionProvider 和 AccessibilityProvider 的 data.fullBitmap 均为全屏截图，
@@ -1517,7 +1519,7 @@ class MangaFloatingService : LifecycleService() {
      *   STABLE → 判断是否新页面 → 翻译 or 跳过 → 回到 IDLE
      */
     private fun processAutoDetectPHash(currentHash: Long): Boolean {
-        LogCollector.d(TAG, "AutoDetect: state=$detectState, prev=$previousScreenshotHash, lastTranslated=$lastTranslatedHash")
+        LogCollector.d(TAG, "AutoDetect: state=$detectState, current=$currentHash, prev=$previousScreenshotHash, lastTranslated=$lastTranslatedHash")
 
         when (detectState) {
             DetectState.IDLE -> {
@@ -1771,14 +1773,15 @@ class MangaFloatingService : LifecycleService() {
                 showToast("录屏权限未授予，无法截图", true)
                 return false
             }
-            // 手动模式：截图前隐藏悬浮球，避免遮挡框选内容影响缓存
+            // 手动模式：截图前隐藏悬浮球，避免遮挡页面内容影响 pHash
+            // 自动模式：不隐藏（由 collector 中 STABLE 后的重截图逻辑获取干净截图）
             if (!isAutoTranslating) {
                 ballWasShowing = ::floatingBallView.isInitialized &&
                     isViewAdded(floatingBallView) &&
                     floatingBallView.visibility == View.VISIBLE
                 if (ballWasShowing) {
                     floatingBallView.visibility = View.GONE
-                    LogCollector.d(TAG, "takeScreenshotWithProvider: 隐藏悬浮球")
+                    LogCollector.d(TAG, "takeScreenshotWithProvider: 手动模式隐藏悬浮球")
                 }
             }
             // 异步截图：先获取全屏，再由服务层裁剪（保留全屏 bitmap 供缓存使用）
@@ -1817,7 +1820,8 @@ class MangaFloatingService : LifecycleService() {
             }
             return true
         } else {
-            // AccessibilityService 模式：手动模式同样隐藏悬浮球
+            // AccessibilityService 模式：手动模式截图前隐藏悬浮球
+            // 自动模式：不隐藏（由 collector 中 STABLE 后的重截图逻辑获取干净截图）
             if (!isAutoTranslating) {
                 ballWasShowing = ::floatingBallView.isInitialized &&
                     isViewAdded(floatingBallView) &&
@@ -1907,23 +1911,20 @@ class MangaFloatingService : LifecycleService() {
                 val ocrBitmap = data.croppedBitmap ?: data.fullBitmap
                 LogCollector.d(TAG, "Screenshot collector: RECEIVED! full=${data.fullBitmap.width}x${data.fullBitmap.height}, ocr=${ocrBitmap.width}x${ocrBitmap.height}")
 
-                // 无障碍：拦截等待中的干净截图（悬浮球已隐藏）
-                if (pendingCleanScreenshot) {
-                    try {
-                        pendingCleanScreenshot = false
-                        val detPHash = pendingDetectionPHash.also { pendingDetectionPHash = 0L }
-                        val detExtHashes = pendingDetectionExtHashes.also { pendingDetectionExtHashes = null }
-                        LogCollector.d(TAG, "Screenshot collector: 收到干净截图，开始翻译")
-                        showProgressOverlay(getString(R.string.manga_translating))
-                        processMangaScreenshot(ocrBitmap, detPHash, detExtHashes)
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "处理干净截图失败", e)
-                        isProcessing = false
-                    }
-                    return@collect
-                }
-
                 try {
+                    // 无障碍重截图拦截：干净截图到达后直接用保存的检测 hash 处理
+                    if (pendingCleanScreenshot) {
+                        pendingCleanScreenshot = false
+                        val detectionPHash = pendingDetectionPHash
+                        val detectionExtHashes = pendingDetectionExtHashes
+                        pendingDetectionPHash = 0L
+                        pendingDetectionExtHashes = null
+                        pendingFullBitmap = data.fullBitmap
+                        showProgressOverlay(getString(R.string.manga_translating))
+                        processMangaScreenshot(ocrBitmap, detectionPHash, detectionExtHashes)
+                        return@collect
+                    }
+
                     // 自动翻译模式：pHash 门控（手动翻译时跳过）
                     if (isAutoTranslating && !isManualTranslating) {
                         // 用全屏截图计算稳定的 pHash（不受框选偏移影响）
@@ -1941,70 +1942,102 @@ class MangaFloatingService : LifecycleService() {
                             // 不关闭进度条，保持"自动检测中"显示
                             return@collect
                         }
-                        // pHash 通过门控
-                        val offset = cropView.absolutePointOffset
-                        val isMP = screenshotProvider is MediaProjectionProvider
-
-                        if (isMP) {
-                            // MP：先截图（截图瞬间隐藏球），再显示进度条
-                            var cleanFull: Bitmap? = null
-                            try {
-                                if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
-                                    floatingBallView.visibility = View.GONE
-                                }
-                                delay(50)
-                                cleanFull = screenshotProvider?.takeScreenshot(null, offset)
-                            } catch (e: Exception) {
-                                LogCollector.w(TAG, "重新截图失败: ${e.message}")
-                            } finally {
-                                if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
-                                    floatingBallView.visibility = View.VISIBLE
-                                }
+                        // pHash 通过门控 → 确认翻译，重截干净图（无悬浮球、无进度条）
+                        if (screenshotProvider is MediaProjectionProvider) {
+                            // MP 同步重截：关进度条 → 隐藏球 → delay → 截图 → 恢复球 → 显示进度条
+                            dismissProgressOverlay()
+                            val ballWasShowing = ::floatingBallView.isInitialized &&
+                                isViewAdded(floatingBallView) &&
+                                floatingBallView.visibility == View.VISIBLE
+                            if (ballWasShowing) {
+                                floatingBallView.visibility = View.GONE
+                                LogCollector.d(TAG, "Auto STABLE: 隐藏悬浮球准备重截干净图")
                             }
-                            showProgressOverlay(getString(R.string.manga_translating))
-                            if (cleanFull != null) {
-                                if (data.croppedBitmap != null) { data.fullBitmap.recycle(); data.croppedBitmap.recycle() }
-                                else { data.fullBitmap.recycle() }
-                                val currentCropRect = cropRect
-                                val cleanOcr = if (data.croppedBitmap != null && currentCropRect != null) {
-                                    ScreenshotManager.cropBitmap(cleanFull, currentCropRect, offset) ?: cleanFull
-                                } else cleanFull
+                            delay(50)
+                            // 记录重截前后的 frameSeq，判断 VirtualDisplay 是否还在产帧
+                            val mpProvider = screenshotProvider as MediaProjectionProvider
+                            val seqBefore = mpProvider.frameSeq
+                            val offset = cropView.absolutePointOffset
+                            val cleanFull = mpProvider.takeScreenshot(null, offset)
+                            val seqAfter = mpProvider.frameSeq
+                            if (ballWasShowing) {
+                                floatingBallView.visibility = View.VISIBLE
+                                LogCollector.d(TAG, "Auto STABLE: 恢复悬浮球")
+                            }
+                            if (seqBefore == seqAfter) {
+                                // frameSeq 未变化 → VirtualDisplay 已停止产帧（系统录屏冲突等）
+                                // 整个截图服务不可用，手动翻译也无法工作，必须停止整个 Service
+                                LogCollector.e(TAG, "Auto STABLE: VirtualDisplay 已死！frameSeq 卡在 $seqBefore，停止服务")
+                                ocrBitmap.recycle()
+                                pendingFullBitmap?.recycle()
+                                pendingFullBitmap = null
+                                if (data.croppedBitmap != null) data.fullBitmap.recycle()
+                                dismissProgressOverlay()
+                                isProcessing = false
+                                // 用 AlertDialog 显示详细错误，用户确认后停止服务
+                                val errorMsg = "MediaProjection 截图服务异常\n\n" +
+                                    "VirtualDisplay 已停止响应（frameSeq 卡在 $seqBefore），" +
+                                    "翻译功能无法继续使用。\n\n" +
+                                    "可能原因：系统录屏或其他应用占用了 MediaProjection 截图通道。\n\n" +
+                                    "请关闭系统录屏后，重新开启漫画翻译。"
+                                AlertDialog.Builder(this@MangaFloatingService)
+                                    .setTitle("截图服务异常")
+                                    .setMessage(errorMsg)
+                                    .setCancelable(false)
+                                    .setPositiveButton("确定") { _, _ -> stopSelf() }
+                                    .create()
+                                    .apply {
+                                        window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+                                        show()
+                                    }
+                            } else if (cleanFull != null) {
+                                showProgressOverlay(getString(R.string.manga_translating))
+                                // 释放旧的带球截图，替换为干净图
+                                ocrBitmap.recycle()
+                                if (data.croppedBitmap != null) data.fullBitmap.recycle()
                                 pendingFullBitmap = cleanFull
-                                val cleanPHash = PerceptualHash.compute(cleanFull, centerCrop = true)
+                                // 裁剪 OCR 用图
+                                val rect = cropRect
+                                val cleanOcr = if (rect != null) {
+                                    ScreenshotManager.cropBitmap(cleanFull, rect, offset)
+                                } else cleanFull
+                                // 计算干净图的 256-bit hash（用于缓存），状态机仍用检测 hash（有球）
                                 val cleanExtHashes = PerceptualHash.computeExtended(cleanFull, centerCrop = true)
-                                processMangaScreenshot(cleanOcr, cleanPHash, cleanExtHashes)
+                                processMangaScreenshot(cleanOcr, pHash, cleanExtHashes)
                             } else {
+                                // cleanFull 为 null（shot 返回 null 的极端情况）
+                                LogCollector.w(TAG, "Auto STABLE: 干净截图返回 null，降级到检测截图")
+                                showProgressOverlay(getString(R.string.manga_translating))
                                 processMangaScreenshot(ocrBitmap, pHash, extHashes)
                             }
                         } else {
-                            // 无障碍：等 300ms 冷却，截图瞬间隐藏球，结果走 flow 回来
-                            val savedPHash = pHash
-                            val savedExtHashes = extHashes
+                            // 无障碍异步重截：等冷却 → 隐藏球 → 触发截图 → 设标志等下一张 flow
+                            // 无障碍 takeScreenshot API 需至少 350ms 冷却，否则系统限流返回失败
                             lifecycleScope.launch {
-                                delay(300)
-                                if (!isAutoTranslating) return@launch
-                                try {
-                                    if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
-                                        floatingBallView.visibility = View.GONE
-                                    }
-                                    delay(50)
-                                    screenshotProvider?.takeScreenshot(null, offset)
-                                    // 截图已触发，设拦截标志（球已隐藏，后面的截图是干净的）
-                                    pendingDetectionPHash = savedPHash
-                                    pendingDetectionExtHashes = savedExtHashes
-                                    pendingCleanScreenshot = true
-                                } catch (e: Exception) {
-                                    LogCollector.w(TAG, "无障碍重新截图失败", e)
-                                } finally {
-                                    if (::floatingBallView.isInitialized && isViewAdded(floatingBallView)) {
-                                        floatingBallView.visibility = View.VISIBLE
-                                    }
+                                delay(350) // 无障碍截图 API 冷却期（Android 12+ 后台截图频率限制）
+                                dismissProgressOverlay()  // 关掉 MOTION 阶段的"检测中..."，避免被截入
+                                val ballWasShowing = ::floatingBallView.isInitialized &&
+                                    isViewAdded(floatingBallView) &&
+                                    floatingBallView.visibility == View.VISIBLE
+                                if (ballWasShowing) {
+                                    floatingBallView.visibility = View.GONE
+                                    LogCollector.d(TAG, "Auto STABLE: 无障碍隐藏悬浮球准备重截")
+                                }
+                                delay(50)
+                                screenshotProvider!!.takeScreenshot(cropRect, cropView.absolutePointOffset)
+                                pendingDetectionPHash = pHash
+                                pendingDetectionExtHashes = extHashes
+                                pendingCleanScreenshot = true
+                                if (ballWasShowing) {
+                                    floatingBallView.visibility = View.VISIBLE
+                                    LogCollector.d(TAG, "Auto STABLE: 无障碍恢复悬浮球")
                                 }
                             }
+                            // 回收当前带球截图，等干净截图到达
                             ocrBitmap.recycle()
+                            pendingFullBitmap?.recycle()
                             pendingFullBitmap = null
                             if (data.croppedBitmap != null) data.fullBitmap.recycle()
-                            return@collect
                         }
                     } else {
                         // 手动模式：用全屏截图计算稳定的缓存 pHash

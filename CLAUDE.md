@@ -127,11 +127,24 @@ private suspend fun processMangaScreenshot(
 )
 ```
 
-**自动翻译干净截图流程（`pendingCleanScreenshot` 标志）：**
+**自动翻译干净截图流程（重截图 + frameSeq 死检）：**
 
-检测 STABLE 后，无障碍模式触发异步重新截图（等 300ms 冷却 → 隐藏球 → `takeScreenshot()` → 标志置位 → 恢复球）。下一张 flow 截图到达时被标志拦截，用隐藏球后的干净图作为缓存 hash，避免球的像素干扰缓存命中。
+状态机 STABLE 后重截干净图用于翻译和缓存。MP 模式重截图后检查 `frameSeq` 是否变化——未变化说明 VirtualDisplay 已停止产帧（系统录屏冲突等），弹出 AlertDialog 说明原因并 `stopSelf()` 关闭整个服务。
 
-**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 仅手动模式隐藏悬浮球 `delay(50)`（让 SurfaceFlinger 刷新不带球的画面），截图后 `finally` 块恢复球。自动模式由上述 `pendingCleanScreenshot` 机制处理。
+| 模式 | 流程 | 延迟 |
+|------|------|------|
+| **MP** | `dismissProgressOverlay()` → 隐藏球 → `delay(50)` → 记 `seqBefore` → `takeScreenshot()` → 记 `seqAfter` → 恢复球 → `seqBefore != seqAfter` 正常 / `==` 则死 → `showProgressOverlay` | +~80ms |
+| **无障碍** | `launch { delay(350)` 冷却 → 隐藏球 → `delay(50)` → `takeScreenshot()` 异步 → `pendingCleanScreenshot=true }` → 下一张 flow 拦截 | +~500-900ms |
+
+**⚠️ frameSeq 死亡检测：** `MediaProjectionProvider.frameSeq` 暴露 `Shooter.frameSeq`。重截图前后比较 `frameSeq`，若未变化则 VirtualDisplay 已死（系统录屏、token 过期等），弹出错误对话框 → `stopSelf()` 关闭整个服务。手动翻译也无法工作，必须重启。
+
+**⚠️ 所有 overlay（球、进度条）必须在截图前隐藏。** 进度条文字被截入图会导致 pHash 污染和缓存误命中。
+
+- `lastTranslatedHash` 保存检测截图 pHash（有球），保证状态机下次比较有效
+- 缓存保存干净截图 extHashes（无球），保证跨模式命中
+- 无障碍 `takeScreenshot` API 需至少 350ms 冷却（Android 12+ 后台截图频率限制），详见 [[accessibility-screenshot-cooldown]]
+
+**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 仅手动模式隐藏悬浮球 `delay(50)`（让 SurfaceFlinger 刷新不带球的画面），截图后 `finally` 块恢复球。自动模式由上述重截图机制处理。
 
 **DB 版本 10（MIGRATION_9_10）：** 增加 `pHash2`/`pHash3`/`pHash4` 三列存 256 位扩展 hash。
 
@@ -408,7 +421,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 ## 缓存与历史
 
 `TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
-- 漫画模式：pHash 精确匹配 + 相似度匹配（阈值 0.85）
+- 漫画模式：pHash 精确匹配 + 相似度匹配（256-bit 阈值 0.95，约 13 bit 容差）
 - 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
 - Room 数据库 `translation_history.db`，version 10，`fallbackToDestructiveMigration`
   - v9→v10 迁移：`ALTER TABLE ... ADD COLUMN pHash2/pHash3/pHash4 INTEGER NOT NULL DEFAULT 0`（256-bit 扩展 hash）
@@ -440,7 +453,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot
+tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter
 ```
 
 ## 安装规范（最高优先级）
@@ -480,6 +493,10 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 
 - 游戏模式：无差异（300ms 轮询）
 - 漫画模式：MediaProjection 翻页后等轮询周期，AccessibilityService 翻页后 ~500ms 触发
+
+### Shooter `convert()` 失败保护
+
+`Shooter.kt` 的 `OnImageAvailableListener` 在 `convert(image)` 返回 null 时**必须设置 `imageAvailable = true`**，否则后续所有 `shot()` 调用永久超时，返回同一张缓存图 → 状态机永远 `simToTranslated=1.0` → 自动翻译卡死。此 bug 已在 listener 中添加保护。
 
 ## 关键约束
 

@@ -55,6 +55,9 @@ class Shooter(private val context: Context) {
     @Volatile var ready = false
         private set
 
+    @Volatile var frameSeq = 0L
+        private set
+
     /**
      * 初始化 MediaProjection
      * @param captureIntent 从 ScreenCapturePermissionActivity 获取的 Intent
@@ -102,6 +105,7 @@ class Shooter(private val context: Context) {
                         image.close()
                         if (newBitmap == null) {
                             LogCollector.w(TAG, "convert returned null, skipping frame")
+                            imageAvailable = true  // 唤醒等待的 shot()，避免永久超时
                             return@setOnImageAvailableListener
                         }
                         synchronized(bitmapLock) {
@@ -109,6 +113,7 @@ class Shooter(private val context: Context) {
                             lastBitmap = newBitmap
                         }
                         imageAvailable = true
+                        frameSeq++
 
                         // P1: 帧变化检测 — 当内容发生显著变化时通知上层加速检测
                         // 节流：最多每 300ms 检查一次，避免 60fps 下频繁计算 pHash
@@ -177,7 +182,7 @@ class Shooter(private val context: Context) {
             // 屏幕静止时 VirtualDisplay 可能不再产生新帧，buffer 为空导致 timeout。
             // 检测逻辑（pHash 比较）只需要最近的截图，不一定要最新帧。
             // 返回 lastBitmap 的缓存副本，让上层正常做相似度判断。
-            LogCollector.w(TAG, "Timeout waiting for image, returning cached bitmap (ready=$ready, projection=${mediaProjection != null})")
+            LogCollector.w(TAG, "shot TIMEOUT: no new frame in ${WAIT_IMAGE_TIMEOUT_MS}ms, lastFrameSeq=$frameSeq, ready=$ready")
             return@withContext synchronized(bitmapLock) {
                 lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
             }
@@ -188,8 +193,12 @@ class Shooter(private val context: Context) {
 
         // listener 已经在后台线程完成了 acquire + convert，直接复制结果
         imageAvailable = false
+        val currentSeq = frameSeq
         return@withContext synchronized(bitmapLock) {
-            lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
+            lastBitmap?.let { bmp ->
+                LogCollector.d(TAG, "shot OK: frameSeq=$currentSeq, size=${bmp.width}x${bmp.height}")
+                bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
+            }
         }
     }
 
