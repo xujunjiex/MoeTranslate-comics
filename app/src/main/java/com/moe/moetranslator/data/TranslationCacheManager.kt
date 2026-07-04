@@ -102,6 +102,7 @@ class TranslationCacheManager(private val context: Context) {
         val pHash2 = extHashes[1]
         val pHash3 = extHashes[2]
         val pHash4 = extHashes[3]
+        val currentBits = extHashes.sumOf { java.lang.Long.bitCount(it) }
 
         // 1. 精确匹配（4 段全部一致）— 快速路径（索引查询，O(1)）
         // 同一截图方式、同一页时 4 段 hash 完全一致，直接命中
@@ -163,7 +164,8 @@ class TranslationCacheManager(private val context: Context) {
                             dao.updateHistoryTimestamp(history.id, now)
                         }
                     }
-                    LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.2f".format(bestSimilarity)}), historyId=${history.id}")
+                    val entryBits = java.lang.Long.bitCount(bestMatch!!.pHash) + java.lang.Long.bitCount(bestMatch!!.pHash2) + java.lang.Long.bitCount(bestMatch!!.pHash3) + java.lang.Long.bitCount(bestMatch!!.pHash4)
+                    LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=$currentBits/256, entryBits=$entryBits/256), historyId=${history.id}")
                     return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight())
                 }
             }
@@ -454,19 +456,9 @@ class TranslationCacheManager(private val context: Context) {
 
         if (rawEntries.isEmpty()) return@withContext emptyList()
 
-        // 漫画模式：按 pHash 去重，同 pHash 只保留最新一条作为代表
+        // 漫画模式：按 256-bit 扩展哈希相似度去重（与 MangaViewerActivity.buildPageGroups 一致）
         val entries = if (type == MODE_MANGA) {
-            rawEntries
-                .filter { it.pHash != 0L }
-                .groupBy { it.pHash }
-                .map { (_, group) ->
-                    val sorted = group.sortedByDescending { it.updatedAt }
-                    val representative = sorted.first()
-                    representative.copy(
-                        variantCount = sorted.size,
-                        variantIds = sorted.map { it.id }
-                    )
-                }
+            groupMangaEntriesByPHash(rawEntries)
         } else {
             rawEntries
         }
@@ -512,6 +504,44 @@ class TranslationCacheManager(private val context: Context) {
                 HistoryGroup(dateLabel = dateLabel, sessions = sessions)
             }
         }
+    }
+
+    /**
+     * 按 256-bit 扩展哈希相似度分组（漫画历史去重）。
+     * 与 MangaViewerActivity.buildPageGroups 使用相同的算法和阈值（0.85），
+     * 保证历史列表和图片浏览器的分组数量一致。
+     *
+     * @return 去重后的 HistoryEntry 列表，每个代表条目携带 variantCount 和 variantIds
+     */
+    fun groupMangaEntriesByPHash(entries: List<HistoryEntry>): List<HistoryEntry> {
+        val used = mutableSetOf<Long>()
+        val groups = mutableListOf<HistoryEntry>()
+
+        for (entry in entries) {
+            if (entry.id in used) continue
+            if (entry.pHash == 0L) {
+                groups.add(entry)
+                used.add(entry.id)
+                continue
+            }
+
+            val variants = entries.filter {
+                it.id !in used && it.pHash != 0L &&
+                    PerceptualHash.similarity(
+                        longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4),
+                        longArrayOf(it.pHash, it.pHash2, it.pHash3, it.pHash4)
+                    ) >= 0.85f
+            }
+            variants.forEach { used.add(it.id) }
+
+            val sorted = variants.sortedByDescending { it.updatedAt }
+            val representative = sorted.first()
+            groups.add(representative.copy(
+                variantCount = sorted.size,
+                variantIds = sorted.map { it.id }
+            ))
+        }
+        return groups
     }
 
     /**

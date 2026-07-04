@@ -5,5 +5,4 @@
     android:textColor="#FFFFFF"
     android:textSize="12sp"
     android:gravity="center_vertical"
-    android:paddingHorizontal="12dp"
-    android:background="@drawable/popup_rounded_dark" />
+    android:paddingHorizontal="12dp" />

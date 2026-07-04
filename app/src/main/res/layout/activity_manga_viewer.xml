@@ -80,7 +80,7 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:layout_marginEnd="8dp"
-            android:background="#66000000"
+            android:background="#33FFFFFF"
             android:paddingHorizontal="8dp"
             android:visibility="gone"
             android:popupBackground="@drawable/popup_rounded_dark" />
@@ -99,7 +99,7 @@
             android:text="@string/history_detail"
             android:textColor="#FFFFFF"
             android:textSize="13sp"
-            app:backgroundTint="#CC333333"
+            app:backgroundTint="#CC555555"
             app:cornerRadius="20dp" />
 
         <!-- 重新翻译按钮 -->

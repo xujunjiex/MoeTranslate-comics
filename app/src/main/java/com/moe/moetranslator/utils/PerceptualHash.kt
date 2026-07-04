@@ -29,11 +29,6 @@ object PerceptualHash {
     private const val EXT_HASH_ROWS = 16
     private const val EXT_HASH_PARTS = 4      // 256 bits / 64 bits per Long
 
-    // 直方图预筛参数
-    private const val HIST_BINS = 16          // 亮度分箱数
-    private const val HIST_SIZE = 32          // 缩放尺寸
-    private const val HIST_THRESHOLD = 0.35f  // 直方图差异阈值（>此值认为画面明显变化）
-
     /**
      * 计算图片的 dHash。
      * @param bitmap 原始图片
@@ -74,72 +69,6 @@ object PerceptualHash {
             }
         }
         return hash
-    }
-
-    /**
-     * 快速变化检测：比较两帧的亮度直方图。
-     * 比 pHash 更快，用于预筛：直方图差异大 → 画面肯定变了，跳过 pHash 细比。
-     * 内部会自行缩放图片，传入原始分辨率即可。
-     *
-     * @return true 表示画面可能没变（直方图相似），false 表示画面明显变化
-     */
-    fun quickSameCheck(prevBitmap: Bitmap, currBitmap: Bitmap): Boolean {
-        val hist1 = computeHistogram(prevBitmap)
-        val hist2 = computeHistogram(currBitmap)
-        return histogramDiff(hist1, hist2) < HIST_THRESHOLD
-    }
-
-    /**
-     * 计算图片的归一化亮度直方图。
-     * 可保存结果用于后续 [quickSameWithHist] 比较，避免重复计算。
-     */
-    fun computeHist(bitmap: Bitmap): FloatArray = computeHistogram(bitmap)
-
-    /**
-     * 用预计算的直方图做快速变化检测。
-     * @param prevHist 上一帧的直方图（[computeHist] 返回值）
-     * @param currBitmap 当前帧
-     * @return true 表示画面可能没变
-     */
-    fun quickSameWithHist(prevHist: FloatArray, currBitmap: Bitmap): Boolean {
-        val currHist = computeHistogram(currBitmap)
-        return histogramDiff(prevHist, currHist) < HIST_THRESHOLD
-    }
-
-    /**
-     * 计算图片的亮度直方图（归一化）。
-     * 缩放到 HIST_SIZE×HIST_SIZE 后统计 HIST_BINS 个亮度 bin。
-     */
-    private fun computeHistogram(bitmap: Bitmap): FloatArray {
-        val scaled = Bitmap.createScaledBitmap(bitmap, HIST_SIZE, HIST_SIZE, true)
-        val pixels = IntArray(HIST_SIZE * HIST_SIZE)
-        scaled.getPixels(pixels, 0, HIST_SIZE, 0, 0, HIST_SIZE, HIST_SIZE)
-        if (scaled !== bitmap) { scaled.recycle() }
-
-        val hist = FloatArray(HIST_BINS)
-        for (pixel in pixels) {
-            val gray = grayscale(pixel)
-            val bin = (gray * HIST_BINS / 256).coerceIn(0, HIST_BINS - 1)
-            hist[bin] += 1f
-        }
-        // 归一化
-        val total = (HIST_SIZE * HIST_SIZE).toFloat()
-        for (i in hist.indices) {
-            hist[i] /= total
-        }
-        return hist
-    }
-
-    /**
-     * 计算两个直方图的差异（归一化 Manhattan 距离）。
-     * @return 0.0 ~ 1.0，0 表示完全相同
-     */
-    fun histogramDiff(hist1: FloatArray, hist2: FloatArray): Float {
-        var diff = 0f
-        for (i in hist1.indices) {
-            diff += kotlin.math.abs(hist1[i] - hist2[i])
-        }
-        return diff / 2f  // 除以 2 因为最大值是 2
     }
 
     /**

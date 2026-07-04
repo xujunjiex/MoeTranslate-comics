@@ -24,6 +24,7 @@ import com.moe.moetranslator.manga.ComicBubbleDetector
 import com.moe.moetranslator.manga.CTDDetector
 import com.moe.moetranslator.manga.DetEngine
 import com.moe.moetranslator.manga.DetectionBridge
+import com.moe.moetranslator.manga.MangaOcrDownloadManager
 import com.moe.moetranslator.manga.MangaOcrRecognizer
 import com.moe.moetranslator.manga.OcrEngine
 import com.moe.moetranslator.manga.OcrLock
@@ -39,7 +40,7 @@ import com.moe.moetranslator.utils.CustomPreference
 import com.moe.moetranslator.utils.Constants
 import com.moe.moetranslator.utils.KeystoreManager
 import com.moe.moetranslator.utils.LogCollector
-import com.moe.moetranslator.utils.PerceptualHash
+
 import com.moe.moetranslator.me.ConfigurationStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -148,6 +149,13 @@ class MangaViewerActivity : AppCompatActivity() {
                 val group = pageGroups.getOrNull(binding.viewPager.currentItem) ?: return
                 val variant = group.variants.getOrNull(position) ?: return
                 activeVariantIds[binding.viewPager.currentItem] = variant.id
+                // 切换尺寸时清除原图覆盖，否则 loadImage 会一直返回 overrideBitmap
+                if (showingOriginal) {
+                    showingOriginal = false
+                    binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
+                    val adapter = binding.viewPager.adapter as? PageGroupAdapter
+                    adapter?.setOverrideImage(null)
+                }
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 adapter?.setActiveVariant(binding.viewPager.currentItem, variant.id)
                 adapter?.notifyItemChanged(binding.viewPager.currentItem)
@@ -225,7 +233,8 @@ class MangaViewerActivity : AppCompatActivity() {
                             type = TranslationCacheManager.MODE_MANGA,
                             sourceText = numberedText, translatedText = transText,
                             resultBitmap = rendered, sourceLang = sourceLang, targetLang = targetLang,
-                            translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs), pHash = entry.pHash,
+                            translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs),
+                            pHash = entry.pHash, pHash2 = entry.pHash2, pHash3 = entry.pHash3, pHash4 = entry.pHash4,
                             sessionId = "", lastSessionId = "",
                             cropLeft = cache.cropLeft, cropTop = cache.cropTop,
                             cropRight = cache.cropRight, cropBottom = cache.cropBottom,
@@ -343,39 +352,18 @@ class MangaViewerActivity : AppCompatActivity() {
     }
 
     /**
-     * 将所有条目按 pHash 相似度分组，每组取最新为代表。
+     * 按 256-bit 扩展哈希相似度分组，与 TranslationCacheManager.groupMangaEntriesByPHash 一致。
      */
     private fun buildPageGroups(allEntries: List<HistoryEntry>): List<PageGroup> {
-        val used = mutableSetOf<Long>()
-        val groups = mutableListOf<PageGroup>()
-
-        for (entry in allEntries) {
-            if (entry.id in used) continue
-            if (entry.pHash == 0L) {
-                // 无 pHash 的条目独立成组
-                groups.add(PageGroup(entry))
-                used.add(entry.id)
-                continue
-            }
-
-            // 找同 pHash 的条目（使用 256-bit 扩展哈希）
-            val variants = allEntries.filter {
-                it.id !in used && it.pHash != 0L &&
-                    PerceptualHash.similarity(
-                        longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4),
-                        longArrayOf(it.pHash, it.pHash2, it.pHash3, it.pHash4)
-                    ) >= 0.85f
-            }
-            variants.forEach { used.add(it.id) }
-
-            // 取最新为代表
-            val sorted = variants.sortedByDescending { it.updatedAt }
-            groups.add(PageGroup(
-                representative = sorted.first(),
-                variants = sorted.toMutableList()
-            ))
+        val idToEntry = allEntries.associateBy { it.id }
+        val grouped = cacheManager.groupMangaEntriesByPHash(allEntries)
+        return grouped.map { rep ->
+            val variantEntries = rep.variantIds.mapNotNull { idToEntry[it] }
+            PageGroup(
+                representative = rep,
+                variants = variantEntries.toMutableList()
+            )
         }
-        return groups
     }
 
     /**
@@ -469,7 +457,7 @@ class MangaViewerActivity : AppCompatActivity() {
     private fun mapEngineToDetOcr(engineName: String): Pair<DetEngine, OcrEngine> {
         return when (engineName) {
             "PP_OCR_V5" -> DetEngine.PP_OCR_V5 to OcrEngine.PPOcrV5
-            "MANGA_OCR" -> DetEngine.PP_OCR_V5 to OcrEngine.MangaOcr
+            "MANGA_OCR" -> DetEngine.RT_DETR_V2 to OcrEngine.MangaOcr  // 与 MangaFloatingService 一致
             "MLKIT" -> DetEngine.MLKIT to OcrEngine.MLKit
             else -> DetEngine.PP_OCR_V5 to OcrEngine.PPOcrV5
         }
@@ -489,7 +477,14 @@ class MangaViewerActivity : AppCompatActivity() {
         // Ocr 引擎
         when (ocr) {
             OcrEngine.PPOcrV5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
-            OcrEngine.MangaOcr -> MangaOcrRecognizer.initialize(this@MangaViewerActivity)
+            OcrEngine.MangaOcr -> {
+                val version = MangaOcrDownloadManager.getActiveVersion(this@MangaViewerActivity)
+                if (version != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaViewerActivity, version)) {
+                    MangaOcrRecognizer.initialize(this@MangaViewerActivity, useAssets = false, version = version)
+                } else {
+                    throw IllegalStateException("manga-ocr 模型未下载，请先在模型管理页面下载")
+                }
+            }
             OcrEngine.MLKit -> {} // 无需初始化
         }
     }

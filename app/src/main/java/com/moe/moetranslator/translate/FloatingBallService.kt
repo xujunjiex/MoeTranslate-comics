@@ -1575,12 +1575,13 @@ class FloatingBallService : LifecycleService() {
                         updateDebugStatus("【错误】翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
                         translationResultView.setText(getString(R.string.translation_failed, result.error.message))
+                        // 报错时停止自动翻译，让用户可以复制错误信息
+                        if (isAutoTranslating) {
+                            stopAutoTranslate()
+                        }
                     }
                 }
                 isTranslating.set(false)
-                if (isAutoTranslating) {
-                    scheduleNextDetection(getPixelCheckInterval())
-                }
             }
         }
     }
@@ -1609,12 +1610,13 @@ class FloatingBallService : LifecycleService() {
                         updateDebugStatus("【错误】图片翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
                         translationResultView.setText(getString(R.string.translation_failed, result.error.message))
+                        // 报错时停止自动翻译，让用户可以复制错误信息
+                        if (isAutoTranslating) {
+                            stopAutoTranslate()
+                        }
                     }
                 }
                 isTranslating.set(false)
-                if (isAutoTranslating) {
-                    scheduleNextDetection(getPixelCheckInterval())
-                }
             }
         }
     }

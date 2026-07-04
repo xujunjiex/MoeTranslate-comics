@@ -1093,12 +1093,14 @@ object DetectionBridge {
                 detectWithCTD(bitmap, language, ctdOcr, context)
             }
             DetEngine.MLKIT -> {
+                LogCollector.d(TAG, "使用 ML Kit 检测+识别, language=$language, ocr=$ocr")
                 when (ocr) {
                     OcrEngine.MangaOcr -> MangaOcrBridge.recognizeWithLocation(bitmap, language)
                     else -> OCRBridge.recognizeWithLocation(language, bitmap)
                 }
             }
             DetEngine.RT_DETR_V2 -> {
+                LogCollector.d(TAG, "使用 RT-DETR-V2 检测, ocr=$ocr, language=$language")
                 val rtdetrOcr = when (ocr) {
                     OcrEngine.MLKit -> CTDOCREngine.MLKit
                     OcrEngine.MangaOcr -> CTDOCREngine.MangaOcr
@@ -1107,6 +1109,7 @@ object DetectionBridge {
                 detectWithRTDetrV2(bitmap, language, rtdetrOcr, context)
             }
             DetEngine.PP_OCR_V5 -> {
+                LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别, language=$language")
                 detectWithPPOcrV5(bitmap, language, context)
             }
         }

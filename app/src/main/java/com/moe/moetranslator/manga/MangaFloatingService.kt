@@ -1802,14 +1802,14 @@ class MangaFloatingService : LifecycleService() {
                         LogCollector.w(TAG, "Screenshot returned null")
                         isProcessing = false
                         if (isAutoTranslating) {
-                            scheduleNextDetection(DETECT_INTERVAL_MS)
+                            stopAutoTranslate()
                         }
                     }
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Screenshot exception", e)
                     isProcessing = false
                     if (isAutoTranslating) {
-                        scheduleNextDetection(DETECT_INTERVAL_MS)
+                        stopAutoTranslate()
                     }
                 } finally {
                     if (ballWasShowing) {
@@ -2059,12 +2059,18 @@ class MangaFloatingService : LifecycleService() {
                     isProcessing = false
                     dismissProgressOverlay()
                     statusOverlay.showError("识别模型文件缺失：${e.message}")
+                    if (isAutoTranslating) {
+                        stopAutoTranslate()
+                    }
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
                     isProcessing = false
                     // 先 dismiss 进度条，再显示错误（错误会保持显示直到用户点击复制）
                     dismissProgressOverlay()
                     statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
+                    if (isAutoTranslating) {
+                        stopAutoTranslate()
+                    }
                 }
             }
             LogCollector.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
@@ -2509,6 +2515,20 @@ class MangaFloatingService : LifecycleService() {
             // 256-bit 扩展哈希（用于缓存精确匹配和存储）
             currentExtHashes = precomputedExtHashes
                 ?: PerceptualHash.computeExtended(pendingFullBitmap ?: bitmap, centerCrop = true)
+
+            // 纯色/均匀页面精确检测：dHash 全零说明中心区域无任何纹理结构（纯白/纯黑/纯色）
+            // 全零 dHash 会假命中低纹理缓存页面（curBits=0/256 匹配 entryBits=7/256, sim=0.973）
+            // 检测到无内容 → 跳过缓存+OCR+翻译，回到 IDLE
+            if (currentExtHashes != null && currentExtHashes!!.all { it == 0L }) {
+                LogCollector.d(TAG, "processMangaScreenshot: 画面无内容（dHash全零），跳过翻译")
+                statusOverlay.showImmediate("未检测到文字")
+                showToast("未检测到文字", false)
+                lastTranslatedHash = currentPHash
+                if (isAutoTranslating) {
+                    scheduleNextDetection(DETECT_INTERVAL_MS)
+                }
+                return
+            }
 
             // 调试模式：最高优先级，跳过缓存直接检测
             val isDebugMode = when (config.detEngine) {

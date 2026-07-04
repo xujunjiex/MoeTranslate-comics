@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [HistoryEntity::class, PageCacheEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class TranslationHistoryDatabase : RoomDatabase() {
@@ -82,13 +82,75 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
             }
         }
 
+        // 版本 10 → 11：修复漏加的 last_session_id 列，以及 createdAt → created_at 列名问题
+        // 根因：1ec7831 添加 lastSessionId 时用了 fallbackToDestructiveMigration()（旧数据丢弃），
+        // 导致后续重建 DB 时字段以当时的 Entity 为准（createdAt 而非 created_at），且从未经过迁移添加 last_session_id
+        // 注意：必须幂等——先 PRAGMA 检查列是否存在，再决定操作。直接 ALTER TABLE 会在列已存在时崩溃
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                val cursor = database.query("PRAGMA table_info(translation_history)")
+                val columnNames = mutableSetOf<String>()
+                while (cursor.moveToNext()) {
+                    columnNames.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+                }
+                cursor.close()
+
+                // 在 createdAt 重命名之前先确保 last_session_id 存在
+                if (!columnNames.contains("last_session_id")) {
+                    database.execSQL("ALTER TABLE translation_history ADD COLUMN last_session_id TEXT NOT NULL DEFAULT ''")
+                }
+
+                if (columnNames.contains("createdAt")) {
+                    // SQLite 不支持直接重命名列，需要重建表
+                    database.execSQL("""
+                        CREATE TABLE translation_history_new (
+                            id INTEGER NOT NULL PRIMARY KEY,
+                            type INTEGER NOT NULL,
+                            sourceText TEXT,
+                            translatedText TEXT,
+                            imagePath TEXT,
+                            thumbnailPath TEXT,
+                            sourceLang TEXT NOT NULL,
+                            targetLang TEXT NOT NULL,
+                            translatorName TEXT NOT NULL,
+                            pHash INTEGER NOT NULL,
+                            pHash2 INTEGER NOT NULL DEFAULT 0,
+                            pHash3 INTEGER NOT NULL DEFAULT 0,
+                            pHash4 INTEGER NOT NULL DEFAULT 0,
+                            created_at INTEGER NOT NULL DEFAULT 0,
+                            session_id TEXT NOT NULL DEFAULT '',
+                            last_session_id TEXT NOT NULL DEFAULT '',
+                            updated_at INTEGER NOT NULL DEFAULT 0,
+                            original_image_path TEXT,
+                            is_retranslated INTEGER NOT NULL DEFAULT 0
+                        )
+                    """.trimIndent())
+                    database.execSQL("""
+                        INSERT INTO translation_history_new
+                        (id, type, sourceText, translatedText, imagePath, thumbnailPath,
+                         sourceLang, targetLang, translatorName, pHash, pHash2, pHash3, pHash4,
+                         created_at, session_id, last_session_id, updated_at, original_image_path, is_retranslated)
+                        SELECT
+                        id, type, sourceText, translatedText, imagePath, thumbnailPath,
+                        sourceLang, targetLang, translatorName, pHash, pHash2, pHash3, pHash4,
+                        createdAt, session_id, last_session_id, updated_at, original_image_path, is_retranslated
+                        FROM translation_history
+                    """.trimIndent())
+                    database.execSQL("DROP TABLE translation_history")
+                    database.execSQL("ALTER TABLE translation_history_new RENAME TO translation_history")
+                    // 重建索引
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_translation_history_type_created_at ON translation_history(type, created_at)")
+                }
+            }
+        }
+
         fun getInstance(context: Context): TranslationHistoryDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     TranslationHistoryDatabase::class.java,
                     "translation_history.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
             }
