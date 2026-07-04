@@ -109,6 +109,11 @@ TEXT CACHE (translatedRegions + incrementalTranslateBubbles)
 **两种 pHash 算法并存：**
 - `PerceptualHash.compute()` — 9×8 dHash，64 位（1×Long），用于自动翻译状态机翻页判断（`PHASH_STABLE_THRESHOLD=0.95`、`PHASH_NEW_PAGE_THRESHOLD=0.60`）
 - `PerceptualHash.computeExtended()` — 17×16 dHash，256 位（4×Long），用于缓存匹配（`SIMILARITY_THRESHOLD_MANGA=0.95`）
+- **已删除的函数（不要调用）：** `isUniform()`（方差检测，已被 dHash 全零替换）、`quickSameCheck()`/`computeHist()`/`histogramDiff()`（直方图预筛，全项目无调用者）
+
+**纯色/纯白页面检测：** `processMangaScreenshot` 入口处检查 `currentExtHashes.all { it == 0L }`（dHash 全零 = 中心区域无纹理结构）。检测到纯色页直接 `showImmediate("未检测到文字")` + toast → 跳过缓存+OCR+翻译 → IDLE。替换了不可靠的 `isUniform()` 方差检测（已删除）。
+
+**历史分组一致性：** `TranslationCacheManager.groupMangaEntriesByPHash()` — 统一的 256-bit 相似度分组方法（阈值 0.85），供 `getHistoryGrouped`（历史列表）和 `MangaViewerActivity.buildPageGroups`（图片浏览器）共同调用，保证两处分组数量一致。
 
 **缓存保存（`saveToCache`）** 写入 4 段 hash：
 ```kotlin
@@ -146,7 +151,9 @@ private suspend fun processMangaScreenshot(
 
 **手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 仅手动模式隐藏悬浮球 `delay(50)`（让 SurfaceFlinger 刷新不带球的画面），截图后 `finally` 块恢复球。自动模式由上述重截图机制处理。
 
-**DB 版本 10（MIGRATION_9_10）：** 增加 `pHash2`/`pHash3`/`pHash4` 三列存 256 位扩展 hash。
+**DB 版本 11（MIGRATION_10_11）：** 修复漏加的 `last_session_id` 列 + `createdAt`→`created_at` 列名问题。迁移幂等：先 `PRAGMA table_info` 检查列是否存在再操作。
+
+**MIGRATION_9_10：** 增加 `pHash2`/`pHash3`/`pHash4` 三列存 256 位扩展 hash。
 
 
 
@@ -423,10 +430,13 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 `TranslationCacheManager` — 统一管理游戏/漫画翻译缓存
 - 漫画模式：pHash 精确匹配 + 相似度匹配（256-bit 阈值 0.95，约 13 bit 容差）
 - 游戏模式：仅精确匹配（相似度匹配会误判相似背景）
-- Room 数据库 `translation_history.db`，version 10，`fallbackToDestructiveMigration`
+- Room 数据库 `translation_history.db`，version 11，`fallbackToDestructiveMigration`
   - v9→v10 迁移：`ALTER TABLE ... ADD COLUMN pHash2/pHash3/pHash4 INTEGER NOT NULL DEFAULT 0`（256-bit 扩展 hash）
+  - v10→v11 迁移：幂等修复漏加的 `last_session_id` 列 + `createdAt`→`created_at` 列名（先 `PRAGMA table_info` 检查再操作）
 - 历史 UI：`ui/history/HistoryFragment`，游戏和漫画均按时间+会话分组显示
 - 漫画图片浏览：`MangaViewerActivity` 全屏翻页 + 底部译文详情面板
+- 重翻引擎选择：`history_retranslate_engine` 偏好（PP_OCR_V5/MANGA_OCR/MLKIT），通过 `mapEngineToDetOcr` 映射
+  - ⚠️ **manga-ocr 必须配 `RT_DETR_V2`**（不可配 `PP_OCR_V5`，后者 `runOCR` 忽略 ocr 参数直接走独立管线）
 
 **双 sessionId 架构：**
 - `sessionId` — 原始创建会话 ID（首次翻译时分配，永不改变，用于**按创建排序**的进程组）

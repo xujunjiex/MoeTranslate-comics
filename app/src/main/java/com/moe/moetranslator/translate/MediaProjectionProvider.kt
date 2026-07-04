@@ -7,8 +7,11 @@ import android.graphics.RectF
 import com.moe.moetranslator.utils.LogCollector
 
 /**
- * MediaProjection 截图提供者
- * 使用 Shooter 进行截图
+ * MediaProjection 截图提供者。
+ *
+ * 坐标对齐由 Shooter.ensureBufferOrientation() 保证：
+ * 屏幕旋转后自动重建 ImageReader + resize VirtualDisplay，buffer 始终
+ * 与当前屏幕方向一致，无需额外坐标变换。
  */
 class MediaProjectionProvider(private val context: Context) : ScreenshotProvider {
     companion object {
@@ -17,32 +20,20 @@ class MediaProjectionProvider(private val context: Context) : ScreenshotProvider
 
     private val shooter = Shooter(context)
     private var isInitialized = false
-    val frameSeq: Long get() = shooter.frameSeq  // 诊断：检测 VirtualDisplay 是否还在产帧
+    val frameSeq: Long get() = shooter.frameSeq
 
-    override fun isAvailable(): Boolean {
-        return MediaProjectionIntentHolder.intent != null
-    }
+    override fun isAvailable(): Boolean = MediaProjectionIntentHolder.intent != null
+    override fun needsPermission(): Boolean = true
 
-    override fun needsPermission(): Boolean {
-        return true
-    }
-
-    /**
-     * 初始化（如果需要）
-     * @return true 成功，false 需要请求权限
-     */
     fun ensureInitialized(): Boolean {
         if (isInitialized && shooter.ready) return true
-
-        val intent = MediaProjectionIntentHolder.intent
-        if (intent == null) {
+        val intent = MediaProjectionIntentHolder.intent ?: run {
             LogCollector.w(TAG, "No MediaProjection intent available")
             return false
         }
         LogCollector.d(TAG, "Initializing Shooter with stored intent")
         isInitialized = shooter.init(intent)
         if (!isInitialized) {
-            // init 失败（intent 已过期/被重用），清除存储的 intent 以便下次请求新的
             LogCollector.w(TAG, "Shooter init failed, clearing stored intent")
             MediaProjectionIntentHolder.clear()
         }
@@ -57,8 +48,7 @@ class MediaProjectionProvider(private val context: Context) : ScreenshotProvider
         }
 
         LogCollector.d(TAG, "Taking screenshot, cropRect=$cropRect")
-        val fullBitmap = shooter.shot()
-        if (fullBitmap == null) {
+        val fullBitmap = shooter.shot() ?: run {
             LogCollector.w(TAG, "Shooter returned null bitmap")
             return null
         }

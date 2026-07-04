@@ -48,15 +48,70 @@ class Shooter(private val context: Context) {
     private var virtualDisplay: VirtualDisplay? = null
     private var lastBitmap: Bitmap? = null
     private var listenerThread: HandlerThread? = null
+    private var listenerHandler: Handler? = null
     private val bitmapLock = Any()  // 保护 lastBitmap 的并发访问
 
     @Volatile private var imageAvailable = false
+
+    private var initRotation = -1  // init 时的屏幕方向，用于检测旋转
 
     @Volatile var ready = false
         private set
 
     @Volatile var frameSeq = 0L
         private set
+
+    /**
+     * ImageReader 回调：后台线程 acquire + convert + 缓存。
+     * 提取为字段，供 init() 复用。
+     */
+    private val imageListener = ImageReader.OnImageAvailableListener { reader ->
+        // 在后台线程直接 acquire 并缓存，避免主线程阻塞导致丢帧
+        try {
+            val image = reader.acquireLatestImage()
+            if (image != null) {
+                val newBitmap = convert(image)
+                image.close()
+                if (newBitmap == null) {
+                    LogCollector.w(TAG, "convert returned null, skipping frame")
+                    imageAvailable = true  // 唤醒等待的 shot()，避免永久超时
+                    return@OnImageAvailableListener
+                }
+
+                // P1: 帧变化检测 — 用局部引用 newBitmap 计算，必须在存入 lastBitmap 之前。
+                // 否则 release() 在主线程 recycle lastBitmap(==newBitmap) 会与此处竞态，
+                // 导致 PerceptualHash.compute 抛 "Bitmap is recycled"。
+                // 节流：最多每 300ms 检查一次，避免 60fps 下频繁计算 pHash
+                val now = System.currentTimeMillis()
+                if (now - lastFrameChangeCheckTime >= FRAME_CHANGE_CHECK_INTERVAL_MS && !newBitmap.isRecycled) {
+                    lastFrameChangeCheckTime = now
+                    try {
+                        val currentHash = PerceptualHash.compute(newBitmap, centerCrop = true)
+                        val prevHash = lastFrameHash
+                        lastFrameHash = currentHash
+                        if (prevHash != 0L) {
+                            val sim = PerceptualHash.similarity(prevHash, currentHash)
+                            if (sim < FRAME_CHANGE_THRESHOLD) {
+                                // 内容发生显著变化，通知上层加速检测
+                                ScreenshotManager.notifyEventTrigger("content_changed")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        LogCollector.w(TAG, "frame-change pHash skipped: ${e.message}")
+                    }
+                }
+
+                synchronized(bitmapLock) {
+                    lastBitmap?.recycle()
+                    lastBitmap = newBitmap
+                }
+                imageAvailable = true
+                frameSeq++
+            }
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "Listener acquire failed", e)
+        }
+    }
 
     /**
      * 初始化 MediaProjection
@@ -89,53 +144,14 @@ class Shooter(private val context: Context) {
             // 创建专用后台线程处理 ImageAvailable 回调
             // 不能用主线程 —— 主线程被 OCR/翻译阻塞时回调无法执行
             listenerThread = HandlerThread("Shooter-ImageListener").also { it.start() }
-            val listenerHandler = Handler(listenerThread!!.looper)
+            listenerHandler = Handler(listenerThread!!.looper)
 
             // 创建 ImageReader
             imageReader = ImageReader.newInstance(
                 screenWidth, screenHeight,
                 PixelFormat.RGBA_8888, IMAGE_BUFFER_COUNT
             )
-            imageReader!!.setOnImageAvailableListener({ reader ->
-                // 在后台线程直接 acquire 并缓存，避免主线程阻塞导致丢帧
-                try {
-                    val image = reader.acquireLatestImage()
-                    if (image != null) {
-                        val newBitmap = convert(image)
-                        image.close()
-                        if (newBitmap == null) {
-                            LogCollector.w(TAG, "convert returned null, skipping frame")
-                            imageAvailable = true  // 唤醒等待的 shot()，避免永久超时
-                            return@setOnImageAvailableListener
-                        }
-                        synchronized(bitmapLock) {
-                            lastBitmap?.recycle()
-                            lastBitmap = newBitmap
-                        }
-                        imageAvailable = true
-                        frameSeq++
-
-                        // P1: 帧变化检测 — 当内容发生显著变化时通知上层加速检测
-                        // 节流：最多每 300ms 检查一次，避免 60fps 下频繁计算 pHash
-                        val now = System.currentTimeMillis()
-                        if (now - lastFrameChangeCheckTime >= FRAME_CHANGE_CHECK_INTERVAL_MS) {
-                            lastFrameChangeCheckTime = now
-                            val currentHash = PerceptualHash.compute(newBitmap, centerCrop = true)
-                            val prevHash = lastFrameHash
-                            lastFrameHash = currentHash
-                            if (prevHash != 0L) {
-                                val sim = PerceptualHash.similarity(prevHash, currentHash)
-                                if (sim < FRAME_CHANGE_THRESHOLD) {
-                                    // 内容发生显著变化，通知上层加速检测
-                                    ScreenshotManager.notifyEventTrigger("content_changed")
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    LogCollector.e(TAG, "Listener acquire failed", e)
-                }
-            }, listenerHandler)
+            imageReader!!.setOnImageAvailableListener(imageListener, listenerHandler)
 
             // 创建 VirtualDisplay
             virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -147,7 +163,9 @@ class Shooter(private val context: Context) {
             )
 
             ready = true
-            LogCollector.d(TAG, "Initialized: ${screenWidth}x${screenHeight}")
+            @Suppress("DEPRECATION")
+            initRotation = wm.defaultDisplay.rotation
+            LogCollector.d(TAG, "Initialized: ${screenWidth}x${screenHeight}, rotation=$initRotation")
             return true
         } catch (e: SecurityException) {
             // Token 过期或重复使用：清除已失效的 intent，下次请求新授权
@@ -171,6 +189,9 @@ class Shooter(private val context: Context) {
             LogCollector.w(TAG, "Not ready, returning null")
             return@withContext null
         }
+
+        // 屏幕旋转后重建 buffer 使其与当前屏幕坐标系一致
+        ensureBufferOrientation()
 
         // 等待 imageAvailable（listener 在后台线程设置此标志）
         val startTime = System.currentTimeMillis()
@@ -213,6 +234,60 @@ class Shooter(private val context: Context) {
         }
         return@withContext synchronized(bitmapLock) {
             lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
+        }
+    }
+
+    /**
+     * 屏幕旋转时重建 ImageReader + resize VirtualDisplay。
+     * 不停 MediaProjection（避免 token 重用抛 SecurityException），
+     * 只用 setSurface + resize 切换 buffer 方向。
+     */
+    private fun ensureBufferOrientation() {
+        val reader = imageReader ?: return
+        val vd = virtualDisplay ?: return
+        val handler = listenerHandler ?: return
+        try {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            @Suppress("DEPRECATION")
+            val currentRotation = wm.defaultDisplay.rotation
+            if (currentRotation == initRotation) return
+
+            val point = Point()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealSize(point)
+            val newW = point.x
+            val newH = point.y
+            if (newW <= 0 || newH <= 0) return
+            if (newW == reader.width && newH == reader.height) return
+
+            val dpi = context.resources.displayMetrics.densityDpi
+            LogCollector.d(TAG, "!!! ROTATION buffer resize: ${reader.width}x${reader.height} -> ${newW}x${newH}, rotation $initRotation -> $currentRotation")
+
+            reader.setOnImageAvailableListener(null, null)
+
+            // 等待正在执行中的回调完成，防止 reader.close() 释放 native buffer
+            // 时 imageListener 的 buffer.get() 还在读 → SIGSEGV
+            val latch = java.util.concurrent.CountDownLatch(1)
+            handler.post { latch.countDown() }
+            try {
+                latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {}
+
+            val newReader = ImageReader.newInstance(newW, newH, PixelFormat.RGBA_8888, IMAGE_BUFFER_COUNT)
+            newReader.setOnImageAvailableListener(imageListener, handler)
+            vd.setSurface(newReader.surface)
+            vd.resize(newW, newH, dpi)
+            reader.close()
+            imageReader = newReader
+            imageAvailable = false
+            synchronized(bitmapLock) {
+                lastBitmap?.recycle()
+                lastBitmap = null
+            }
+            lastFrameHash = 0L
+            initRotation = currentRotation
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "ensureBufferOrientation failed", e)
         }
     }
 
@@ -312,6 +387,7 @@ class Shooter(private val context: Context) {
         //    quitSafely 会排空待处理的回调，此时 Image 仍有效
         listenerThread?.quitSafely()
         listenerThread = null
+        listenerHandler = null
 
         // 4. 安全关闭 ImageReader——不再有回调访问其 Image
         imageReader?.close()

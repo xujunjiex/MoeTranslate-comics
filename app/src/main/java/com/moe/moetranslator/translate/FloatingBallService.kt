@@ -317,6 +317,22 @@ class FloatingBallService : LifecycleService() {
         return android.util.Size(realSize.x, realSize.y)
     }
 
+    /**
+     * 屏幕旋转时：旧框选坐标（属于旋转前的坐标系）几何上已失效，
+     * 强制置空 mRectF 要求重新框选；若正在自动翻译则停止，避免用错误坐标继续翻译。
+     */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (mRectF != null && newConfig.orientation != orientation) {
+            LogCollector.d("FloatingBallService", "屏幕方向变化 $orientation -> ${newConfig.orientation}，清除旧框选")
+            mRectF = null
+            if (isAutoTranslating) {
+                stopAutoTranslate()
+            }
+            showToast(getString(R.string.orientation_changed), true)
+        }
+    }
+
     // 缓存管理
     private lateinit var cacheManager: TranslationCacheManager
 
@@ -1122,12 +1138,13 @@ class FloatingBallService : LifecycleService() {
             }
         }
 
-        if (orientation == this.resources.configuration.orientation) {
-            if (isTranslating.get()) {
-                showToast(getString(R.string.is_translating), true)
-            }
-        } else {
+        if (orientation != this.resources.configuration.orientation) {
+            // 屏幕方向已变化，旧框选坐标失效，强制重新框选
             showToast(getString(R.string.orientation_changed), true)
+            return
+        }
+        if (isTranslating.get()) {
+            showToast(getString(R.string.is_translating), true)
         }
 
         // 确保翻译结果视图已添加
