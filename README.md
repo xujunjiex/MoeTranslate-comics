@@ -25,11 +25,11 @@
 ### 📖 漫画翻译
 
 <p align="center">
-  <img src="images/manga_demo.gif" width="170" alt="自动翻页翻译">
+  <img src="images/manga_demo.gif" width="170" alt="漫画翻译流程">
   &nbsp;&nbsp;
-  <img src="images/batch_translate.gif" width="170" alt="增量分批翻译">
+  <img src="images/stability_demo.gif" width="170" alt="稳定性检测">
   <br>
-  <em>左：自动翻页翻译 &nbsp;|&nbsp; 右：增量渲染分批显示，首批译完即时呈现</em>
+  <em>左：气泡检测 + OCR + 竖排渲染 &nbsp;|&nbsp; 右：稳定性检测，页面静止后自动触发翻译</em>
 </p>
 
 气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 3 种 OCR 引擎可自由组合。超 6 个气泡增量渲染分批提速，pHash 检测页面变化自动翻页，翻译缓存相似度匹配翻过的页秒开。
