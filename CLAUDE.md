@@ -64,7 +64,7 @@ adb devices
 
 **包结构** (`app/src/main/java/com/moe/moetranslator/`):
 
-- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）
+- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`BallStateManager`（悬浮球状态图标管理器）
 - `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`CTDDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
 - `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，10 条 FAQ）
@@ -151,13 +151,20 @@ private suspend fun processMangaScreenshot(
 - 缓存保存干净截图 extHashes，保证跨模式命中
 - 无障碍 `takeScreenshot` API 需至少 350ms 冷却（Android 12+ 后台截图频率限制），详见 [[accessibility-screenshot-cooldown]]
 
-**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 手动模式截图前隐藏悬浮球，`finally` 块恢复。自动模式由上述重截图机制处理。
+**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 手动模式截图前隐藏悬浮球，`finally` 块恢复。⚠️ 藏球后必须 `delay(50)` 等至少一个 VSYNC 周期，确保 VD 产出无球的新帧后再截图，否则球图标会被截入翻译结果。自动模式由上述重截图机制处理。
+
+**悬浮球状态图标（`BallStateManager`）：** 管理悬浮球图标的状态机，5 种状态瞬时切换（无动画，仅 Error 红圈脉冲）：
+- `Idle` — 用户自定义图标（从 `getExternalFilesDir/icon/` 加载）
+- `Processing` — OCR 识别中图标（state2 mipmap）
+- `Translating` — 翻译中图标（state3 mipmap）
+- `Completed` — 翻译完成图标（state4 mipmap）
+- `Error` — Processing 图标 + 红圈 1100ms 脉冲动画
+
+游戏/漫画模式独立配置（`Mode.Game` / `Mode.Comic`），各有 4 套 mipmap。`MangaFloatingService` 在翻译流程入口设 `Processing`，非分批路径在调翻译 API 前切 `Translating`，分批路径在第一批翻译开始时切 `Translating`（保持到全部完成）。`finalizeIncremental` 结束后切 `Completed`。
 
 **DB 版本 11（MIGRATION_10_11）：** 修复漏加的 `last_session_id` 列 + `createdAt`→`created_at` 列名问题。迁移幂等：先 `PRAGMA table_info` 检查列是否存在再操作。
 
 **MIGRATION_9_10：** 增加 `pHash2`/`pHash3`/`pHash4` 三列存 256 位扩展 hash。
-
-
 
 提示词仅对 OpenAI 兼容 API 生效（火山/智谱/DeepSeek/通义千问/用户自建），非 OpenAI API（Volc/DeepL/Baidu/Azure/腾讯/Bing/Niutrans/NLLB）为纯机器翻译，不接受提示词配置。
 
