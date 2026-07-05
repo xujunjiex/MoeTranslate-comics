@@ -61,8 +61,8 @@
 
 | 模型 | 用途 | 大小 | 来源 |
 |------|------|------|------|
+| **Google ML Kit** | 内置快速多语言 OCR | 内置 | Google（无需下载） |
 | **PP-OCRv5** | 通用中日英检测+识别 | ~22MB | RapidAI/RapidOCR（内置） |
-| **Google ML Kit** | 快速多语言 OCR | ~100MB | Google（首次下载） |
 | **manga-ocr** | 日漫竖排文字专用 | ~135MB | HuggingFace（可选下载） |
 | **CTD** | 文字区域检测 | ~94MB | GitHub（可选下载） |
 | **RT-DETR-V2** | 文字/气泡检测 | ~11MB | HuggingFace（可选下载） |
