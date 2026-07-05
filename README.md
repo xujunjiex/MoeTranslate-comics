@@ -25,8 +25,11 @@
 ### 📖 漫画翻译
 
 <p align="center">
-  <img src="images/manga_demo.gif" width="200" alt="漫画翻译演示"><br>
-  <em>气泡检测 + OCR + 竖排渲染，自动翻页翻译</em>
+  <img src="images/manga_demo.gif" width="170" alt="自动翻页翻译">
+  &nbsp;&nbsp;
+  <img src="images/batch_translate.gif" width="170" alt="增量分批翻译">
+  <br>
+  <em>左：自动翻页翻译 &nbsp;|&nbsp; 右：增量渲染分批显示，首批译完即时呈现</em>
 </p>
 
 气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 3 种 OCR 引擎可自由组合。超 6 个气泡增量渲染分批提速，pHash 检测页面变化自动翻页，翻译缓存相似度匹配翻过的页秒开。
@@ -41,6 +44,14 @@
 同游戏翻译引擎，适用于视频字幕、直播弹幕等动态场景，支持像素变化自动触发和手动框选翻译。
 
 ### 📚 翻译历史
+
+<p align="center">
+  <img src="images/history_page.gif" width="260" alt="历史记录页面">
+  &nbsp;&nbsp;
+  <img src="images/history_retranslate.gif" width="260" alt="历史记录重新翻译">
+  <br>
+  <em>左：双视图历史记录 &nbsp;|&nbsp; 右：管理视图重新翻译</em>
+</p>
 
 Room 数据库持久化，双视图（时间排序 / 进程分组），全屏翻页浏览原图 + 译文详情，支持管理视图重新翻译和打包下载。
 
