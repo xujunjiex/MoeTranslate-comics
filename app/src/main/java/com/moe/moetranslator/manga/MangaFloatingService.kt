@@ -42,6 +42,7 @@ import com.moe.moetranslator.me.OpenAIProviderConfig
 import com.moe.moetranslator.translate.AccessibilityProvider
 import com.moe.moetranslator.translate.AccessibilityEventHandler
 import com.moe.moetranslator.translate.AccessibilityServiceManager
+import com.moe.moetranslator.translate.BallStateManager
 import com.moe.moetranslator.translate.CropView
 import com.moe.moetranslator.translate.Dialogs
 import com.moe.moetranslator.translate.MediaProjectionProvider
@@ -163,6 +164,9 @@ class MangaFloatingService : LifecycleService() {
     // 悬浮球图标变更广播接收器（防止被 GC 回收，跨 onCreate/onDestroy 复用同一实例）
     private var iconChangeReceiver: android.content.BroadcastReceiver? = null
 
+    // 悬浮球状态机
+    private var ballStateManager: BallStateManager? = null
+
     // Long press detection
     private val handler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { handleLongPress() }
@@ -259,7 +263,10 @@ class MangaFloatingService : LifecycleService() {
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
                 val key = intent?.getStringExtra("extra_icon_key") ?: return
-                if (key == "Icon_Comic") reloadFloatingBallIcon()
+                if (key == "Icon_Comic") {
+                    // 重读状态机的 Idle 图标路径
+                    ballStateManager?.setState(BallStateManager.State.Idle)
+                }
             }
         }
         iconChangeReceiver = receiver
@@ -378,6 +385,8 @@ class MangaFloatingService : LifecycleService() {
         prefChangeListener = null
         removeAllViews()
         statusOverlay.release()
+        ballStateManager?.release()
+        ballStateManager = null
         translatorText?.release()
         autoTranslateHandler.removeCallbacksAndMessages(null)
         clearRegionCache()
@@ -427,23 +436,6 @@ class MangaFloatingService : LifecycleService() {
         config = loadConfig()
         translatorText?.release()
         initTranslator()
-    }
-
-    // 重新加载悬浮球图标（从 Icon_Comic 偏好读取，失败回退到默认 mipmap）
-    private fun reloadFloatingBallIcon() {
-        val iconView = floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
-        val iconName = prefs.getString("Icon_Comic", "comic-1.准备识别-打开漫画页面.png")
-        if (iconName.isEmpty()) {
-            iconView.setImageResource(R.mipmap.icon_comic_default)
-        } else {
-            val iconFile = java.io.File(getExternalFilesDir(null), "icon/$iconName")
-            if (iconFile.exists()) {
-                val bitmap = android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
-                iconView.setImageBitmap(bitmap)
-            } else {
-                iconView.setImageResource(R.mipmap.icon_comic_default)
-            }
-        }
     }
 
     private fun initTranslator() {
@@ -682,6 +674,7 @@ class MangaFloatingService : LifecycleService() {
                         LogCollector.e(TAG, "manga-ocr 识别器初始化失败", e)
                         withContext(Dispatchers.Main) {
                             statusOverlay.showError("manga-ocr 识别器初始化失败：${e.message ?: "未知错误"}")
+                            ballStateManager?.setState(BallStateManager.State.Error)
                         }
                         return
                     }
@@ -690,6 +683,7 @@ class MangaFloatingService : LifecycleService() {
                     LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 未下载，提示用户")
                     withContext(Dispatchers.Main) {
                         statusOverlay.showImmediate(getString(R.string.manga_ocr_download_required))
+                        ballStateManager?.setState(BallStateManager.State.Idle)
                     }
                     return
                 }
@@ -749,6 +743,9 @@ class MangaFloatingService : LifecycleService() {
         }
 
         windowManager.addView(floatingBallView, floatingBallParams)
+
+        ballStateManager = BallStateManager(this, floatingBallView, BallStateManager.Mode.Comic)
+        ballStateManager?.setState(BallStateManager.State.Idle)
 
         // 加载自定义悬浮球图标
         // 一次性迁移：旧 Custom_Floating_Pic 首次遇到时复制到 Icon_Comic
@@ -2098,6 +2095,7 @@ class MangaFloatingService : LifecycleService() {
                     isProcessing = false
                     dismissProgressOverlay()
                     statusOverlay.showError("识别模型文件缺失：${e.message}")
+                    ballStateManager?.setState(BallStateManager.State.Error)
                     if (isAutoTranslating) {
                         stopAutoTranslate()
                     }
@@ -2107,6 +2105,7 @@ class MangaFloatingService : LifecycleService() {
                     // 先 dismiss 进度条，再显示错误（错误会保持显示直到用户点击复制）
                     dismissProgressOverlay()
                     statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
+                    ballStateManager?.setState(BallStateManager.State.Error)
                     if (isAutoTranslating) {
                         stopAutoTranslate()
                     }
@@ -2440,10 +2439,12 @@ class MangaFloatingService : LifecycleService() {
             } catch (e: java.io.FileNotFoundException) {
                 crops.forEach { it.recycle() }
                 statusOverlay.showError("识别模型加载失败：${e.message}")
+                ballStateManager?.setState(BallStateManager.State.Error)
                 throw e
             } catch (e: Exception) {
                 crops.forEach { it.recycle() }
                 statusOverlay.showError("识别模型异常：${e.message}")
+                ballStateManager?.setState(BallStateManager.State.Error)
                 throw e
             }
             // 释放裁剪图片
@@ -2528,8 +2529,10 @@ class MangaFloatingService : LifecycleService() {
             // 统一保存完整缓存
             LogCollector.d(TAG, "finalizeIncremental: 保存完整缓存，共 ${allTranslated.size} 个气泡")
             saveTranslationCache(bitmap, allTranslated)
+            ballStateManager?.setState(BallStateManager.State.Completed)
         }
         statusOverlay.showImmediate("翻译完成")
+        ballStateManager?.setState(BallStateManager.State.Completed)
         lastTranslatedHash = currentPHash
         lastTranslatedTime = System.currentTimeMillis()
         if (isAutoTranslating) scheduleNextDetection(DETECT_INTERVAL_MS)
@@ -2562,6 +2565,7 @@ class MangaFloatingService : LifecycleService() {
             if (currentExtHashes != null && currentExtHashes!!.all { it == 0L }) {
                 LogCollector.d(TAG, "processMangaScreenshot: 画面无内容（dHash全零），跳过翻译")
                 statusOverlay.showImmediate("未检测到文字")
+                ballStateManager?.setState(BallStateManager.State.Completed)
                 showToast("未检测到文字", false)
                 lastTranslatedHash = currentPHash
         lastTranslatedTime = System.currentTimeMillis()
@@ -2716,6 +2720,7 @@ class MangaFloatingService : LifecycleService() {
                     lastCachedHistoryId = cached.historyId
                     lastCachedPHash = currentPHash
                     statusOverlay.showImmediate("缓存命中")
+                    ballStateManager?.setState(BallStateManager.State.Completed)
                     lastTranslatedHash = currentPHash
         lastTranslatedTime = System.currentTimeMillis()
                     withContext(Dispatchers.Main) {
@@ -2737,6 +2742,7 @@ class MangaFloatingService : LifecycleService() {
             var ocrTextBlocks: List<TextBlockInfo> = emptyList()
             try {
                 // 分批渲染：在检测之前尝试分批流程
+                ballStateManager?.setState(BallStateManager.State.Translating)
                 if (incrementalTranslateFlow(bitmap)) {
                     LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
                     return
@@ -2880,6 +2886,7 @@ class MangaFloatingService : LifecycleService() {
             renderAndShowMergedOverlay(bitmap, newTranslatedBubbles)
             LogCollector.d(TAG, "processMangaScreenshot: Step 4 - DONE")
             statusOverlay.showImmediate("翻译完成")
+            ballStateManager?.setState(BallStateManager.State.Completed)
 
             // 更新区域缓存和 pHash
             lastTranslatedHash = currentPHash
