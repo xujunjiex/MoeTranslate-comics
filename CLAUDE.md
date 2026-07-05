@@ -67,7 +67,7 @@ adb devices
 - `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）
 - `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`CTDDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
 - `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
-- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，6 条 FAQ）
+- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，10 条 FAQ）
 - `launch/` — 首次启动引导
 - `utils/` — 工具类：`Constants`（枚举定义）、`CustomPreference`（配置封装）、`LogCollector`（日志收集）、`PixelCompare`（像素比较）、`UiUtils`（Toast 统一）、`ServiceUtils`（服务状态检测）、`UpdateChecker`（检查更新）
 - `data/` — Room 数据库、`TranslationCacheManager`、`HistoryEntity`/`PageCacheEntity`
@@ -132,24 +132,26 @@ private suspend fun processMangaScreenshot(
 )
 ```
 
-**自动翻译干净截图流程（重截图 + frameSeq 死检）：**
+**自动翻译干净截图流程：**
 
-状态机 STABLE 后重截干净图用于翻译和缓存。MP 模式重截图后检查 `frameSeq` 是否变化——未变化说明 VirtualDisplay 已停止产帧（系统录屏冲突等），弹出 AlertDialog 说明原因并 `stopSelf()` 关闭整个服务。
+状态机 STABLE 后重截干净图用于翻译和缓存。
 
 | 模式 | 流程 | 延迟 |
 |------|------|------|
-| **MP** | `dismissProgressOverlay()` → 隐藏球 → `delay(50)` → 记 `seqBefore` → `takeScreenshot()` → 记 `seqAfter` → 恢复球 → `seqBefore != seqAfter` 正常 / `==` 则死 → `showProgressOverlay` | +~80ms |
+| **MP** | `dismissProgressOverlay()` → 隐藏球 → `delay(50)` → `takeScreenshot()` → 恢复球 → `showProgressOverlay` | +~80ms |
 | **无障碍** | `launch { delay(350)` 冷却 → 隐藏球 → `delay(50)` → `takeScreenshot()` 异步 → `pendingCleanScreenshot=true }` → 下一张 flow 拦截 | +~500-900ms |
 
-**⚠️ frameSeq 死亡检测：** `MediaProjectionProvider.frameSeq` 暴露 `Shooter.frameSeq`。重截图前后比较 `frameSeq`，若未变化则 VirtualDisplay 已死（系统录屏、token 过期等），弹出错误对话框 → `stopSelf()` 关闭整个服务。手动翻译也无法工作，必须重启。
+**⚠️ frameSeq 行为（Shooter.kt）：** `frameSeq` 在 `ImageReader.OnImageAvailableListener` 回调中递增（line 113）。`VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR` 在 Redmi/HyperOS 上仅画面内容变化时产帧 → 静态页面 frameSeq 停止递增，翻页/滑动时跳跃增长。其他 ROM 可能持续产帧 → frameSeq 不适用于跨设备屏幕变化检测。
+
+**⚠️ VD 死亡（录屏冲突）处理：** `frameSeq` 不能用于 VD 死亡检测——已尝试并移除（commit `4628010`）。原因：框选模式下悬浮球在选定区域外，VD 可能不捕捉框外像素变化 → 藏球唤醒测试不可靠，频繁误报。当前方案：自动翻译用 40s pHash 超时兜底（同页面 40s 无变化 → 自动停止翻译 + 弹窗提示）；手动翻译无法检测，遇卡死症状（始终缓存命中同一页、自动翻页无变化）见 FAQ Q11。
 
 **⚠️ 所有 overlay（球、进度条）必须在截图前隐藏。** 进度条文字被截入图会导致 pHash 污染和缓存误命中。
 
-- `lastTranslatedHash` 保存检测截图 pHash（有球），保证状态机下次比较有效
-- 缓存保存干净截图 extHashes（无球），保证跨模式命中
+- `lastTranslatedHash` 保存检测截图 pHash，保证状态机下次比较有效
+- 缓存保存干净截图 extHashes，保证跨模式命中
 - 无障碍 `takeScreenshot` API 需至少 350ms 冷却（Android 12+ 后台截图频率限制），详见 [[accessibility-screenshot-cooldown]]
 
-**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 仅手动模式隐藏悬浮球 `delay(50)`（让 SurfaceFlinger 刷新不带球的画面），截图后 `finally` 块恢复球。自动模式由上述重截图机制处理。
+**手动模式隐藏球流程（`takeScreenshotWithProvider`）：** 手动模式截图前隐藏悬浮球，`finally` 块恢复。自动模式由上述重截图机制处理。
 
 **DB 版本 11（MIGRATION_10_11）：** 修复漏加的 `last_session_id` 列 + `createdAt`→`created_at` 列名问题。迁移幂等：先 `PRAGMA table_info` 检查列是否存在再操作。
 

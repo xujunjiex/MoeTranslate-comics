@@ -61,6 +61,10 @@ class Shooter(private val context: Context) {
     @Volatile var frameSeq = 0L
         private set
 
+    /** frameSeq 最后一次变化的时间戳，用于检测 VirtualDisplay 是否长时间不产帧 */
+    @Volatile var lastFrameSeqChangeTime: Long = 0L
+        private set
+
     /**
      * ImageReader 回调：后台线程 acquire + convert + 缓存。
      * 提取为字段，供 init() 复用。
@@ -107,6 +111,7 @@ class Shooter(private val context: Context) {
                 }
                 imageAvailable = true
                 frameSeq++
+                lastFrameSeqChangeTime = System.currentTimeMillis()
             }
         } catch (e: Exception) {
             LogCollector.e(TAG, "Listener acquire failed", e)
@@ -165,6 +170,7 @@ class Shooter(private val context: Context) {
             ready = true
             @Suppress("DEPRECATION")
             initRotation = wm.defaultDisplay.rotation
+            lastFrameSeqChangeTime = System.currentTimeMillis()
             LogCollector.d(TAG, "Initialized: ${screenWidth}x${screenHeight}, rotation=$initRotation")
             return true
         } catch (e: SecurityException) {
@@ -200,9 +206,10 @@ class Shooter(private val context: Context) {
         }
 
         if (!imageAvailable) {
-            // 屏幕静止时 VirtualDisplay 可能不再产生新帧，buffer 为空导致 timeout。
-            // 检测逻辑（pHash 比较）只需要最近的截图，不一定要最新帧。
-            // 返回 lastBitmap 的缓存副本，让上层正常做相似度判断。
+            // 超时：VirtualDisplay 在等待窗口内未产新帧。仍返回 lastBitmap（可用）。
+            // 必须重置 imageAvailable，否则下次 shot() 进来看到 false 会立即再次超时，
+            // 即使此时 listener 早已产了新帧。该标志由 listener 下一次回调重新置 true。
+            imageAvailable = false
             LogCollector.w(TAG, "shot TIMEOUT: no new frame in ${WAIT_IMAGE_TIMEOUT_MS}ms, lastFrameSeq=$frameSeq, ready=$ready")
             return@withContext synchronized(bitmapLock) {
                 lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
@@ -232,13 +239,18 @@ class Shooter(private val context: Context) {
             LogCollector.w(TAG, "Not ready, returning null")
             return@withContext null
         }
+        ensureBufferOrientation()
         return@withContext synchronized(bitmapLock) {
             lastBitmap?.let { bmp -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) }
         }
     }
 
     /**
-     * 屏幕旋转时重建 ImageReader + resize VirtualDisplay。
+     * 屏幕旋转/尺寸变化时重建 ImageReader + resize VirtualDisplay。
+     * 用 buffer 尺寸 vs 当前真实屏幕尺寸做比较（不用 rotation 守卫 ——
+     * Service context 的 getRealSize 在横屏下可能仍返回竖屏尺寸，
+     * rotation 匹配但尺寸不匹配的场景无法被 rotation 守卫覆盖）。
+     *
      * 不停 MediaProjection（避免 token 重用抛 SecurityException），
      * 只用 setSurface + resize 切换 buffer 方向。
      */
@@ -248,10 +260,6 @@ class Shooter(private val context: Context) {
         val handler = listenerHandler ?: return
         try {
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            @Suppress("DEPRECATION")
-            val currentRotation = wm.defaultDisplay.rotation
-            if (currentRotation == initRotation) return
-
             val point = Point()
             @Suppress("DEPRECATION")
             wm.defaultDisplay.getRealSize(point)
@@ -260,8 +268,10 @@ class Shooter(private val context: Context) {
             if (newW <= 0 || newH <= 0) return
             if (newW == reader.width && newH == reader.height) return
 
+            @Suppress("DEPRECATION")
+            val currentRotation = wm.defaultDisplay.rotation
             val dpi = context.resources.displayMetrics.densityDpi
-            LogCollector.d(TAG, "!!! ROTATION buffer resize: ${reader.width}x${reader.height} -> ${newW}x${newH}, rotation $initRotation -> $currentRotation")
+            LogCollector.d(TAG, "!!! ROTATION buffer resize: ${reader.width}x${reader.height} -> ${newW}x${newH}, initRotation=$initRotation, currentRotation=$currentRotation")
 
             reader.setOnImageAvailableListener(null, null)
 
@@ -285,6 +295,7 @@ class Shooter(private val context: Context) {
                 lastBitmap = null
             }
             lastFrameHash = 0L
+            lastFrameSeqChangeTime = System.currentTimeMillis()
             initRotation = currentRotation
         } catch (e: Exception) {
             LogCollector.e(TAG, "ensureBufferOrientation failed", e)
@@ -372,6 +383,7 @@ class Shooter(private val context: Context) {
             lastBitmap = null
         }
         lastFrameHash = 0L
+        lastFrameSeqChangeTime = 0L
         lastFrameChangeCheckTime = 0L
         imageAvailable = false
         ready = false

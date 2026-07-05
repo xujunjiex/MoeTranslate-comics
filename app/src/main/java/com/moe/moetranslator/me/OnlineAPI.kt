@@ -33,6 +33,18 @@ import com.moe.moetranslator.utils.KeystoreManager
 
 class OnlineAPI : Fragment() {
 
+    companion object {
+        // 错误代码文档链接
+        private const val URL_NIU_ERROR = "https://niutrans.com/documents/contents/trans_text#error"
+        private const val URL_VOLC_ERROR = "https://www.volcengine.com/docs/4640/65067"
+        private const val URL_AZURE_ERROR = "https://learn.microsoft.com/azure/ai-services/translator/reference/v3-0-translate#response-status-codes"
+        private const val URL_DEEPL_ERROR = "https://developers.deepl.com/docs/best-practices/error-handling"
+        private const val URL_BAIDU_TEXT_ERROR = "https://fanyi-api.baidu.com/doc/21"
+        private const val URL_BAIDU_PIC_ERROR = "https://fanyi-api.baidu.com/doc/26"
+        private const val URL_TENCENT_TEXT_ERROR = "https://cloud.tencent.com/document/product/551/15619"
+        private const val URL_TENCENT_PIC_ERROR = "https://cloud.tencent.com/document/product/551/17232"
+    }
+
     private var apiType: String? = null
     private lateinit var binding: FragmentOnlineApiBinding
     private lateinit var prefs: CustomPreference
@@ -109,6 +121,7 @@ class OnlineAPI : Fragment() {
                 requireActivity().finish()
             }
         }
+        setupErrorCodeLink(URL_NIU_ERROR)
     }
 
     private fun prepareVolc(){
@@ -155,6 +168,7 @@ class OnlineAPI : Fragment() {
                 requireActivity().finish()
             }
         }
+        setupErrorCodeLink(URL_VOLC_ERROR)
     }
 
     private fun prepareAzure(){
@@ -199,6 +213,7 @@ class OnlineAPI : Fragment() {
                 requireActivity().finish()
             }
         }
+        setupErrorCodeLink(URL_AZURE_ERROR)
     }
 
     private fun prepareDeepL(){
@@ -245,6 +260,7 @@ class OnlineAPI : Fragment() {
                 requireActivity().finish()
             }
         }
+        setupErrorCodeLink(URL_DEEPL_ERROR)
     }
 
     private fun prepareBaidu(){
@@ -291,6 +307,10 @@ class OnlineAPI : Fragment() {
                 requireActivity().finish()
             }
         }
+        setupErrorCodeLink(
+            "百度文本翻译", URL_BAIDU_TEXT_ERROR,
+            "百度图片翻译", URL_BAIDU_PIC_ERROR
+        )
     }
 
     private fun prepareTencent(){
@@ -336,6 +356,37 @@ class OnlineAPI : Fragment() {
                 Toast.makeText(context, getString(R.string.save_successfully), Toast.LENGTH_LONG).show()
                 requireActivity().finish()
             }
+        }
+        setupErrorCodeLink(
+            "腾讯云文本翻译", URL_TENCENT_TEXT_ERROR,
+            "腾讯云图片翻译", URL_TENCENT_PIC_ERROR
+        )
+    }
+
+    private fun setupErrorCodeLink(url: String) {
+        binding.errorCodeLink.setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        }
+    }
+
+    private fun setupErrorCodeLink(
+        label1: String, url1: String,
+        label2: String, url2: String
+    ) {
+        binding.errorCodeLink.setOnClickListener {
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.error_code_link)
+                .setItems(arrayOf(label1, label2)) { _, which ->
+                    val url = if (which == 0) url1 else url2
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                }
+                .setNegativeButton(R.string.user_cancel, null)
+                .create()
+                .apply {
+                    show()
+                    window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                }
         }
     }
 }

@@ -21,6 +21,7 @@ class MediaProjectionProvider(private val context: Context) : ScreenshotProvider
     private val shooter = Shooter(context)
     private var isInitialized = false
     val frameSeq: Long get() = shooter.frameSeq
+    val lastFrameSeqChangeTime: Long get() = shooter.lastFrameSeqChangeTime
 
     override fun isAvailable(): Boolean = MediaProjectionIntentHolder.intent != null
     override fun needsPermission(): Boolean = true

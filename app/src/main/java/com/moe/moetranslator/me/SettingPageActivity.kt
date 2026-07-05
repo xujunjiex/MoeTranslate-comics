@@ -33,7 +33,6 @@ class SettingPageActivity : BaseActivity() {
         const val TYPE_FRAGMENT_API_CONFIG = 2
         const val TYPE_FRAGMENT_PERSONALIZATION = 3
         const val TYPE_FRAGMENT_FAQ = 5
-        const val TYPE_FRAGMENT_ERROR_CODE = 6
         const val TYPE_FRAGMENT_DEVELOPER = 7
         const val TYPE_FRAGMENT_MODEL_MANAGEMENT = 8
     }
@@ -60,9 +59,6 @@ class SettingPageActivity : BaseActivity() {
             ).commit()
             TYPE_FRAGMENT_FAQ->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
                 FAQPage()
-            ).commit()
-            TYPE_FRAGMENT_ERROR_CODE->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
-                Errcode()
             ).commit()
             TYPE_FRAGMENT_DEVELOPER->supportFragmentManager.beginTransaction().replace(binding.fragmentContainerView.id,
                 Developer()

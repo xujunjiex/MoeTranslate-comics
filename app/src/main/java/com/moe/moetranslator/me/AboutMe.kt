@@ -152,11 +152,6 @@ class AboutMe : Fragment() {
             intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_FAQ)
             startActivity(intent)
         }
-        binding.errorCodeBtn.setOnClickListener {
-            val intent = Intent(requireContext(), SettingPageActivity::class.java)
-            intent.putExtra(SettingPageActivity.EXTRA_FRAGMENT_TYPE, SettingPageActivity.TYPE_FRAGMENT_ERROR_CODE)
-            startActivity(intent)
-        }
         binding.updateBtn.setOnClickListener{
             UiUtils.showToast(requireContext(), getString(R.string.getting_update), isShort = false)
             checkForUpdate()

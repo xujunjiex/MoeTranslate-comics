@@ -49,7 +49,7 @@
     <string name="personalization_setting">个性化设置</string>
     <string name="article_page">壹日 · 壹篇</string>
     <string name="faq_title">常见问题</string>
-    <string name="error_code">错误代码</string>
+    <string name="error_code_link">查看错误代码说明 →</string>
     <string name="check_update">检查更新</string>
     <string name="cache_indicator">⚡ </string>
     <string name="about_page">关于</string>
@@ -321,26 +321,11 @@
     <string name="faq_a7">在漫画翻译的 PP-OCRv5 调试模式中，可以通过滑块调整以下参数：\n\n<b><u>1. 检测置信度（DET_BOX_THRESH）</u></b>\n默认值：0.3 | 范围：0.01 ~ 0.5\n\n控制文字区域检测的严格程度。值越低，检测越宽松，能识别更多弱文字区域（如模糊、低对比度的文字），但可能引入噪声框。值越高，检测越严格，只保留高置信度的文字框。\n\n• 文字经常漏检 → 适当降低（如 0.2）\n• 检测到太多噪声框 → 适当提高（如 0.4）\n\n<b><u>2. 扩展比例（DET_UNCLIP_RATIO）</u></b>\n默认值：1.6 | 范围：1.0 ~ 3.0\n\n检测框向外扩展的比例。OCR 需要裁剪文字区域进行识别，如果检测框刚好贴着文字边缘，裁剪可能不完整导致识别错误。扩展会让检测框更大，确保文字完整包含在内。\n\n• 识别结果缺字/截断 → 增大（如 2.0）\n• 检测框过大导致多个文字区域重叠 → 减小（如 1.2）\n\n<b><u>3. 识别置信度（TEXT_SCORE_THRESH）</u></b>\n默认值：0.5 | 范围：0.1 ~ 0.9\n\nOCR 识别结果的最低置信度。识别出的文字低于此分数会被丢弃。值越低，保留越多识别结果（可能包含错误识别）；值越高，只保留高置信度结果。\n\n• 翻译结果经常缺失 → 适当降低（如 0.3）\n• 翻译结果有乱码/错误文字 → 适当提高（如 0.6）\n\n<b><u>4. 大框过滤（isLargeBox）</u></b>\n默认值：关闭\n\n过滤占图片比例过大的检测框。某些场景下（如漫画背景、装饰图案），检测器可能错误地将大块区域识别为文字。开启后，宽、高或面积超过图片一定比例的检测框会被丢弃。\n\n• 检测到巨大的错误框 → 开启\n• 正常使用建议保持关闭\n\n<b><u>5. 丢弃比例（largeBoxRatio）</u></b>\n默认值：60% | 范围：30% ~ 80%\n\n大框过滤的阈值。检测框的宽、高或面积占图片比例超过此值时被丢弃。仅在大框过滤开启时生效。\n\n• 过滤太激进（正常框也被丢弃） → 增大比例\n• 过滤不够（大框仍然出现） → 减小比例</string>
     <string name="faq_q8">下载专用 OCR 识别模型有什么作用？</string>
     <string name="faq_a8">PP-OCRv5 的中文识别模型（rec_zh）是一个中日英混合通用模型，可以识别中文、日文和英文。在未下载专用模型时，英文识别默认使用这个通用模型。\n\n<b><u>下载专用模型后，系统会自动切换</u></b>，效果更好：\n\n• <b><u>英文模型（rec_en）</u></b>：专为英文优化，识别准确率更高，特别是大小写、数字、标点的识别更精确。\n• <b><u>韩文模型（rec_ko）</u></b>：韩文专用，未下载时韩文无法识别。\n• <b><u>俄文模型（rec_ru）</u></b>：俄文/西里尔文字专用，未下载时俄文无法识别。\n\n<b><u>如何下载</u></b>：进入 设置 → 模型管理 → PP-OCRv5 识别模型，点击下载即可。模型体积小（7~13MB），下载后立即生效，无需重启。\n\n<b><u>如何确认是否生效</u></b>：使用非默认语言（如英文）进行漫画翻译时，屏幕底部会弹出提示\"使用专用识别模型: rec_en\"，表示专用模型已生效。如果没有弹出提示，说明仍在使用通用中文模型。</string>
-    <string name="faq_q9">为什么在某些应用（如相册、支付）中无法翻译，反复提示"未检测到文字"？</string>
-    <string name="faq_a9">这是由于系统开启了<b><u>屏幕共享防护</u></b>，对敏感内容进行了保护。在相册、银行、支付等应用中进行截图时，系统会用保护层覆盖敏感内容，OCR 识别到的是系统提示文字（如"屏幕防护中"），而不是真实的画面内容。\n\n这是<b><u>系统级别的安全机制</u></b>，无法绕过。解决方法：\n\n• 将图片保存到本地，用其他不受保护的应用打开后翻译\n• 使用浏览器或其他阅读器打开相同内容\n• 尝试切换截图方式（MediaProjection ↔ 无障碍服务），部分场景兼容性不同</string>
+
     <string name="faq_q10">漫画模式反复提示"未检测到文字"，但图片上明明有文字？</string>
     <string name="faq_a10">这个问题取决于你当前使用的截图方式，以下是可能的原因和解决方法：\n\n<b><u>录屏模式（MediaProjection）</u></b>\n• <b>受保护的应用无法截图</b>：部分应用（系统相册、私密相册、银行、支付等）使用 FLAG_SECURE 或 DRM 阻止录屏捕获，系统会返回空白画面，导致 OCR 检测不到文字。\n• <b>私密相册限制</b>：华为/荣耀/小米等品牌的系统相册内置了隐私保护功能，即使已授予录屏权限，相册内的图片内容仍然无法被截取。\n• <b>解决方法</b>：将图片保存到普通文件夹（如下载目录），使用第三方图片查看器打开，或使用浏览器在线查看内容。\n\n<b><u>无障碍模式（Accessibility）</u></b>\n• <b>同样受限</b>：无障碍截图在受保护的应用和私密相册中同样无法获取画面内容。\n• <b>未处于目标应用界面</b>：如果当前在桌面、通知栏等位置，无障碍服务可能捕获不到内容。请先打开目标应用，再触发翻译。\n• <b>解决方法</b>：同上，用第三方查看器打开。也可尝试在系统设置中关闭无障碍服务再重新开启。\n\n<b><u>其他常见原因</u></b>\n• <b>页面确实无可识别文字</b>：纯图片、装饰性文字、艺术字体等 OCR 引擎可能无法识别。\n• <b>框选区域不含文字</b>：检查框选范围是否包含文字区域，尝试扩大框选。\n• <b>OCR 引擎不匹配</b>：在漫画悬浮菜单中切换 OCR 引擎（PP-OCRv5 ↔ ML Kit ↔ manga-ocr），不同引擎对不同字体的识别效果不同。\n• <b>图片质量不佳</b>：模糊、分辨率低或压缩过度的文字难以被识别。\n\n如果以上都无法解决，尝试在「设置 → 关于 → 截图方式」中切换截图方式，不同设备和场景的兼容性可能不同。</string>
-    <string name="err_baidu_text_title">百度翻译（OCR）</string>
-    <string name="err_baidu_text_content">百度翻译（文本）的错误码可在下方链接中找到：\n注意：需使用桌面端UA方可正常浏览，否则会跳转至百度翻译开放平台首页。\nhttps://fanyi-api.baidu.com/doc/21</string>
-    <string name="err_bing_text_title">必应翻译（OCR）</string>
-    <string name="err_bing_text_content">必应翻译不需要配置API Key即可使用，这是因为它是通过模拟浏览器访问网页的行为来实现翻译的，这是非常不规范的方法。也正因为如此，星译无法保证它的稳定性。当您使用必应翻译出现问题时，<b><u>推荐您使用其他翻译API来进行翻译</u></b>，同时也欢迎您在【设置】->【关于】->【意见反馈】中提交反馈，以便在后续版本进行修复。</string>
-    <string name="err_niutrans_text_title">小牛翻译（OCR）</string>
-    <string name="err_niutrans_text_content">小牛翻译的错误码可在下方链接中找到：\n\nhttps://niutrans.com/documents/contents/trans_text#error</string>
-    <string name="err_volc_text_title">火山引擎（OCR）</string>
-    <string name="err_volc_text_content">火山引擎的错误码可在下方链接中找到：\n\nhttps://www.volcengine.com/docs/4640/65067#%E6%8E%A5%E5%8F%A3%E8%AF%B4%E6%98%8E</string>
-    <string name="err_azure_text_title">Azure AI 翻译（OCR）</string>
-    <string name="err_azure_text_content">Azure AI 翻译的错误码可在下方链接中找到：\n\nhttps://learn.microsoft.com/azure/ai-services/translator/reference/v3-0-translate#response-status-codes</string>
-    <string name="err_baidu_pic_title">百度翻译（图片）</string>
-    <string name="err_baidu_pic_content">百度翻译（图片）的错误码可在下方链接中找到：\n注意：需使用桌面端UA方可正常浏览，否则会跳转至百度翻译开放平台首页。\nhttps://fanyi-api.baidu.com/doc/26</string>
-    <string name="err_tencent_text_title">腾讯云（OCR）</string>
-    <string name="err_tencent_text_content">腾讯云（文本）的错误码可在下方链接中找到：\n\nhttps://cloud.tencent.com/document/product/551/15619#6.-.E9.94.99.E8.AF.AF.E7.A0.81</string>
-    <string name="err_tencent_pic_title">腾讯云（图片）</string>
-    <string name="err_tencent_pic_content">腾讯云（图片）的错误码可在下方链接中找到：\n\nhttps://cloud.tencent.com/document/product/551/17232#6.-.E9.94.99.E8.AF.AF.E7.A0.81</string>
+    <string name="faq_q11">录屏模式自动翻译卡死，翻页无变化，手动翻译始终显示同一页的缓存结果？</string>
+    <string name="faq_a11">这是<b><u>录屏服务与系统录屏功能冲突</u></b>导致的截图通道失效。\n\n<b>症状表现：</b>\n• 自动翻译：翻页后始终检测不到页面变化，进度条一直显示"自动检测中"，或 30 秒后弹出超时提示\n• 手动翻译：每次点击翻译都提示"⚡ 缓存"（缓存命中），显示的始终是同一页的翻译结果，翻页后翻译内容不更新\n\n<b>原因：</b>\n系统录屏、投屏、或某些应用的屏幕录制功能会独占 MediaProjection 通道，导致本应用的 VirtualDisplay 无法获取新的屏幕画面。截图拿到的永远是卡死前最后一帧画面，所以 pHash 检测不到变化，翻译结果也始终不变。\n\n<b>解决方法：</b>\n• <b>关闭系统录屏</b>：下拉通知栏，关闭系统自带的屏幕录制\n• <b>关闭投屏</b>：断开手机投屏/镜像连接\n• <b>检查其他录屏应用</b>：关闭游戏助手、直播助手等可能占用录屏通道的应用\n• <b>重启翻译服务</b>：关闭所有可能的录屏后，重新开启漫画翻译\n• <b>切换到无障碍截图模式</b>：在「设置 → 关于 → 截图方式」中切换为无障碍服务，不受录屏冲突影响\n\n该问题在所有使用 MediaProjection 的应用中都存在，不是本应用独有的 bug。</string>
     <string name="github_repo_title">GitHub仓库</string>
     <string name="github_repo_content">本项目使用LGPL-3.0协议开源，您可以随时访问GitHub仓库，欢迎给项目点一个"Star🌟"。</string>
     <string name="have_look">去看看</string>
@@ -428,8 +413,6 @@
     <string name="manage_deepl_api">管理DeepL 翻译API</string>
     <string name="deepl_hint_host">请填入Host；免费版：api-free.deepl.com；付费版：api.deepl.com</string>
     <string name="deepl_hint_apikey">API Key</string>
-    <string name="err_deepl_text_title">DeepL 翻译（OCR）</string>
-    <string name="err_deepl_text_content">DeepL 翻译的错误码可在下方链接中找到：\n\nhttps://developers.deepl.com/docs/best-practices/error-handling</string>
     <string name="no_text_found">未检测到文字</string>
     <string name="no_text_found_protected">连续多次未检测到文字，可能处于受保护区域（如相册/支付页面），截图内容被系统屏蔽。请切换到其他应用后重试，详情见常见问题</string>
     <string name="manga_translate_title">漫画翻译</string>

@@ -182,6 +182,7 @@ class MangaFloatingService : LifecycleService() {
     private enum class DetectState { IDLE, MOTION, STABLE }
     private var detectState = DetectState.IDLE
     private var lastTranslatedHash = 0L        // 上次翻译页的哈希（IDLE 判断是否需翻译）
+    private var lastTranslatedTime = 0L       // 上次翻译时间戳（40s 超时省电检测）
     private var previousScreenshotHash = 0L    // 上一次截图的哈希（MOTION 判断页面是否稳定）
     private var stableCount = 0
     private var motionStartTime = 0L
@@ -1463,6 +1464,7 @@ class MangaFloatingService : LifecycleService() {
         consecutiveEmptyCount = 0
         previousScreenshotHash = 0L
         lastTranslatedHash = 0L
+        lastTranslatedTime = 0L
         translatedRegions.clear()
         scheduleNextDetection(0L)
         LogCollector.d(TAG, "Auto-translate started")
@@ -1779,14 +1781,13 @@ class MangaFloatingService : LifecycleService() {
                 ballWasShowing = ::floatingBallView.isInitialized &&
                     isViewAdded(floatingBallView) &&
                     floatingBallView.visibility == View.VISIBLE
-                if (ballWasShowing) {
-                    floatingBallView.visibility = View.GONE
-                    LogCollector.d(TAG, "takeScreenshotWithProvider: 手动模式隐藏悬浮球")
-                }
             }
             // 异步截图：先获取全屏，再由服务层裁剪（保留全屏 bitmap 供缓存使用）
             lifecycleScope.launch {
-                if (ballWasShowing) delay(50)
+                if (!isAutoTranslating && ballWasShowing) {
+                    floatingBallView.visibility = View.GONE
+                    LogCollector.d(TAG, "takeScreenshotWithProvider: 手动模式隐藏悬浮球")
+                }
                 LogCollector.d(TAG, "Taking MediaProjection screenshot")
                 try {
                     val fullBitmap = provider.takeScreenshot(null, offset)
@@ -1927,6 +1928,27 @@ class MangaFloatingService : LifecycleService() {
 
                     // 自动翻译模式：pHash 门控（手动翻译时跳过）
                     if (isAutoTranslating && !isManualTranslating) {
+                        // 40s 超时省电检测：同一页面超过 40s 未变化，自动停止翻译
+                        if (lastTranslatedTime > 0 && System.currentTimeMillis() - lastTranslatedTime > 40_000) {
+                            LogCollector.d(TAG, "Screenshot collector: 40s 超时，页面未变化，停止自动翻译")
+                            ocrBitmap.recycle()
+                            pendingFullBitmap?.recycle()
+                            pendingFullBitmap = null
+                            if (data.croppedBitmap != null) data.fullBitmap.recycle()
+                            isProcessing = false
+                            stopAutoTranslate()
+                            AlertDialog.Builder(this@MangaFloatingService)
+                                .setTitle("自动翻译超时")
+                                .setMessage("页面超过 40 秒未变化，已自动停止翻译服务以节省电量。")
+                                .setCancelable(false)
+                                .setPositiveButton("确定", null)
+                                .create()
+                                .apply {
+                                    window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+                                    show()
+                                }
+                            return@collect
+                        }
                         // 用全屏截图计算稳定的 pHash（不受框选偏移影响）
                         val pHash = PerceptualHash.compute(data.fullBitmap, centerCrop = true)
                         // 256-bit 扩展哈希（用于缓存精确匹配）
@@ -1944,7 +1966,9 @@ class MangaFloatingService : LifecycleService() {
                         }
                         // pHash 通过门控 → 确认翻译，重截干净图（无悬浮球、无进度条）
                         if (screenshotProvider is MediaProjectionProvider) {
-                            // MP 同步重截：关进度条 → 隐藏球 → delay → 截图 → 恢复球 → 显示进度条
+                            val mpProvider = screenshotProvider as MediaProjectionProvider
+                            val offset = cropView.absolutePointOffset
+
                             dismissProgressOverlay()
                             val ballWasShowing = ::floatingBallView.isInitialized &&
                                 isViewAdded(floatingBallView) &&
@@ -1953,60 +1977,27 @@ class MangaFloatingService : LifecycleService() {
                                 floatingBallView.visibility = View.GONE
                                 LogCollector.d(TAG, "Auto STABLE: 隐藏悬浮球准备重截干净图")
                             }
+                            // 等 VD 产新帧（无球的画面），50ms 通常足够 SurfaceFlinger 刷新
                             delay(50)
-                            // 记录重截前后的 frameSeq，判断 VirtualDisplay 是否还在产帧
-                            val mpProvider = screenshotProvider as MediaProjectionProvider
-                            val seqBefore = mpProvider.frameSeq
-                            val offset = cropView.absolutePointOffset
+
+                            // 截图拿干净图
                             val cleanFull = mpProvider.takeScreenshot(null, offset)
-                            val seqAfter = mpProvider.frameSeq
-                            if (ballWasShowing) {
-                                floatingBallView.visibility = View.VISIBLE
-                                LogCollector.d(TAG, "Auto STABLE: 恢复悬浮球")
-                            }
-                            if (seqBefore == seqAfter) {
-                                // frameSeq 未变化 → VirtualDisplay 已停止产帧（系统录屏冲突等）
-                                // 整个截图服务不可用，手动翻译也无法工作，必须停止整个 Service
-                                LogCollector.e(TAG, "Auto STABLE: VirtualDisplay 已死！frameSeq 卡在 $seqBefore，停止服务")
-                                ocrBitmap.recycle()
-                                pendingFullBitmap?.recycle()
-                                pendingFullBitmap = null
-                                if (data.croppedBitmap != null) data.fullBitmap.recycle()
-                                dismissProgressOverlay()
-                                isProcessing = false
-                                // 用 AlertDialog 显示详细错误，用户确认后停止服务
-                                val errorMsg = "MediaProjection 截图服务异常\n\n" +
-                                    "VirtualDisplay 已停止响应（frameSeq 卡在 $seqBefore），" +
-                                    "翻译功能无法继续使用。\n\n" +
-                                    "可能原因：系统录屏或其他应用占用了 MediaProjection 截图通道。\n\n" +
-                                    "请关闭系统录屏后，重新开启漫画翻译。"
-                                AlertDialog.Builder(this@MangaFloatingService)
-                                    .setTitle("截图服务异常")
-                                    .setMessage(errorMsg)
-                                    .setCancelable(false)
-                                    .setPositiveButton("确定") { _, _ -> stopSelf() }
-                                    .create()
-                                    .apply {
-                                        window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-                                        show()
-                                    }
-                            } else if (cleanFull != null) {
+                            if (ballWasShowing) floatingBallView.visibility = View.VISIBLE
+
+                            if (cleanFull != null) {
                                 showProgressOverlay(getString(R.string.manga_translating))
-                                // 释放旧的带球截图，替换为干净图
                                 ocrBitmap.recycle()
                                 if (data.croppedBitmap != null) data.fullBitmap.recycle()
                                 pendingFullBitmap = cleanFull
-                                // 裁剪 OCR 用图
                                 val rect = cropRect
                                 val cleanOcr = if (rect != null) {
                                     ScreenshotManager.cropBitmap(cleanFull, rect, offset)
                                 } else cleanFull
-                                // 计算干净图的 256-bit hash（用于缓存），状态机仍用检测 hash（有球）
                                 val cleanExtHashes = PerceptualHash.computeExtended(cleanFull, centerCrop = true)
                                 processMangaScreenshot(cleanOcr, pHash, cleanExtHashes)
                             } else {
-                                // cleanFull 为 null（shot 返回 null 的极端情况）
                                 LogCollector.w(TAG, "Auto STABLE: 干净截图返回 null，降级到检测截图")
+                                if (ballWasShowing) floatingBallView.visibility = View.VISIBLE
                                 showProgressOverlay(getString(R.string.manga_translating))
                                 processMangaScreenshot(ocrBitmap, pHash, extHashes)
                             }
@@ -2492,6 +2483,7 @@ class MangaFloatingService : LifecycleService() {
         }
         statusOverlay.showImmediate("翻译完成")
         lastTranslatedHash = currentPHash
+        lastTranslatedTime = System.currentTimeMillis()
         if (isAutoTranslating) scheduleNextDetection(DETECT_INTERVAL_MS)
     }
 
@@ -2524,6 +2516,7 @@ class MangaFloatingService : LifecycleService() {
                 statusOverlay.showImmediate("未检测到文字")
                 showToast("未检测到文字", false)
                 lastTranslatedHash = currentPHash
+        lastTranslatedTime = System.currentTimeMillis()
                 if (isAutoTranslating) {
                     scheduleNextDetection(DETECT_INTERVAL_MS)
                 }
@@ -2676,6 +2669,7 @@ class MangaFloatingService : LifecycleService() {
                     lastCachedPHash = currentPHash
                     statusOverlay.showImmediate("缓存命中")
                     lastTranslatedHash = currentPHash
+        lastTranslatedTime = System.currentTimeMillis()
                     withContext(Dispatchers.Main) {
                         showResultOverlay(cached.resultBitmap, fromCache = true)
                     }
@@ -2841,6 +2835,7 @@ class MangaFloatingService : LifecycleService() {
 
             // 更新区域缓存和 pHash
             lastTranslatedHash = currentPHash
+        lastTranslatedTime = System.currentTimeMillis()
             if (isAutoTranslating) {
                 // 翻译完成后用短间隔快速重新检测，响应翻页
                 scheduleNextDetection(DETECT_INTERVAL_MS)
@@ -2856,6 +2851,7 @@ class MangaFloatingService : LifecycleService() {
             // 自动翻译模式：确保 lastTranslatedHash 被更新，避免异常后状态机卡住
             if (isAutoTranslating && currentPHash != 0L) {
                 lastTranslatedHash = currentPHash
+        lastTranslatedTime = System.currentTimeMillis()
             }
             LogCollector.d(TAG, "processMangaScreenshot: FINALLY - dismissing progress, isProcessing=false")
             isProcessing = false
@@ -3345,6 +3341,7 @@ class MangaFloatingService : LifecycleService() {
                 dismissCacheOverlay()
                 forceRefresh = true
                 lastTranslatedHash = 0L
+        lastTranslatedTime = 0L
                 triggerTranslation()
             }
         }
