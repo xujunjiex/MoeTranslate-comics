@@ -1832,6 +1832,8 @@ class MangaFloatingService : LifecycleService() {
                 if (!isAutoTranslating && ballWasShowing) {
                     floatingBallView.visibility = View.GONE
                     LogCollector.d(TAG, "takeScreenshotWithProvider: 手动模式隐藏悬浮球")
+                    // 等至少一个 VSYNC 周期，确保 VD 产出无球的新帧
+                    delay(50)
                 }
                 LogCollector.d(TAG, "Taking MediaProjection screenshot")
                 try {
