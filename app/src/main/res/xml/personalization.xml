@@ -25,9 +25,16 @@
         app:iconSpaceReserved="false">
 
         <com.moe.moetranslator.me.PreferenceWithPreview
-            android:key="floating_ball_pic"
+            android:key="Icon_Game"
             app:iconSpaceReserved="false"
-            android:title="@string/floating_ball_pic_title" />
+            app:prefKey="Icon_Game"
+            android:title="@string/floating_ball_game_icon_title" />
+
+        <com.moe.moetranslator.me.PreferenceWithPreview
+            android:key="Icon_Comic"
+            app:iconSpaceReserved="false"
+            app:prefKey="Icon_Comic"
+            android:title="@string/floating_ball_comic_icon_title" />
 
         <Preference
             android:key="floating_ball_press"

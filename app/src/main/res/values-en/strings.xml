@@ -209,6 +209,8 @@
     <string name="floating_ball_pic_title">Floating Ball Icon</string>
     <string name="floating_ball_press_title">Long press determine time</string>
     <string name="floating_ball_press_summary">Current judgment time：%s ms\nPress and hold the floating ball, and the judgment time of the menu will pop up, in milliseconds</string>
+    <string name="floating_ball_game_icon_title">Game floating ball icon</string>
+    <string name="floating_ball_comic_icon_title">Comic floating ball icon</string>
     <string name="ball_setting">Floating ball icon</string>
     <string name="ball_icon_default">Restore default</string>
     <string name="pic_choose">Select picture（png/jpg）</string>

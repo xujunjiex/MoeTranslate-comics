@@ -1,20 +1,3 @@
-/*
- * Copyright (C) 2024 murangogo
- *
- * This library is free software; you can redistribute it and/or modify it under
- * the terms of the GNU Lesser General Public License as published by the Free
- * Software Foundation; either version 3 of the License, or (at your option)
- * any later version.
- *
- * This library is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License along
- * with this library; if not, write to the Free Software Foundation, Inc.,
- * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
- */
-
 package com.moe.moetranslator.me
 
 import android.content.Context
@@ -31,10 +14,26 @@ import java.io.File
 class PreferenceWithPreview : Preference {
     private var previewImageView: ImageView? = null
     private lateinit var prefs: CustomPreference
+    var prefKey: String = "Custom_Floating_Pic"
+        private set
 
     constructor(context: Context) : super(context)
-    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs)
-    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) : super(context, attrs, defStyleAttr)
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
+        attrs?.let { readAttrs(context, it) }
+    }
+    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) : super(context, attrs, defStyleAttr) {
+        attrs?.let { readAttrs(context, it) }
+    }
+
+    private fun readAttrs(context: Context, attrs: AttributeSet) {
+        val a = context.obtainStyledAttributes(attrs, R.styleable.PreferenceWithPreview)
+        try {
+            val key = a.getString(R.styleable.PreferenceWithPreview_prefKey)
+            if (!key.isNullOrEmpty()) prefKey = key
+        } finally {
+            a.recycle()
+        }
+    }
 
     init {
         layoutResource = R.layout.item_preference_with_preview
@@ -47,39 +46,43 @@ class PreferenceWithPreview : Preference {
         updatePreviewImage()
     }
 
-    // 添加public方法用于更新预览图
     fun refreshPreview() {
         updatePreviewImage()
     }
 
+    /**
+     * 默认图按 prefKey 决定。Game → icon_game_default；Comic → icon_comic_default；其它 →
+     * 历史默认 floating_ball_icon。
+     */
+    private fun defaultDrawableRes(): Int = when (prefKey) {
+        "Icon_Game" -> R.mipmap.icon_game_default
+        "Icon_Comic" -> R.mipmap.icon_comic_default
+        else -> R.drawable.floating_ball_icon
+    }
+
     private fun updatePreviewImage() {
         previewImageView?.let { imageView ->
-            // 读取SharedPreferences中的自定义图片名称
-            val customPicName = prefs.getString("Custom_Floating_Pic", "")
+            val customPicName = prefs.getString(prefKey, "")
+            val fallback = defaultDrawableRes()
 
             if (customPicName.isEmpty()) {
-                // 如果没有自定义图片，加载默认图片
                 Glide.with(context)
-                    .load(R.drawable.floating_ball_icon)
+                    .load(fallback)
                     .transform(CircleCrop())
                     .override(100, 100)
                     .into(imageView)
             } else {
-                // 构建自定义图片文件路径
                 val iconFile = File(context.getExternalFilesDir(null), "icon/$customPicName")
-
                 if (iconFile.exists()) {
-                    // 如果文件存在，加载自定义图片
                     Glide.with(context)
                         .load(iconFile)
                         .transform(CircleCrop())
                         .override(100, 100)
-                        .error(R.drawable.floating_ball_icon) // 加载失败时显示默认图片
+                        .error(fallback)
                         .into(imageView)
                 } else {
-                    // 如果文件不存在，加载默认图片
                     Glide.with(context)
-                        .load(R.drawable.floating_ball_icon)
+                        .load(fallback)
                         .transform(CircleCrop())
                         .override(100, 100)
                         .into(imageView)

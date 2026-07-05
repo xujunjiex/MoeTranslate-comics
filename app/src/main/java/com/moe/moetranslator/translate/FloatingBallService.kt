@@ -305,6 +305,23 @@ class FloatingBallService : LifecycleService() {
         return prefs.getInt("Game_Pixel_Check_Interval", 300).toLong().coerceAtLeast(300L)
     }
 
+    // 重新加载悬浮球图标（从 Icon_Game 偏好读取，失败回退到默认 mipmap）
+    private fun reloadFloatingBallIcon() {
+        val iconView = floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
+        val iconName = prefs.getString("Icon_Game", "game-1.进入游戏-启动游戏界面.png")
+        if (iconName.isEmpty()) {
+            iconView.setImageResource(R.mipmap.icon_game_default)
+        } else {
+            val iconFile = File(getExternalFilesDir(null), "icon/$iconName")
+            if (iconFile.exists()) {
+                val bitmap = BitmapFactory.decodeFile(iconFile.absolutePath)
+                iconView.setImageBitmap(bitmap)
+            } else {
+                iconView.setImageResource(R.mipmap.icon_game_default)
+            }
+        }
+    }
+
     /**
      * 获取屏幕真实物理像素尺寸（横屏/竖屏都正确，包含系统栏区域）
      * currentWindowMetrics.bounds 返回的是窗口内容区域（减去系统栏），不是真实屏幕尺寸
@@ -355,6 +372,9 @@ class FloatingBallService : LifecycleService() {
     // SharedPreferences listener（防止被 GC 回收）
     private var prefChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
+    // 悬浮球图标变更广播接收器（防止被 GC 回收，跨 onCreate/onDestroy 复用同一实例）
+    private var iconChangeReceiver: android.content.BroadcastReceiver? = null
+
     private fun isGameDebugEnabled(): Boolean =
         prefs.getBoolean("Game_Translate_Debug_View", false)
 
@@ -398,6 +418,17 @@ class FloatingBallService : LifecycleService() {
         super.onCreate()
         LogCollector.d(TAG, "FloatingBallService onCreate")
         prefs = CustomPreference.getInstance(this)
+
+        // 注册悬浮球图标变更广播（Personalization 设置页改图标时实时刷新）
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                val key = intent?.getStringExtra("extra_icon_key") ?: return
+                if (key == "Icon_Game") reloadFloatingBallIcon()
+            }
+        }
+        iconChangeReceiver = receiver
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+            .registerReceiver(receiver, android.content.IntentFilter("action_floating_ball_icon_changed"))
         statusOverlay = TranslationStatusOverlay(this)
         // 读取手势动作配置
         singleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Single_Click", "0").toIntOrNull() ?: 0)
@@ -647,24 +678,27 @@ class FloatingBallService : LifecycleService() {
         cropView = CropView(this)
 
         // 设置悬浮球图标
-        val customPicName = prefs.getString("Custom_Floating_Pic", "")
-        if (customPicName.isNotEmpty()) {
+        // 一次性迁移：旧 Custom_Floating_Pic 首次遇到时复制到 Icon_Game
+        if (!prefs.contains("Icon_Game")) {
+            val legacy = prefs.getString("Custom_Floating_Pic", "")
+            if (legacy.isNotEmpty()) prefs.setString("Icon_Game", legacy)
+        }
+
+        val iconName = prefs.getString("Icon_Game", "game-1.进入游戏-启动游戏界面.png")
+        val iconView = floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
+        if (iconName.isEmpty()) {
+            iconView.setImageResource(R.mipmap.icon_game_default)
+        } else {
+            val iconFile = File(getExternalFilesDir(null), "icon/$iconName")
             try {
-                val iconFile = File(getExternalFilesDir(null), "icon/$customPicName")
                 if (iconFile.exists()) {
-                    // 使用BitmapFactory加载图片
                     val bitmap = BitmapFactory.decodeFile(iconFile.absolutePath)
-                    floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
-                        .setImageBitmap(bitmap)
+                    iconView.setImageBitmap(bitmap)
                 } else {
-                    // 文件不存在时显示默认图片
-                    floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
-                        .setImageResource(R.drawable.floating_ball_icon)
+                    iconView.setImageResource(R.mipmap.icon_game_default)
                 }
             } catch (e: Exception) {
-                // 发生错误时显示默认图片
-                floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
-                    .setImageResource(R.drawable.floating_ball_icon)
+                iconView.setImageResource(R.mipmap.icon_game_default)
             }
         }
 
@@ -1760,6 +1794,11 @@ class FloatingBallService : LifecycleService() {
     override fun onDestroy() {
         LogCollector.d(TAG, "FloatingBallService onDestroy")
         super.onDestroy()
+        // 注销悬浮球图标变更广播
+        iconChangeReceiver?.let {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(it)
+        }
+        iconChangeReceiver = null
         // 释放截图提供者
         screenshotProvider?.release()
         stopForegroundForScreenshot()

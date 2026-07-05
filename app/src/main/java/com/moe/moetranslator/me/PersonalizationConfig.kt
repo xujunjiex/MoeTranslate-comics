@@ -19,6 +19,7 @@ package com.moe.moetranslator.me
 
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -26,6 +27,7 @@ import android.view.LayoutInflater
 import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
@@ -54,13 +56,20 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         private const val SCREENSHOT_METHOD_KEY = "Screenshot_Method"
         private const val SCREENSHOT_METHOD_MEDIAPROJECTION = 0
         private const val SCREENSHOT_METHOD_ACCESSIBILITY = 1
+
+        object BroadcastAction {
+            const val ACTION_FLOATING_BALL_ICON_CHANGED = "action_floating_ball_icon_changed"
+            const val EXTRA_ICON_KEY = "extra_icon_key"
+        }
     }
 
     private lateinit var prefs: CustomPreference
     private val pickFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { handleFileSelection(it) }
     }
-    private lateinit var ballIcon: PreferenceWithPreview
+    private lateinit var ballIconGame: PreferenceWithPreview
+    private lateinit var ballIconComic: PreferenceWithPreview
+    private var pendingIconKey: String? = null
     private lateinit var ballPress: Preference
     private lateinit var resultFont: Preference
     private lateinit var resultFontSize: Preference
@@ -80,7 +89,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         prefs = CustomPreference.getInstance(requireContext())
         setPreferencesFromResource(R.xml.personalization, rootKey)
 
-        ballIcon = findPreference<PreferenceWithPreview>("floating_ball_pic")!!
+        ballIconGame = findPreference<PreferenceWithPreview>("Icon_Game")!!
+        ballIconComic = findPreference<PreferenceWithPreview>("Icon_Comic")!!
         ballPress = findPreference<Preference>("floating_ball_press")!!
         resultFont = findPreference<Preference>("result_font")!!
         resultFontSize = findPreference<Preference>("result_font_size")!!
@@ -91,8 +101,12 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         languagePreference = findPreference<ListPreference>("app_language")!!
 
         // 悬浮球图片
-        ballIcon.setOnPreferenceClickListener {
-            showBallOptionsDialog()
+        ballIconGame.setOnPreferenceClickListener {
+            showBallOptionsDialog("Icon_Game")
+            true
+        }
+        ballIconComic.setOnPreferenceClickListener {
+            showBallOptionsDialog("Icon_Comic")
             true
         }
 
@@ -247,8 +261,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        ballIcon.refreshPreview()
-        updateIconSummary()
+        ballIconGame.refreshPreview()
+        ballIconComic.refreshPreview()
         updatePressSummary()
         updateFontSummary()
         updateFontSizeSummary()
@@ -313,12 +327,9 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
-    private fun updateIconSummary(){
-        if (prefs.getString("Custom_Floating_Pic", "") == "") {
-            ballIcon.summary = getString(R.string.floating_ball_pic_summary, getString(R.string.default_name))
-        } else {
-            ballIcon.summary = getString(R.string.floating_ball_pic_summary, prefs.getString("Custom_Floating_Pic", ""))
-        }
+    private fun refreshIconPreviews() {
+        ballIconGame.refreshPreview()
+        ballIconComic.refreshPreview()
     }
 
     private fun updatePressSummary() {
@@ -382,14 +393,14 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     }
 
 
-    private fun showBallOptionsDialog(){
+    private fun showBallOptionsDialog(prefKey: String){
         val options = arrayOf(getString(R.string.ball_icon_default), getString(R.string.pic_choose))
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle(R.string.ball_setting)
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> handleDefaultIcon()
-                    1 -> pickPicFile()
+                    0 -> handleDefaultIcon(prefKey)
+                    1 -> pickPicFile(prefKey)
                 }
             }
             .create()
@@ -461,24 +472,21 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
-    private fun handleDefaultIcon() {
-        // 清除自定义图片设置
-        prefs.setString("Custom_Floating_Pic", "")
-
-        // 删除存在的图片文件，节省空间
-        File(requireContext().getExternalFilesDir(null), "icon").apply {
-            if (!exists()) {
-                mkdirs()
-            } else {
-                // 删除目录中的所有文件
-                listFiles()?.forEach { file ->
-                    file.delete()
-                }
-            }
+    private fun handleDefaultIcon(prefKey: String) {
+        // 1. 拿到旧文件名（如果有）
+        val oldName = prefs.getString(prefKey, "")
+        // 2. 清除 SharedPreferences 中的值
+        prefs.setString(prefKey, "")
+        // 3. 只删除旧文件，不动整个目录（避免误删另一模式的图）
+        if (oldName.isNotEmpty()) {
+            val oldFile = File(requireContext().getExternalFilesDir(null), "icon/$oldName")
+            if (oldFile.exists()) oldFile.delete()
         }
-        // 更新summary
-        ballIcon.refreshPreview()
-        updateIconSummary()
+        // 4. 通知活跃 Service 重读默认值
+        LocalBroadcastManager.getInstance(requireContext())
+            .sendBroadcast(Intent(BroadcastAction.ACTION_FLOATING_BALL_ICON_CHANGED).putExtra(BroadcastAction.EXTRA_ICON_KEY, prefKey))
+        // 5. 更新两个预览（防止另一模式也持有相同摘要）
+        refreshIconPreviews()
     }
 
     private fun handleSystemFont() {
@@ -500,7 +508,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         updateFontSummary()
     }
 
-    private fun pickPicFile() {
+    private fun pickPicFile(prefKey: String) {
+        pendingIconKey = prefKey
         pickFileLauncher.launch("image/*")
     }
 
@@ -510,6 +519,10 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
     private fun handleFileSelection(uri: Uri) {
         try {
+            // Snapshot and clear pendingIconKey up front so it doesn't leak across paths.
+            val iconKey = pendingIconKey ?: ""
+            pendingIconKey = null
+
             // 获取原始文件名
             val originalFileName = requireContext().contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -522,7 +535,7 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
             when (fileExtension) {
                 "ttf" -> handleFontFile(uri, originalFileName)
-                else -> handleImageFile(uri, originalFileName)
+                else -> handleImageFile(uri, originalFileName, iconKey)
             }
         } catch (e: Exception) {
             // 通用错误处理
@@ -551,25 +564,32 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         UiUtils.showToast(requireContext(), getString(R.string.set_success), isShort = true)
     }
 
-    private fun handleImageFile(uri: Uri, originalFileName: String) {
-        // 创建icon目录
-        val iconDir = File(requireContext().getExternalFilesDir(null), "icon").apply {
-            if (!exists()) {
-                mkdirs()
-            } else {
-                // 删除目录中的所有文件
-                listFiles()?.forEach { it.delete() }
-            }
+    private fun handleImageFile(uri: Uri, originalFileName: String, prefKey: String = "") {
+        val effectiveKey = if (prefKey.isNotEmpty()) prefKey else "Custom_Floating_Pic"
+
+        // 1. 删除被替换的旧文件
+        val oldName = prefs.getString(effectiveKey, "")
+        if (oldName.isNotEmpty() && oldName != originalFileName) {
+            val oldFile = File(requireContext().getExternalFilesDir(null), "icon/$oldName")
+            if (oldFile.exists()) oldFile.delete()
         }
 
-        // 复制文件
+        // 2. 写入新文件
+        val iconDir = File(requireContext().getExternalFilesDir(null), "icon").apply {
+            if (!exists()) mkdirs()
+        }
         val destinationFile = File(iconDir, originalFileName)
         copyFile(uri, destinationFile)
 
-        // 通知PreferenceWithPreview更新预览
-        prefs.setString("Custom_Floating_Pic", originalFileName)
-        ballIcon.refreshPreview()
-        updateIconSummary()
+        // 3. 保存到对应的 key
+        prefs.setString(effectiveKey, originalFileName)
+
+        // 4. 通知活跃 Service
+        LocalBroadcastManager.getInstance(requireContext())
+            .sendBroadcast(Intent(BroadcastAction.ACTION_FLOATING_BALL_ICON_CHANGED).putExtra(BroadcastAction.EXTRA_ICON_KEY, effectiveKey))
+
+        // 5. 刷新预览
+        refreshIconPreviews()
         UiUtils.showToast(requireContext(), getString(R.string.set_success), isShort = true)
     }
 

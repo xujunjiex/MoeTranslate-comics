@@ -160,6 +160,9 @@ class MangaFloatingService : LifecycleService() {
     // SharedPreferences listener（防止被 GC 回收）
     private var prefChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
+    // 悬浮球图标变更广播接收器（防止被 GC 回收，跨 onCreate/onDestroy 复用同一实例）
+    private var iconChangeReceiver: android.content.BroadcastReceiver? = null
+
     // Long press detection
     private val handler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { handleLongPress() }
@@ -251,6 +254,18 @@ class MangaFloatingService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         prefs = CustomPreference.getInstance(this)
+
+        // 注册悬浮球图标变更广播（Personalization 设置页改图标时实时刷新）
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                val key = intent?.getStringExtra("extra_icon_key") ?: return
+                if (key == "Icon_Comic") reloadFloatingBallIcon()
+            }
+        }
+        iconChangeReceiver = receiver
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+            .registerReceiver(receiver, android.content.IntentFilter("action_floating_ball_icon_changed"))
+
         statusOverlay = TranslationStatusOverlay(this)
         cacheManager = TranslationCacheManager(this)
         // 读取手势动作配置
@@ -348,6 +363,11 @@ class MangaFloatingService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 注销悬浮球图标变更广播
+        iconChangeReceiver?.let {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(it)
+        }
+        iconChangeReceiver = null
         // 释放截图提供者
         screenshotProvider?.release()
         stopForegroundForScreenshot()
@@ -407,6 +427,23 @@ class MangaFloatingService : LifecycleService() {
         config = loadConfig()
         translatorText?.release()
         initTranslator()
+    }
+
+    // 重新加载悬浮球图标（从 Icon_Comic 偏好读取，失败回退到默认 mipmap）
+    private fun reloadFloatingBallIcon() {
+        val iconView = floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
+        val iconName = prefs.getString("Icon_Comic", "comic-1.准备识别-打开漫画页面.png")
+        if (iconName.isEmpty()) {
+            iconView.setImageResource(R.mipmap.icon_comic_default)
+        } else {
+            val iconFile = java.io.File(getExternalFilesDir(null), "icon/$iconName")
+            if (iconFile.exists()) {
+                val bitmap = android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
+                iconView.setImageBitmap(bitmap)
+            } else {
+                iconView.setImageResource(R.mipmap.icon_comic_default)
+            }
+        }
     }
 
     private fun initTranslator() {
@@ -714,17 +751,28 @@ class MangaFloatingService : LifecycleService() {
         windowManager.addView(floatingBallView, floatingBallParams)
 
         // 加载自定义悬浮球图标
-        val customPicName = prefs.getString("Custom_Floating_Pic", "")
-        if (customPicName.isNotEmpty()) {
+        // 一次性迁移：旧 Custom_Floating_Pic 首次遇到时复制到 Icon_Comic
+        if (!prefs.contains("Icon_Comic")) {
+            val legacy = prefs.getString("Custom_Floating_Pic", "")
+            if (legacy.isNotEmpty()) prefs.setString("Icon_Comic", legacy)
+        }
+
+        val iconName = prefs.getString("Icon_Comic", "comic-1.准备识别-打开漫画页面.png")
+        val iconView = floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
+        if (iconName.isEmpty()) {
+            iconView.setImageResource(R.mipmap.icon_comic_default)
+        } else {
+            val iconFile = java.io.File(getExternalFilesDir(null), "icon/$iconName")
             try {
-                val iconFile = java.io.File(getExternalFilesDir(null), "icon/$customPicName")
                 if (iconFile.exists()) {
                     val bitmap = android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
-                    floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
-                        .setImageBitmap(bitmap)
+                    iconView.setImageBitmap(bitmap)
+                } else {
+                    iconView.setImageResource(R.mipmap.icon_comic_default)
                 }
             } catch (e: Exception) {
                 LogCollector.w(TAG, "Failed to load custom icon", e)
+                iconView.setImageResource(R.mipmap.icon_comic_default)
             }
         }
 
