@@ -154,6 +154,9 @@ class FloatingBallService : LifecycleService() {
     private val handler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { handleLongPress() }
 
+    // 悬浮球状态机
+    private var ballStateManager: BallStateManager? = null
+
     // 当前手势类型
     private var currentGesture: GestureType? = null
 
@@ -305,23 +308,6 @@ class FloatingBallService : LifecycleService() {
         return prefs.getInt("Game_Pixel_Check_Interval", 300).toLong().coerceAtLeast(300L)
     }
 
-    // 重新加载悬浮球图标（从 Icon_Game 偏好读取，失败回退到默认 mipmap）
-    private fun reloadFloatingBallIcon() {
-        val iconView = floatingBallView.findViewById<ImageView>(R.id.floating_ball_icon)
-        val iconName = prefs.getString("Icon_Game", "game-1.进入游戏-启动游戏界面.png")
-        if (iconName.isEmpty()) {
-            iconView.setImageResource(R.mipmap.icon_game_default)
-        } else {
-            val iconFile = File(getExternalFilesDir(null), "icon/$iconName")
-            if (iconFile.exists()) {
-                val bitmap = BitmapFactory.decodeFile(iconFile.absolutePath)
-                iconView.setImageBitmap(bitmap)
-            } else {
-                iconView.setImageResource(R.mipmap.icon_game_default)
-            }
-        }
-    }
-
     /**
      * 获取屏幕真实物理像素尺寸（横屏/竖屏都正确，包含系统栏区域）
      * currentWindowMetrics.bounds 返回的是窗口内容区域（减去系统栏），不是真实屏幕尺寸
@@ -423,7 +409,10 @@ class FloatingBallService : LifecycleService() {
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
                 val key = intent?.getStringExtra("extra_icon_key") ?: return
-                if (key == "Icon_Game") reloadFloatingBallIcon()
+                if (key == "Icon_Game") {
+                    // 重读状态机的 Idle 图标路径
+                    ballStateManager?.setState(BallStateManager.State.Idle)
+                }
             }
         }
         iconChangeReceiver = receiver
@@ -707,6 +696,8 @@ class FloatingBallService : LifecycleService() {
 
         // 添加到窗口
         windowManager.addView(floatingBallView, floatingBallParams)
+        ballStateManager = BallStateManager(this, floatingBallView, BallStateManager.Mode.Game)
+        ballStateManager?.setState(BallStateManager.State.Idle)
 
         // 游戏翻译调试浮窗
         if (isGameDebugEnabled()) {
@@ -1283,6 +1274,8 @@ class FloatingBallService : LifecycleService() {
         // 保持悬浮球在最上层
         windowManager.removeView(floatingBallView)
         windowManager.addView(floatingBallView, floatingBallParams)
+        // 重新挂载后，强制刷一次状态显示
+        ballStateManager?.setState(BallStateManager.State.Idle)
         currentBallStatus = BallStatus.Crop
     }
 
@@ -1409,6 +1402,7 @@ class FloatingBallService : LifecycleService() {
                     isTranslating.set(false)
                     updateDebugStatus("【错误】截图处理失败: ${e.message?.take(30)}")
                     statusOverlay.showError("OCR失败：$e")
+                    ballStateManager?.setState(BallStateManager.State.Error)
                 } finally {
                     if (isAutoTranslating) {
                         scheduleNextDetection(getPixelCheckInterval())
@@ -1466,14 +1460,17 @@ class FloatingBallService : LifecycleService() {
                                 // 达到稳定阈值，触发 OCR
                                 updateDebugStatus("【触发OCR】", diffRatio = pixelDecision.diffRatio)
                                 statusOverlay.showImmediate("文字识别中...")
+                                ballStateManager?.setState(BallStateManager.State.Processing)
                                 when (val ocrDecision = engine.ocrAndTranslate(bitmap)) {
                                     is AutoTranslateEngine.Decision.CacheHit -> {
                                         val elapsed = System.currentTimeMillis() - translateStartTime
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         statusOverlay.showImmediate("缓存命中")
+                                        ballStateManager?.setState(BallStateManager.State.Completed)
                                         translationResultView.setText(ocrDecision.cachedText)
                                         translationResultView.showCacheIndicator()
                                         engine.markIdle()
+                                        ballStateManager?.setState(BallStateManager.State.Idle)
                                         updateDebugStatus("【IDLE】等待像素变化")
                                         isTranslating.set(false)
                                     }
@@ -1488,15 +1485,18 @@ class FloatingBallService : LifecycleService() {
                                             val elapsed = System.currentTimeMillis() - translateStartTime
                                             updateDebugStatus("【缓存】database", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                             statusOverlay.showImmediate("缓存命中")
+                                            ballStateManager?.setState(BallStateManager.State.Completed)
                                             translationResultView.setText(dbCache.translatedText)
                                             translationResultView.showCacheIndicator()
                                             lastTranslatedSource = ocrDecision.ocrText
                                             autoTranslateEngine?.onTranslationSuccess(ocrDecision.ocrText, dbCache.translatedText)
                                             autoTranslateEngine?.markIdle()
+                                            ballStateManager?.setState(BallStateManager.State.Idle)
                                             isTranslating.set(false)
                                         } else {
                                             updateDebugStatus("【翻译中】", diffRatio = pixelDecision.diffRatio)
                                             statusOverlay.showImmediate("翻译中...")
+                                            ballStateManager?.setState(BallStateManager.State.Translating)
                                             translateByText(ocrDecision.ocrText)
                                         }
                                     }
@@ -1516,12 +1516,14 @@ class FloatingBallService : LifecycleService() {
                 } else {
                     // 手动翻译模式
                     statusOverlay.showImmediate("检测中...")
+                    ballStateManager?.setState(BallStateManager.State.Processing)
                     updateDebugStatus("【检测中】手动翻译")
                     translateStartTime = System.currentTimeMillis()
                     val txt = ocrEngine.recognize(bitmap)
                     if (txt.isBlank()) {
                         updateDebugStatus("【跳过】OCR 结果为空")
                         statusOverlay.showImmediate("未检测到文字")
+                        ballStateManager?.setState(BallStateManager.State.Completed)
                         isTranslating.set(false)
                         return
                     }
@@ -1536,6 +1538,7 @@ class FloatingBallService : LifecycleService() {
                         val elapsed = System.currentTimeMillis() - translateStartTime
                         updateDebugStatus("【缓存】database", elapsedMs = elapsed)
                         statusOverlay.show("缓存命中")
+                        ballStateManager?.setState(BallStateManager.State.Completed)
                         translationResultView.setText(dbCache.translatedText)
                         translationResultView.showCacheIndicator()
                         lastTranslatedSource = normalizedTxt
@@ -1543,12 +1546,14 @@ class FloatingBallService : LifecycleService() {
                     } else {
                         updateDebugStatus("【翻译中】手动")
                         statusOverlay.show("翻译中...")
+                        ballStateManager?.setState(BallStateManager.State.Translating)
                         translateByText(normalizedTxt)
                     }
                 }
             } else {
                 updateDebugStatus("【翻译中】图片翻译")
                 statusOverlay.show("翻译中...")
+                ballStateManager?.setState(BallStateManager.State.Translating)
                 val bitmapCopy = bitmap.copy(bitmap.config!!, true)
                 translateByPic(bitmapCopy)
             }
@@ -1557,6 +1562,7 @@ class FloatingBallService : LifecycleService() {
             updateDebugStatus("【错误】${e.message?.take(30) ?: "未知"}")
             e.printStackTrace()
             statusOverlay.showError("翻译失败：${e.message ?: "未知错误"}")
+            ballStateManager?.setState(BallStateManager.State.Error)
         } finally {
             bitmap.recycle()
         }
@@ -1602,7 +1608,9 @@ class FloatingBallService : LifecycleService() {
                         // 更新缓存并进入 IDLE
                         autoTranslateEngine?.onTranslationSuccess(str, result.translatedText)
                         autoTranslateEngine?.markIdle()
+                        ballStateManager?.setState(BallStateManager.State.Idle)
                         statusOverlay.showImmediate("翻译完成")
+                        ballStateManager?.setState(BallStateManager.State.Completed)
                         updateDebugStatus("【IDLE】等待像素变化")
 
                         // 保存到历史
@@ -1625,6 +1633,7 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.e(TAG, "文本翻译失败", result.error)
                         updateDebugStatus("【错误】翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
+                        ballStateManager?.setState(BallStateManager.State.Error)
                         translationResultView.setText(getString(R.string.translation_failed, result.error.message))
                         // 报错时停止自动翻译，让用户可以复制错误信息
                         if (isAutoTranslating) {
@@ -1650,6 +1659,7 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.d(TAG, "图片翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】图片翻译", elapsedMs = elapsed)
                         statusOverlay.showImmediate("翻译完成")
+                        ballStateManager?.setState(BallStateManager.State.Completed)
                         translationResultView.setText(result.translatedText)
                         // 自动翻译中自动恢复显示
                         if (isAutoTranslating && !isResultViewShowing) {
@@ -1660,6 +1670,7 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.e(TAG, "图片翻译失败", result.error)
                         updateDebugStatus("【错误】图片翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
+                        ballStateManager?.setState(BallStateManager.State.Error)
                         translationResultView.setText(getString(R.string.translation_failed, result.error.message))
                         // 报错时停止自动翻译，让用户可以复制错误信息
                         if (isAutoTranslating) {
@@ -1716,6 +1727,7 @@ class FloatingBallService : LifecycleService() {
         translateStartTime = System.currentTimeMillis()
         LogCollector.d(TAG, "重新翻译: ${sourceText.take(50)}...")
         statusOverlay.show("重新翻译中...")
+        ballStateManager?.setState(BallStateManager.State.Translating)
         translateByText(sourceText)
     }
 
@@ -1823,6 +1835,10 @@ class FloatingBallService : LifecycleService() {
 
         // 释放状态提示条
         statusOverlay.release()
+
+        // 释放悬浮球状态机
+        ballStateManager?.release()
+        ballStateManager = null
 
         // 清理 handler
         autoTranslateHandler.removeCallbacksAndMessages(null)
