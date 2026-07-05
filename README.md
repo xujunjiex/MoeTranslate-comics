@@ -11,40 +11,34 @@
 
 ---
 
-## 演示
-
-<p align="center">
-  <img src="images/game_demo.gif" width="30%" alt="游戏翻译演示">
-  &nbsp;&nbsp;&nbsp;
-  <img src="images/manga_demo.gif" width="30%" alt="漫画翻译演示">
-  &nbsp;&nbsp;&nbsp;
-  <img src="images/video_demo.gif" width="30%" alt="视频翻译演示">
-</p>
-
 ## 功能
 
 ### 🎮 游戏翻译
 
-悬浮窗覆盖翻译，支持 10+ 翻译 API（DeepL、百度、腾讯、Azure、火山引擎、OpenAI 兼容等），ML Kit / NLLB 本地离线翻译。
+<p align="center">
+  <img src="images/game_demo.gif" width="400" alt="游戏翻译演示"><br>
+  <em>悬浮窗覆盖翻译，自动检测画面变化触发翻译，支持 10+ 翻译 API</em>
+</p>
 
-- **像素驱动自动翻译** — YIQ 感知色彩差异检测画面变化，翻页自动触发
-- **AI 上下文** — 携带历史翻译对提升连贯性（1-10 轮可配）
-- **提示词自定义** — 游戏/漫画提示词独立配置
-- **悬浮球手势** — 单击/双击/长按自由分配动作
+悬浮窗实时覆盖翻译，像素驱动检测画面变化，翻页自动触发。支持 AI 上下文携带历史翻译对提升连贯性，游戏/漫画提示词可独立配置，悬浮球单击/双击/长按自由分配动作。
 
 ### 📖 漫画翻译
 
-气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 3 种 OCR 引擎可自由组合。
+<p align="center">
+  <img src="images/manga_demo.gif" width="200" alt="漫画翻译演示"><br>
+  <em>气泡检测 + OCR + 竖排渲染，自动翻页翻译</em>
+</p>
 
-- **PP-OCRv5 / CTD / RT-DETR-V2 / ML Kit** 检测引擎
-- **PP-OCRv5 / manga-ocr / ML Kit** 识别引擎
-- **增量渲染** — 超 6 个气泡分批处理，首批译完立即显示
-- **自动翻页** — pHash 检测页面变化，停稳 ~1s 自动翻译
-- **翻译缓存** — pHash 相似度匹配，翻过的页面秒开
+气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 3 种 OCR 引擎可自由组合。超 6 个气泡增量渲染分批提速，pHash 检测页面变化自动翻页，翻译缓存相似度匹配翻过的页秒开。
 
 ### 🎬 视频翻译
 
-同游戏翻译引擎，适用于视频字幕、直播弹幕等场景。
+<p align="center">
+  <img src="images/video_demo.gif" width="400" alt="视频翻译演示"><br>
+  <em>适用于视频字幕、直播弹幕等动态场景</em>
+</p>
+
+同游戏翻译引擎，适用于视频字幕、直播弹幕等动态场景，支持像素变化自动触发和手动框选翻译。
 
 ### 📚 翻译历史
 
