@@ -48,7 +48,7 @@
   &nbsp;&nbsp;
   <img src="images/stability_demo.gif" width="200" alt="稳定性检测">
   <br>
-  <em>漫画翻译 &nbsp;|&nbsp; 稳定性检测</em>
+  <em>漫画翻译 &nbsp;|&nbsp; 稳定性检测 &nbsp;|&nbsp; 缓存命中</em>
 </p>
 
 气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 3 种 OCR 引擎可自由组合。超 6 个气泡增量渲染分批提速，pHash 检测页面变化自动翻页，翻译缓存相似度匹配翻过的页秒开。
