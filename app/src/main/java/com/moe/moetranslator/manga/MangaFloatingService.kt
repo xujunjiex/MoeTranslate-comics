@@ -2359,7 +2359,10 @@ class MangaFloatingService : LifecycleService() {
                 emptyList()
             } else {
                 val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
-                withContext(Dispatchers.Main) { showProgressOverlay("翻译进行中，请勿点击屏幕...") }
+                withContext(Dispatchers.Main) {
+                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
+                    ballStateManager?.setState(BallStateManager.State.Translating)
+                }
 
                 val ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     DetectionBridge.recognizeCroppedBubbles(
@@ -2482,7 +2485,10 @@ class MangaFloatingService : LifecycleService() {
                 emptyList()
             } else {
                 val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
-                withContext(Dispatchers.Main) { showProgressOverlay("翻译进行中，请勿点击屏幕...") }
+                withContext(Dispatchers.Main) {
+                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
+                    ballStateManager?.setState(BallStateManager.State.Translating)
+                }
 
                 ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     recognizeBatch(secondBatch)
@@ -2526,9 +2532,8 @@ class MangaFloatingService : LifecycleService() {
         if (allTranslated.isNotEmpty()) {
             renderAndShowMergedOverlay(bitmap, allTranslated, saveCache = false)
             LogCollector.d(TAG, "finalizeIncremental: 最终渲染完成，共 ${allTranslated.size} 个气泡")
-            // BUGFIX (2026-07-06): 所有气泡 OCR 完成、即将送翻译（缓存写入层）→ 切 Translating，
-            // 紧贴 saveTranslationCache 之前，让 Translating 图标至少在 saveTranslationCache IO 期间可见。
-            ballStateManager?.setState(BallStateManager.State.Translating)
+            // Translating 状态已在分批翻译入口处设置（第一批翻译开始时），
+            // 此处不再重复设置，避免图标在翻译完成后才短暂闪过。
             // 统一保存完整缓存
             LogCollector.d(TAG, "finalizeIncremental: 保存完整缓存，共 ${allTranslated.size} 个气泡")
             saveTranslationCache(bitmap, allTranslated)
