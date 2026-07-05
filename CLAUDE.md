@@ -224,6 +224,8 @@ private suspend fun processMangaScreenshot(
 
 PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中，约 22MB。可选 rec 模型（en/ko/ru）需用户从模型管理页面下载。
 
+**注意：** ML Kit OCR 是 Google Play Services 内置识别引擎，无需下载模型。需要下载的是 **ML Kit 翻译**（~100MB），属于本地离线翻译，不是 OCR 模型。
+
 ### PP-OCRv5 模型下载地址（ModelScope）
 
 基础 URL: `https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec/`
