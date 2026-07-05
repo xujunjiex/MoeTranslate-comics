@@ -2526,6 +2526,9 @@ class MangaFloatingService : LifecycleService() {
         if (allTranslated.isNotEmpty()) {
             renderAndShowMergedOverlay(bitmap, allTranslated, saveCache = false)
             LogCollector.d(TAG, "finalizeIncremental: 最终渲染完成，共 ${allTranslated.size} 个气泡")
+            // BUGFIX (2026-07-06): 所有气泡 OCR 完成、即将送翻译（缓存写入层）→ 切 Translating，
+            // 紧贴 saveTranslationCache 之前，让 Translating 图标至少在 saveTranslationCache IO 期间可见。
+            ballStateManager?.setState(BallStateManager.State.Translating)
             // 统一保存完整缓存
             LogCollector.d(TAG, "finalizeIncremental: 保存完整缓存，共 ${allTranslated.size} 个气泡")
             saveTranslationCache(bitmap, allTranslated)
@@ -2541,6 +2544,9 @@ class MangaFloatingService : LifecycleService() {
     private suspend fun processMangaScreenshot(bitmap: Bitmap, precomputedPHash: Long? = null, precomputedExtHashes: LongArray? = null) {
         try {
             LogCollector.d(TAG, "processMangaScreenshot: START")
+            // 整个翻译流程开始（OCR 阶段），立刻标 Processing。
+            // 单页路径会一路保持 Processing 直到 Step 3 调翻译；分批路径同理保持到 finalizeIncremental。
+            ballStateManager?.setState(BallStateManager.State.Processing)
 
             // 清理过期的区域缓存
             if (isAutoTranslating) {
@@ -2741,8 +2747,10 @@ class MangaFloatingService : LifecycleService() {
             }
             var ocrTextBlocks: List<TextBlockInfo> = emptyList()
             try {
-                // 分批渲染：在检测之前尝试分批流程
-                ballStateManager?.setState(BallStateManager.State.Translating)
+                // 分批渲染：在检测之前尝试分批流程。
+                // BUGFIX (2026-07-06): 之前这里设 Translating，但分批翻译入口还在 OCR 阶段（可能包含多批 OCR），
+                // 切到 Translating 让图标闪。现在保持 Processing，由 finalizeIncremental 在所有气泡 OCR 完成后切 Translating。
+                ballStateManager?.setState(BallStateManager.State.Processing)
                 if (incrementalTranslateFlow(bitmap)) {
                     LogCollector.d(TAG, "processMangaScreenshot: 分批渲染完成，跳过原有流程")
                     return
@@ -2878,6 +2886,8 @@ class MangaFloatingService : LifecycleService() {
 
             // Step 3: 翻译（走文本缓存匹配，自动/手动均适用）
             LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Translate ${allBubbles.size} bubbles")
+            // BUGFIX (2026-07-06): 调翻译函数之前立刻切 Translating 图标（之前遗漏，自动模式从 Idle 直接到翻译完成）。
+            ballStateManager?.setState(BallStateManager.State.Translating)
             val newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
             LogCollector.d(TAG, "processMangaScreenshot: Step 3 - done, got ${newTranslatedBubbles.size} results")
 
