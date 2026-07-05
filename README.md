@@ -16,8 +16,8 @@
 ### 🎮 游戏翻译
 
 <p align="center">
-  <img src="images/game_demo.gif" width="400" alt="游戏翻译演示"><br>
-  <em>悬浮窗覆盖翻译，自动检测画面变化触发翻译，支持 10+ 翻译 API</em>
+  <img src="images/game_demo.gif" width="400" alt="游戏翻译"><br>
+  <em>游戏翻译</em>
 </p>
 
 悬浮窗实时覆盖翻译，像素驱动检测画面变化，翻页自动触发。支持 AI 上下文携带历史翻译对提升连贯性，游戏/漫画提示词可独立配置，悬浮球单击/双击/长按自由分配动作。
@@ -25,11 +25,11 @@
 ### 📖 漫画翻译
 
 <p align="center">
-  <img src="images/manga_demo.gif" width="170" alt="漫画翻译流程">
+  <img src="images/manga_demo.gif" width="170" alt="漫画翻译">
   &nbsp;&nbsp;
   <img src="images/stability_demo.gif" width="170" alt="稳定性检测">
   <br>
-  <em>左：气泡检测 + OCR + 竖排渲染 &nbsp;|&nbsp; 右：稳定性检测，页面静止后自动触发翻译</em>
+  <em>漫画翻译 &nbsp;|&nbsp; 稳定性检测</em>
 </p>
 
 气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 3 种 OCR 引擎可自由组合。超 6 个气泡增量渲染分批提速，pHash 检测页面变化自动翻页，翻译缓存相似度匹配翻过的页秒开。
@@ -37,8 +37,8 @@
 ### 🎬 视频翻译
 
 <p align="center">
-  <img src="images/video_demo.gif" width="400" alt="视频翻译演示"><br>
-  <em>适用于视频字幕、直播弹幕等动态场景</em>
+  <img src="images/video_demo.gif" width="400" alt="视频翻译"><br>
+  <em>视频翻译</em>
 </p>
 
 同游戏翻译引擎，适用于视频字幕、直播弹幕等动态场景，支持像素变化自动触发和手动框选翻译。
@@ -50,7 +50,7 @@
   &nbsp;&nbsp;
   <img src="images/history_retranslate.gif" width="260" alt="历史记录重新翻译">
   <br>
-  <em>左：双视图历史记录 &nbsp;|&nbsp; 右：管理视图重新翻译</em>
+  <em>历史记录页面 &nbsp;|&nbsp; 历史记录重新翻译</em>
 </p>
 
 Room 数据库持久化，双视图（时间排序 / 进程分组），全屏翻页浏览原图 + 译文详情，支持管理视图重新翻译和打包下载。
