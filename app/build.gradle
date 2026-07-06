@@ -30,11 +30,11 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.moe.moetranslator"
+        applicationId "com.moe.starflow"
         minSdk 29
         targetSdk 35
-        versionCode 804
-        versionName "0.8.4"
+        versionCode 805
+        versionName "0.8.5"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
