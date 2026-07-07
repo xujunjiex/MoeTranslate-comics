@@ -142,13 +142,13 @@
             android:key="Incremental_Render"
             android:title="@string/incremental_render_title"
             android:summary="@string/incremental_render_summary"
-            android:defaultValue="false"
+            android:defaultValue="true"
             app:iconSpaceReserved="false" />
 
         <SwitchPreference
             android:key="Manga_Keep_Text_Free"
             app:iconSpaceReserved="false"
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:title="@string/manga_keep_text_free_title"
             android:summary="@string/manga_keep_text_free_summary" />
 

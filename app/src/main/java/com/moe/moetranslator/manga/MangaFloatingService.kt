@@ -720,7 +720,7 @@ class MangaFloatingService : LifecycleService() {
             bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
             ocrEngine = OcrEngine.fromValue(prefs.getInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)),
             detEngine = detEngine,
-            keepTextFree = prefs.getBoolean("Manga_Keep_Text_Free", false)
+            keepTextFree = prefs.getBoolean("Manga_Keep_Text_Free", true)
         )
     }
 
@@ -2304,7 +2304,7 @@ class MangaFloatingService : LifecycleService() {
      * @return true 如果执行了分批流程，false 如果不满足条件（应回退到原有流程）
      */
     private suspend fun incrementalTranslateFlow(bitmap: Bitmap): Boolean {
-        val isIncrementalEnabled = prefs.getBoolean("Incremental_Render", false)
+        val isIncrementalEnabled = prefs.getBoolean("Incremental_Render", true)
         if (!isIncrementalEnabled) return false
 
         val isRTDetrMangaOcr = config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr
@@ -3234,7 +3234,7 @@ class MangaFloatingService : LifecycleService() {
         val parts = mutableListOf(apiStr, "$det+$ocr")
 
         // 分批翻译：开关打开 + 支持的组合（RT-DETR+manga-ocr 或 PP-OCRv5 独立）
-        val incrementalEnabled = prefs.getBoolean("Incremental_Render", false)
+        val incrementalEnabled = prefs.getBoolean("Incremental_Render", true)
         val isRTDetrMangaOcr = config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr
         val isPPOcrV5Standalone = config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5
         if (incrementalEnabled && (isRTDetrMangaOcr || isPPOcrV5Standalone)) {
@@ -3244,7 +3244,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 自由文字：开关打开 + 检测器是 RT-DETR-V2
-        val keepTextFreeEnabled = prefs.getBoolean("Manga_Keep_Text_Free", false)
+        val keepTextFreeEnabled = prefs.getBoolean("Manga_Keep_Text_Free", true)
         if (keepTextFreeEnabled && config.detEngine == DetEngine.RT_DETR_V2) {
             parts.add("自由文字✓")
         } else if (keepTextFreeEnabled) {

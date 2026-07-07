@@ -19,6 +19,27 @@ object MangaOcrDownloadManager {
 
     private const val TAG = "MangaOcrDownloadManager"
 
+    /**
+     * 聚合下载进度回调（跨多个文件的总进度）
+     *
+     * @param bytesRead 当前累计已下载字节（之前文件完成 + 当前文件已下载）
+     * @param totalBytes 总字节数（所有文件之和）；HEAD 失败时为 -1
+     * @param speed 当前文件下载速度（MB/s）
+     * @param currentFileBytesRead 当前文件已下载字节
+     * @param currentFileTotalBytes 当前文件总字节；HEAD 失败时为 -1
+     * @param currentFileName 当前下载的文件名
+     */
+    interface AggregateProgressCallback {
+        fun onAggregateProgress(
+            bytesRead: Long,
+            totalBytes: Long,
+            speed: Float,
+            currentFileBytesRead: Long,
+            currentFileTotalBytes: Long,
+            currentFileName: String
+        )
+    }
+
     // 模型版本枚举
     enum class ModelVersion(
         val encoderFile: String,
@@ -304,6 +325,108 @@ object MangaOcrDownloadManager {
         onProgress: ModelDownloadManager.ProgressCallback? = null
     ): Result<Unit> {
         return downloadModel(context, version, onProgress)
+    }
+
+    /**
+     * 下载模型（聚合进度版）
+     *
+     * 跨 3 个文件（encoder/decoder/vocab）累计总进度，调用方无需切换文件时归零。
+     * 旧版 overload 仍保留（向后兼容）。
+     *
+     * @param onAggregateProgress 收到跨文件聚合进度回调
+     */
+    suspend fun downloadModel(
+        context: Context,
+        version: ModelVersion,
+        onAggregateProgress: AggregateProgressCallback? = null
+    ): Result<Unit> {
+        val modelDir = getModelDir(context, version)
+        if (!modelDir.exists()) {
+            if (!modelDir.mkdirs()) {
+                return Result.failure(Exception("Failed to create model directory: $modelDir"))
+            }
+        }
+
+        LogCollector.d(TAG, "开始下载 manga-ocr ${version.name} 版本（聚合进度）...")
+
+        // 累计前序文件已写入字节和总大小
+        var priorBytes = 0L
+        var priorTotalBytes = 0L
+
+        // 文件计划：(文件名, encode/decoder/vocab)
+        val filePlan = listOf(
+            version.encoderFile,
+            version.decoderFile,
+            version.vocabFile
+        )
+
+        for (fileName in filePlan) {
+            val destFile = File(modelDir, fileName)
+            if (destFile.exists() && destFile.length() > 0) {
+                LogCollector.d(TAG, "$fileName 已存在，跳过: ${destFile.absolutePath}")
+                continue
+            }
+
+            val fileUrl = "${version.baseUrl}/$fileName"
+            // 通过 HEAD 拿当前文件大小（累加到 totalBytes）
+            val currentFileTotal = getContentLength(context, fileUrl)
+
+            LogCollector.d(TAG, "下载 $fileName (size=$currentFileTotal): $fileUrl")
+            val result = ModelDownloadManager.downloadModel(
+                context = context, url = fileUrl, sha256Hash = "",
+                destFile = destFile,
+                onProgress = object : ModelDownloadManager.ProgressCallback {
+                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                        onAggregateProgress?.onAggregateProgress(
+                            bytesRead = priorBytes + bytesRead,
+                            totalBytes = if (currentFileTotal > 0) priorTotalBytes + currentFileTotal else -1L,
+                            speed = speed,
+                            currentFileBytesRead = bytesRead,
+                            currentFileTotalBytes = totalBytes,
+                            currentFileName = fileName
+                        )
+                    }
+                }
+            )
+
+            // vocab 404 不影响整体（保留旧版宽容行为）
+            if (result.isFailure && fileName != version.vocabFile) {
+                LogCollector.e(TAG, "$fileName 下载失败", result.exceptionOrNull())
+                return result
+            } else if (result.isFailure) {
+                LogCollector.w(TAG, "$fileName 下载失败（可能不存在于 HuggingFace），跳过: ${result.exceptionOrNull()?.message}")
+            }
+
+            // 完成一个文件：累加到 prior*
+            val actualSize = if (destFile.exists()) destFile.length() else 0L
+            priorBytes += actualSize
+            if (currentFileTotal > 0) priorTotalBytes += currentFileTotal
+        }
+
+        LogCollector.d(TAG, "下载完成!")
+        LogCollector.d(TAG, "Encoder: ${File(modelDir, version.encoderFile).absolutePath} (${File(modelDir, version.encoderFile).length()} bytes)")
+        LogCollector.d(TAG, "Decoder: ${File(modelDir, version.decoderFile).absolutePath} (${File(modelDir, version.decoderFile).length()} bytes)")
+
+        return Result.success(Unit)
+    }
+
+    /**
+     * HEAD 请求获取文件大小。失败返回 -1。
+     */
+    private fun getContentLength(context: Context, url: String): Long {
+        return try {
+            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "HEAD"
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            val code = conn.responseCode
+            val len = conn.contentLengthLong
+            conn.disconnect()
+            if (code in 200..299) len else -1L
+        } catch (e: Exception) {
+            LogCollector.w(TAG, "HEAD 请求失败: $url - ${e.message}")
+            -1L
+        }
     }
 
     /**

@@ -31,26 +31,26 @@ class ModelManagementFragment : Fragment() {
     private lateinit var rootView: View
     private val handler = Handler(Looper.getMainLooper())
 
-    // RT-DETR-V2 下载相关
-    private var rtdetrDownloadJob: Job? = null
-    private var rtdetrIsCancelled = false
+    // RT-DETR-V2 下载相关（@Volatile 跨线程标识，确保 IO 线程及时看到取消状态）
+    @Volatile private var rtdetrDownloadJob: Job? = null
+    @Volatile private var rtdetrIsCancelled = false
 
     // CTD 下载相关
-    private var ctdDownloadJob: Job? = null
-    private var ctdIsCancelled = false
+    @Volatile private var ctdDownloadJob: Job? = null
+    @Volatile private var ctdIsCancelled = false
 
     // manga-ocr 下载相关
-    private var mangaOcrDownloadJob: Job? = null
-    private var mangaOcrIsCancelled = false
+    @Volatile private var mangaOcrDownloadJob: Job? = null
+    @Volatile private var mangaOcrIsCancelled = false
     private var mangaOcrCurrentDownloadingVersion: MangaOcrDownloadManager.ModelVersion? = null
 
     // PP-OCRv5 可选模型下载相关（核心模型内置在 assets 中）
-    private var ppOcrEnDownloadJob: Job? = null
-    private var ppOcrEnIsCancelled = false
-    private var ppOcrKoDownloadJob: Job? = null
-    private var ppOcrKoIsCancelled = false
-    private var ppOcrRuDownloadJob: Job? = null
-    private var ppOcrRuIsCancelled = false
+    @Volatile private var ppOcrEnDownloadJob: Job? = null
+    @Volatile private var ppOcrEnIsCancelled = false
+    @Volatile private var ppOcrKoDownloadJob: Job? = null
+    @Volatile private var ppOcrKoIsCancelled = false
+    @Volatile private var ppOcrRuDownloadJob: Job? = null
+    @Volatile private var ppOcrRuIsCancelled = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -348,23 +348,29 @@ class ModelManagementFragment : Fragment() {
     private fun updateMangaOcrVersionStatus(version: MangaOcrDownloadManager.ModelVersion) {
         val rowView = getVersionRowView(version) ?: return
 
-        val nameText = rowView.findViewById<TextView>(R.id.version_name)
-        val sizeText = rowView.findViewById<TextView>(R.id.version_size)
-        val statusText = rowView.findViewById<TextView>(R.id.version_status)
-        val actionBtn = rowView.findViewById<TextView>(R.id.version_action_button)
-        val browserBtn = rowView.findViewById<TextView>(R.id.version_browser_button)
+        // 根据版本号获取对应的 id 资源（已前缀化避免 include id 冲突）
+        val nameText = rowView.findViewById<TextView>(versionId(version, "name"))
+        val sizeText = rowView.findViewById<TextView>(versionId(version, "size"))
+        val statusText = rowView.findViewById<TextView>(versionId(version, "status"))
+        val actionBtn = rowView.findViewById<TextView>(versionId(version, "action_button"))
+        val browserBtn = rowView.findViewById<TextView>(versionId(version, "browser_button"))
+
+        val isDownloading = mangaOcrCurrentDownloadingVersion == version && mangaOcrDownloadJob != null
 
         // version.description = "完整版 (343MB+117MB)"
+        // 注意：如果该版本正在下载中，onProgress 回调正在接管 sizeText，
+        // 此时再静态重置会被下一次回调覆盖（甚至造成 UI 闪烁）。这里跳过正在下载的版本。
         val descParts = version.description.split(" (")
-        nameText.text = descParts[0]
-        sizeText.text = if (descParts.size > 1) descParts[1].removeSuffix(")") else ""
+        if (!isDownloading) {
+            nameText.text = descParts[0]
+            sizeText.text = if (descParts.size > 1) descParts[1].removeSuffix(")") else ""
+        }
 
         // 浏览器下载按钮
         browserBtn?.setOnClickListener { openBrowser(version.baseUrl) }
 
         val isDownloaded = MangaOcrDownloadManager.isVersionDownloaded(requireContext(), version)
         val isActive = MangaOcrDownloadManager.getActiveVersion(requireContext()) == version
-        val isDownloading = mangaOcrCurrentDownloadingVersion == version && mangaOcrDownloadJob != null
 
         when {
             isDownloading -> {
@@ -423,23 +429,36 @@ class ModelManagementFragment : Fragment() {
                 val result = MangaOcrDownloadManager.downloadModel(
                     requireContext(),
                     version,
-                    object : ModelDownloadManager.ProgressCallback {
-                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                    object : MangaOcrDownloadManager.AggregateProgressCallback {
+                        override fun onAggregateProgress(
+                            bytesRead: Long,
+                            totalBytes: Long,
+                            speed: Float,
+                            currentFileBytesRead: Long,
+                            currentFileTotalBytes: Long,
+                            currentFileName: String
+                        ) {
                             if (mangaOcrIsCancelled || !isAdded) return
                             handler.post {
                                 if (mangaOcrIsCancelled || !isAdded) return@post
-                                val progress = if (totalBytes > 0) {
-                                    (bytesRead * 100 / totalBytes).toInt()
-                                } else 0
                                 val rowView = getVersionRowView(version)
-                                val statusText = rowView?.findViewById<TextView>(R.id.version_status)
-                                statusText?.text = getString(R.string.model_downloading) + " $progress%"
+                                val statusText = rowView?.findViewById<TextView>(versionId(version, "status"))
+                                val sizeText = rowView?.findViewById<TextView>(versionId(version, "size"))
 
-                                val mbRead = bytesRead / (1024 * 1024)
-                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
-                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
-                                val sizeText = rowView?.findViewById<TextView>(R.id.version_size)
-                                sizeText?.text = "${mbRead}/${mbTotal} MB$speedStr"
+                                // 整体百分比（如果所有文件总大小可获取）
+                                if (totalBytes > 0) {
+                                    val pct = (bytesRead * 100 / totalBytes).toInt()
+                                    val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
+                                    statusText?.text = getString(R.string.model_downloading) + " $pct%"
+                                    sizeText?.text = "总进度 $pct%$speedStr"
+                                } else {
+                                    // 拿不到 total 时只显示当前文件进度
+                                    val mbRead = currentFileBytesRead / (1024 * 1024)
+                                    val mbTotal = if (currentFileTotalBytes > 0) currentFileTotalBytes / (1024 * 1024) else 0
+                                    val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
+                                    statusText?.text = getString(R.string.model_downloading)
+                                    sizeText?.text = "${currentFileName}: $mbRead/$mbTotal MB$speedStr"
+                                }
                             }
                         }
                     }
@@ -491,6 +510,17 @@ class ModelManagementFragment : Fragment() {
             MangaOcrDownloadManager.ModelVersion.FULL -> rootView.findViewById(R.id.manga_ocr_full_row)
             MangaOcrDownloadManager.ModelVersion.V2025 -> rootView.findViewById(R.id.manga_ocr_v2025_row)
         }
+    }
+
+    /**
+     * 把版本号映射到带前缀的 view id（避免 include id 共享冲突）
+     */
+    private fun versionId(version: MangaOcrDownloadManager.ModelVersion, suffix: String): Int {
+        val prefix = when (version) {
+            MangaOcrDownloadManager.ModelVersion.FULL -> "full"
+            MangaOcrDownloadManager.ModelVersion.V2025 -> "v2025"
+        }
+        return resources.getIdentifier("${prefix}_$suffix", "id", requireContext().packageName)
     }
 
     private fun showMangaOcrDeleteConfirmDialog(version: MangaOcrDownloadManager.ModelVersion) {
@@ -671,6 +701,7 @@ class ModelManagementFragment : Fragment() {
                     lang,
                     object : ModelDownloadManager.ProgressCallback {
                         override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            // 双重检查 + 短路：避免 cancel 后 handler.post 链上仍在执行 stale update
                             if (isCancelled() || !isAdded) return
                             handler.post {
                                 if (isCancelled() || !isAdded) return@post
@@ -714,6 +745,7 @@ class ModelManagementFragment : Fragment() {
             }
         }
 
+        // 关键修复：先把 job 赋值给字段，再调 update，顺序反过来了 update 会看到正确状态
         when (lang) {
             "en" -> ppOcrEnDownloadJob = job
             "ko" -> ppOcrKoDownloadJob = job
@@ -745,7 +777,11 @@ class ModelManagementFragment : Fragment() {
                 } else {
                     Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
                 }
-                if (lang == "en") updatePPOcrEnStatus() else updatePPOcrKoStatus()
+                when (lang) {
+                    "en" -> updatePPOcrEnStatus()
+                    "ko" -> updatePPOcrKoStatus()
+                    "ru" -> updatePPOcrRuStatus()
+                }
             }
         }
     }
