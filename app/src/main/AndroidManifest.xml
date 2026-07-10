@@ -94,7 +94,7 @@
         </provider>
 
         <service
-            android:name="com.moe.moetranslator.manga.MangaFloatingService"
+            android:name=".manga.MangaFloatingService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|specialUse">

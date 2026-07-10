@@ -42,7 +42,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ./gradlew test
 
 # 实时查看应用日志
-adb logcat --pid=$(adb shell pidof com.moe.moetranslator)
+adb logcat --pid=$(adb shell pidof com.moe.starflow)
 
 # 指定设备安装（多设备时）
 adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
@@ -57,12 +57,12 @@ adb devices
 & "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
 
 # 监控日志（按 tag 过滤）
-& "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" logcat --pid=$(& "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" shell pidof com.moe.moetranslator) | Select-String -Pattern "MangaFloatingService|OpenAITranslation|TranslateBridge|FloatingBallService"
+& "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" logcat --pid=$(& "C:\Users\<username>\AppData\Local\Android\Sdk\platform-tools\adb.exe" shell pidof com.moe.starflow) | Select-String -Pattern "MangaFloatingService|OpenAITranslation|TranslateBridge|FloatingBallService"
 ```
 
 ## 架构
 
-**包结构** (`app/src/main/java/com/moe/moetranslator/`):
+**包结构** (`app/src/main/java/com/moe/starflow/`):
 
 - `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`BallStateManager`（悬浮球状态图标管理器）
 - `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`CTDDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
@@ -576,7 +576,7 @@ gh release create vX.X.X app/build/outputs/apk/release/app-release.apk --title "
 # 正确：后台持续监控
 $adb = "C:\Users\xjj20\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 & $adb logcat -c  # 先清空旧日志
-$pid = & $adb shell pidof com.moe.moetranslator
+$pid = & $adb shell pidof com.moe.starflow
 & $adb logcat --pid=$pid | Select-String -Pattern "关键词" | Out-File -FilePath "C:\Users\xjj20\Desktop\app_log.txt" -Encoding UTF8
 ```
 

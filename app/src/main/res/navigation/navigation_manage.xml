@@ -25,20 +25,20 @@
 
     <fragment
         android:id="@+id/translate_fragment"
-        android:name="com.moe.moetranslator.translate.TranslateFragment"
+        android:name="com.moe.starflow.translate.TranslateFragment"
         android:label="fragment_translate"
         tools:layout="@layout/fragment_translate" >
     </fragment>
 
     <fragment
         android:id="@+id/history_fragment"
-        android:name="com.moe.moetranslator.ui.history.HistoryFragment"
+        android:name="com.moe.starflow.ui.history.HistoryFragment"
         android:label="fragment_history"
         tools:layout="@layout/fragment_history" />
 
     <fragment
         android:id="@+id/me_fragment"
-        android:name="com.moe.moetranslator.me.AboutMe"
+        android:name="com.moe.starflow.me.AboutMe"
         android:label="fragment_about_me"
         tools:layout="@layout/fragment_about_me" />
 

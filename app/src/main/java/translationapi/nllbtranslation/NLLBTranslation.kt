@@ -18,11 +18,11 @@
 package translationapi.nllbtranslation
 
 import android.content.Context
-import com.moe.moetranslator.R
-import com.moe.moetranslator.translate.CustomLocale
-import com.moe.moetranslator.translate.TranslationResult
-import com.moe.moetranslator.translate.TranslationTextAPI
-import com.moe.moetranslator.utils.TranslationStatusOverlay
+import com.moe.starflow.R
+import com.moe.starflow.translate.CustomLocale
+import com.moe.starflow.translate.TranslationResult
+import com.moe.starflow.translate.TranslationTextAPI
+import com.moe.starflow.utils.TranslationStatusOverlay
 
 class NLLBTranslation(context: Context) : TranslationTextAPI {
     private val ctx = context.applicationContext

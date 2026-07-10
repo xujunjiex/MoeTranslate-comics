@@ -24,8 +24,8 @@ import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
-import com.moe.moetranslator.translate.TranslationResult
-import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.starflow.translate.TranslationResult
+import com.moe.starflow.translate.TranslationTextAPI
 import kotlinx.coroutines.*
 import kotlinx.coroutines.tasks.await
 

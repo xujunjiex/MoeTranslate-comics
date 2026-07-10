@@ -37,8 +37,13 @@ logs/
 tools/
 scripts/
 markdown/
-docs/
 superpowers/
+backup/
+.superpowers/
+# docs/docs/ 提交到 GitHub，docs/ 其余（superpowers 草稿等）忽略
+docs/*
+!docs/docs/
+docs/superpowers/
 
 # Claude Code
 CLAUDE.md

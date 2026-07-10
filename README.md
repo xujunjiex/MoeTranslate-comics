@@ -181,7 +181,7 @@ echo sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk > local.properties
 ## 项目结构
 
 ```
-app/src/main/java/com/moe/moetranslator/
+app/src/main/java/com/moe/starflow/
 ├── translate/       游戏/视频翻译引擎
 ├── manga/           漫画翻译引擎
 ├── bridge/          桥接层（OCR / 检测 / 翻译 / 截图）

@@ -20,8 +20,8 @@ package translationapi.tencentcloud
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
-import com.moe.moetranslator.translate.TranslationPicAPI
-import com.moe.moetranslator.translate.TranslationResult
+import com.moe.starflow.translate.TranslationPicAPI
+import com.moe.starflow.translate.TranslationResult
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient

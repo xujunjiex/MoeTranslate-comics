@@ -68,18 +68,16 @@
 }
 
 # --- KeystoreManager (加密相关不能混淆) ---
--keep class com.moe.moetranslator.utils.KeystoreManager { *; }
--keep class com.moe.moetranslator.utils.RootDetector { *; }
+-keep class com.moe.starflow.utils.KeystoreManager { *; }
 
 # --- 翻译 API 接口 ---
--keep class com.moe.moetranslator.translate.TranslationTextAPI { *; }
--keep class com.moe.moetranslator.translate.TranslationPicAPI { *; }
--keep class * implements com.moe.moetranslator.translate.TranslationTextAPI { *; }
--keep class * implements com.moe.moetranslator.translate.TranslationPicAPI { *; }
+-keep class com.moe.starflow.translate.TranslationTextAPI { *; }
+-keep class com.moe.starflow.translate.TranslationPicAPI { *; }
+-keep class * implements com.moe.starflow.translate.TranslationTextAPI { *; }
+-keep class * implements com.moe.starflow.translate.TranslationPicAPI { *; }
 
 # --- Constants 枚举 ---
--keep class com.moe.moetranslator.utils.Constants { *; }
--keep class com.moe.moetranslator.manga.MangaTypes { *; }
+-keep class com.moe.starflow.utils.Constants { *; }
 
 # --- ONNX Runtime ---
 -keep class ai.onnxruntime.** { *; }

@@ -18,8 +18,8 @@
 package translationapi.tencentcloud
 
 import android.util.Log
-import com.moe.moetranslator.translate.TranslationResult
-import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.starflow.translate.TranslationResult
+import com.moe.starflow.translate.TranslationTextAPI
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request

@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:background="#FF000000">
 
-    <com.moe.moetranslator.ui.history.ZoomableImageView
+    <com.moe.starflow.ui.history.ZoomableImageView
         android:id="@+id/ivFullImage"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

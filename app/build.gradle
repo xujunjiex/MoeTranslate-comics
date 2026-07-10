@@ -22,7 +22,7 @@ plugins {
 }
 
 android {
-    namespace 'com.moe.moetranslator'
+    namespace 'com.moe.starflow'
     compileSdk 35
 
     aaptOptions {

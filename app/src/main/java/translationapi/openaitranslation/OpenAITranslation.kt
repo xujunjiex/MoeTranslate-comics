@@ -18,9 +18,9 @@
 package translationapi.openaitranslation
 
 import android.util.Log
-import com.moe.moetranslator.translate.CustomLocale
-import com.moe.moetranslator.translate.TranslationResult
-import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.starflow.translate.CustomLocale
+import com.moe.starflow.translate.TranslationResult
+import com.moe.starflow.translate.TranslationTextAPI
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient

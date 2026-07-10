@@ -34,8 +34,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.collection.ArraySet;
 
-import com.moe.moetranslator.R;
-import com.moe.moetranslator.translate.CustomLocale;
+import com.moe.starflow.R;
+import com.moe.starflow.translate.CustomLocale;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;

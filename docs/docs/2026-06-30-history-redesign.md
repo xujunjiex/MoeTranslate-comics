@@ -1,4 +1,4 @@
-# 历史记录页面重构设计
+﻿# 历史记录页面重构设计
 
 日期: 2026-06-30
 
@@ -269,7 +269,7 @@ val isRetranslated: Boolean = false,
 ```
 发送方: HistoryFragment
 接收方: MangaFloatingService
-action: "com.moe.moetranslator.RETRANSLATE_REQUEST"
+action: "com.moe.starflow.RETRANSLATE_REQUEST"
 
 extras:
   originalImagePath: String    // 原图绝对路径
@@ -286,7 +286,7 @@ extras:
 ```
 发送方: MangaFloatingService
 接收方: HistoryFragment
-action: "com.moe.moetranslator.RETRANSLATE_COMPLETE"
+action: "com.moe.starflow.RETRANSLATE_COMPLETE"
 
 extras:
   success: Boolean

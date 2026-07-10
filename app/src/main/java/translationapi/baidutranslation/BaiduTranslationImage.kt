@@ -18,8 +18,8 @@
 package translationapi.baidutranslation
 
 import android.graphics.Bitmap
-import com.moe.moetranslator.translate.TranslationPicAPI
-import com.moe.moetranslator.translate.TranslationResult
+import com.moe.starflow.translate.TranslationPicAPI
+import com.moe.starflow.translate.TranslationResult
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

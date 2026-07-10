@@ -18,8 +18,8 @@
 package translationapi.volctranslation
 
 import android.util.Log
-import com.moe.moetranslator.translate.TranslationResult
-import com.moe.moetranslator.translate.TranslationTextAPI
+import com.moe.starflow.translate.TranslationResult
+import com.moe.starflow.translate.TranslationTextAPI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Date
