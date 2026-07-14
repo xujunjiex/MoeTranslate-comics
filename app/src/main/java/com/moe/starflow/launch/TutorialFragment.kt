@@ -122,6 +122,9 @@ class TutorialFragment(val position:Int) : Fragment() {
                 }
                 val next2 = root.findViewById<Button>(R.id.next)
                 val grant2 = root.findViewById<Button>(R.id.grant)
+                next2.setOnClickListener {
+                    (activity as FirstLaunchPage).nextPage()
+                }
                 grant2.setOnClickListener {
                     val dialog = AlertDialog.Builder(requireContext())
                         .setTitle(R.string.tutorial_access_title)
