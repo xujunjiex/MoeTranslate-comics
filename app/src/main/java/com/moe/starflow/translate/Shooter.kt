@@ -395,13 +395,20 @@ class Shooter(private val context: Context) {
         virtualDisplay?.release()
         virtualDisplay = null
 
-        // 3. 退出 listener 线程（在 imageReader.close() 之前）
-        //    quitSafely 会排空待处理的回调，此时 Image 仍有效
+        // 3. 退出 listener 线程并等待其真正终止（必须在 imageReader.close() 之前）
+        //    ⚠️ quitSafely() 立即返回，不会阻塞等待正在执行的回调。
+        //    必须 join() 等待 listener 线程里正在跑的 convert()/buffer.get() 完成，
+        //    否则第 4 步 close() 释放 native buffer 时 convert() 还在读 → SIGSEGV。
         listenerThread?.quitSafely()
+        try {
+            listenerThread?.join(1000)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         listenerThread = null
         listenerHandler = null
 
-        // 4. 安全关闭 ImageReader——不再有回调访问其 Image
+        // 4. 安全关闭 ImageReader——此时确保没有回调在访问其 Image
         imageReader?.close()
         imageReader = null
 
