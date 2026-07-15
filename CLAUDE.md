@@ -519,6 +519,30 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 
 `Shooter.kt` 的 `OnImageAvailableListener` 在 `convert(image)` 返回 null 时**必须设置 `imageAvailable = true`**，否则后续所有 `shot()` 调用永久超时，返回同一张缓存图 → 状态机永远 `simToTranslated=1.0` → 自动翻译卡死。此 bug 已在 listener 中添加保护。
 
+## 设置项实时生效规范（重要）
+
+**添加任何 prefs 时，必须确认 service 侧有对应监听器**，否则用户运行时修改不会生效，必须重启服务。
+
+三种实现方式（按优先级）：
+
+1. **每次调用重新读 prefs**（最简单，适合"每次翻译都查"的值）
+   - 例：`Incremental_Render`（每次 incrementalTranslateFlow 重读 prefs）
+   - 例：`Game_Pixel_Similar_Threshold`（AutoTranslateEngine 每帧读 prefs）
+   - 例：`Status_Position` / `Status_Duration`（TranslationStatusOverlay.show 每次读 prefs）
+
+2. **service 监听 prefs listener + 刷新内部缓存**（适合"启动时读一次到字段"的性能敏感场景）
+   - 例：`Manga_Text_Color` / `Manga_BG_Color` → 加入 `MangaFloatingService.watchedKeys`，触发 `loadConfig()`
+   - 例：`Custom_Result_Font_Size` / `Custom_Result_Font_Color` 等 → 加入 `FloatingBallService.styleKeys`，触发 `applyStyle()`
+   - 例：`game_context_enabled` / `game_context_count` → 加入 `FloatingBallService.watchedKeys`，直接更新 `contextEnabled` / `contextMaxCount` 字段
+
+3. **service-running 检查 + 拒绝运行时修改**（适合必须重启才能生效的关键配置）
+   - 例：`Ball_Gesture_Single_Click` / `Double_Click` / `Long_Press`（手势冲突检测依赖所有手势值，必须停服务才能保证安全）
+
+**debug checklist**：新加 prefs 后，自查：
+- service 启动时把它读到哪里？（字段？每次读？）
+- 字段被缓存了 → 是否加入 watcher？
+- 每次调用重新读 → 验证调用路径确实每次读
+
 ## 关键约束
 
 - **minSdk 29**（Android 10+），**targetSdk 35**
