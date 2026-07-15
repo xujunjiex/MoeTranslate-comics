@@ -446,11 +446,28 @@ class FloatingBallService : LifecycleService() {
         // 权限就绪，正常初始化
         fullInit()
 
-        // 监听源语言和引擎变化，实时检查语言/模型提示
-        val watchedKeys = setOf("Source_Language", "Game_OCR_Engine")
+        // 监听源语言、引擎、AI 上下文变化，实时检查语言/模型提示并刷新上下文设置
+        val watchedKeys = setOf(
+            "Source_Language",
+            "Game_OCR_Engine",
+            "game_context_enabled",
+            "game_context_count"
+        )
+        val styleKeys = setOf(
+            "Custom_Result_Font_Size",
+            "Custom_Result_Font_Color",
+            "Custom_Result_Background_Color",
+            "Custom_Result_Font"
+        )
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in watchedKeys) {
-                checkLanguageHints()
+            when {
+                key == "game_context_enabled" -> contextEnabled = prefs.getBoolean("game_context_enabled", false)
+                key == "game_context_count" -> contextMaxCount = prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
+                key in watchedKeys -> checkLanguageHints()
+                key in styleKeys -> {
+                    // 设置页改了字号/字体/颜色 → 立即应用到翻译结果 view
+                    translationResultView.applyStyle()
+                }
             }
         }
         prefs.getSharedPreferences().registerOnSharedPreferenceChangeListener(prefChangeListener)
@@ -1094,12 +1111,13 @@ class FloatingBallService : LifecycleService() {
                         onItemClick = { position ->
                             // 点击：显示翻译结果
                             val selected = historyList[position]
-                            if (selected.translatedText != null) {
-                                translationResultView.setText(selected.translatedText)
-                                if (!isResultViewShowing) {
-                                    showResultView()
+                            composeResultText(selected.sourceText, selected.translatedText)
+                                ?.let {
+                                    translationResultView.setText(it)
+                                    if (!isResultViewShowing) {
+                                        showResultView()
+                                    }
                                 }
-                            }
                         },
                         onItemLongClick = { position ->
                             // 长按：重新翻译
@@ -1299,9 +1317,6 @@ class FloatingBallService : LifecycleService() {
 
     private fun showResultView() {
         if (!isViewAdded(translationResultView)) {
-            // 应用可穿透性设置：开启时降低透明度
-            val penetrable = prefs.getBoolean("Custom_Result_Penetrability", true)
-            translationResultView.alpha = if (penetrable) 0.5f else 1.0f
             windowManager.addView(translationResultView, resultViewParams)
             // 保持悬浮球在最上层
             windowManager.removeView(floatingBallView)
@@ -1429,6 +1444,21 @@ class FloatingBallService : LifecycleService() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
+    /**
+     * 根据"显示原文"设置 + 给定 (原文, 译文)，返回最终要显示到 resultView 的文本。
+     * 用于统一处理缓存路径（之前每处都漏读 Custom_Show_Source_Mode）。
+     */
+    private fun composeResultText(source: String?, translated: String?): String? {
+        if (translated.isNullOrBlank()) return null
+        val showSourceMode = if (isGameDebugEnabled()) 1 else prefs.getInt("Custom_Show_Source_Mode", 0)
+        val src = source?.takeIf { it.isNotBlank() }
+        return when (showSourceMode) {
+            0 -> translated
+            1 -> if (src != null) "$src\n\n$translated" else translated
+            else -> if (src != null) "$translated\n\n$src" else translated
+        }
+    }
+
     private fun backToMainActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -1467,7 +1497,8 @@ class FloatingBallService : LifecycleService() {
                                         updateDebugStatus("【LRU缓存命中】", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                         statusOverlay.showImmediate("缓存命中")
                                         ballStateManager?.setState(BallStateManager.State.Completed)
-                                        translationResultView.setText(ocrDecision.cachedText)
+                                        composeResultText(ocrDecision.ocrText, ocrDecision.cachedText)
+                                            ?.let { translationResultView.setText(it) }
                                         translationResultView.showCacheIndicator()
                                         engine.markIdle()
                                         ballStateManager?.setState(BallStateManager.State.Idle)
@@ -1486,7 +1517,8 @@ class FloatingBallService : LifecycleService() {
                                             updateDebugStatus("【缓存】database", elapsedMs = elapsed, diffRatio = pixelDecision.diffRatio)
                                             statusOverlay.showImmediate("缓存命中")
                                             ballStateManager?.setState(BallStateManager.State.Completed)
-                                            translationResultView.setText(dbCache.translatedText)
+                                            composeResultText(ocrDecision.ocrText, dbCache.translatedText)
+                                                ?.let { translationResultView.setText(it) }
                                             translationResultView.showCacheIndicator()
                                             lastTranslatedSource = ocrDecision.ocrText
                                             autoTranslateEngine?.onTranslationSuccess(ocrDecision.ocrText, dbCache.translatedText)
@@ -1539,7 +1571,8 @@ class FloatingBallService : LifecycleService() {
                         updateDebugStatus("【缓存】database", elapsedMs = elapsed)
                         statusOverlay.show("缓存命中")
                         ballStateManager?.setState(BallStateManager.State.Completed)
-                        translationResultView.setText(dbCache.translatedText)
+                        composeResultText(normalizedTxt, dbCache.translatedText)
+                            ?.let { translationResultView.setText(it) }
                         translationResultView.showCacheIndicator()
                         lastTranslatedSource = normalizedTxt
                         isTranslating.set(false)
@@ -1590,13 +1623,8 @@ class FloatingBallService : LifecycleService() {
                         LogCollector.d(TAG, "文本翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】", elapsedMs = elapsed)
 
-                        // 调试模式强制显示原文+译文，否则按个性设置
-                        val showSourceMode = if (isGameDebugEnabled()) 1 else prefs.getInt("Custom_Show_Source_Mode", 0)
-                        when (showSourceMode) {
-                            0 -> translationResultView.setText(result.translatedText)
-                            1 -> translationResultView.setText(str + "\n\n" + result.translatedText)
-                            else -> translationResultView.setText(result.translatedText + "\n\n" + str)
-                        }
+                        // 调试模式强制显示原文+译文，否则按个性设置（统一通过 composeResultText 走同一条路径）
+                        composeResultText(str, result.translatedText)?.let { translationResultView.setText(it) }
                         translationResultView.hideCacheIndicator()
                         lastTranslatedSource = str
 

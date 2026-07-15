@@ -289,8 +289,15 @@ class MangaFloatingService : LifecycleService() {
             prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
         } catch (e: Exception) { 5 }
 
-        // 监听源语言和引擎变化，实时检查语言/模型提示
-        val watchedKeys = setOf("Source_Language", "Manga_Det_Model", "Manga_Rec_Model", "Manga_Keep_Text_Free")
+        // 监听源语言、引擎、结果样式变化，实时检查语言/模型提示并刷新 config
+        val watchedKeys = setOf(
+            "Source_Language",
+            "Manga_Det_Model",
+            "Manga_Rec_Model",
+            "Manga_Keep_Text_Free",
+            "Manga_Text_Color",
+            "Manga_BG_Color"
+        )
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key in watchedKeys) {
                 config = loadConfig()

@@ -185,8 +185,6 @@
     <string name="font_color_summary">选择一个你喜欢的字体颜色吧</string>
     <string name="result_background_color">背景颜色</string>
     <string name="result_background_color_summary">选择一个你喜欢的背景颜色吧</string>
-    <string name="penetrability">可穿透性</string>
-    <string name="penetrability_summary">开启后翻译结果框透明度增加</string>
     <string name="translate_result_box">翻译结果框</string>
     <string name="translate_result_box_with_hint">游戏/视频翻译结果设置</string>
     <string name="show_source_text_title">同时显示原文</string>

@@ -115,62 +115,38 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 字体相关
+        // 字体相关（FloatingBallService 监听 prefs 变化实时更新 view，无需先停服务）
         resultFont.setOnPreferenceClickListener {
-            if (isAnyTranslationServiceRunning()) {
-                UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
-            } else {
-                showFontOptionsDialog()
-            }
+            showFontOptionsDialog()
             true
         }
 
-        // 字体大小
+        // 字体大小（同上）
         resultFontSize.setOnPreferenceClickListener {
-            if (isAnyTranslationServiceRunning()) {
-                UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
-            } else {
-                showFontSizeDialog()
-            }
+            showFontSizeDialog()
             true
         }
 
-        // 字体颜色
+        // 字体颜色（同上）
         findPreference<ColorPreferenceCompat>("result_view_font_color")?.apply {
             setOnPreferenceChangeListener { _, newValue ->
-                if (isAnyTranslationServiceRunning()) {
-                    UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
-                    false
-                } else {
-                    prefs.setInt("Custom_Result_Font_Color", newValue as Int)
-                    true
-                }
+                prefs.setInt("Custom_Result_Font_Color", newValue as Int)
+                true
             }
             summary = getString(R.string.font_color_summary)
         }
 
-        // 背景颜色
+        // 背景颜色（同上）
         findPreference<ColorPreferenceCompat>("result_view_background_color")?.apply {
             setOnPreferenceChangeListener { _, newValue ->
-                if (isAnyTranslationServiceRunning()) {
-                    UiUtils.showToast(requireContext(), getString(R.string.stop_service_first), isShort = true)
-                    false
-                } else {
-                    prefs.setInt("Custom_Result_Background_Color", newValue as Int)
-                    true
-                }
+                prefs.setInt("Custom_Result_Background_Color", newValue as Int)
+                true
             }
             summary = getString(R.string.result_background_color_summary)
         }
 
-        // 可穿透性
-        findPreference<SwitchPreference>("result_penetrability")?.apply {
-            setOnPreferenceChangeListener { _, newValue ->
-                prefs.setBoolean("Custom_Result_Penetrability", newValue as Boolean)
-                true
-            }
-            summary = getString(R.string.penetrability_summary)
-        }
+        // 翻译结果框整体透明度通过背景/字体颜色的 alpha 通道控制
+        // （背景颜色 + 字体颜色选择器自带 alpha 滑块）
 
         // 显示原文
         showSource.setOnPreferenceChangeListener { _, newValue ->
@@ -253,11 +229,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
         mangaBgColor.setOnPreferenceChangeListener { _, newValue ->
             prefs.setInt("Manga_BG_Color", newValue as Int)
-            true
-        }
-
-        // 分批渲染开关（增量渲染模式内部强制开启AI上下文，无需手动开启）
-        findPreference<SwitchPreference>("Incremental_Render")?.setOnPreferenceChangeListener { _, _ ->
             true
         }
 

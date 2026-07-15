@@ -70,7 +70,7 @@ class AutoTranslateEngine(
         /** 已翻译，像素不变，跳过 OCR */
         data class Idle(val diffRatio: Float) : Decision()
         /** 命中 LRU 缓存，直接显示 */
-        data class CacheHit(val cachedText: String) : Decision()
+        data class CacheHit(val ocrText: String, val cachedText: String) : Decision()
         /** 需要翻译 */
         data class Translate(val ocrText: String) : Decision()
     }
@@ -176,7 +176,7 @@ class AutoTranslateEngine(
         val cached = translationCache.get(normalizedText)
         if (cached != null) {
             LogCollector.d(TAG, "【LRU缓存命中】${normalizedText.take(20)}...")
-            return Decision.CacheHit(cached)
+            return Decision.CacheHit(normalizedText, cached)
         }
 
         LogCollector.d(TAG, "【需翻译】${normalizedText.take(20)}...")

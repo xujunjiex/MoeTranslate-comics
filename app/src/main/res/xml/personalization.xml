@@ -99,13 +99,6 @@
             android:summary="@string/result_background_color_summary"
             app:cpv_showAlphaSlider="true" />
 
-        <SwitchPreference
-            app:iconSpaceReserved="false"
-            android:key="result_penetrability"
-            android:title="@string/penetrability"
-            android:summary="@string/penetrability_summary"
-            android:defaultValue="true"/>
-
         <ListPreference
             android:key="show_source_text"
             app:iconSpaceReserved="false"

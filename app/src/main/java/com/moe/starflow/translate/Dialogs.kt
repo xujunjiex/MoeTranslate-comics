@@ -340,7 +340,8 @@ object Dialogs {
                 val sizeText = editText.text.toString()
                 try {
                     val size = sizeText.toFloat()
-                    if (size > 0) {
+                    // 字号范围限制：8sp-72sp。太小看不见，太大溢出屏幕
+                    if (size in 8f..72f) {
                         // 保存字体大小
                         prefs.setFloat("Custom_Result_Font_Size", size)
                         if (view != null){

@@ -185,8 +185,6 @@
     <string name="font_color_summary">Choose a font color you like</string>
     <string name="result_background_color">Background Color</string>
     <string name="result_background_color_summary">Choose a background color that you like</string>
-    <string name="penetrability">Permeability</string>
-    <string name="penetrability_summary">When turned on, the translation result box becomes more transparent</string>
     <string name="translate_result_box">Translation results box</string>
     <string name="translate_result_box_with_hint">Game/Video Translation Result Settings</string>
     <string name="show_source_text_title">Also show original text</string>

@@ -39,7 +39,6 @@ class TranslationResultView(
     private var initialTouchY: Float = 0f
 
     var onClose: (() -> Unit)? = null
-    var onLockChanged: ((Boolean) -> Unit)? = null
     var onRetranslate: (() -> Unit)? = null
 
     init {
@@ -187,7 +186,6 @@ class TranslationResultView(
         } else {
             lockButton.setImageResource(R.drawable.ic_unlock)
         }
-        onLockChanged?.invoke(isLocked)
     }
 
     fun setText(text: String) {
@@ -208,18 +206,35 @@ class TranslationResultView(
         retranslateButton.visibility = View.GONE
     }
 
-    fun setLocked(locked: Boolean) {
-        isLocked = locked
-        if (locked) {
-            lockButton.setImageResource(R.drawable.baseline_lock)
+    fun getTextView(): TextView = textView
+
+    /**
+     * 重新从 prefs 读取样式（字号、颜色、字体、背景）并应用到 textView。
+     * 由 FloatingBallService 在 prefs 变化时调用，实现设置页改完立刻生效。
+     */
+    fun applyStyle() {
+        val prefs = CustomPreference.getInstance(context)
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, prefs.getFloat("Custom_Result_Font_Size", 16f))
+        textView.setTextColor(prefs.getInt("Custom_Result_Font_Color", -1516335))
+        (textView.background as? GradientDrawable)?.setColor(
+            prefs.getInt("Custom_Result_Background_Color", -649384925)
+        )
+        val customFont = prefs.getString("Custom_Result_Font", "")
+        if (customFont.isEmpty()) {
+            textView.typeface = Typeface.DEFAULT
         } else {
-            lockButton.setImageResource(R.drawable.ic_unlock)
+            try {
+                val fontFile = File(context.getExternalFilesDir(null), "font/$customFont")
+                if (fontFile.exists()) {
+                    textView.typeface = Typeface.createFromFile(fontFile)
+                } else {
+                    textView.typeface = Typeface.DEFAULT
+                }
+            } catch (e: Exception) {
+                textView.typeface = Typeface.DEFAULT
+            }
         }
     }
-
-    fun isLockedView(): Boolean = isLocked
-
-    fun getTextView(): TextView = textView
 
     private fun dpToPx(dp: Int): Int {
         return (dp * context.resources.displayMetrics.density).toInt()
