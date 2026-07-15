@@ -160,8 +160,9 @@
 
 | 方式 | 链接 |
 |------|------|
-| GitHub Releases | [最新版本](https://github.com/xujunjiex/StarFlow/releases) |
-| 百度网盘 | https://pan.baidu.com/s/1AXbakx6apJcIthF4CenWdA?pwd=star |
+| GitHub Releases | [最新版本 v0.8.6](https://github.com/xujunjiex/StarFlow/releases/tag/v0.8.6) |
+| 百度网盘 | https://pan.baidu.com/s/1Zi-o2mHhgJEqhk8UzxRoSA?pwd=star |
+| 夸克网盘 | https://pan.quark.cn/s/cbac92882d82?pwd=E9P8 |
 
 ---
 
