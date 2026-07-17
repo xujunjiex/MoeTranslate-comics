@@ -354,7 +354,7 @@
     <string name="proj_mangaocr_title">manga-ocr</string>
     <string name="proj_mangaocr_content">OCR model specialized for Japanese manga text, supporting vertical text recognition.\nhttps://github.com/kha-white/manga-ocr</string>
     <string name="proj_mangaimagetran_title">manga-image-translator</string>
-    <string name="proj_mangaimagetran_content">Manga image translation project, providing CTD text detection model and translation pipeline reference.\nhttps://github.com/zyddnys/manga-image-translator</string>
+    <string name="proj_mangaimagetran_content">Manga image translation project. The translation pipeline architecture is referenced from this project.\nhttps://github.com/zyddnys/manga-image-translator</string>
     <string name="official_website">GitHub Repository</string>
     <string name="feedback">Feedback</string>
     <string name="open_source_statement">Open Source Statement</string>
@@ -453,14 +453,12 @@
     <string name="model_management">Model Management</string>
     <string name="model_management_tip">Manage downloaded recognition models</string>
     <string name="detector_section">Detector</string>
-    <string name="detector_ctd_desc">Line-level text detection, supports vertical text, 94MB</string>
     <string name="detector_rtdetr_desc">Block-level + bubble detection, fast, 11MB</string>
     <string name="detector_mlkit_desc">Google ML Kit detection + recognition, ~10MB</string>
     <string name="recognizer_section">Recognizer</string>
     <string name="recognizer_ctc_desc">Multilingual text recognition, works with detector. Built-in</string>
     <string name="recognizer_mlkit_desc">Google ML Kit OCR, ~10MB, no download required</string>
-    <string name="recognizer_manga_desc">manga-ocr - Japanese OCR, embedded in app</string>
-    <string name="recognizer_manga_onnx_desc">Dedicated vertical Japanese manga OCR. Full 460MB ultra-slow ultra-accurate, 2025 version 135MB much faster slightly less accurate</string>
+    <string name="recognizer_manga_desc">~135MB, dedicated Japanese manga OCR, slow but high accuracy. Requires RT-DETR-V2 detector</string>
     <string name="model_download">Download</string>
     <string name="model_delete">Delete</string>
     <string name="model_downloaded">Downloaded</string>
@@ -477,10 +475,6 @@
     <string name="model_builtin">Built-in</string>
     <string name="detector_tip">Detector identifies text regions in images</string>
     <string name="recognizer_tip">Recognizer converts images to text</string>
-
-    <!-- Advanced mode -->
-    <string name="advanced_model_combination">Advanced Model Combo</string>
-    <string name="advanced_model_combination_desc">Enable free detection + recognition pairing</string>
 
     <!-- Normal mode model menu -->
     <string name="manga_model_toggle">Model</string>

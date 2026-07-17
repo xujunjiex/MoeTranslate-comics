@@ -169,69 +169,6 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- CTD（需下载） -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="8dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="CTD"
-                    android:textSize="16sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/detector_ctd_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginTop="2dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/ctd_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/ctd_browser_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
-                        android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/ctd_action_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
-                </LinearLayout>
-            </LinearLayout>
-
         </LinearLayout>
 
         <!-- 识别器区域 -->
@@ -316,24 +253,14 @@
                     android:text="@string/recognizer_manga_desc"
                     android:textSize="11sp"
                     android:textColor="#888"
-                    android:layout_marginBottom="4dp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/recognizer_manga_onnx_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
                     android:layout_marginBottom="8dp"/>
 
-                <!-- 原版 -->
                 <LinearLayout
-                    android:id="@+id/manga_ocr_full_row"
+                    android:id="@+id/manga_ocr_row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="8dp"
-                    android:background="?android:attr/selectableItemBackground">
+                    android:padding="8dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -342,21 +269,14 @@
                         android:gravity="center_vertical">
 
                         <TextView
-                            android:id="@+id/full_name"
+                            android:id="@+id/manga_ocr_status"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:textSize="14sp"/>
+                            android:textSize="12sp"/>
 
                         <TextView
-                            android:id="@+id/full_status"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textSize="12sp"
-                            android:layout_marginEnd="8dp"/>
-
-                        <TextView
-                            android:id="@+id/full_browser_button"
+                            android:id="@+id/manga_ocr_browser_button"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:paddingStart="10dp"
@@ -369,7 +289,7 @@
                             android:layout_marginEnd="8dp"/>
 
                         <TextView
-                            android:id="@+id/full_action_button"
+                            android:id="@+id/manga_ocr_action_button"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:paddingStart="18dp"
@@ -381,79 +301,6 @@
                             android:textSize="12sp"
                             android:text="@string/model_download"/>
                     </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/full_size"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="12sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- 2025版 -->
-                <LinearLayout
-                    android:id="@+id/manga_ocr_v2025_row"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="8dp"
-                    android:background="?android:attr/selectableItemBackground">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/v2025_name"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:textSize="14sp"/>
-
-                        <TextView
-                            android:id="@+id/v2025_status"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textSize="12sp"
-                            android:layout_marginEnd="8dp"/>
-
-                        <TextView
-                            android:id="@+id/v2025_browser_button"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp"
-                            android:text="@string/model_download_in_browser"
-                            android:textSize="11sp"
-                            android:textColor="#666"
-                            android:layout_marginEnd="8dp"/>
-
-                        <TextView
-                            android:id="@+id/v2025_action_button"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:paddingStart="18dp"
-                            android:paddingEnd="18dp"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp"
-                            android:background="@drawable/btn_download"
-                            android:textColor="@android:color/white"
-                            android:textSize="12sp"
-                            android:text="@string/model_download"/>
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/v2025_size"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="12sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
                 </LinearLayout>
             </LinearLayout>
 

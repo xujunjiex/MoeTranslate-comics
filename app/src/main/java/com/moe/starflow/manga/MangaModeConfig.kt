@@ -22,11 +22,9 @@ enum class TextDirection {
 /**
  * 文字检测引擎。
  * MLKIT: ML Kit 检测+识别一体化
- * CTD: ComicTextDetector 文字行级检测（无需合并）
  */
 enum class DetEngine(val value: Int) {
     MLKIT(0),
-    CTD(1),
     RT_DETR_V2(3),
     PP_OCR_V5(4);
 

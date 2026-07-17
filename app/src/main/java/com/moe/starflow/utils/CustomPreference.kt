@@ -115,8 +115,6 @@ class CustomPreference private constructor(context: Context) {
     //Auto_Translate_Str_Length(Int)：自动翻译中，直接翻译的字符串阈值
     //Auto_Translate_Str_Similarity(Float)：自动翻译字符串相似度阈值
 
-    //----CTD 调试----
-    //CTD_Debug_View(Boolean)：CTD 调试模式开关，启用后显示未合并/合并选框
     //Game_Translate_Debug_View(Boolean)：游戏翻译调试模式开关，启用后显示调试浮窗和⚡缓存标识
 
     private val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)

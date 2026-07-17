@@ -21,7 +21,6 @@ import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.databinding.ActivityMangaViewerBinding
 import com.moe.starflow.manga.BubbleRegion
 import com.moe.starflow.manga.ComicBubbleDetector
-import com.moe.starflow.manga.CTDDetector
 import com.moe.starflow.manga.DetEngine
 import com.moe.starflow.manga.DetectionBridge
 import com.moe.starflow.manga.MangaOcrDownloadManager
@@ -471,16 +470,14 @@ class MangaViewerActivity : AppCompatActivity() {
         when (det) {
             DetEngine.PP_OCR_V5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
             DetEngine.RT_DETR_V2 -> ComicBubbleDetector.initialize(this@MangaViewerActivity)
-            DetEngine.CTD -> CTDDetector.initialize(this@MangaViewerActivity)
             DetEngine.MLKIT -> {} // 无需初始化
         }
         // Ocr 引擎
         when (ocr) {
             OcrEngine.PPOcrV5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
             OcrEngine.MangaOcr -> {
-                val version = MangaOcrDownloadManager.getActiveVersion(this@MangaViewerActivity)
-                if (version != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaViewerActivity, version)) {
-                    MangaOcrRecognizer.initialize(this@MangaViewerActivity, useAssets = false, version = version)
+                if (MangaOcrDownloadManager.isModelDownloaded(this@MangaViewerActivity)) {
+                    MangaOcrRecognizer.initialize(this@MangaViewerActivity, useAssets = false)
                 } else {
                     throw IllegalStateException("manga-ocr 模型未下载，请先在模型管理页面下载")
                 }
@@ -493,7 +490,7 @@ class MangaViewerActivity : AppCompatActivity() {
         val model = translator.modelName ?: ""
         val apiStr = if (model.isNotEmpty()) model else translator.javaClass.simpleName
         val detStr = when (det) {
-            DetEngine.CTD -> "CTD"; DetEngine.MLKIT -> "MLKit"
+            DetEngine.MLKIT -> "MLKit"
             DetEngine.RT_DETR_V2 -> "RT-DETR"; DetEngine.PP_OCR_V5 -> "PP-OCRv5"
         }
         val ocrStr = when (ocr) {

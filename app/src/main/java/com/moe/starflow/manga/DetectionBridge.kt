@@ -25,15 +25,6 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * CTD 调试模式结果
- */
-data class CTDDebugResult(
-    val rawBoxes: List<QuadBox>,              // CTD 检测的原始未合并 boxes（通过过滤）
-    val mergedGroups: List<TextRegionGroup>,  // TextRegionMerger 合并后的组
-    val discardedBoxes: List<QuadBox>         // CTD 检测中被过滤丢弃的 boxes
-)
-
-/**
  * ML Kit 调试模式结果
  */
 data class MLKitDebugResult(
@@ -109,63 +100,16 @@ data class CroppedTextLine(
 private const val DEBUG_TAG = "DetectionBridge"
 
 /**
- * CTD 调试模式：只检测，不翻译，显示未合并/合并/丢弃选框位置。
- * 用于验证 CTD 检测和合并逻辑是否正确。
- *
- * @param bitmap 输入图片
- * @return CTDDebugResult 包含原始 boxes、合并组和丢弃的 boxes
- */
-suspend fun detectWithCTDDebug(bitmap: Bitmap): CTDDebugResult {
-    // Step 1: CTD 检测（获取包含丢弃框的完整结果）
-    val detectResult = CTDDetector.detectQuadBoxesWithDiscarded(bitmap)
-    val rawQuadBoxes = detectResult.quadBoxes
-    val discardedBoxes = detectResult.discardedBoxes
-    LogCollector.d(DEBUG_TAG, "detectWithCTDDebug: CTD 检测到 ${rawQuadBoxes.size} 个文字区域, ${discardedBoxes.size} 个被丢弃")
-
-    // 记录丢弃的框（D=Discarded）
-    for ((idx, box) in discardedBoxes.withIndex()) {
-        LogCollector.d(DEBUG_TAG, "D[$idx]: ${box.aabb}, fontSize=${String.format("%.1f", box.fontSize)}")
-    }
-
-    // 记录原始框（R=Raw）
-    for ((idx, box) in rawQuadBoxes.withIndex()) {
-        LogCollector.d(DEBUG_TAG, "R[$idx]: ${box.aabb}, fontSize=${String.format("%.1f", box.fontSize)}")
-    }
-
-    // Step 2: TextRegionMerger 合并
-    val mergedGroups = TextRegionMerger.merge(rawQuadBoxes.map { TextRegion(it) })
-    LogCollector.d(DEBUG_TAG, "detectWithCTDDebug: TextRegionMerger 合并: ${rawQuadBoxes.size} → ${mergedGroups.size} 个组")
-
-    // 记录合并组（M=Merged）
-    for ((idx, group) in mergedGroups.withIndex()) {
-        val rawIndices = group.members.mapNotNull { tr -> rawQuadBoxes.indexOf(tr.quad).takeIf { it >= 0 } }
-        LogCollector.d(DEBUG_TAG, "M[$idx]:${group.members.size}boxes rect=${group.rect} rawIndices=$rawIndices")
-    }
-
-    return CTDDebugResult(rawQuadBoxes, mergedGroups, discardedBoxes)
-}
-
-/**
  * 统一检测桥接层。
  *
  * 支持：
  * - ML Kit: 检测 + 识别一体化
- * - CTD: ComicTextDetector 文字行级检测
  */
 object DetectionBridge {
 
     private const val TAG = "DetectionBridge"
 
     private const val BATCH_SIZE = 16
-
-    /**
-     * CTD 检测后使用的 OCR 引擎类型
-     */
-    enum class CTDOCREngine {
-        MLKit,
-        MangaOcr,
-        PPOcrV5
-    }
 
     /**
      * 按阅读顺序对结果排序。
@@ -182,157 +126,6 @@ object DetectionBridge {
             results.sortedWith(compareBy({ r -> -((r.boundingBox?.centerX() ?: 0)) }, { r -> r.boundingBox?.centerY() ?: 0 }))
         } else {
             results.sortedWith(compareBy({ r -> r.boundingBox?.centerY() ?: 0 }, { r -> r.boundingBox?.centerX() ?: 0 }))
-        }
-    }
-
-    /**
-     * 使用 CTD 检测文字区域，然后用指定 OCR 引擎识别文字。
-     *
-     * 流程：CTD 检测 → pre-expand(1.5x) → merge → final-expand(2.5x width, 3x height) → OCR
-     *
-     * @param bitmap 输入图片
-     * @param language 语言（用于 ML Kit 识别）
-     * @param ocrEngine OCR 引擎类型（MLKit 或 MangaOcr）
-     * @return TextBlockInfo 列表（含位置和识别文字）
-     */
-    suspend fun detectWithCTD(
-        bitmap: Bitmap,
-        language: String,
-        ocrEngine: CTDOCREngine,
-        context: Context
-    ): List<TextBlockInfo> {
-        try {
-            LogCollector.d(TAG, "使用 CTD(${ocrEngine.name}) 检测文字区域...")
-
-            // 使用 detectQuadBoxes 获取 QuadBox 列表
-            val quadBoxes = CTDDetector.detectQuadBoxes(bitmap)
-            if (quadBoxes.isEmpty()) {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) 未检测到文字区域")
-                return emptyList()
-            }
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 检测到 ${quadBoxes.size} 个文字区域")
-
-            val PADDING = 10
-            // TextRegionMerger 前合并：用 QuadBox 结构线信息确定分组（所有引擎共用）
-            val mergedGroups = TextRegionMerger.merge(quadBoxes.map { TextRegion(it) })
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) TextRegionMerger前合并: ${quadBoxes.size} → ${mergedGroups.size} 个区域")
-
-            // 计算每组的合并 AABB（用于 MLKit/MangaOcr 裁剪和日志）
-            val expandedRects = mergedGroups.map { group ->
-                Rect(
-                    (group.rect.left - PADDING).coerceAtLeast(0),
-                    (group.rect.top - PADDING).coerceAtLeast(0),
-                    (group.rect.right + PADDING).coerceAtMost(bitmap.width),
-                    (group.rect.bottom + PADDING).coerceAtMost(bitmap.height)
-                )
-            }
-            for ((idx, rect) in expandedRects.withIndex()) {
-                LogCollector.d(TAG, "CTD(${ocrEngine.name}) [$idx]: 最终区域[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}]")
-            }
-
-            // OCR 识别
-            val globalIsVertical = quadBoxes.count { it.aspectRatio > 1f } > quadBoxes.size / 2
-            val results = mutableListOf<TextBlockInfo>()
-
-            when (ocrEngine) {
-                CTDOCREngine.PPOcrV5 -> {
-                    // PPOcrV5 单行单列识别器：用 TextRegionMerger 分组，逐个 QuadBox 透视裁剪识别，按组拼接文字
-                    val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
-                    if (recLang != null) {
-                        // 逐个 QuadBox 透视裁剪 + 识别
-                        val allCropped = quadBoxes.map { qb -> PPOcrV5Engine.getRotateCropImage(bitmap, qb.pts) }
-                        val allResults = PPOcrV5Engine.recognizeBatch(context, allCropped, recLang)
-                        // 建立 QuadBox 索引到识别结果的映射
-                        val quadResults = mutableMapOf<Int, Pair<String, Float>>()
-                        for (i in quadBoxes.indices) {
-                            val r = allResults.getOrElse(i) { RecResult("", 0f) }
-                            if (r.text.isNotBlank() && r.score >= 0.5f) {
-                                quadResults[i] = Pair(r.text, r.score)
-                            }
-                        }
-                        // 按 TextRegionMerger 分组拼接
-                        for ((groupIdx, group) in mergedGroups.withIndex()) {
-                            val rect = expandedRects[groupIdx]
-                            val isVertical = group.direction == TextDirection.VERTICAL_RL
-                            // 收集该组内所有成员的识别结果，按阅读顺序拼接
-                            val groupTexts = group.members.mapNotNull { tr ->
-                                val idx = quadBoxes.indexOf(tr.quad)
-                                quadResults[idx]?.let { Triple(idx, it.first, it.second) }
-                            }
-                            if (groupTexts.isEmpty()) continue
-                            // 按阅读顺序排序：竖排从右到左（x 降序），横排从上到下（y 升序）
-                            val sorted = if (isVertical) {
-                                groupTexts.sortedByDescending { quadBoxes[it.first].aabb.left }
-                            } else {
-                                groupTexts.sortedBy { quadBoxes[it.first].aabb.top }
-                            }
-                            val combinedText = sorted.joinToString("") { it.second }
-                            val avgScore = sorted.map { it.third }.average().toFloat()
-                            results.add(TextBlockInfo(
-                                text = combinedText,
-                                boundingBox = rect,
-                                cornerPoints = null,
-                                isVertical = isVertical
-                            ))
-                            LogCollector.d(TAG, "CTD(PPOcrV5) 组[$groupIdx]: ${group.members.size}个QuadBox→'${combinedText}', score=${String.format("%.3f", avgScore)}, rect=[${rect.left},${rect.top},${rect.right},${rect.bottom}]")
-                        }
-                        // 释放裁剪图片
-                        for (c in allCropped) { if (c !== bitmap) c.recycle() }
-                    } else {
-                        LogCollector.w(TAG, "CTD(PPOcrV5) 不支持的语言: $language")
-                    }
-                }
-                CTDOCREngine.MLKit -> {
-                    val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
-                    for (i in expandedRects.indices) {
-                        val cropped = croppedBitmaps[i]
-                        val isVertical = mergedGroups.getOrNull(i)?.direction == TextDirection.VERTICAL_RL
-                        try {
-                            val text = OCRBridge.recognizeText(language, cropped)
-                            if (text.isNotBlank()) {
-                                results.add(TextBlockInfo(
-                                    text = text,
-                                    boundingBox = expandedRects[i],
-                                    cornerPoints = null,
-                                    isVertical = isVertical
-                                ))
-                                LogCollector.d(TAG, "CTD(MLKit) 识别结果[$i]: rect=[${expandedRects[i].left}, ${expandedRects[i].top}, ${expandedRects[i].right}, ${expandedRects[i].bottom}], text='$text', isVertical=$isVertical")
-                            }
-                        } catch (e: Exception) {
-                            LogCollector.e(TAG, "CTD(MLKit) ML Kit 识别失败[$i]", e)
-                        }
-                    }
-                    for (c in croppedBitmaps) { if (c !== bitmap) c.recycle() }
-                }
-                CTDOCREngine.MangaOcr -> {
-                    val croppedBitmaps = expandedRects.map { rect -> cropBitmap(bitmap, rect) }
-                    val texts = MangaOcrBridge.recognizeBatch(croppedBitmaps)
-                    for (i in expandedRects.indices) {
-                        val text = texts[i].trim()
-                        val isVertical = mergedGroups.getOrNull(i)?.direction == TextDirection.VERTICAL_RL
-                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
-                            val rect = expandedRects[i]
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = rect,
-                                cornerPoints = null,
-                                isVertical = isVertical
-                            ))
-                            LogCollector.d(TAG, "CTD(MangaOcr) 识别结果[$i]: rect=[${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}], text='$text', isVertical=$isVertical")
-                        } else if (isDotOnlyPattern(text)) {
-                            LogCollector.d(TAG, "CTD(MangaOcr) 过滤纯符号[$i]: '$text'")
-                        }
-                    }
-                    for (c in croppedBitmaps) { if (c !== bitmap) c.recycle() }
-                }
-            }
-
-            LogCollector.d(TAG, "CTD(${ocrEngine.name}) 完成，共 ${results.size} 个文字块")
-            return results
-
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "CTD(${ocrEngine.name}) 失败", e)
-            throw e
         }
     }
 
@@ -666,23 +459,21 @@ object DetectionBridge {
      * 流程：
      * 1. ComicBubbleDetector 检测气泡/文字区域 → List<DetectedBubble>
      * 2. 过滤 classId==0（无文字气泡），只保留 text_bubble(1) + text_free(2)
-     * 3. 逐个裁剪区域 → OCR 引擎识别
+     * 3. 逐个裁剪区域 → MangaOcr 识别
      * 4. 返回 TextBlockInfo 列表
      *
      * @param bitmap 输入图片
      * @param language OCR 语言代码
-     * @param ocrEngine OCR 引擎类型（复用 CTDOCREngine 枚举）
      * @return TextBlockInfo 列表
      */
     suspend fun detectWithRTDetrV2(
         bitmap: Bitmap,
         language: String,
-        ocrEngine: CTDOCREngine,
         context: Context,
         keepTextFree: Boolean = false
     ): List<TextBlockInfo> {
         try {
-            LogCollector.d(TAG, "使用 RT-DETR-V2 + ${ocrEngine.name} 检测文字区域...")
+            LogCollector.d(TAG, "使用 RT-DETR-V2 + MangaOcr 检测文字区域...")
 
             // Step 1: RT-DETR-V2 检测（返回所有类别）
             val allBubbles = ComicBubbleDetector.detectBubbles(bitmap)
@@ -729,67 +520,21 @@ object DetectionBridge {
             // Step 5: 裁剪图片（10px padding）
             val croppedBitmaps = sortedBubbles.map { bubble -> cropBitmap(bitmap, bubble.rect) }
 
-            // Step 4: OCR 识别
+            // Step 6: MangaOcr 识别
             val results = mutableListOf<TextBlockInfo>()
-            when (ocrEngine) {
-                CTDOCREngine.MLKit -> {
-                    for (i in sortedBubbles.indices) {
-                        try {
-                            val text = OCRBridge.recognizeText(language, croppedBitmaps[i])
-                            if (text.isNotBlank()) {
-                                val rect = sortedBubbles[i].rect
-                                val isVertical = rect.height() > rect.width()
-                                results.add(TextBlockInfo(
-                                    text = text,
-                                    boundingBox = rect,
-                                    cornerPoints = null,
-                                    isVertical = isVertical
-                                ))
-                                LogCollector.d(TAG, "RT-DETR-V2(MLKit) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='$text', isVertical=$isVertical")
-                            }
-                        } catch (e: Exception) {
-                            LogCollector.e(TAG, "RT-DETR-V2(MLKit) 识别失败[$i]", e)
-                        }
-                    }
-                }
-                CTDOCREngine.MangaOcr -> {
-                    val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
-                    for (i in sortedBubbles.indices) {
-                        val text = texts[i].trim()
-                        if (text.isNotBlank() && !isDotOnlyPattern(text)) {
-                            val rect = sortedBubbles[i].rect
-                            val isVertical = rect.height() > rect.width()
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = rect,
-                                cornerPoints = null,
-                                isVertical = isVertical
-                            ))
-                            LogCollector.d(TAG, "RT-DETR-V2(MangaOcr) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='$text', isVertical=$isVertical")
-                        }
-                    }
-                }
-                CTDOCREngine.PPOcrV5 -> {
-                    val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
-                    if (recLang != null) {
-                        val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
-                        for (i in sortedBubbles.indices) {
-                            val result = texts.getOrElse(i) { RecResult("", 0f) }
-                            if (result.text.isNotBlank() && result.score >= 0.5f) {
-                                val rect = sortedBubbles[i].rect
-                                val isVertical = rect.height() > rect.width()
-                                results.add(TextBlockInfo(
-                                    text = result.text,
-                                    boundingBox = rect,
-                                    cornerPoints = null,
-                                    isVertical = isVertical
-                                ))
-                                LogCollector.d(TAG, "RT-DETR-V2(PPOcrV5) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='${result.text}', score=${String.format("%.3f", result.score)}, isVertical=$isVertical")
-                            }
-                        }
-                    } else {
-                        LogCollector.w(TAG, "RT-DETR-V2(PPOcrV5) 不支持的语言: $language")
-                    }
+            val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+            for (i in sortedBubbles.indices) {
+                val text = texts[i].trim()
+                if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                    val rect = sortedBubbles[i].rect
+                    val isVertical = rect.height() > rect.width()
+                    results.add(TextBlockInfo(
+                        text = text,
+                        boundingBox = rect,
+                        cornerPoints = null,
+                        isVertical = isVertical
+                    ))
+                    LogCollector.d(TAG, "RT-DETR-V2(MangaOcr) [$i]: rect=$rect, class=${sortedBubbles[i].classId}, text='$text', isVertical=$isVertical")
                 }
             }
 
@@ -798,7 +543,7 @@ object DetectionBridge {
                 if (cropped !== bitmap) cropped.recycle()
             }
 
-            LogCollector.d(TAG, "RT-DETR-V2 + ${ocrEngine.name} 完成，共 ${results.size} 个文字块")
+            LogCollector.d(TAG, "RT-DETR-V2 + MangaOcr 完成，共 ${results.size} 个文字块")
             return results
 
         } catch (e: Exception) {
@@ -877,79 +622,33 @@ object DetectionBridge {
      * 识别完成后释放裁剪图片。
      *
      * @param croppedBubbles 裁剪结果列表
-     * @param ocrEngine OCR 引擎类型
-     * @param context Context（PP-OCRv5 需要）
      * @param language 语言代码
      * @return TextBlockInfo 列表
      */
     suspend fun recognizeCroppedBubbles(
         croppedBubbles: List<CroppedBubble>,
-        ocrEngine: CTDOCREngine,
-        context: Context,
         language: String
     ): List<TextBlockInfo> = withContext(Dispatchers.IO) {
         if (croppedBubbles.isEmpty()) return@withContext emptyList()
 
-        LogCollector.d(TAG, "recognizeCroppedBubbles: ${croppedBubbles.size} 个气泡, engine=$ocrEngine")
+        LogCollector.d(TAG, "recognizeCroppedBubbles: ${croppedBubbles.size} 个气泡, engine=MangaOcr")
 
         val croppedBitmaps = croppedBubbles.map { it.croppedBitmap }
         val results = mutableListOf<TextBlockInfo>()
 
-        when (ocrEngine) {
-            CTDOCREngine.MangaOcr -> {
-                val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
-                for (i in croppedBubbles.indices) {
-                    val text = texts[i].trim()
-                    if (text.isNotBlank() && !isDotOnlyPattern(text)) {
-                        val bubble = croppedBubbles[i]
-                        val isVertical = bubble.rect.height() > bubble.rect.width()
-                        results.add(TextBlockInfo(
-                            text = text,
-                            boundingBox = bubble.rect,
-                            cornerPoints = null,
-                            isVertical = isVertical
-                        ))
-                        LogCollector.d(TAG, "recognizeCroppedBubbles(MangaOcr) [$i]: rect=${bubble.rect}, text='$text', isVertical=$isVertical")
-                    }
-                }
-            }
-            CTDOCREngine.MLKit -> {
-                for (i in croppedBubbles.indices) {
-                    try {
-                        val text = OCRBridge.recognizeText(language, croppedBitmaps[i])
-                        if (text.isNotBlank()) {
-                            val bubble = croppedBubbles[i]
-                            val isVertical = bubble.rect.height() > bubble.rect.width()
-                            results.add(TextBlockInfo(
-                                text = text,
-                                boundingBox = bubble.rect,
-                                cornerPoints = null,
-                                isVertical = isVertical
-                            ))
-                        }
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "recognizeCroppedBubbles(MLKit) 失败[$i]", e)
-                    }
-                }
-            }
-            CTDOCREngine.PPOcrV5 -> {
-                val (recLang, _) = PPOcrV5Engine.resolveRecLang(context, language)
-                if (recLang != null) {
-                    val texts = PPOcrV5Engine.recognizeBatch(context, croppedBitmaps, recLang)
-                    for (i in croppedBubbles.indices) {
-                        val result = texts.getOrElse(i) { RecResult("", 0f) }
-                        if (result.text.isNotBlank() && result.score >= 0.5f) {
-                            val bubble = croppedBubbles[i]
-                            val isVertical = bubble.rect.height() > bubble.rect.width()
-                            results.add(TextBlockInfo(
-                                text = result.text,
-                                boundingBox = bubble.rect,
-                                cornerPoints = null,
-                                isVertical = isVertical
-                            ))
-                        }
-                    }
-                }
+        val texts = MangaOcrRecognizer.recognizeBatch(croppedBitmaps)
+        for (i in croppedBubbles.indices) {
+            val text = texts[i].trim()
+            if (text.isNotBlank() && !isDotOnlyPattern(text)) {
+                val bubble = croppedBubbles[i]
+                val isVertical = bubble.rect.height() > bubble.rect.width()
+                results.add(TextBlockInfo(
+                    text = text,
+                    boundingBox = bubble.rect,
+                    cornerPoints = null,
+                    isVertical = isVertical
+                ))
+                LogCollector.d(TAG, "recognizeCroppedBubbles(MangaOcr) [$i]: rect=${bubble.rect}, text='$text', isVertical=$isVertical")
             }
         }
 
@@ -964,15 +663,11 @@ object DetectionBridge {
 
     /**
      * 流式识别裁剪气泡：decoder 每完成一个就返回结果，不等全部完成。
-     * 仅 MangaOcr 支持流式，其他引擎回退到批量识别。
      *
      * @return Channel<Pair<Int, TextBlockInfo>> (索引, 识别结果)
      */
     suspend fun recognizeCroppedBubblesStreaming(
-        croppedBubbles: List<CroppedBubble>,
-        ocrEngine: CTDOCREngine,
-        context: Context,
-        language: String
+        croppedBubbles: List<CroppedBubble>
     ): kotlinx.coroutines.channels.Channel<Pair<Int, TextBlockInfo>> {
         val channel = kotlinx.coroutines.channels.Channel<Pair<Int, TextBlockInfo>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
 
@@ -981,32 +676,24 @@ object DetectionBridge {
             return channel
         }
 
-        LogCollector.d(TAG, "recognizeCroppedBubblesStreaming: ${croppedBubbles.size} 个气泡, engine=$ocrEngine")
+        LogCollector.d(TAG, "recognizeCroppedBubblesStreaming: ${croppedBubbles.size} 个气泡, engine=MangaOcr")
 
-        if (ocrEngine == CTDOCREngine.MangaOcr) {
-            val croppedBitmaps = croppedBubbles.map { it.croppedBitmap }
-            val ocrChannel = MangaOcrRecognizer.recognizeStreaming(croppedBitmaps)
+        val croppedBitmaps = croppedBubbles.map { it.croppedBitmap }
+        val ocrChannel = MangaOcrRecognizer.recognizeStreaming(croppedBitmaps)
 
-            // 转换 OCR 结果为 TextBlockInfo
-            for ((i, text) in ocrChannel) {
-                val trimmed = text.trim()
-                if (trimmed.isNotBlank() && !isDotOnlyPattern(trimmed)) {
-                    val bubble = croppedBubbles[i]
-                    val isVertical = bubble.rect.height() > bubble.rect.width()
-                    channel.send(Pair(i, TextBlockInfo(
-                        text = trimmed,
-                        boundingBox = bubble.rect,
-                        cornerPoints = null,
-                        isVertical = isVertical
-                    )))
-                    LogCollector.d(TAG, "recognizeCroppedBubblesStreaming(MangaOcr) [$i]: rect=${bubble.rect}, text='$trimmed', isVertical=$isVertical")
-                }
-            }
-        } else {
-            // 非 MangaOcr 回退到批量识别
-            val results = recognizeCroppedBubbles(croppedBubbles, ocrEngine, context, language)
-            for ((i, result) in results.withIndex()) {
-                channel.send(Pair(i, result))
+        // 转换 OCR 结果为 TextBlockInfo
+        for ((i, text) in ocrChannel) {
+            val trimmed = text.trim()
+            if (trimmed.isNotBlank() && !isDotOnlyPattern(trimmed)) {
+                val bubble = croppedBubbles[i]
+                val isVertical = bubble.rect.height() > bubble.rect.width()
+                channel.send(Pair(i, TextBlockInfo(
+                    text = trimmed,
+                    boundingBox = bubble.rect,
+                    cornerPoints = null,
+                    isVertical = isVertical
+                )))
+                LogCollector.d(TAG, "recognizeCroppedBubblesStreaming(MangaOcr) [$i]: rect=${bubble.rect}, text='$trimmed', isVertical=$isVertical")
             }
         }
 
@@ -1084,29 +771,13 @@ object DetectionBridge {
         val det = DetEngine.fromValue(detEngine)
         val ocr = OcrEngine.fromValue(ocrEngine)
         return when (det) {
-            DetEngine.CTD -> {
-                val ctdOcr = when (ocr) {
-                    OcrEngine.MLKit -> CTDOCREngine.MLKit
-                    OcrEngine.MangaOcr -> CTDOCREngine.MangaOcr
-                    OcrEngine.PPOcrV5 -> CTDOCREngine.PPOcrV5
-                }
-                detectWithCTD(bitmap, language, ctdOcr, context)
-            }
             DetEngine.MLKIT -> {
-                LogCollector.d(TAG, "使用 ML Kit 检测+识别, language=$language, ocr=$ocr")
-                when (ocr) {
-                    OcrEngine.MangaOcr -> MangaOcrBridge.recognizeWithLocation(bitmap, language)
-                    else -> OCRBridge.recognizeWithLocation(language, bitmap)
-                }
+                LogCollector.d(TAG, "使用 ML Kit 检测+识别, language=$language")
+                OCRBridge.recognizeWithLocation(language, bitmap)
             }
             DetEngine.RT_DETR_V2 -> {
                 LogCollector.d(TAG, "使用 RT-DETR-V2 检测, ocr=$ocr, language=$language")
-                val rtdetrOcr = when (ocr) {
-                    OcrEngine.MLKit -> CTDOCREngine.MLKit
-                    OcrEngine.MangaOcr -> CTDOCREngine.MangaOcr
-                    OcrEngine.PPOcrV5 -> CTDOCREngine.PPOcrV5
-                }
-                detectWithRTDetrV2(bitmap, language, rtdetrOcr, context)
+                detectWithRTDetrV2(bitmap, language, context)
             }
             DetEngine.PP_OCR_V5 -> {
                 LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别, language=$language")

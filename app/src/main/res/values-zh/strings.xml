@@ -372,11 +372,10 @@
     <string name="proj_mangaocr_title">manga-ocr</string>
     <string name="proj_mangaocr_content">专为日漫文字设计的 OCR 模型，支持竖排文字识别。\nhttps://github.com/kha-white/manga-ocr</string>
     <string name="proj_mangaimagetran_title">manga-image-translator</string>
-    <string name="proj_mangaimagetran_content">漫画图片翻译项目，提供 CTD 文字检测模型和翻译流水线参考。\nhttps://github.com/zyddnys/manga-image-translator</string>
+    <string name="proj_mangaimagetran_content">漫画图片翻译项目，翻译流水线架构参考自此项目。\nhttps://github.com/zyddnys/manga-image-translator</string>
     <string name="official_website">GitHub仓库</string>
     <string name="feedback">意见反馈</string>
     <string name="open_source_statement">开放源代码声明</string>
-    <string name="ctd_debug">CTD 调试模式</string>
     <string name="proj_rtranslator_title">RTranslator</string>
     <string name="proj_rtranslator_content">本地运行的适用于 Android 的开源实时翻译应用程序。\nhttps://github.com/niedev/RTranslator</string>
     <string name="donate_proj">支持项目</string>
@@ -487,14 +486,12 @@
     <string name="model_management">模型管理</string>
     <string name="model_management_tip">管理已下载的识别模型</string>
     <string name="detector_section">检测器</string>
-    <string name="detector_ctd_desc">高精度文字检测，支持竖排，会引入固定1-2s延迟，94MB</string>
     <string name="detector_rtdetr_desc">块级+气泡检测，速度快，11MB</string>
     <string name="detector_mlkit_desc">Google ML Kit 检测+识别，约10MB</string>
     <string name="recognizer_section">识别器</string>
     <string name="recognizer_ctc_desc">多语言文字识别，配合检测器使用，内置</string>
     <string name="recognizer_mlkit_desc">Google ML Kit OCR，约10MB，无需下载</string>
-    <string name="recognizer_manga_desc">专门识别竖排日文漫画，支持竖排文字</string>
-    <string name="recognizer_manga_onnx_desc">原版460MB速度极慢精度极高，2025版135MB速度大幅提升精度略低</string>
+    <string name="recognizer_manga_desc">专用日文漫画 OCR，约 135MB，速度较慢，精度高；需搭配 RT-DETR-V2 检测器使用</string>
     <string name="model_coming_soon">即将支持</string>
     <string name="model_download">下载</string>
     <string name="model_delete">删除</string>
@@ -512,10 +509,6 @@
     <string name="model_builtin">已内置</string>
     <string name="detector_tip">检测器：识别图片中的文字区域</string>
     <string name="recognizer_tip">识别器：将图片中的文字转换为文本</string>
-
-    <!-- 高级模式 -->
-    <string name="advanced_model_combination">高级模型搭配</string>
-    <string name="advanced_model_combination_desc">开启后可自由搭配检测器和识别器</string>
 
     <!-- 普通模式模型菜单 -->
     <string name="manga_model_toggle">模型</string>

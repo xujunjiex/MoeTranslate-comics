@@ -92,12 +92,10 @@ class GameOcrEngine(
         LogCollector.d(TAG, "initMangaOcrIfNeeded: isAvailable=${MangaOcrBridge.isAvailable()}")
         if (MangaOcrBridge.isAvailable()) return
         try {
-            val activeVersion = MangaOcrDownloadManager.getActiveVersion(context)
-            LogCollector.d(TAG, "initMangaOcrIfNeeded: activeVersion=$activeVersion")
-            if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(context, activeVersion)) {
+            if (MangaOcrDownloadManager.isModelDownloaded(context)) {
                 LogCollector.d(TAG, "initMangaOcrIfNeeded: 开始初始化 manga-ocr")
                 onMessage?.invoke("manga-ocr 识别器初始化中...")
-                MangaOcrBridge.initializeDownloaded(context, activeVersion)
+                MangaOcrBridge.initializeDownloaded(context)
                 LogCollector.d(TAG, "initMangaOcrIfNeeded: manga-ocr 初始化完成")
                 onMessage?.invoke("manga-ocr 识别器初始化成功")
             }

@@ -105,28 +105,6 @@ class Developer : Fragment() {
             startActivity(intent)
         }
 
-        // 高级模型搭配开关
-        val advancedModeEnabled = prefs.getBoolean("Manga_Advanced_Mode", false)
-        binding.advancedModeSwitch.isChecked = advancedModeEnabled
-        binding.advancedModeSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setBoolean("Manga_Advanced_Mode", isChecked)
-            if (isChecked) {
-                UiUtils.showToast(requireContext(),"高级模型搭配已开启，可自由搭配检测器和识别器")
-            } else {
-                UiUtils.showToast(requireContext(),"高级模型搭配已关闭，使用固定搭配模式")
-            }
-        }
-
-        // CTD 调试开关
-        val ctdDebugEnabled = prefs.getBoolean("CTD_Debug_View", false)
-        binding.ctdDebugSwitch.isChecked = ctdDebugEnabled
-        binding.ctdDebugSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setBoolean("CTD_Debug_View", isChecked)
-            if (isChecked) {
-                UiUtils.showToast(requireContext(),"CTD 调试模式已开启，请在漫画翻译界面截图测试")
-            }
-        }
-
         // RT-DETR-V2 调试开关
         binding.rtdetrDebugSwitch.isChecked = prefs.getBoolean("RTDetrV2_Debug_View", false)
         binding.rtdetrDebugSwitch.setOnCheckedChangeListener { _, isChecked ->

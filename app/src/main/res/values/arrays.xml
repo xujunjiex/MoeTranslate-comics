@@ -95,7 +95,6 @@
 
     <string-array name="manga_det_model_entries">
         <item>ML Kit</item>
-        <item>CTD</item>
         <item>HYBRID</item>
     </string-array>
 

@@ -1026,12 +1026,11 @@ class FloatingBallService : LifecycleService() {
                     }
                     2 -> {
                         // manga-ocr
-                        val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@FloatingBallService)
-                        if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@FloatingBallService, activeVersion)) {
+                        if (MangaOcrDownloadManager.isModelDownloaded(this@FloatingBallService)) {
                             LogCollector.d(TAG, "初始化 manga-ocr 识别器...")
                             showToast("manga-ocr 识别器初始化中...", true)
                             withContext(Dispatchers.IO) {
-                                MangaOcrBridge.initializeDownloaded(this@FloatingBallService, activeVersion)
+                                MangaOcrBridge.initializeDownloaded(this@FloatingBallService)
                             }
                             LogCollector.d(TAG, "manga-ocr 识别器初始化成功")
                             showToast("manga-ocr 识别器初始化成功", true)

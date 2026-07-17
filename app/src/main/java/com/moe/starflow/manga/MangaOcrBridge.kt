@@ -7,7 +7,6 @@ import android.util.Log
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.bridge.OCRBridge
 import com.moe.starflow.bridge.TextBlockInfo
-import com.moe.starflow.manga.MangaOcrDownloadManager.ModelVersion
 
 /**
  * manga-ocr 混合 OCR 桥接
@@ -134,13 +133,10 @@ object MangaOcrBridge {
 
     /**
      * 初始化下载的 manga-ocr 模型
-     *
-     * @param context Context
-     * @param version 模型版本
      */
-    suspend fun initializeDownloaded(context: Context, version: ModelVersion) {
-        LogCollector.d(TAG, "initializeDownloaded: version=${version.name} (${version.description})")
-        MangaOcrRecognizer.initialize(context, useAssets = false, version = version)
+    suspend fun initializeDownloaded(context: Context) {
+        LogCollector.d(TAG, "initializeDownloaded: 加载已下载的 manga-ocr 模型")
+        MangaOcrRecognizer.initialize(context, useAssets = false)
     }
 
     /**

@@ -31,7 +31,7 @@ fun TextBlockInfo.toTextLine(config: MangaModeConfig): TextLine? {
     if (w <= 0 || h <= 0) return null
 
     val direction = if (isVertical != null) {
-        // Use the passed isVertical from CTD detection
+        // Use the passed isVertical (from detector)
         if (isVertical) {
             if (config.textDirection == TextDirection.VERTICAL_LR) TextDirection.VERTICAL_LR
             else TextDirection.VERTICAL_RL

@@ -71,7 +71,7 @@ class OpenSource : Fragment() {
             CustomCard(getText(R.string.proj_mangaimagetran_title), getText(R.string.proj_mangaimagetran_content))
         )
 
-        val allItems = announce + listOf(null) + references
+        val allItems = references + listOf(null) + announce
 
         adapter = CardAdapter(allItems)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())

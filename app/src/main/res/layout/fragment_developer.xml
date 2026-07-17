@@ -181,40 +181,6 @@
                         android:src="@drawable/righticon" />
                 </RelativeLayout>
 
-                <RelativeLayout
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:id="@+id/advancedMode"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp">
-
-                    <ImageView
-                        android:id="@+id/advancedModeIcon"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:layout_centerVertical="true"
-                        android:src="@drawable/advanced_model" />
-
-                    <TextView
-                        android:id="@+id/advancedModeTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_centerVertical="true"
-                        android:layout_marginStart="20dp"
-                        android:layout_toEndOf="@id/advancedModeIcon"
-                        android:text="@string/advanced_model_combination"
-                        android:textColor="#6A6464"
-                        android:textSize="20sp" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/advancedModeSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_alignParentEnd="true"
-                        android:layout_centerVertical="true" />
-                </RelativeLayout>
-
                 <!-- 调试模式一级标题 -->
                 <RelativeLayout
                     android:layout_width="match_parent"
@@ -250,32 +216,6 @@
                     android:background="#E0E0E0" />
 
                 <!-- 二级菜单：无图标 -->
-                <RelativeLayout
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:id="@+id/ctdDebug"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
-                    android:paddingStart="15dp">
-
-                    <TextView
-                        android:id="@+id/ctdDebugTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_centerVertical="true"
-                        android:text="@string/ctd_debug"
-                        android:textColor="#6A6464"
-                        android:textSize="18sp" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/ctdDebugSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_alignParentEnd="true"
-                        android:layout_centerVertical="true" />
-                </RelativeLayout>
-
                 <RelativeLayout
                     android:background="?attr/selectableItemBackground"
                     android:clickable="true"

@@ -56,14 +56,13 @@ object MangaOcrRecognizer {
      * @param context Context
      * @param modelDir 模型目录（仅用于 assets 模式）
      * @param useAssets 是否从 assets 加载，false 时从下载目录加载
-     * @param version 模型版本（仅在 useAssets=false 时有效）
      */
-    suspend fun initialize(context: Context, modelDir: String = "manga_ocr", useAssets: Boolean = true, version: MangaOcrDownloadManager.ModelVersion? = null) {
+    suspend fun initialize(context: Context, modelDir: String = "manga_ocr", useAssets: Boolean = true) {
         synchronized(initLock) {
             if (isInitialized) return
 
             try {
-                LogCollector.d(TAG, "开始初始化 manga-ocr 模型 (useAssets=$useAssets, version=$version, sessions=$sessionCount)...")
+                LogCollector.d(TAG, "开始初始化 manga-ocr 模型 (useAssets=$useAssets, sessions=$sessionCount)...")
 
                 val env = OrtEnvironment.getEnvironment()
                 ortEnv = env
@@ -78,8 +77,6 @@ object MangaOcrRecognizer {
                 // 加载 encoder（1 个 session，支持动态 batch_size）
                 val encoderPath = if (useAssets) {
                     copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
-                } else if (version != null) {
-                    MangaOcrDownloadManager.getEncoderFile(context, version).absolutePath
                 } else {
                     MangaOcrDownloadManager.getEncoderFile(context).absolutePath
                 }
@@ -89,8 +86,6 @@ object MangaOcrRecognizer {
                 // 加载 decoder（多个 session）
                 val decoderPath = if (useAssets) {
                     copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
-                } else if (version != null) {
-                    MangaOcrDownloadManager.getDecoderFile(context, version).absolutePath
                 } else {
                     MangaOcrDownloadManager.getDecoderFile(context).absolutePath
                 }
@@ -101,10 +96,10 @@ object MangaOcrRecognizer {
 
                 // 加载 tokenizer
                 tokenizer = MangaOcrTokenizer(context).apply {
-                    if (!useAssets && version != null) {
-                        loadFromFile(MangaOcrDownloadManager.getVocabFile(context, version))
-                    } else {
+                    if (useAssets) {
                         loadFromAssets(modelDir)
+                    } else {
+                        loadFromFile(MangaOcrDownloadManager.getVocabFile(context))
                     }
                 }
                 LogCollector.d(TAG, "Tokenizer 加载完成")

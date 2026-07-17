@@ -112,10 +112,6 @@ class MangaFloatingService : LifecycleService() {
         const val INCREMENTAL_THRESHOLD = 6       // 触发分批的气泡数量阈值
         const val CLUSTER_THRESHOLD = 250f        // 空间聚类加权距离阈值
 
-        // 当前加载的 manga-ocr 版本，用于日志
-        @Volatile
-        var currentLoadedMangaOcrVersion: String = "unknown"
-            private set
 
         fun start(context: Context) {
             androidx.core.content.ContextCompat.startForegroundService(
@@ -342,7 +338,6 @@ class MangaFloatingService : LifecycleService() {
 
         // 初始化检测引擎（检测器）
         when (config.detEngine) {
-            DetEngine.CTD -> initCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> lifecycleScope.launch { initRTDetrV2() }
             DetEngine.PP_OCR_V5 -> lifecycleScope.launch { initPPOcrV5("检测器") }
@@ -414,7 +409,6 @@ class MangaFloatingService : LifecycleService() {
 
         // 释放检测引擎资源
         when (config.detEngine) {
-            DetEngine.CTD -> releaseCTD()
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> releaseRTDetrV2()
             DetEngine.PP_OCR_V5 -> releasePPOcrV5()
@@ -512,63 +506,6 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    private fun initCTD() {
-        lifecycleScope.launch {
-            try {
-                // 检查模型是否已下载
-                if (!CTDModelManager.isModelAvailable(this@MangaFloatingService)) {
-                    LogCollector.d(TAG, "initCTD: CTD 模型未下载")
-                    showToast("CTD 检测器模型未下载，请先在模型管理中下载")
-                    return@launch
-                }
-                LogCollector.d(TAG, "initCTD: 开始初始化 CTD")
-                CTDDetector.initialize(this@MangaFloatingService)
-                LogCollector.d(TAG, "initCTD: CTD 初始化完成")
-                showToast("CTD 检测器初始化成功")
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "initCTD: 初始化失败", e)
-                showToast("CTD 检测器初始化失败: ${e.message ?: "未知错误"}")
-            }
-        }
-    }
-
-    private fun releaseCTD() {
-        try {
-            LogCollector.d(TAG, "releaseCTD: 释放 CTD 资源")
-            CTDDetector.release()
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "releaseCTD: 释放失败", e)
-        }
-    }
-
-    /**
-     * 同步初始化 CTD（如果需要），在 processMangaScreenshot 中调用。
-     */
-    private suspend fun initCTDIfNeeded() {
-        if (CTDDetector.isInitialized) return
-        // 检查模型是否已下载
-        if (!CTDModelManager.isModelAvailable(this@MangaFloatingService)) {
-            LogCollector.d(TAG, "initCTDIfNeeded: CTD 模型未下载")
-            withContext(Dispatchers.Main) {
-                showToast("CTD 检测器模型未下载，请先在模型管理中下载")
-            }
-            throw IllegalStateException("CTD model not downloaded")
-        }
-        try {
-            LogCollector.d(TAG, "initCTDIfNeeded: 开始初始化 CTD")
-            withContext(Dispatchers.IO) {
-                CTDDetector.initialize(this@MangaFloatingService)
-            }
-            LogCollector.d(TAG, "initCTDIfNeeded: CTD 初始化完成")
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "initCTDIfNeeded: 初始化失败", e)
-            withContext(Dispatchers.Main) {
-                showToast("CTD 检测器初始化失败: ${e.message}")
-            }
-            throw e
-        }
-    }
-
     private fun initRTDetrV2() {
         lifecycleScope.launch {
             try {
@@ -658,25 +595,17 @@ class MangaFloatingService : LifecycleService() {
 
         when (currentConfig.ocrEngine) {
             OcrEngine.MangaOcr -> {
-                val activeVersion = MangaOcrDownloadManager.getActiveVersion(this@MangaFloatingService)
-                if (activeVersion != null && MangaOcrDownloadManager.isVersionDownloaded(this@MangaFloatingService, activeVersion)) {
+                if (MangaOcrDownloadManager.isModelDownloaded(this@MangaFloatingService)) {
                     try {
-                        val versionStr = activeVersion.name
-                        // 如果已初始化且版本匹配，直接返回
-                        if (MangaOcrRecognizer.isInitialized && currentLoadedMangaOcrVersion == versionStr) {
-                            LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 已初始化，版本匹配 ($versionStr)")
+                        // 如果已初始化，直接返回
+                        if (MangaOcrRecognizer.isInitialized) {
+                            LogCollector.d(TAG, "ensureMangaOcrInitialized: manga-ocr 已初始化")
                             return
                         }
-                        // 版本不匹配或未初始化，先释放再重新加载
-                        if (MangaOcrRecognizer.isInitialized) {
-                            LogCollector.d(TAG, "ensureMangaOcrInitialized: 版本变更 ($currentLoadedMangaOcrVersion → $versionStr)，重新加载")
-                            MangaOcrRecognizer.release()
-                        }
-                        LogCollector.d(TAG, "ensureMangaOcrInitialized: 使用已下载的 manga-ocr 模型: $activeVersion")
+                        LogCollector.d(TAG, "ensureMangaOcrInitialized: 加载 manga-ocr 模型")
                         withContext(Dispatchers.IO) {
-                            MangaOcrBridge.initializeDownloaded(this@MangaFloatingService, activeVersion)
+                            MangaOcrBridge.initializeDownloaded(this@MangaFloatingService)
                         }
-                        currentLoadedMangaOcrVersion = versionStr
                     } catch (e: Exception) {
                         LogCollector.e(TAG, "manga-ocr 识别器初始化失败", e)
                         withContext(Dispatchers.Main) {
@@ -708,8 +637,8 @@ class MangaFloatingService : LifecycleService() {
 
     private fun loadConfig(): MangaModeConfig {
         val detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value))
-        // CTD 和 RT-DETR-V2 检测器已输出气泡/区域级结果，不需要 BubbleDetector 再次聚类
-        val autoDetectBubble = if (detEngine == DetEngine.CTD || detEngine == DetEngine.RT_DETR_V2) {
+        // RT-DETR-V2 检测器已输出气泡/区域级结果，不需要 BubbleDetector 再次聚类
+        val autoDetectBubble = if (detEngine == DetEngine.RT_DETR_V2) {
             false
         } else {
             prefs.getBoolean("Manga_Auto_Detect_Bubble", true)
@@ -945,17 +874,10 @@ class MangaFloatingService : LifecycleService() {
             getString(R.string.manga_mode_fullscreen)
         }
 
-        val isAdvancedMode = prefs.getBoolean("Manga_Advanced_Mode", false)
-
         isMenuShowing = true
 
-        if (isAdvancedMode) {
-            // 高级模式：检测模型 + OCR 引擎分开选择
-            showMenuAdvanced(cropLabel)
-        } else {
-            // 普通模式：固定搭配，只有一个"模型"选项
-            showMenuSimple(cropLabel)
-        }
+        // 普通模式：固定搭配，3 个合法组合循环（高级模式菜单已删除）
+        showMenuSimple(cropLabel)
     }
 
     /**
@@ -1057,108 +979,6 @@ class MangaFloatingService : LifecycleService() {
         dialog.setOnDismissListener { isMenuShowing = false }
     }
 
-    /**
-     * 高级模式菜单：检测模型 + OCR 引擎独立选择
-     */
-    private fun showMenuAdvanced(cropLabel: String) {
-        val detModelLabel = when (config.detEngine) {
-            DetEngine.CTD -> "CTD"
-            DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
-            DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
-            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
-        }
-        val ocrEngineLabel = when (config.ocrEngine) {
-            OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
-            OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.PPOcrV5 -> "PP-OCRv5"
-        }
-
-        val langName = getCurrentSourceLangName()
-        val (dialog, listView) = Dialogs.mangaMenuDialog(
-            this, isAutoTranslating, cropLabel, detModelLabel, ocrEngineLabel, langName
-        )
-
-        listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
-            when (which) {
-                0 -> {
-                    if (cropRect != null) {
-                        cropRect = null
-                        showToast(getString(R.string.manga_mode_fullscreen), true)
-                        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-                        adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
-                    } else {
-                        dialog.dismiss()
-                        handler.postDelayed({ startCropSelection() }, 200)
-                    }
-                }
-                1 -> {
-                    if (isAutoTranslating) {
-                        showToast(getString(R.string.auto_translate_disabled_hint), true)
-                    } else {
-                        showFontSizeDialog()
-                    }
-                }
-                2 -> {
-                    if (isAutoTranslating) {
-                        showToast(getString(R.string.auto_translate_disabled_hint), true)
-                    } else {
-                        toggleDetModel(dialog, listView)
-                    }
-                }
-                3 -> {
-                    if (isAutoTranslating) {
-                        showToast(getString(R.string.auto_translate_disabled_hint), true)
-                    } else {
-                        toggleOcrEngine(dialog, listView)
-                    }
-                }
-                4 -> {
-                    if (isAutoTranslating) {
-                        showToast(getString(R.string.auto_translate_no_switch), true)
-                    } else {
-                        // 循环切换源语言，不关闭菜单
-                        cycleSourceLang()
-                        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-                        adapter.updateLabel(4, "${getString(R.string.game_switch_language)}：${getCurrentSourceLangName()}")
-                    }
-                }
-                5 -> {
-                    toggleAutoTranslate()
-                    val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-                    if (isAutoTranslating) {
-                        adapter.updateLabel(5, getString(R.string.manga_menu_stop_auto))
-                        adapter.updateIcon(5, R.drawable.stop_auto)
-                    } else {
-                        adapter.updateLabel(5, getString(R.string.manga_menu_auto_translate))
-                        adapter.updateIcon(5, R.drawable.start_auto)
-                    }
-                }
-                6 -> {
-                    dialog.dismiss()
-                    stopSelf()
-                }
-                7 -> {
-                    dialog.dismiss()
-                    backToMainActivity()
-                }
-            }
-        }
-
-        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        // 横屏时缩小菜单，竖屏保持原样
-        if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            val screenSize = getScreenSize()
-            val maxW = (screenSize.width * 0.4).toInt()
-            val maxH = (screenSize.height * 0.7).toInt()
-            dialog.window?.setLayout(maxW, maxH)
-        } else {
-            dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        dialog.setOnDismissListener { isMenuShowing = false }
-    }
-
     private fun backToMainActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -1175,56 +995,9 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- Menu actions ----------
 
-    private fun toggleOcrEngine(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKit -> MangaOcr -> PPOcrV5 -> MLKit
-        // RT-DETR-V2 不支持 PPOcrV5（PPOcrV5 有自己的 det，不需要外部检测器），跳过
-        val newEngine = if (config.detEngine == DetEngine.RT_DETR_V2) {
-            when (config.ocrEngine) {
-                OcrEngine.MLKit -> OcrEngine.MangaOcr
-                OcrEngine.MangaOcr -> OcrEngine.MLKit
-                OcrEngine.PPOcrV5 -> OcrEngine.MLKit  // 不应出现，兜底
-            }
-        } else {
-            when (config.ocrEngine) {
-                OcrEngine.MLKit -> OcrEngine.MangaOcr
-                OcrEngine.MangaOcr -> OcrEngine.PPOcrV5
-                OcrEngine.PPOcrV5 -> OcrEngine.MLKit
-            }
-        }
-        config = config.copy(ocrEngine = newEngine)
-        prefs.setInt("Manga_Rec_Model", newEngine.value)
-
-        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-        val label = when (newEngine) {
-            OcrEngine.MLKit -> getString(R.string.manga_ocr_mlkit)
-            OcrEngine.MangaOcr -> getString(R.string.manga_ocr_manga_ocr)
-            OcrEngine.PPOcrV5 -> "PP-OCRv5"
-        }
-        adapter.updateLabel(3, "${getString(R.string.manga_ocr_toggle)}：$label")
-
-        // 释放旧引擎，初始化新引擎
-        when (newEngine) {
-            OcrEngine.MLKit -> {
-                releaseMangaOcr()
-                releasePPOcrV5()
-                showToast(getString(R.string.manga_ocr_mlkit), true)
-            }
-            OcrEngine.MangaOcr -> {
-                releasePPOcrV5()
-                showToast("manga-ocr 识别器初始化中...", true)
-                lifecycleScope.launch { ensureMangaOcrInitialized() }
-            }
-            OcrEngine.PPOcrV5 -> {
-                releaseMangaOcr()
-                showToast("PP-OCRv5 识别器初始化中...", true)
-                lifecycleScope.launch { initPPOcrV5("识别器") }
-            }
-        }
-    }
-
     /**
      * 语言/模型可用性提示（系统 Toast）
-     * 触发点：onCreate、toggleOcrEngine、toggleModelSimple、toggleDetModel、SharedPreferences listener
+     * 触发点：onCreate、toggleModelSimple、SharedPreferences listener
      *
      * 场景：
      * 1. 漫画翻译运行中 + 非日文 → 提示
@@ -1339,9 +1112,7 @@ class MangaFloatingService : LifecycleService() {
             // manga-ocr 需要检查模型是否已下载
             if (newCombo == "manga") {
                 val rtdetrReady = RTDetrModelManager.isModelAvailable(this)
-                val mangaOcrReady = MangaOcrDownloadManager.getActiveVersion(this)?.let {
-                    MangaOcrDownloadManager.isVersionDownloaded(this, it)
-                } == true
+                val mangaOcrReady = MangaOcrDownloadManager.isModelDownloaded(this)
 
                 if (rtdetrReady && mangaOcrReady) break
 
@@ -1357,7 +1128,6 @@ class MangaFloatingService : LifecycleService() {
         // 释放所有旧引擎
         releaseMangaOcr()
         releasePPOcrV5()
-        releaseCTD()
         releaseRTDetrV2()
 
         when (newCombo) {
@@ -1395,59 +1165,6 @@ class MangaFloatingService : LifecycleService() {
             else -> ""
         }
         adapter.updateLabel(2, "${getString(R.string.manga_model_toggle)}：$label")
-    }
-
-    private fun toggleDetModel(dialog: AlertDialog, listView: android.widget.ListView) {
-        // 循环切换：MLKIT -> CTD -> RT_DETR_V2 -> PP_OCR_V5 -> MLKIT
-        val newEngine = when (config.detEngine) {
-            DetEngine.MLKIT -> DetEngine.CTD
-            DetEngine.CTD -> DetEngine.RT_DETR_V2
-            DetEngine.RT_DETR_V2 -> DetEngine.PP_OCR_V5
-            DetEngine.PP_OCR_V5 -> DetEngine.MLKIT
-        }
-        config = config.copy(detEngine = newEngine)
-        prefs.setInt("Manga_Det_Model", newEngine.value)
-
-        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-        val label = when (newEngine) {
-            DetEngine.CTD -> "CTD"
-            DetEngine.MLKIT -> getString(R.string.manga_det_mlkit)
-            DetEngine.RT_DETR_V2 -> "RT-DETR-V2"
-            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
-        }
-        adapter.updateLabel(2, "${getString(R.string.manga_det_toggle)}：$label")
-
-        // 释放旧引擎，初始化新引擎
-        when (newEngine) {
-            DetEngine.CTD -> {
-                showToast("CTD 检测器初始化中...", true)
-                initCTD()
-            }
-            DetEngine.MLKIT -> {
-                releaseCTD()
-                releaseRTDetrV2()
-                releasePPOcrV5()
-                showToast(getString(R.string.manga_det_mlkit), true)
-            }
-            DetEngine.RT_DETR_V2 -> {
-                releaseCTD()
-                releasePPOcrV5()
-                // RT-DETR-V2 不支持 PPOcrV5，自动切换为 MLKit
-                if (config.ocrEngine == OcrEngine.PPOcrV5) {
-                    config = config.copy(ocrEngine = OcrEngine.MLKit)
-                    prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
-                    LogCollector.d(TAG, "RT-DETR-V2 不支持 PPOcrV5，自动切换为 MLKit")
-                }
-                showToast("RT-DETR-V2 检测器初始化中...", true)
-                lifecycleScope.launch { initRTDetrV2() }
-            }
-            DetEngine.PP_OCR_V5 -> {
-                releaseCTD()
-                releaseRTDetrV2()
-                showToast("PP-OCRv5 检测器初始化中...", true)
-                lifecycleScope.launch { initPPOcrV5("检测器") }
-            }
-        }
     }
 
     private fun showFontSizeDialog() {
@@ -2357,7 +2074,7 @@ class MangaFloatingService : LifecycleService() {
         try {
             showProgressOverlay("识别中（1/2）...")
             val firstTextBlocks = DetectionBridge.recognizeCroppedBubbles(
-                firstBatch, DetectionBridge.CTDOCREngine.MangaOcr, this@MangaFloatingService, config.sourceLang
+                firstBatch, config.sourceLang
             )
             LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第一批 OCR ${firstTextBlocks.size} 个文字块")
 
@@ -2375,7 +2092,7 @@ class MangaFloatingService : LifecycleService() {
 
                 val ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     DetectionBridge.recognizeCroppedBubbles(
-                        secondBatch, DetectionBridge.CTDOCREngine.MangaOcr, this@MangaFloatingService, config.sourceLang
+                        secondBatch, config.sourceLang
                     )
                 }
 
@@ -2597,7 +2314,6 @@ class MangaFloatingService : LifecycleService() {
 
             // 调试模式：最高优先级，跳过缓存直接检测
             val isDebugMode = when (config.detEngine) {
-                DetEngine.CTD -> prefs.getBoolean("CTD_Debug_View", false)
                 DetEngine.RT_DETR_V2 -> prefs.getBoolean("RTDetrV2_Debug_View", false)
                 DetEngine.MLKIT -> prefs.getBoolean("MLKit_Debug_View", false)
                 DetEngine.PP_OCR_V5 -> prefs.getBoolean("PPOcrV5_Debug_View", false)
@@ -2607,14 +2323,6 @@ class MangaFloatingService : LifecycleService() {
             if (isDebugMode) {
                 LogCollector.d(TAG, "processMangaScreenshot: Debug mode enabled, skip cache")
                 when (config.detEngine) {
-                    DetEngine.CTD -> {
-                        LogCollector.d(TAG, "CTD Debug Mode: 开始检测")
-                        val debugResult = withContext(Dispatchers.IO) {
-                            detectWithCTDDebug(bitmap)
-                        }
-                        LogCollector.d(TAG, "CTD Debug Mode: raw=${debugResult.rawBoxes.size}, merged=${debugResult.mergedGroups.size}")
-                        showCTDDebugView(bitmap, debugResult)
-                    }
                     DetEngine.RT_DETR_V2 -> {
                         LogCollector.d(TAG, "RT-DETR-V2 Debug Mode: 开始检测")
                         initRTDetrV2IfNeeded()
@@ -2753,7 +2461,7 @@ class MangaFloatingService : LifecycleService() {
                 forceRefresh = false
             }
 
-            // OcrLock: 保护 ONNX 模型的多线程访问（PP-OCRv5/CTD/manga-ocr 等单例引擎）
+            // OcrLock: 保护 ONNX 模型的多线程访问（PP-OCRv5/manga-ocr 等单例引擎）
             if (!com.moe.starflow.manga.OcrLock.tryAcquire()) {
                 scheduleNextDetection(DETECT_INTERVAL_MS)
                 isProcessing = false
@@ -2772,7 +2480,6 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.d(TAG, "processMangaScreenshot: 分批渲染未触发，走原有流程")
                 // 确保选中的模型已初始化
                 when (config.detEngine) {
-                    DetEngine.CTD -> initCTDIfNeeded()
                     DetEngine.MLKIT -> {}
                     DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
                     DetEngine.PP_OCR_V5 -> initPPOcrV5IfNeeded()
@@ -2801,42 +2508,13 @@ class MangaFloatingService : LifecycleService() {
                     if (config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5) ", PP-recModel=${ppRecLang?.code ?: "不支持"}" else "")
                 ocrTextBlocks = withContext(Dispatchers.IO) {
                     when (config.detEngine) {
-                        DetEngine.CTD -> {
-                            val ctdOcrEngine = when (config.ocrEngine) {
-                                OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                                OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                                OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
-                            }
-                            LogCollector.d(TAG, "使用 CTD(检测) + ${ctdOcrEngine.name}(识别), lang=${config.sourceLang}" +
-                                if (ctdOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
-                            DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine, this@MangaFloatingService)
-                        }
                         DetEngine.MLKIT -> {
-                            when (config.ocrEngine) {
-                                OcrEngine.MLKit -> {
-                                    LogCollector.d(TAG, "使用 ML Kit(检测+识别), lang=${config.sourceLang}")
-                                    OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
-                                }
-                                OcrEngine.MangaOcr -> {
-                                    LogCollector.d(TAG, "使用 ML Kit(检测) + manga-ocr(${MangaFloatingService.currentLoadedMangaOcrVersion})(识别), lang=${config.sourceLang}")
-                                    MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
-                                }
-                                OcrEngine.PPOcrV5 -> {
-                                    LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
-                                    DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
-                                }
-                            }
+                            LogCollector.d(TAG, "使用 ML Kit(检测+识别), lang=${config.sourceLang}")
+                            OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
                         }
                         DetEngine.RT_DETR_V2 -> {
-                            // RT-DETR-V2 气泡检测 + 指定 OCR 引擎识别
-                            val rtdetrOcrEngine = when (config.ocrEngine) {
-                                OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                                OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                                OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
-                            }
-                            LogCollector.d(TAG, "使用 RT-DETR-V2(检测) + ${rtdetrOcrEngine.name}(识别), lang=${config.sourceLang}" +
-                                if (rtdetrOcrEngine == DetectionBridge.CTDOCREngine.PPOcrV5) ", rec=${ppRecLang?.code}" else "")
-                            DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService, config.keepTextFree)
+                            LogCollector.d(TAG, "使用 RT-DETR-V2(检测) + MangaOcr(识别), lang=${config.sourceLang}")
+                            DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, this@MangaFloatingService, config.keepTextFree)
                         }
                         DetEngine.PP_OCR_V5 -> {
                             LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
@@ -2870,7 +2548,7 @@ class MangaFloatingService : LifecycleService() {
             consecutiveEmptyCount = 0
 
             // Step 2: 气泡合并（自动/手动共用）
-            // CTD 已用 BoxMerger 分组，RT-DETR-V2 检测器直接输出气泡级结果，跳过后合并
+            // RT-DETR-V2 检测器直接输出气泡级结果，跳过后合并
             // PP-OCRv5 已在 detectWithPPOcrV5 内部用 TextLineMerger 合并，跳过后合并
             // MLKit 需要 BubbleDetector 把行级结果合并成气泡
             val needsPostMerge = config.detEngine == DetEngine.MLKIT
@@ -3227,7 +2905,6 @@ class MangaFloatingService : LifecycleService() {
         val apiStr = if (model.isNotEmpty()) "$apiName($model)" else apiName
 
         val det = when (config.detEngine) {
-            DetEngine.CTD -> "CTD"
             DetEngine.MLKIT -> "MLKit"
             DetEngine.RT_DETR_V2 -> "RT-DETR"
             DetEngine.PP_OCR_V5 -> "PP-OCRv5"
@@ -3516,179 +3193,6 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    /**
-     * CTD 调试模式：渲染检测结果到图片上并显示
-     */
-    private fun showCTDDebugView(bitmap: Bitmap, debugResult: CTDDebugResult) {
-        // 创建带调试框的可视化图片
-        val debugBitmap = renderCTDDebugOverlay(bitmap, debugResult)
-        showCTDDebugResultOverlay(debugBitmap, debugResult)
-    }
-
-    private fun renderCTDDebugOverlay(bitmap: Bitmap, debugResult: CTDDebugResult): Bitmap {
-        val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = android.graphics.Canvas(result)
-
-        val rawPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.RED
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-
-        val mergedPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.BLUE
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 6f
-        }
-
-        val textPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = 24f
-            isAntiAlias = true
-            setShadowLayer(2f, 1f, 1f, android.graphics.Color.BLACK)
-        }
-
-        val fillPaint = android.graphics.Paint().apply {
-            style = android.graphics.Paint.Style.FILL
-        }
-
-        // 绘制被过滤丢弃的框（红色）D=Discarded
-        for ((idx, box) in debugResult.discardedBoxes.withIndex()) {
-            val aabb = box.aabb
-            fillPaint.color = android.graphics.Color.argb(60, 255, 0, 0)
-            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), fillPaint)
-            val redPaint = android.graphics.Paint().apply {
-                color = android.graphics.Color.RED
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = 2f
-            }
-            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), redPaint)
-            val label = "D[$idx]"
-            canvas.drawText(label, aabb.left.toFloat() + 4, aabb.top.toFloat() + 20, textPaint)
-        }
-
-        // 绘制原始未合并的框（绿色）R=Raw
-        for ((idx, box) in debugResult.rawBoxes.withIndex()) {
-            val aabb = box.aabb
-            fillPaint.color = android.graphics.Color.argb(80, 0, 255, 0)
-            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), fillPaint)
-            val greenPaint = android.graphics.Paint().apply {
-                color = android.graphics.Color.GREEN
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = 4f
-            }
-            canvas.drawRect(aabb.left.toFloat(), aabb.top.toFloat(), aabb.right.toFloat(), aabb.bottom.toFloat(), greenPaint)
-            val label = "R[$idx]"
-            canvas.drawText(label, aabb.left.toFloat() + 4, aabb.top.toFloat() + 20, textPaint)
-        }
-
-        // 绘制真正合并的框（蓝色）M=Merged - 只画 size > 1 的组
-        for ((groupIdx, group) in debugResult.mergedGroups.withIndex()) {
-            if (group.members.size < 2) continue  // size=1 表示没有合并，跳过
-
-            // TextRegionGroup 已有合并后的 rect
-            val rect = group.rect
-
-            // 计算原始索引用于日志对应
-            val rawIndices = group.members.mapNotNull { tr -> debugResult.rawBoxes.indexOf(tr.quad).takeIf { it >= 0 } }
-
-            fillPaint.color = android.graphics.Color.argb(80, 0, 0, 255)
-            canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), fillPaint)
-            val bluePaint = android.graphics.Paint().apply {
-                color = android.graphics.Color.BLUE
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = 6f
-            }
-            canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), bluePaint)
-            // 标签不重叠：Y 坐标随 groupIdx 递增偏移
-            val labelY = rect.top.toFloat() + 20f + groupIdx * 25f
-            val label = "M[$groupIdx]:${group.members.size}boxes"
-            canvas.drawText(label, rect.left.toFloat() + 4, labelY, textPaint)
-        }
-
-        return result
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun showCTDDebugResultOverlay(debugBitmap: Bitmap, debugResult: CTDDebugResult) {
-        if (isResultShowing) {
-            dismissResultOverlay()
-        }
-
-        // 应用框选外区域遮罩
-        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
-
-        // 创建容器 FrameLayout
-        val container = android.widget.FrameLayout(this)
-        val imageView = android.widget.ImageView(this).apply {
-            setImageBitmap(displayBitmap)
-            scaleType = android.widget.ImageView.ScaleType.FIT_XY
-        }
-        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // 添加底部 info panel 到容器中
-        val mergedCount = debugResult.mergedGroups.count { it.members.size > 1 }
-        val infoLines = listOf(
-            "🟢 绿色 = 原始框（${debugResult.rawBoxes.size}）",
-            "🔵 蓝色 = 合并（${debugResult.mergedGroups.size}组，$mergedCount 个实际合并）",
-            "🔴 红色 = 丢弃（${debugResult.discardedBoxes.size}）"
-        )
-        val infoPanel = createInfoPanelView(infoLines)
-        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM
-        }
-        container.addView(infoPanel, infoPanelParams)
-        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
-
-        // 添加右下角展开/折叠按钮
-        val toggleButton = createToggleButton()
-        val toggleParams = android.widget.FrameLayout.LayoutParams(
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
-            marginEnd = margin
-            bottomMargin = margin
-        }
-        container.addView(toggleButton, toggleParams)
-
-        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
-        imageView.isClickable = true
-        imageView.setOnClickListener {
-            dismissDebugInfoPanel()
-            dismissResultOverlay()
-        }
-
-        // 始终全屏显示
-        val screenSize = getScreenSize()
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            width = screenSize.width
-            height = screenSize.height
-            gravity = Gravity.START or Gravity.TOP
-            x = 0; y = 0
-        }
-        windowManager.addView(container, params)
-        debugInfoPanelView = container
-        debugInfoPanelAdded = true
-        debugInfoPanelCollapsed = false
-        debugToggleButton = toggleButton
-        debugToggleButtonAdded = true
-        isResultShowing = true
-
-        bringFloatingBallToFront()
-    }
 
     /**
      * RT-DETR-V2 调试模式：渲染检测结果到图片上并显示
@@ -5030,28 +4534,11 @@ class MangaFloatingService : LifecycleService() {
     private suspend fun runOcrOnBitmap(bitmap: android.graphics.Bitmap): List<TextBlockInfo> {
         return withContext(Dispatchers.IO) {
             when (config.detEngine) {
-                DetEngine.CTD -> {
-                    val ctdOcrEngine = when (config.ocrEngine) {
-                        OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                        OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                        OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
-                    }
-                    DetectionBridge.detectWithCTD(bitmap, config.sourceLang, ctdOcrEngine, this@MangaFloatingService)
-                }
                 DetEngine.MLKIT -> {
-                    when (config.ocrEngine) {
-                        OcrEngine.MLKit -> OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
-                        OcrEngine.MangaOcr -> MangaOcrBridge.recognizeWithLocation(bitmap, config.sourceLang)
-                        OcrEngine.PPOcrV5 -> DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
-                    }
+                    OCRBridge.recognizeWithLocation(config.sourceLang, bitmap)
                 }
                 DetEngine.RT_DETR_V2 -> {
-                    val rtdetrOcrEngine = when (config.ocrEngine) {
-                        OcrEngine.MLKit -> DetectionBridge.CTDOCREngine.MLKit
-                        OcrEngine.MangaOcr -> DetectionBridge.CTDOCREngine.MangaOcr
-                        OcrEngine.PPOcrV5 -> DetectionBridge.CTDOCREngine.PPOcrV5
-                    }
-                    DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, rtdetrOcrEngine, this@MangaFloatingService, config.keepTextFree)
+                    DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, this@MangaFloatingService, config.keepTextFree)
                 }
                 DetEngine.PP_OCR_V5 -> {
                     DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
