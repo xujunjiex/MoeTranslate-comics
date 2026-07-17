@@ -49,9 +49,6 @@ object MangaOcrDownloadManager {
     // 旧版本子目录名（用于兼容老用户已下载的模型）
     private const val LEGACY_V2025_DIR = "V2025"
 
-    // 存储目录
-    val MODEL_DIR: String = MODEL_DIR_NAME
-
     /**
      * 获取下载的模型目录（外部存储）
      */

@@ -365,8 +365,6 @@
     <string name="proj_moetranslate_content">星译 forked 自此项目。原项目提供了翻译 API 调用、应用框架和整体架构。\nhttps://github.com/murangogo/MoeTranslate</string>
     <string name="proj_rapidocr_title">RapidOCR</string>
     <string name="proj_rapidocr_content">基于 PaddleOCR 的跨平台 OCR 工具包，提供高精度文字检测和识别。\nhttps://github.com/RapidAI/RapidOCR</string>
-    <string name="proj_ctdbubble_title">Comic Text and Bubble Detector</string>
-    <string name="proj_ctdbubble_content">用于检测漫画中文字区域和对话气泡的 ONNX 模型。\nhttps://huggingface.co/ogkalu/comic-text-and-bubble-detector</string>
     <string name="proj_rtdetr_title">RT-DETR</string>
     <string name="proj_rtdetr_content">实时检测 Transformer，高性能目标检测模型。\nhttps://github.com/lyuwenyu/RT-DETR</string>
     <string name="proj_mangaocr_title">manga-ocr</string>

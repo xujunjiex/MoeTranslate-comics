@@ -65,7 +65,6 @@ class OpenSource : Fragment() {
         val references = listOf(
             CustomCard(getText(R.string.proj_moetranslate_title), getText(R.string.proj_moetranslate_content)),
             CustomCard(getText(R.string.proj_rapidocr_title), getText(R.string.proj_rapidocr_content)),
-            CustomCard(getText(R.string.proj_ctdbubble_title), getText(R.string.proj_ctdbubble_content)),
             CustomCard(getText(R.string.proj_rtdetr_title), getText(R.string.proj_rtdetr_content)),
             CustomCard(getText(R.string.proj_mangaocr_title), getText(R.string.proj_mangaocr_content)),
             CustomCard(getText(R.string.proj_mangaimagetran_title), getText(R.string.proj_mangaimagetran_content))

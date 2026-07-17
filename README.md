@@ -64,7 +64,6 @@
 | **Google ML Kit** | 内置快速多语言 OCR | 内置 | Google（无需下载） |
 | **PP-OCRv5** | 通用中日英检测+识别 | ~22MB | RapidAI/RapidOCR（内置） |
 | **manga-ocr** | 日漫竖排文字专用 | ~135MB | HuggingFace（可选下载） |
-| **CTD** | 文字区域检测 | ~94MB | GitHub（可选下载） |
 | **RT-DETR-V2** | 文字/气泡检测 | ~11MB | HuggingFace（可选下载） |
 
 **按需下载，优化包体积：**
@@ -151,7 +150,7 @@
 - **检查更新** — GitHub Releases 自动检测，支持直接下载 / 百度网盘 / 夸克网盘
 - **应用内公告** — 开发者通过 Gist 推送公告，启动时自动检查
 - **FAQ 页面** — 常见问题解答，含 PP-OCRv5 调试面板参数详解
-- **开发者选项** — 各引擎调试浮窗（CTD/RT-DETR-V2/MLKit/PP-OCRv5）+ 参数实时调节
+- **开发者选项** — 各引擎调试浮窗（RT-DETR-V2/MLKit/PP-OCRv5）+ 参数实时调节
 - **日志系统** — 所有日志通过 LogCollector 统一管理，支持导出
 
 ---
@@ -212,7 +211,6 @@ app/src/main/java/com/moe/starflow/
 ### 参考项目
 
 - [RapidOCR](https://github.com/RapidAI/RapidOCR) — 跨平台 OCR 推理
-- [Comic Text and Bubble Detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) — 漫画文字/气泡检测
 - [RT-DETR](https://github.com/lyuwenyu/RT-DETR) — 实时目标检测 Transformer
 - [manga-ocr](https://github.com/kha-white/manga-ocr) — 日漫竖排文字 OCR
 - [manga-image-translator](https://github.com/zyddnys/manga-image-translator) — 漫画图片翻译

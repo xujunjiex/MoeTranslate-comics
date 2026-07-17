@@ -347,8 +347,6 @@
     <string name="proj_moetranslate_content">StarFlow forked from this project. The original project provides translation API integration, app framework and architecture.\nhttps://github.com/murangogo/MoeTranslate</string>
     <string name="proj_rapidocr_title">RapidOCR</string>
     <string name="proj_rapidocr_content">Cross-platform OCR toolkit based on PaddleOCR, providing high-precision text detection and recognition.\nhttps://github.com/RapidAI/RapidOCR</string>
-    <string name="proj_ctdbubble_title">Comic Text and Bubble Detector</string>
-    <string name="proj_ctdbubble_content">ONNX model for detecting text regions and speech bubbles in comics.\nhttps://huggingface.co/ogkalu/comic-text-and-bubble-detector</string>
     <string name="proj_rtdetr_title">RT-DETR</string>
     <string name="proj_rtdetr_content">Real-Time Detection Transformer, high-performance object detection model.\nhttps://github.com/lyuwenyu/RT-DETR</string>
     <string name="proj_mangaocr_title">manga-ocr</string>
