@@ -65,7 +65,7 @@ adb devices
 **包结构** (`app/src/main/java/com/moe/starflow/`):
 
 - `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`BallStateManager`（悬浮球状态图标管理器）
-- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`CTDDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
+- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
 - `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，10 条 FAQ）
 - `launch/` — 首次启动引导
@@ -201,9 +201,14 @@ private suspend fun processMangaScreenshot(
 - 智谱AI：`CONTINUATION_JSON`，`response_format: json_object`，返回 JSON 格式 `{"translations": [...]}`
 - `OpenAITranslation` 根据 `continuationType` 参数处理不同续写方式
 
+**⚠️ 自定义 API prefill 守卫：** 用户自定义 provider 的 `continuationType` 默认为空字符串，会给不支持续写的 API 发送假的 assistant prefill → 服务端 hang → 30s 超时。三层防御：
+1. `MangaFloatingService` / `MangaViewerActivity`：对 `!provider.isBuiltin` 强制 `CONTINUATION_NONE`
+2. `buildRequestBody` 白名单：仅 `standard/partial/prefix` 启用 prefill，空字符串/未知值不放行
+3. 自定义 API 漫画 prompt 为空时回退到内置 `DEFAULT_MANGA_SYSTEM_PROMPT`（漫画翻译引擎），避免空 prompt 导致模型返回聊天废话。UI 侧 `setupUserMode()` 也为自定义 API 显示重置按钮，漫画 tab 重置到 `fallbackMangaSystemPrompt` / `fallbackMangaUserPrompt`（和 `BuiltinProviders` 的 `DEFAULT_MANGA_*` 一致）
+
 **内容安全审查：** 各 API 平台可能拦截敏感内容翻译（错误码 `data_inspection_failed`，HTTP 400）。不同平台审查阈值不同，被拦截时换平台或换模型。
 
-**AI 上下文（游戏模式）：** `FloatingBallService` 维护 `LinkedList<Pair<String, String>>` 存储历史翻译对（原文, 译文）。开启后系统提示词追加"根据上下文剧情进行翻译"，messages 中插入历史 user/assistant 对。用户可配置轮数（1-10，默认 5）。仅 OpenAI 兼容 API 生效。设置项：`game_context_enabled`（开关）、`game_context_count`（轮数，存为 String）。
+**AI 上下文（游戏模式）：** `FloatingBallService` 维护 `LinkedList<Pair<String, String>>` 存储历史翻译对（原文, 译文）。开启后系统提示词追加"根据上下文剧情进行翻译"，messages 中插入历史 user/assistant 对。用户可配置轮数（5-20，默认 5）。仅 OpenAI 兼容 API 生效。设置项：`game_context_enabled`（开关）、`game_context_count`（轮数，存为 String）。
 
 **AI 上下文（漫画模式）：** 正常漫画翻译不使用上下文。仅增量渲染的两批之间使用上下文（`forceContext=true`），翻译完后回滚，不污染后续页面的上下文历史。
 
@@ -225,9 +230,8 @@ private suspend fun processMangaScreenshot(
 | **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | getExternalFilesDir/ 可选下载 |
 | **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | getExternalFilesDir/ 可选下载 |
 | **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | getExternalFilesDir/ 可选下载 |
-| **CTD** | 文字区域检测 | ~94MB | GitHub releases | getExternalFilesDir/ 下载 |
-| **RT-DETR v2** | 文字/气泡检测 | ~11MB | HuggingFace | getExternalFilesDir/ 下载 |
-| **manga-ocr** | 竖排日文识别 | ~460MB/~135MB | HuggingFace | getExternalFilesDir/ 下载 |
+| **RT-DETR-V2** | 文字/气泡检测 | ~11MB | HuggingFace | getExternalFilesDir/ 下载 |
+| **manga-ocr** | 竖排日文识别 | ~135MB | HuggingFace | getExternalFilesDir/ 下载 |
 
 PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中，约 22MB。可选 rec 模型（en/ko/ru）需用户从模型管理页面下载。
 
@@ -257,9 +261,8 @@ PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中
 
 ```
 ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、进度回调）
-├── CTDModelManager           # CTD 模型（单文件下载，~94MB）
 ├── RTDetrModelManager        # RT-DETR-V2 模型（单文件下载，~11MB）
-├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载，支持 FULL/V2025 版本）
+├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载，~135MB）
 └── PPOcrModelManager         # PP-OCRv5 可选模型管理（en~7.5MB/ko~13MB/ru~7.7MB）
 ```
 
@@ -269,22 +272,13 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 - **404/403 不重试**，其他错误最多重试 3 次
 - **大文件用 `.part` 后缀**，下载完成再 rename
 
-### 普通/高级模式
-
-悬浮窗菜单通过 `Manga_Advanced_Mode` 偏好切换（关于页面开关）：
-- **普通模式**（默认）：固定搭配循环切换
-  - MLKit → PP-OCRv5 → manga-ocr → MLKit
-  - **跳过不可用模型**：manga-ocr 未下载时自动跳过，不会卡住
-- **高级模式**：自由搭配检测器+识别器，菜单分两个选项
-
 ## 漫画模块
 
-**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`CTDDetector.kt`/`CTDPostProcessor.kt`（CTD 检测）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextLineMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
+**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextLineMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
 **工具类：** `GeometryUtils.kt`（凸包、点在多边形等几何算法）、`OnnxUtils.kt`（ONNX 张量提取、资源拷贝）
 
 **检测引擎（DetEngine）：**
 - `MLKIT(0)` — ML Kit 检测+识别一体化
-- `CTD(1)` — CTD 检测 + 指定 OCR 引擎
 - `RT_DETR_V2(3)` — RT-DETR-V2 气泡/文字检测
 - `PP_OCR_V5(4)` — PP-OCRv5 独立 det+cls+rec 全流水线（**默认**）
 
@@ -295,8 +289,6 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 
 | 检测器 + 识别器 | 前合并 (BoxMerger) | 后合并 (BubbleDetector) | 说明 |
 |---|---|---|---|
-| CTD + PPOcrV5 | ✅ 分组 | ❌ | 逐个 QuadBox 透视裁剪识别，按组拼接文字 |
-| CTD + MLKit/MangaOcr | ✅ 合并 | ❌ | 对合并区域 AABB 裁剪识别 |
 | RT-DETR-V2 + 任意 | ❌ | ❌ | 检测器直接输出气泡级结果 |
 | MLKit 独立 | ❌ | ✅ | 行级文字块 → BubbleDetector 合并成气泡 |
 | PP-OCRv5 独立 | ❌ | ✅ | 行级检测框 → BubbleDetector 合并成气泡 |
@@ -308,13 +300,13 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 **增量渲染（分批 OCR+翻译）：**
 超过 6 个气泡时自动分批处理，首批翻译完立即渲染，减少用户等待时间。
 - 触发条件：`Incremental_Render` 开启 + 气泡数 > 6
-- 支持组合：RT-DETR-V2/MangaOcr、CTD/MangaOcr、PP-OCRv5 独立模式
+- 支持组合：RT-DETR-V2/MangaOcr、PP-OCRv5 独立模式
 - 流程：检测 → 分批(2/5+3/5) → OCR第一批 → 翻译第一批+OCR第二批并行 → 渲染第一批 → 翻译第二批 → 最终渲染
 - 上下文仅批次间使用：`forceContext=true` 强制开启，第二批能看到第一批译文；两批翻译完后回滚 contextHistory，不污染后续页面
 - 正常漫画翻译不使用上下文（`forceContext=false` 时直接关闭）
 - MangaOcr encoder 是批处理瓶颈（~3s），分批可提前显示部分结果
 
-**Debug 系统：** 关于页面可开启 4 个独立 debug 开关（CTD / RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
+**Debug 系统：** 关于页面可开启 3 个独立 debug 开关（RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
 
 **PP-OCRv5 参数调节：**
 用户可通过调试面板滑块实时调整 5 个参数（存 SharedPreferences，`PPOcrV5Engine.refreshParams()` 每次 OCR 前读取）：
@@ -474,7 +466,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:CTDDetector | tag:CTDPostProcessor | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter
+tag:OCRBridge | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils | tag:TranslateBridge
 ```
 
 ## 安装规范（最高优先级）

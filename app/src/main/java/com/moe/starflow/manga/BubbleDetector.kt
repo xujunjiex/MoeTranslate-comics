@@ -123,9 +123,7 @@ object BubbleDetector {
             val w2 = b.rect.width()
             val h2 = b.rect.height()
             val x1 = a.rect.left
-            val y1 = a.rect.top
             val x2 = b.rect.left
-            val y2 = b.rect.top
 
             // L675: abs(x1 + w1//2 - (x2 + w2//2)) < char_gap_tolerance2
             if (abs(x1 + w1 / 2 - (x2 + w2 / 2)) < charGapTolerance2) return true

@@ -105,7 +105,6 @@ class TutorialFragment(val position:Int) : Fragment() {
                 tuimg1.setImageResource(R.drawable.tutorial_screenshot)
                 applyRoundedCorners(tuimg1)
                 (tuimg1.layoutParams as? android.widget.RelativeLayout.LayoutParams)?.topMargin = 32
-                val desc1 = root.findViewById<TextView>(R.id.descText)
                 setTitleAndDesc(root, getString(R.string.tutorial_screenshot_intro))
                 root.findViewById<Button>(R.id.next).setOnClickListener {
                     (activity as FirstLaunchPage).nextPage()

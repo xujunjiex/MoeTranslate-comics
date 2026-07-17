@@ -67,7 +67,7 @@ class TranslationMode : Fragment() {
     }
 
     private fun updateScreenshotSelection(animate: Boolean) {
-        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
+        val method = prefs.getString("Screenshot_Method", "0").toIntOrNull() ?: 0
 
         val selectedView: View
         val unselectedView: View

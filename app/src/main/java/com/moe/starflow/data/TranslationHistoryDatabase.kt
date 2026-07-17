@@ -44,41 +44,41 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
 
         // 版本 5 → 6：无 schema 变更（版本号跳转，迁移为空）
         private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) { /* no schema change needed */ }
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change needed */ }
         }
 
         // 版本 6 → 7：无 schema 变更（版本号跳转，迁移为空）
         private val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(database: SupportSQLiteDatabase) { /* no schema change needed */ }
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change needed */ }
         }
 
         // 版本 7 → 8：无 schema 变更（版本号跳转，迁移为空）
         private val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(database: SupportSQLiteDatabase) { /* no schema change needed */ }
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change needed */ }
         }
 
         // 版本 8 → 9：translation_history 添加 original_image_path / is_retranslated
         // page_cache 添加 crop_left / crop_top / crop_right / crop_bottom
         val MIGRATION_8_9 = object : Migration(8, 9) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE translation_history ADD COLUMN original_image_path TEXT")
-                database.execSQL("ALTER TABLE translation_history ADD COLUMN is_retranslated INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN crop_left INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN crop_top INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN crop_right INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN crop_bottom INTEGER NOT NULL DEFAULT 0")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE translation_history ADD COLUMN original_image_path TEXT")
+                db.execSQL("ALTER TABLE translation_history ADD COLUMN is_retranslated INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN crop_left INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN crop_top INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN crop_right INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN crop_bottom INTEGER NOT NULL DEFAULT 0")
             }
         }
 
         // 版本 9 → 10：translation_history 和 page_cache 添加 pHash2/pHash3/pHash4（256-bit 扩展感知哈希）
         val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE translation_history ADD COLUMN pHash2 INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE translation_history ADD COLUMN pHash3 INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE translation_history ADD COLUMN pHash4 INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN pHash2 INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN pHash3 INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE page_cache ADD COLUMN pHash4 INTEGER NOT NULL DEFAULT 0")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE translation_history ADD COLUMN pHash2 INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE translation_history ADD COLUMN pHash3 INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE translation_history ADD COLUMN pHash4 INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN pHash2 INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN pHash3 INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE page_cache ADD COLUMN pHash4 INTEGER NOT NULL DEFAULT 0")
             }
         }
 
@@ -87,8 +87,8 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
         // 导致后续重建 DB 时字段以当时的 Entity 为准（createdAt 而非 created_at），且从未经过迁移添加 last_session_id
         // 注意：必须幂等——先 PRAGMA 检查列是否存在，再决定操作。直接 ALTER TABLE 会在列已存在时崩溃
         val MIGRATION_10_11 = object : Migration(10, 11) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                val cursor = database.query("PRAGMA table_info(translation_history)")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val cursor = db.query("PRAGMA table_info(translation_history)")
                 val columnNames = mutableSetOf<String>()
                 while (cursor.moveToNext()) {
                     columnNames.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
@@ -97,12 +97,12 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
 
                 // 在 createdAt 重命名之前先确保 last_session_id 存在
                 if (!columnNames.contains("last_session_id")) {
-                    database.execSQL("ALTER TABLE translation_history ADD COLUMN last_session_id TEXT NOT NULL DEFAULT ''")
+                    db.execSQL("ALTER TABLE translation_history ADD COLUMN last_session_id TEXT NOT NULL DEFAULT ''")
                 }
 
                 if (columnNames.contains("createdAt")) {
                     // SQLite 不支持直接重命名列，需要重建表
-                    database.execSQL("""
+                    db.execSQL("""
                         CREATE TABLE translation_history_new (
                             id INTEGER NOT NULL PRIMARY KEY,
                             type INTEGER NOT NULL,
@@ -125,7 +125,7 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
                             is_retranslated INTEGER NOT NULL DEFAULT 0
                         )
                     """.trimIndent())
-                    database.execSQL("""
+                    db.execSQL("""
                         INSERT INTO translation_history_new
                         (id, type, sourceText, translatedText, imagePath, thumbnailPath,
                          sourceLang, targetLang, translatorName, pHash, pHash2, pHash3, pHash4,
@@ -136,10 +136,10 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
                         createdAt, session_id, last_session_id, updated_at, original_image_path, is_retranslated
                         FROM translation_history
                     """.trimIndent())
-                    database.execSQL("DROP TABLE translation_history")
-                    database.execSQL("ALTER TABLE translation_history_new RENAME TO translation_history")
+                    db.execSQL("DROP TABLE translation_history")
+                    db.execSQL("ALTER TABLE translation_history_new RENAME TO translation_history")
                     // 重建索引
-                    database.execSQL("CREATE INDEX IF NOT EXISTS index_translation_history_type_created_at ON translation_history(type, created_at)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_translation_history_type_created_at ON translation_history(type, created_at)")
                 }
             }
         }

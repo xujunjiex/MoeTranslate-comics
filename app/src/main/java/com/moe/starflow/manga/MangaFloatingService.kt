@@ -37,6 +37,7 @@ import com.moe.starflow.MainActivity
 import com.moe.starflow.R
 import com.moe.starflow.bridge.OCRBridge
 import com.moe.starflow.bridge.TextBlockInfo
+import com.moe.starflow.me.BuiltinProviders
 import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.me.OpenAIProviderConfig
 import com.moe.starflow.translate.AccessibilityProvider
@@ -424,7 +425,7 @@ class MangaFloatingService : LifecycleService() {
 
     // 初始化截图提供者
     private fun initScreenshotProvider() {
-        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
+        val method = prefs.getString("Screenshot_Method", "0").toIntOrNull() ?: 0
         screenshotProvider = when (method) {
             0 -> MediaProjectionProvider(this)
             1 -> AccessibilityProvider()
@@ -455,14 +456,31 @@ class MangaFloatingService : LifecycleService() {
                     val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                     if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                         val provider = providerList[selectedIndex]
+                        // 用户自定义 API：continuationType 不准确，禁用 prefill 避免服务端 hang
+                        // 用户自定义 API：漫画 prompt 未配置时回退到游戏 prompt，避免空 prompt 导致模型返回聊天回复
+                        val effectiveContinuationType = if (provider.isBuiltin) {
+                            provider.continuationType
+                        } else {
+                            OpenAIProviderConfig.CONTINUATION_NONE
+                        }
+                        val effectiveSystemPrompt = if (provider.isBuiltin) {
+                            provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
+                        } else {
+                            provider.mangaSystemPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_SYSTEM_PROMPT }
+                        }
+                        val effectiveUserPrompt = if (provider.isBuiltin) {
+                            provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
+                        } else {
+                            provider.mangaUserPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_USER_PROMPT }
+                        }
                         translatorText = OpenAITranslation(
                             apiKey = provider.apiKey,
                             baseUrl = provider.baseUrl,
                             model = provider.modelName,
-                            systemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt },
-                            userPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt },
-                            continuationType = provider.continuationType,
-                            prefillContent = if (provider.continuationType != OpenAIProviderConfig.CONTINUATION_NONE && provider.continuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else ""
+                            systemPrompt = effectiveSystemPrompt,
+                            userPrompt = effectiveUserPrompt,
+                            continuationType = effectiveContinuationType,
+                            prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else ""
                         )
                     } else {
                         showToast("No OpenAI Provider Config Found.")
@@ -1086,7 +1104,7 @@ class MangaFloatingService : LifecycleService() {
      * 普通模式：切换固定搭配模型
      * MLKit → PP-OCRv5 → manga-ocr → MLKit
      */
-    private fun toggleModelSimple(dialog: AlertDialog, listView: android.widget.ListView) {
+    private fun toggleModelSimple(@Suppress("UNUSED_PARAMETER") dialog: AlertDialog, listView: android.widget.ListView) {
         // 判断当前是哪个组合
         val currentCombo = when {
             config.detEngine == DetEngine.MLKIT && config.ocrEngine == OcrEngine.MLKit -> "mlkit"
@@ -1837,7 +1855,8 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
             }
-            LogCollector.d(TAG, "Screenshot collector: collect() returned (THIS SHOULD NEVER HAPPEN)")
+            @Suppress("UNREACHABLE_CODE")
+            LogCollector.e(TAG, "Screenshot collector: collect() returned unexpectedly", null)
         }
 
         // 无障碍事件辅助：滚动/内容变化时加速检测（事件经 EventHandler 去抖后到达）
@@ -2223,7 +2242,7 @@ class MangaFloatingService : LifecycleService() {
                 val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
                 if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
 
-                val secondTextBlocks = ocrJob!!.await()
+                val secondTextBlocks = ocrJob.await()
                 ocrJob = null // 已完成，不再需要取消
                 LogCollector.d(TAG, "incrementalPPOcrV5: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
@@ -2317,7 +2336,6 @@ class MangaFloatingService : LifecycleService() {
                 DetEngine.RT_DETR_V2 -> prefs.getBoolean("RTDetrV2_Debug_View", false)
                 DetEngine.MLKIT -> prefs.getBoolean("MLKit_Debug_View", false)
                 DetEngine.PP_OCR_V5 -> prefs.getBoolean("PPOcrV5_Debug_View", false)
-                else -> false
             }
 
             if (isDebugMode) {
@@ -2432,7 +2450,6 @@ class MangaFloatingService : LifecycleService() {
                             showToast("PP-OCRv5 不支持语言: ${config.sourceLang}", true)
                         }
                     }
-                    else -> {}
                 }
                 return
             }
@@ -2467,7 +2484,7 @@ class MangaFloatingService : LifecycleService() {
                 isProcessing = false
                 return
             }
-            var ocrTextBlocks: List<TextBlockInfo> = emptyList()
+            var ocrTextBlocks: List<TextBlockInfo>
             try {
                 // 分批渲染：在检测之前尝试分批流程。
                 // BUGFIX (2026-07-06): 之前这里设 Translating，但分批翻译入口还在 OCR 阶段（可能包含多批 OCR），

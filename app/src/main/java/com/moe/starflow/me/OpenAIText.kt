@@ -49,6 +49,8 @@ class OpenAIText :Fragment() {
     private val defaultUserPrompt = "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     private var currentTab = 0  // 0=游戏模式, 1=漫画模式
+    private var gameSystemPromptCache: String = ""
+    private var gameUserPromptCache: String = ""
     private var mangaSystemPrompt: String = ""
     private var mangaUserPrompt: String = ""
     private var defaultMangaSystemPrompt: String = ""
@@ -113,9 +115,11 @@ class OpenAIText :Fragment() {
         val currentText = binding.editSystemPrompt.text.toString()
         val currentUserText = binding.editUserPrompt.text.toString()
         if (currentTab == 0) {
-            // Was on game tab, these are already the "active" prompts
+            // Save game tab edits before switching to manga tab
+            gameSystemPromptCache = currentText
+            gameUserPromptCache = currentUserText
         } else {
-            // Was on manga tab
+            // Save manga tab edits before switching to game tab
             mangaSystemPrompt = currentText
             mangaUserPrompt = currentUserText
         }
@@ -126,16 +130,16 @@ class OpenAIText :Fragment() {
         if (!isNew && providerIndex < allProviders.size) {
             val provider = allProviders[providerIndex]
             if (currentTab == 0) {
-                binding.editSystemPrompt.setText(provider.systemPrompt)
-                binding.editUserPrompt.setText(provider.userPrompt)
+                binding.editSystemPrompt.setText(gameSystemPromptCache.ifEmpty { provider.systemPrompt })
+                binding.editUserPrompt.setText(gameUserPromptCache.ifEmpty { provider.userPrompt })
             } else {
-                binding.editSystemPrompt.setText(provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt })
-                binding.editUserPrompt.setText(provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt })
+                binding.editSystemPrompt.setText(provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt.ifEmpty { fallbackMangaSystemPrompt } })
+                binding.editUserPrompt.setText(provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt.ifEmpty { fallbackMangaUserPrompt } })
             }
         } else {
             if (currentTab == 0) {
-                binding.editSystemPrompt.setText(defaultSystemPrompt)
-                binding.editUserPrompt.setText(defaultUserPrompt)
+                binding.editSystemPrompt.setText(gameSystemPromptCache.ifEmpty { defaultSystemPrompt })
+                binding.editUserPrompt.setText(gameUserPromptCache.ifEmpty { defaultUserPrompt })
             } else {
                 binding.editSystemPrompt.setText(defaultMangaSystemPrompt.ifEmpty { fallbackMangaSystemPrompt })
                 binding.editUserPrompt.setText(defaultMangaUserPrompt.ifEmpty { fallbackMangaUserPrompt })
@@ -231,16 +235,21 @@ class OpenAIText :Fragment() {
         val mangaSys: String
         val mangaUsr: String
 
+        // Load existing provider to preserve unmodified fields
+        val allProviders = ConfigurationStorage.loadAllProviders(prefs)
+        val existingProvider = if (!isNew && providerIndex < allProviders.size) allProviders[providerIndex] else null
+
         if (currentTab == 0) {
             systemPrompt = binding.editSystemPrompt.text.toString().ifBlank { defaultSystemPrompt }
             userPrompt = binding.editUserPrompt.text.toString().ifBlank { defaultUserPrompt }
-            mangaSys = mangaSystemPrompt.ifBlank { "" }
-            mangaUsr = mangaUserPrompt.ifBlank { "" }
+            mangaSys = mangaSystemPrompt.ifBlank { fallbackMangaSystemPrompt }
+            mangaUsr = mangaUserPrompt.ifBlank { fallbackMangaUserPrompt }
         } else {
-            systemPrompt = defaultSystemPrompt
-            userPrompt = defaultUserPrompt
-            mangaSys = binding.editSystemPrompt.text.toString().ifBlank { "" }
-            mangaUsr = binding.editUserPrompt.text.toString().ifBlank { "" }
+            // Preserve existing game prompts when saving from manga tab
+            systemPrompt = existingProvider?.systemPrompt?.ifBlank { defaultSystemPrompt } ?: defaultSystemPrompt
+            userPrompt = existingProvider?.userPrompt?.ifBlank { defaultUserPrompt } ?: defaultUserPrompt
+            mangaSys = binding.editSystemPrompt.text.toString().ifBlank { fallbackMangaSystemPrompt }
+            mangaUsr = binding.editUserPrompt.text.toString().ifBlank { fallbackMangaUserPrompt }
         }
 
         val provider = OpenAIProviderConfig(
@@ -269,9 +278,13 @@ class OpenAIText :Fragment() {
                 binding.editProviderName.setText(provider.name)
                 binding.editApiKey.setText(provider.apiKey)
                 binding.editBaseUrl.setText(provider.baseUrl)
+                binding.editModelName.setText(provider.modelName)
                 binding.editSystemPrompt.setText(provider.systemPrompt)
                 binding.editUserPrompt.setText(provider.userPrompt)
 
+                // 初始化游戏缓存（和编辑框同步）
+                gameSystemPromptCache = provider.systemPrompt
+                gameUserPromptCache = provider.userPrompt
                 // 加载漫画提示词
                 mangaSystemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
                 mangaUserPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
@@ -287,6 +300,8 @@ class OpenAIText :Fragment() {
                 // 新建时设置默认prompt
                 binding.editSystemPrompt.setText(defaultSystemPrompt)
                 binding.editUserPrompt.setText(defaultUserPrompt)
+                gameSystemPromptCache = defaultSystemPrompt
+                gameUserPromptCache = defaultUserPrompt
                 mangaSystemPrompt = ""
                 mangaUserPrompt = ""
                 defaultMangaSystemPrompt = fallbackMangaSystemPrompt
@@ -374,9 +389,23 @@ class OpenAIText :Fragment() {
         binding.modelSpinnerLayout.visibility = View.GONE
         binding.modelTips.visibility = View.VISIBLE
 
-        // 隐藏重置按钮
-        binding.btnResetSystemPrompt.visibility = View.GONE
-        binding.btnResetUserPrompt.visibility = View.GONE
+        // 重置按钮：游戏模式重置到通用翻译prompt，漫画模式重置到内置漫画默认prompt
+        binding.btnResetSystemPrompt.visibility = View.VISIBLE
+        binding.btnResetUserPrompt.visibility = View.VISIBLE
+        binding.btnResetSystemPrompt.setOnClickListener {
+            if (currentTab == 0) {
+                binding.editSystemPrompt.setText(defaultSystemPrompt)
+            } else {
+                binding.editSystemPrompt.setText(fallbackMangaSystemPrompt)
+            }
+        }
+        binding.btnResetUserPrompt.setOnClickListener {
+            if (currentTab == 0) {
+                binding.editUserPrompt.setText(defaultUserPrompt)
+            } else {
+                binding.editUserPrompt.setText(fallbackMangaUserPrompt)
+            }
+        }
 
         // 显示删除按钮（非新建时）
         if (!isNew) {

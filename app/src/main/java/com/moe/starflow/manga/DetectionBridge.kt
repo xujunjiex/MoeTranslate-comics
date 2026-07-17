@@ -142,7 +142,7 @@ object DetectionBridge {
     internal fun prepareCtcInputs(
         croppedBitmaps: List<Bitmap>,
         mergedGroups: List<List<QuadBox>>,
-        expandedRects: List<Rect>,
+        @Suppress("UNUSED_PARAMETER") expandedRects: List<Rect>,
         globalIsVertical: Boolean
     ): List<Bitmap> {
         val result = mutableListOf<Bitmap>()
@@ -468,8 +468,8 @@ object DetectionBridge {
      */
     suspend fun detectWithRTDetrV2(
         bitmap: Bitmap,
-        language: String,
-        context: Context,
+        @Suppress("UNUSED_PARAMETER") language: String,
+        @Suppress("UNUSED_PARAMETER") context: Context,
         keepTextFree: Boolean = false
     ): List<TextBlockInfo> {
         try {
@@ -627,7 +627,7 @@ object DetectionBridge {
      */
     suspend fun recognizeCroppedBubbles(
         croppedBubbles: List<CroppedBubble>,
-        language: String
+        @Suppress("UNUSED_PARAMETER") language: String
     ): List<TextBlockInfo> = withContext(Dispatchers.IO) {
         if (croppedBubbles.isEmpty()) return@withContext emptyList()
 

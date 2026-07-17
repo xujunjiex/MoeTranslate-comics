@@ -35,7 +35,7 @@ object ModelDownloadManager {
      * 下载模型文件
      */
     suspend fun downloadModel(
-        context: Context,
+        @Suppress("UNUSED_PARAMETER") context: Context,
         url: String,
         sha256Hash: String,
         destFile: File,
@@ -91,7 +91,8 @@ object ModelDownloadManager {
                     val buffer = ByteArray(BUFFER_SIZE)
                     var lastUpdateTime = System.currentTimeMillis()
                     var lastBytesRead = startOffset
-                    var speed = 0f
+                    var speed: Float
+                    speed = 0f
 
                     conn.inputStream.use { inputStream ->
                         while (true) {

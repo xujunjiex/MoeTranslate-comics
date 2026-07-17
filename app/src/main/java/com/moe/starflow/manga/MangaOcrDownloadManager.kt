@@ -205,7 +205,7 @@ object MangaOcrDownloadManager {
             }
 
             val fileUrl = "$BASE_URL/$fileName"
-            val currentFileTotal = getContentLength(context, fileUrl)
+            val currentFileTotal = getContentLength(fileUrl)
 
             LogCollector.d(TAG, "下载 $fileName (size=$currentFileTotal): $fileUrl")
             val result = ModelDownloadManager.downloadModel(
@@ -249,7 +249,7 @@ object MangaOcrDownloadManager {
     /**
      * HEAD 请求获取文件大小。失败返回 -1。
      */
-    private fun getContentLength(context: Context, url: String): Long {
+    private fun getContentLength(url: String): Long {
         return try {
             val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
             conn.requestMethod = "HEAD"

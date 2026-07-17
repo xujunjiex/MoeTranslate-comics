@@ -184,8 +184,8 @@ class BingTranslation : TranslationTextAPI {
             }
 
             return TokenInfo(
-                ig = igMatcher.group(1),
-                iid = iidMatcher.group(1),
+                ig = igMatcher.group(1)!!,
+                iid = iidMatcher.group(1)!!,
                 key = tokenParams[0],
                 token = tokenParams[1]
             )

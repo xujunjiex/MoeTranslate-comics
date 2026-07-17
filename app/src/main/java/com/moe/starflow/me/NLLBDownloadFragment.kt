@@ -334,7 +334,7 @@ class NLLBDownloadFragment : Fragment() {
 
     // 下载文件的函数
     @SuppressLint("SetTextI18n")
-    private suspend fun downloadFile(fileInfo: FileInfo, currentFile: Int, totalFiles: Int) {
+    private suspend fun downloadFile(fileInfo: FileInfo, @Suppress("UNUSED_PARAMETER") currentFile: Int, @Suppress("UNUSED_PARAMETER") totalFiles: Int) {
 
         // 初始化UI的下载进度
         withContext(Dispatchers.Main) {

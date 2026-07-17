@@ -8,7 +8,7 @@ package com.moe.starflow.me
  */
 object BuiltinProviders {
 
-    private const val DEFAULT_SYSTEM_PROMPT =
+    internal const val DEFAULT_SYSTEM_PROMPT =
         "你是专业翻译引擎。将用户提供的文本翻译为usetolang。\n" +
         "规则：\n" +
         "1. 只输出译文，不输出解释、标注或附加内容\n" +
@@ -17,11 +17,11 @@ object BuiltinProviders {
         "4. 专有名词（人名、地名、作品名）保留原文或使用通用译名\n" +
         "5. 如果文本已经是目标语言，原样返回"
 
-    private const val DEFAULT_USER_PROMPT =
+    internal const val DEFAULT_USER_PROMPT =
         "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
-    // 漫画模式默认提示词
-    private const val DEFAULT_MANGA_SYSTEM_PROMPT =
+    // 漫画模式默认提示词（用户自定义 API 未配置漫画 prompt 时的回退值）
+    internal const val DEFAULT_MANGA_SYSTEM_PROMPT =
         "你是漫画翻译引擎。逐条翻译以下文本为usetolang，保持每条的[N]编号格式不变。\n" +
         "规则：\n" +
         "1. 只输出译文，不输出解释、标注或附加内容\n" +
@@ -30,7 +30,7 @@ object BuiltinProviders {
         "4. 象声词、感叹词根据目标语言习惯调整\n" +
         "5. 如果文本已经是目标语言，原样返回"
 
-    private const val DEFAULT_MANGA_USER_PROMPT =
+    internal const val DEFAULT_MANGA_USER_PROMPT =
         "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
     // 漫画模式JSON格式提示词（智谱AI结构化输出用）

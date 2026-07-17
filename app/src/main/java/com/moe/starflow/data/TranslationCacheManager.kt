@@ -164,7 +164,7 @@ class TranslationCacheManager(private val context: Context) {
                             dao.updateHistoryTimestamp(history.id, now)
                         }
                     }
-                    val entryBits = java.lang.Long.bitCount(bestMatch!!.pHash) + java.lang.Long.bitCount(bestMatch!!.pHash2) + java.lang.Long.bitCount(bestMatch!!.pHash3) + java.lang.Long.bitCount(bestMatch!!.pHash4)
+                    val entryBits = java.lang.Long.bitCount(bestMatch.pHash) + java.lang.Long.bitCount(bestMatch.pHash2) + java.lang.Long.bitCount(bestMatch.pHash3) + java.lang.Long.bitCount(bestMatch.pHash4)
                     LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=$currentBits/256, entryBits=$entryBits/256), historyId=${history.id}")
                     return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight())
                 }

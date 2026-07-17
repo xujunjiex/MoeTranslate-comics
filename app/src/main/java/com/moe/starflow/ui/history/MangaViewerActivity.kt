@@ -79,6 +79,7 @@ class MangaViewerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // 全屏沉浸
+        @Suppress("DEPRECATION")
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -197,10 +198,10 @@ class MangaViewerActivity : AppCompatActivity() {
                         val cropped = ScreenshotManager.cropBitmap(original, cropRect, android.graphics.Point(0, 0))
 
                         val prefs = CustomPreference.getInstance(this@MangaViewerActivity)
-                        val engineName = prefs.getString("history_retranslate_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
+                        val engineName = prefs.getString("history_retranslate_engine", "PP_OCR_V5")
                         val (detEngine, ocrEngine) = mapEngineToDetOcr(engineName)
-                        val sourceLang = prefs.getString("Manga_Source_Language", "ja") ?: "ja"
-                        val targetLang = prefs.getString("Manga_Target_Language", "zh") ?: "zh"
+                        val sourceLang = prefs.getString("Manga_Source_Language", "ja")
+                        val targetLang = prefs.getString("Manga_Target_Language", "zh")
 
                         initializeEngines(detEngine, ocrEngine)
 
@@ -408,14 +409,29 @@ class MangaViewerActivity : AppCompatActivity() {
                 val providerList = ConfigurationStorage.loadAllProviders(prefs)
                 val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                 val provider = providerList.getOrNull(selectedIndex) ?: return null
+                val effectiveContinuationType = if (provider.isBuiltin) {
+                    provider.continuationType
+                } else {
+                    com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE
+                }
+                val effectiveSystemPrompt = if (provider.isBuiltin) {
+                    provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
+                } else {
+                    provider.mangaSystemPrompt.ifEmpty { com.moe.starflow.me.BuiltinProviders.DEFAULT_MANGA_SYSTEM_PROMPT }
+                }
+                val effectiveUserPrompt = if (provider.isBuiltin) {
+                    provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
+                } else {
+                    provider.mangaUserPrompt.ifEmpty { com.moe.starflow.me.BuiltinProviders.DEFAULT_MANGA_USER_PROMPT }
+                }
                 translationapi.openaitranslation.OpenAITranslation(
                     apiKey = provider.apiKey,
                     baseUrl = provider.baseUrl,
                     model = provider.modelName,
-                    systemPrompt = provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt },
-                    userPrompt = provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt },
-                    continuationType = provider.continuationType,
-                    prefillContent = if (provider.continuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE) "[1] " else ""
+                    systemPrompt = effectiveSystemPrompt,
+                    userPrompt = effectiveUserPrompt,
+                    continuationType = effectiveContinuationType,
+                    prefillContent = if (effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else ""
                 )
             }
             Constants.TextApi.VOLC.id -> {
@@ -487,7 +503,7 @@ class MangaViewerActivity : AppCompatActivity() {
     }
 
     private fun buildRetranslateName(translator: TranslationTextAPI, det: DetEngine, ocr: OcrEngine, prefs: CustomPreference): String {
-        val model = translator.modelName ?: ""
+        val model = translator.modelName
         val apiStr = if (model.isNotEmpty()) model else translator.javaClass.simpleName
         val detStr = when (det) {
             DetEngine.MLKIT -> "MLKit"
@@ -720,6 +736,7 @@ class MangaViewerActivity : AppCompatActivity() {
         return parts.map { it.trim() }
     }
 
+    @Suppress("DEPRECATION")
     override fun finish() {
         super.finish()
         overridePendingTransition(0, android.R.anim.fade_out)

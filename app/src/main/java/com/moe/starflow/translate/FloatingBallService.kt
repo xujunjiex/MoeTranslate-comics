@@ -47,6 +47,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.starflow.MainActivity
 import com.moe.starflow.R
+import com.moe.starflow.me.BuiltinProviders
 import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.manga.MangaOcrBridge
 import com.moe.starflow.manga.MangaOcrDownloadManager
@@ -203,7 +204,7 @@ class FloatingBallService : LifecycleService() {
 
     // 初始化截图提供者
     private fun initScreenshotProvider() {
-        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
+        val method = prefs.getString("Screenshot_Method", "0").toIntOrNull() ?: 0
         screenshotProvider = when (method) {
             0 -> MediaProjectionProvider(this)
             1 -> AccessibilityProvider()
@@ -543,7 +544,17 @@ class FloatingBallService : LifecycleService() {
                         val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                         if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                             val provider = providerList[selectedIndex]
-                            translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = provider.systemPrompt, userPrompt = provider.userPrompt)
+                            val effectiveSystemPrompt = if (provider.isBuiltin) {
+                                provider.systemPrompt.ifEmpty { provider.defaultSystemPrompt }
+                            } else {
+                                provider.systemPrompt.ifEmpty { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
+                            }
+                            val effectiveUserPrompt = if (provider.isBuiltin) {
+                                provider.userPrompt.ifEmpty { provider.defaultUserPrompt }
+                            } else {
+                                provider.userPrompt.ifEmpty { BuiltinProviders.DEFAULT_USER_PROMPT }
+                            }
+                            translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = effectiveSystemPrompt, userPrompt = effectiveUserPrompt)
                             LogCollector.d(TAG, "翻译 API 初始化: OpenAI (${provider.modelName})")
                         } else {
                             LogCollector.e(TAG, "No OpenAI Provider Config Found")
@@ -843,7 +854,7 @@ class FloatingBallService : LifecycleService() {
         val historyIdx = idx++              // 历史
         val autoIdx = idx++                 // 自动翻译
         val closeIdx = idx++                // 关闭
-        val backIdx = idx++                 // 返回
+        val backIdx = idx.also { idx++ }             // 返回
 
         listView.onItemClickListener = object : AdapterView.OnItemClickListener {
             override fun onItemClick(p0: AdapterView<*>?, p1: View?, p2: Int, p3: Long) {
@@ -1730,7 +1741,7 @@ class FloatingBallService : LifecycleService() {
                     lastSessionId = sessionId
                 )
                 // 先删除旧的同源记录，再保存新结果
-                cacheManager.refreshGameCache(sourceText, entry.sourceLang ?: "ja", entry.targetLang ?: "zh", entry)
+                cacheManager.refreshGameCache(sourceText, entry.sourceLang, entry.targetLang, entry)
             } catch (e: Exception) {
                 LogCollector.e("FloatingBallService", "保存缓存失败", e)
             }

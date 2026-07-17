@@ -17,7 +17,7 @@
 
 package translationapi.openaitranslation
 
-import android.util.Log
+import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.translate.CustomLocale
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
@@ -103,7 +103,7 @@ class OpenAITranslation(
                 // 协程被取消，不调用callback
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Translation error", e)
+                LogCollector.e(TAG, "Translation error", e)
                 withContext(Dispatchers.Main) {
                     callback(TranslationResult.Error(e))
                 }
@@ -121,7 +121,7 @@ class OpenAITranslation(
 
         // 构建请求体，始终发送 thinking:disabled 禁用思考模式
         val requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = true)
-        Log.d(TAG, "Request: $requestBody")
+        LogCollector.d(TAG, "Request: $requestBody")
 
         val endpoint = if (continuationType == "prefix") {
             "$baseUrl/beta/chat/completions"
@@ -150,7 +150,7 @@ class OpenAITranslation(
             ?: throw IOException("Empty response body")
         response.close()
 
-        Log.d(TAG, "Response: $responseBody")
+        LogCollector.d(TAG, "Response: $responseBody")
         parseResponse(responseBody)
     }
 
@@ -167,16 +167,16 @@ class OpenAITranslation(
         val fromLang = CustomLocale.getInstance(from).getDisplayName()
         val toLang = CustomLocale.getInstance(to).getDisplayName()
 
-        Log.d(TAG, "翻译配置: model=$model, from=$from($fromLang), to=$to($toLang), continuationType=$continuationType, context=${if (currentContextEnabled) "${currentContextHistory.size}轮" else "关闭"}")
-        Log.d(TAG, "SystemPrompt: $systemPrompt")
-        Log.d(TAG, "UserPrompt模板: $userPrompt")
+        LogCollector.d(TAG, "翻译配置: model=$model, from=$from($fromLang), to=$to($toLang), continuationType=$continuationType, context=${if (currentContextEnabled) "${currentContextHistory.size}轮" else "关闭"}")
+        LogCollector.d(TAG, "SystemPrompt: $systemPrompt")
+        LogCollector.d(TAG, "UserPrompt模板: $userPrompt")
 
         val fullUserPrompt = userPrompt
             .replace("usefromlang", fromLang)
             .replace("usetolang", toLang)
             .replace("usesourcetext", text)
 
-        Log.d(TAG, "UserPrompt: $fullUserPrompt")
+        LogCollector.d(TAG, "UserPrompt: $fullUserPrompt")
 
         return fullUserPrompt
     }
@@ -205,7 +205,8 @@ class OpenAITranslation(
                 put("content", userPrompt)
             })
             // 续写模式：添加 assistant prefill（JSON模式不加，靠 response_format 控制）
-            if (prefillContent.isNotEmpty() && continuationType != "none" && continuationType != "json") {
+            // 仅对已知支持的续写类型启用，避免未知类型（如用户自定义API空字符串）发送不兼容的 prefill
+            if (prefillContent.isNotEmpty() && continuationType in setOf("standard", "partial", "prefix")) {
                 put(JSONObject().apply {
                     put("role", "assistant")
                     put("content", prefillContent)
@@ -259,7 +260,7 @@ class OpenAITranslation(
             val message = firstChoice.getJSONObject("message")
             val content = message.getString("content").trim()
 
-            Log.d(TAG, "翻译结果: $content")
+            LogCollector.d(TAG, "翻译结果: $content")
 
             if (content.isEmpty()) {
                 throw IOException("Empty translation result")

@@ -39,7 +39,7 @@ object DBNetPostProcessor {
         textThreshold: Float = 0.5f,
         boxThreshold: Float = 0.6f,
         minSize: Int = 3,
-        minArea: Int = 16,
+        @Suppress("UNUSED_PARAMETER") minArea: Int = 16,
         unclipRatio: Float = 1.8f
     ): List<Rect> {
         // 1. 阈值化 → 二值图
@@ -259,7 +259,7 @@ object DBNetPostProcessor {
      * 返回逆时针排列的轮廓点列表。
      */
     private fun extractContour(
-        binary: BooleanArray,
+        @Suppress("UNUSED_PARAMETER") binary: BooleanArray,
         width: Int,
         height: Int,
         pixelSet: HashSet<Int>,

@@ -175,20 +175,20 @@
     </string-array>
 
     <string-array name="context_count_entries">
-        <item>1 轮</item>
-        <item>2 轮</item>
-        <item>3 轮</item>
         <item>5 轮</item>
         <item>8 轮</item>
         <item>10 轮</item>
+        <item>12 轮</item>
+        <item>15 轮</item>
+        <item>20 轮</item>
     </string-array>
     <string-array name="context_count_values">
-        <item>1</item>
-        <item>2</item>
-        <item>3</item>
         <item>5</item>
         <item>8</item>
         <item>10</item>
+        <item>12</item>
+        <item>15</item>
+        <item>20</item>
     </string-array>
 
     <!-- Translation cache count -->

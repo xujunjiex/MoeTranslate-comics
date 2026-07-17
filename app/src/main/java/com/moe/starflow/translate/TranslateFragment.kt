@@ -441,8 +441,6 @@ class TranslateFragment : Fragment() {
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
         val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
-        val customTextApi = prefs.getInt("Custom_Text_API", 0)
-        val customPicApi = prefs.getInt("Custom_Pic_API", 0)
 
         val ret: Boolean = when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
@@ -875,7 +873,7 @@ class TranslateFragment : Fragment() {
     // 对于 MediaProjection 模式：始终弹出授权窗口，授权成功后由 ScreenCapturePermissionActivity 自动启动服务
     // 返回 false 表示异步处理（授权窗口已弹出），返回 true 表示可直接继续
     private fun checkScreenshotMethod(serviceType: String): Boolean {
-        val method = prefs.getString("Screenshot_Method", "0")?.toIntOrNull() ?: 0
+        val method = prefs.getString("Screenshot_Method", "0").toIntOrNull() ?: 0
         return when (method) {
             0 -> {
                 // MediaProjection 模式：始终弹出授权窗口

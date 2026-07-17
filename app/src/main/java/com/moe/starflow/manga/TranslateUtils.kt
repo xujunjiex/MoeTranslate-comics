@@ -163,7 +163,7 @@ object TranslateUtils {
 
         // 输出翻译结果
         for (i in translations.indices) {
-            val (bubble, original) = bubbles[i]
+            val (_, original) = bubbles[i]
             val translated = translations[i]
             LogCollector.d(TAG, "翻译结果[$i]: orig='$original' → trans='$translated'")
         }

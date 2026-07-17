@@ -1,6 +1,7 @@
 package com.moe.starflow.bridge
 
 import android.content.Context
+import com.moe.starflow.me.BuiltinProviders
 import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.me.ConfigurationStorage.loadTextConfig
 import com.moe.starflow.translate.TranslationResult
@@ -52,12 +53,22 @@ object TranslateBridge {
                 val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
                 if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
                     val provider = providerList[selectedIndex]
+                    val effectiveSystemPrompt = if (provider.isBuiltin) {
+                        provider.systemPrompt.ifEmpty { provider.defaultSystemPrompt }
+                    } else {
+                        provider.systemPrompt.ifEmpty { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
+                    }
+                    val effectiveUserPrompt = if (provider.isBuiltin) {
+                        provider.userPrompt.ifEmpty { provider.defaultUserPrompt }
+                    } else {
+                        provider.userPrompt.ifEmpty { BuiltinProviders.DEFAULT_USER_PROMPT }
+                    }
                     OpenAITranslation(
                         apiKey = provider.apiKey,
                         baseUrl = provider.baseUrl,
                         model = provider.modelName,
-                        systemPrompt = provider.systemPrompt,
-                        userPrompt = provider.userPrompt
+                        systemPrompt = effectiveSystemPrompt,
+                        userPrompt = effectiveUserPrompt
                     )
                 } else {
                     null

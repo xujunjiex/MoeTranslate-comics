@@ -146,7 +146,6 @@ object DBNetDetector {
         val dbData = OnnxUtils.extractFloatArray(dbTensor)
         val dbShape = dbTensor.info.shape  // [1, 2, H, W]
 
-        val dbH = dbShape[2].toInt()
         val dbW = dbShape[3].toInt()
 
         LogCollector.d(TAG, "dbTensor shape: ${dbShape.contentToString()}, contentH=$contentH, contentW=$contentW")

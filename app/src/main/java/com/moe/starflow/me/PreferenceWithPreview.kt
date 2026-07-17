@@ -13,7 +13,7 @@ import java.io.File
 
 class PreferenceWithPreview : Preference {
     private var previewImageView: ImageView? = null
-    private lateinit var prefs: CustomPreference
+    private val prefs: CustomPreference = CustomPreference.getInstance(context)
     var prefKey: String = "Custom_Floating_Pic"
         private set
 
@@ -37,7 +37,6 @@ class PreferenceWithPreview : Preference {
 
     init {
         layoutResource = R.layout.item_preference_with_preview
-        prefs = CustomPreference.getInstance(context)
     }
 
     override fun onBindViewHolder(holder: PreferenceViewHolder) {

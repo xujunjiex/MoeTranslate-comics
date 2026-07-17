@@ -143,7 +143,7 @@ class HistoryFragment : Fragment() {
         }
     }
 
-    private fun showHistorySettingsMenu(anchor: View) {
+    private fun showHistorySettingsMenu(@Suppress("UNUSED_PARAMETER") anchor: View) {
         val prefs = CustomPreference.getInstance(requireContext())
         val displayMode = prefs.getString("history_display_mode", "large")
 
@@ -218,7 +218,7 @@ class HistoryFragment : Fragment() {
         })
         val engineValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
         val engineNames = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
-        val savedEngine = prefs.getString("history_retranslate_engine", "PP_OCR_V5") ?: "PP_OCR_V5"
+        val savedEngine = prefs.getString("history_retranslate_engine", "PP_OCR_V5")
         val currentEngineIdx = engineValues.indexOfFirst { it == savedEngine }.coerceAtLeast(0)
         val engineGroup = android.widget.RadioGroup(requireContext()).apply { orientation = android.widget.RadioGroup.VERTICAL }
         engineNames.forEachIndexed { idx, name ->
@@ -277,8 +277,9 @@ class HistoryFragment : Fragment() {
     // 引擎选择已移入设置弹窗，不再在主界面显示
     private fun updateEngineSelectorVisibility() {
         val prefs = CustomPreference.getInstance(requireContext())
-        val isManageView = prefs.getString("history_view_mode", "default") == "manage"
-        val isMangaTab = currentTab == TranslationCacheManager.MODE_MANGA
+        // 引擎选择已移入设置弹窗
+        @Suppress("UNUSED_VARIABLE") val isManageView = prefs.getString("history_view_mode", "default") == "manage"
+        @Suppress("UNUSED_VARIABLE") val isMangaTab = currentTab == TranslationCacheManager.MODE_MANGA
         binding.engineSelectorLayout.visibility = View.GONE // 引擎选择已移入设置弹窗
     }
 
@@ -459,6 +460,7 @@ class HistoryFragment : Fragment() {
             putExtra(MangaViewerActivity.EXTRA_IS_MANAGE_VIEW, isManage)
         }
         startActivity(intent)
+        @Suppress("DEPRECATION")
         (requireContext() as? Activity)?.overridePendingTransition(
             android.R.anim.fade_in,
             android.R.anim.fade_out
@@ -525,11 +527,13 @@ class HistoryFragment : Fragment() {
                     putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.zip")
                 }
                 pendingDownloadZip = zipFile
+                @Suppress("DEPRECATION")
                 startActivityForResult(intent, REQUEST_DOWNLOAD_ZIP)
             }
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_DOWNLOAD_ZIP && resultCode == Activity.RESULT_OK) {
             data?.data?.let { uri ->

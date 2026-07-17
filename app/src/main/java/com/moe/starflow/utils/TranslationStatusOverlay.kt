@@ -193,7 +193,7 @@ class TranslationStatusOverlay(private val context: Context) {
     }
 
     private fun getDurationMs(): Long {
-        return prefs.getString("Status_Duration", "2000")?.toLongOrNull() ?: 2000L
+        return prefs.getString("Status_Duration", "2000").toLongOrNull() ?: 2000L
     }
 
     private fun ensureView() {

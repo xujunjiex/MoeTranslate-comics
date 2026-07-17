@@ -541,10 +541,10 @@ object ConfigurationStorage {
                 list.add(BuiltInProviderMod(
                     name = obj.getString(KEY_NAME),
                     apiKey = obj.optString(KEY_API_KEY, ""),
-                    systemPrompt = if (obj.isNull(KEY_SYSTEM_PROMPT)) null else obj.optString(KEY_SYSTEM_PROMPT, null),
-                    userPrompt = if (obj.isNull(KEY_USER_PROMPT)) null else obj.optString(KEY_USER_PROMPT, null),
-                    mangaSystemPrompt = if (obj.isNull(KEY_MANGA_SYSTEM_PROMPT)) null else obj.optString(KEY_MANGA_SYSTEM_PROMPT, null),
-                    mangaUserPrompt = if (obj.isNull(KEY_MANGA_USER_PROMPT)) null else obj.optString(KEY_MANGA_USER_PROMPT, null),
+                    systemPrompt = if (obj.isNull(KEY_SYSTEM_PROMPT)) null else obj.getString(KEY_SYSTEM_PROMPT),
+                    userPrompt = if (obj.isNull(KEY_USER_PROMPT)) null else obj.getString(KEY_USER_PROMPT),
+                    mangaSystemPrompt = if (obj.isNull(KEY_MANGA_SYSTEM_PROMPT)) null else obj.getString(KEY_MANGA_SYSTEM_PROMPT),
+                    mangaUserPrompt = if (obj.isNull(KEY_MANGA_USER_PROMPT)) null else obj.getString(KEY_MANGA_USER_PROMPT),
                     selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
                 ))
             }
