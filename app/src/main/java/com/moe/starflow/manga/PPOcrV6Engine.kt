@@ -79,7 +79,6 @@ object PPOcrV6Engine {
     @Volatile private var detThresh = DET_THRESH
     @Volatile private var detBoxThresh = DET_BOX_THRESH_DEFAULT
     @Volatile private var detUnclipRatio = DET_UNCLIP_RATIO_DEFAULT.toDouble()  // note: double
-    @Volatile private var useDilation = true
     @Volatile private var limitSideLen = DET_LIMIT_SIDE_LEN
     @Volatile private var limitType = DET_LIMIT_TYPE
     @Volatile private var textScoreThresh = TEXT_SCORE_THRESH_DEFAULT
@@ -97,7 +96,6 @@ object PPOcrV6Engine {
         detThresh = prefs.getFloat("ppocrv6_det_thresh", 0.3f)
         detBoxThresh = prefs.getFloat("ppocrv6_det_box_thresh", 0.5f)
         detUnclipRatio = prefs.getFloat("ppocrv6_det_unclip_ratio", 1.6f).toDouble()
-        useDilation = prefs.getBoolean("ppocrv6_use_dilation", true)
         limitSideLen = prefs.getInt("ppocrv6_limit_side_len", 736)
         limitType = prefs.getString("ppocrv6_limit_type", "min") ?: "min"
         textScoreThresh = prefs.getFloat("ppocrv6_text_score", 0.5f)
@@ -149,8 +147,8 @@ object PPOcrV6Engine {
                     setIntraOpNumThreads(4)
                 }
 
-                // det（从 assets 加载）
-                val detBytes = context.assets.open("ppocrv6/det_v6_small.onnx").use { it.readBytes() }
+                // det（tier 感知：medium 外部优先，small assets 兜底）
+                val detBytes = loadDetModelBytes(context)
                 detSession = ortEnv!!.createSession(detBytes, sessionOpts)
 
                 // cls（从 assets 加载）
@@ -201,6 +199,20 @@ object PPOcrV6Engine {
                 throw e
             }
         }
+    }
+
+    private fun loadDetModelBytes(context: Context): ByteArray {
+        val tier = CustomPreference.getInstance(context).getString("ppocrv6_tier", "small") ?: "small"
+        if (tier == "medium") {
+            val file = File(PPOcrModelManager.getV6ModelDir(context), "det_v6_medium.onnx")
+            if (file.exists() && file.length() > 0) {
+                LogCollector.d(TAG, "从外部存储加载 det medium 模型")
+                return file.readBytes()
+            }
+            LogCollector.w(TAG, "det medium 模型不存在，fallback 到 small")
+        }
+        LogCollector.d(TAG, "从 assets 加载 det small 模型")
+        return context.assets.open("ppocrv6/det_v6_small.onnx").use { it.readBytes() }
     }
 
     private fun loadRecModelBytes(context: Context): ByteArray {
@@ -1060,7 +1072,7 @@ object PPOcrV6Engine {
         context: Context,
         bitmap: Bitmap,
         useDet: Boolean = true,
-        useCls: Boolean = true
+        useCls: Boolean = false
     ): OcrResult {
         if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
         if (bitmap.isRecycled) throw IllegalArgumentException("Bitmap 已回收")

@@ -596,6 +596,10 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="ppocrv6_medium_desc">medium det+rec, optional download (~134MB)</string>
     <string name="manga_model_ppocrv6">PP-OCRv6</string>
     <string name="game_ocr_engine_ppocrv6">PP-OCRv6</string>
+    <string name="ppocrv6_medium_det_title">PP-OCRv6 detection</string>
+    <string name="ppocrv6_medium_det_desc">PP-OCRv6 detection medium model, optional download (~60MB)</string>
+    <string name="ppocrv6_medium_rec_title">PP-OCRv6 recognition</string>
+    <string name="ppocrv6_medium_rec_desc">PP-OCRv6 recognition medium model, optional download (~74MB)</string>
 
     <!-- PP-OCRv5 models -->
     <string name="ppocr_det_desc">det text detection, built-in</string>

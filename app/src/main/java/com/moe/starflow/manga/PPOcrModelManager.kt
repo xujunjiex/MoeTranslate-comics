@@ -151,6 +151,25 @@ object PPOcrModelManager {
         return detFile.exists() && detFile.length() > 0 && recFile.exists() && recFile.length() > 0
     }
 
+    fun isV6MediumDownloaded(context: Context, type: String): Boolean {
+        val fileName = if (type == "det") "det_v6_medium.onnx" else "rec_v6_medium.onnx"
+        val file = File(getV6ModelDir(context), fileName)
+        return file.exists() && file.length() > 0
+    }
+
+    fun deleteV6Medium(context: Context, type: String): Result<Unit> {
+        return try {
+            val fileName = if (type == "det") "det_v6_medium.onnx" else "rec_v6_medium.onnx"
+            val file = File(getV6ModelDir(context), fileName)
+            if (file.exists()) file.delete()
+            LogCollector.d(TAG, "v6 模型 $type 已删除")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "删除 v6 模型 $type 失败", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun downloadV6Medium(
         context: Context,
         type: String,

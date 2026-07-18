@@ -6,9 +6,11 @@ import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.preference.PreferenceManager
 import android.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.R
@@ -67,6 +69,7 @@ class ModelManagementFragment : Fragment() {
         // 浏览器下载按钮
         setupBrowserDownloadButtons()
         setupV6Buttons()
+        setupV6TierSwitching()
 
         // 显示模型存储路径（Android 通用格式）
         val pathText = rootView.findViewById<TextView>(R.id.model_storage_path)
@@ -626,73 +629,246 @@ class ModelManagementFragment : Fragment() {
 
     private var ppOcrV6DetJob: kotlinx.coroutines.Job? = null
     private var ppOcrV6RecJob: kotlinx.coroutines.Job? = null
+    private var ppOcrV6DetIsCancelled = false
+    private var ppOcrV6RecIsCancelled = false
 
     private fun setupV6Buttons() {
-        rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_action)?.setOnClickListener {
-            if (PPOcrModelManager.isV6MediumDownloaded(requireContext())) {
-                showV6DeleteConfirmDialog()
-            } else {
-                startV6Download("det")
+        // 浏览器按钮
+        rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_browser_button)?.setOnClickListener {
+            PPOcrModelManager.V6_DOWNLOAD_URLS["det"]?.let { url -> openBrowser(url) }
+        }
+        rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_browser_button)?.setOnClickListener {
+            PPOcrModelManager.V6_DOWNLOAD_URLS["rec"]?.let { url -> openBrowser(url) }
+        }
+    }
+
+    private fun setupV6TierSwitching() {
+        val smallRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_small)
+        val mediumRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_medium)
+        val currentTier = PreferenceManager.getDefaultSharedPreferences(requireContext()).getString("ppocrv6_tier", "small") ?: "small"
+
+        // 初始状态
+        smallRadio.isChecked = currentTier == "small"
+        mediumRadio.isChecked = currentTier == "medium"
+
+        smallRadio.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                PreferenceManager.getDefaultSharedPreferences(requireContext()).edit().putString("ppocrv6_tier", "small").commit()
+                mediumRadio.isChecked = false
+                LogCollector.d(TAG, "PP-OCRv6 tier switched to small")
+                Toast.makeText(requireContext(), "PP-OCRv6 已切换到 small 模型", Toast.LENGTH_SHORT).show()
             }
         }
-        rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_action)?.setOnClickListener {
-            if (PPOcrModelManager.isV6MediumDownloaded(requireContext())) {
-                showV6DeleteConfirmDialog()
-            } else {
-                startV6Download("rec")
+        mediumRadio.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                PreferenceManager.getDefaultSharedPreferences(requireContext()).edit().putString("ppocrv6_tier", "medium").commit()
+                smallRadio.isChecked = false
+                LogCollector.d(TAG, "PP-OCRv6 tier switched to medium")
+                Toast.makeText(requireContext(), "PP-OCRv6 已切换到 medium 模型", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun updatePPOcrV6Status() {
-        val detStatus = rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_status)
-        val recStatus = rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_status)
-        val detBtn = rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_action)
-        val recBtn = rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_action)
-        val isDownloaded = PPOcrModelManager.isV6MediumDownloaded(requireContext())
+        updatePPOcrV6DetStatus()
+        updatePPOcrV6RecStatus()
+        updateV6TierVisibility()
+    }
 
-        if (isDownloaded) {
-            detStatus?.text = "已下载"
-            recStatus?.text = "已下载"
-            detBtn?.text = getString(R.string.model_delete)
-            recBtn?.text = getString(R.string.model_delete)
-        } else {
-            detStatus?.text = "未下载"
-            recStatus?.text = "未下载"
-            detBtn?.text = getString(R.string.model_download)
-            recBtn?.text = getString(R.string.model_download)
+    private fun updateV6TierVisibility() {
+        val smallRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_small)
+        val mediumRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_medium)
+        val detDownloaded = PPOcrModelManager.isV6MediumDownloaded(requireContext(), "det")
+        val recDownloaded = PPOcrModelManager.isV6MediumDownloaded(requireContext(), "rec")
+        val mediumAvailable = detDownloaded && recDownloaded
+
+        mediumRadio.visibility = if (mediumAvailable) android.view.View.VISIBLE else android.view.View.GONE
+
+        val currentTier = PreferenceManager.getDefaultSharedPreferences(requireContext()).getString("ppocrv6_tier", "small") ?: "small"
+        smallRadio.isChecked = currentTier == "small"
+        if (mediumAvailable) {
+            mediumRadio.isChecked = currentTier == "medium"
+        } else if (currentTier == "medium") {
+            // medium 被删了，回退到 small
+            PreferenceManager.getDefaultSharedPreferences(requireContext()).edit().putString("ppocrv6_tier", "small").commit()
+            smallRadio.isChecked = true
+        }
+    }
+
+    private fun updatePPOcrV6DetStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_action)
+        val isDownloaded = PPOcrModelManager.isV6MediumDownloaded(requireContext(), "det")
+        val isDownloading = ppOcrV6DetJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelV6Download("det") }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getV6MediumSize("det")
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showV6DeleteConfirmDialog("det") }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startV6Download("det") }
+            }
+        }
+    }
+
+    private fun updatePPOcrV6RecStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_action)
+        val isDownloaded = PPOcrModelManager.isV6MediumDownloaded(requireContext(), "rec")
+        val isDownloading = ppOcrV6RecJob != null
+
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelV6Download("rec") }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getV6MediumSize("rec")
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showV6DeleteConfirmDialog("rec") }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startV6Download("rec") }
+            }
+        }
+    }
+
+    private fun cancelV6Download(type: String) {
+        when (type) {
+            "det" -> { ppOcrV6DetIsCancelled = true; ppOcrV6DetJob?.cancel(); ppOcrV6DetJob = null }
+            "rec" -> { ppOcrV6RecIsCancelled = true; ppOcrV6RecJob?.cancel(); ppOcrV6RecJob = null }
+        }
+        LogCollector.d(TAG, "PP-OCRv6 $type 下载已取消")
+        when (type) {
+            "det" -> updatePPOcrV6DetStatus()
+            "rec" -> updatePPOcrV6RecStatus()
         }
     }
 
     private fun startV6Download(type: String) {
+        when (type) {
+            "det" -> ppOcrV6DetIsCancelled = false
+            "rec" -> ppOcrV6RecIsCancelled = false
+        }
+
+        val isCancelled: () -> Boolean = {
+            when (type) {
+                "det" -> ppOcrV6DetIsCancelled
+                else -> ppOcrV6RecIsCancelled
+            }
+        }
+
         val statusId = if (type == "det") R.id.ppocrv6_medium_det_status else R.id.ppocrv6_medium_rec_status
-        lifecycleScope.launch {
+
+        val job = lifecycleScope.launch(Dispatchers.IO) {
+            LogCollector.d(TAG, "开始下载 PP-OCRv6 $type 模型...")
             try {
-                val statusText = rootView.findViewById<TextView>(statusId)
-                statusText?.text = "下载中..."
-                val result = PPOcrModelManager.downloadV6Medium(requireContext(), type)
-                if (result.isSuccess) {
-                    updatePPOcrV6Status()
-                } else {
-                    statusText?.text = "下载失败"
+                val result = PPOcrModelManager.downloadV6Medium(
+                    requireContext(),
+                    type,
+                    object : ModelDownloadManager.ProgressCallback {
+                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
+                            if (isCancelled() || !isAdded) return
+                            handler.post {
+                                if (isCancelled() || !isAdded) return@post
+                                val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                                val statusText = rootView.findViewById<TextView>(statusId)
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
+                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
+                                statusText.text = "${getString(R.string.model_downloading)} $progress%  ${mbRead}/${mbTotal} MB$speedStr"
+                            }
+                        }
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    when (type) {
+                        "det" -> ppOcrV6DetJob = null
+                        "rec" -> ppOcrV6RecJob = null
+                    }
+                    if (isCancelled()) return@withContext
+                    if (result.isSuccess) {
+                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.model_download_failed, result.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
+                    }
+                    when (type) {
+                        "det" -> updatePPOcrV6DetStatus()
+                        "rec" -> updatePPOcrV6RecStatus()
+                    }
                 }
             } catch (e: Exception) {
-                LogCollector.e("ModelManagement", "PP-OCRv6 $type 下载异常", e)
-                val statusText = rootView.findViewById<TextView>(statusId)
-                statusText?.text = "下载失败: ${e.message}"
+                LogCollector.e(TAG, "PP-OCRv6 $type 下载异常", e)
+                withContext(Dispatchers.Main) {
+                    when (type) {
+                        "det" -> ppOcrV6DetJob = null
+                        "rec" -> ppOcrV6RecJob = null
+                    }
+                    if (isCancelled()) return@withContext
+                    Toast.makeText(requireContext(), getString(R.string.model_download_failed, e.message), Toast.LENGTH_LONG).show()
+                    when (type) {
+                        "det" -> updatePPOcrV6DetStatus()
+                        "rec" -> updatePPOcrV6RecStatus()
+                    }
+                }
             }
+        }
+
+        when (type) {
+            "det" -> ppOcrV6DetJob = job
+            "rec" -> ppOcrV6RecJob = job
+        }
+        when (type) {
+            "det" -> updatePPOcrV6DetStatus()
+            "rec" -> updatePPOcrV6RecStatus()
         }
     }
 
-    private fun showV6DeleteConfirmDialog() {
+    private fun showV6DeleteConfirmDialog(type: String) {
+        val name = if (type == "det") "PP-OCRv6 检测 medium" else "PP-OCRv6 识别 medium"
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("删除 PP-OCRv6 medium 模型")
-            .setMessage("确定要删除已下载的 medium 模型吗？删除后将使用内置 small 模型。")
-            .setPositiveButton(R.string.confirm) { _, _ ->
-                PPOcrModelManager.deleteV6Medium(requireContext())
-                updatePPOcrV6Status()
-            }
+            .setTitle(R.string.model_delete)
+            .setMessage(getString(R.string.model_delete_confirm, name))
+            .setPositiveButton(R.string.confirm) { _, _ -> deleteV6Model(type) }
             .setNegativeButton(R.string.user_cancel, null)
             .show()
+    }
+
+    private fun deleteV6Model(type: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = PPOcrModelManager.deleteV6Medium(requireContext(), type)
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
+                }
+                when (type) {
+                    "det" -> updatePPOcrV6DetStatus()
+                    "rec" -> updatePPOcrV6RecStatus()
+                }
+            }
+        }
     }
 }

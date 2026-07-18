@@ -369,6 +369,7 @@ class FloatingBallService : LifecycleService() {
     private fun getOcrEngineName(): String = when (prefs.getInt("Game_OCR_Engine", 0)) {
         1 -> "PP-OCRv5"
         2 -> "manga-ocr"
+        3 -> "PP-OCRv6"
         else -> "MLKit"
     }
 
@@ -935,9 +936,12 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun getOcrEngineLabel(): String {
-        return when (prefs.getInt("Game_OCR_Engine", 0)) {
+        val engineVal = prefs.getInt("Game_OCR_Engine", 0)
+        LogCollector.d(TAG, "getOcrEngineLabel: raw value=$engineVal")
+        return when (engineVal) {
             1 -> getString(R.string.game_ocr_engine_ppocr)
             2 -> getString(R.string.game_ocr_engine_manga_ocr)
+            3 -> getString(R.string.game_ocr_engine_ppocrv6)
             else -> getString(R.string.game_ocr_engine_mlkit)
         }
     }
@@ -992,7 +996,7 @@ class FloatingBallService : LifecycleService() {
     private fun cycleOcrEngine() {
         val current = prefs.getInt("Game_OCR_Engine", 0)
         val next = (current + 1) % 4
-        prefs.setInt("Game_OCR_Engine", next)
+        prefs.setIntSync("Game_OCR_Engine", next)
         val label = when (next) {
             1 -> getString(R.string.game_ocr_engine_ppocr)
             2 -> getString(R.string.game_ocr_engine_manga_ocr)

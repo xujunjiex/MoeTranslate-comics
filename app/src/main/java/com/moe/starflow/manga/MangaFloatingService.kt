@@ -4021,6 +4021,355 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
+     * 创建 PP-OCRv6 参数滑块视图（9 个 v6 独立参数，ppocrv6_ 前缀 prefs）
+     */
+    @SuppressLint("SetTextI18n")
+    private fun createPPOcrV6ParamSlidersView(): android.view.View {
+        val dp = resources.displayMetrics.density
+
+        // 默认值（与 PPOcrV6Engine.refreshParams 默认值一致）
+        val DEF_DET_THRESH = 0.3f; val DEF_BOX = 0.5f; val DEF_UNCLIP = 1.6f
+        val DEF_TEXT = 0.5f; val DEF_CLS = 0.9f; val DEF_BATCH = 6
+        val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
+        val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
+
+        // 滑块范围映射
+        fun detThreshToSeek(v: Float) = ((v - 0.1f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun seekToDetThresh(v: Int) = 0.1f + v / 100f * 0.4f
+        fun boxToSeek(v: Float) = ((v - 0.01f) / 0.69f * 100).toInt().coerceIn(0, 100)
+        fun seekToBox(v: Int) = 0.01f + v / 100f * 0.69f
+        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).toInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
+        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
+        fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
+        fun clsToSeek(v: Float) = ((v - 0.5f) / 0.5f * 100).toInt().coerceIn(0, 100)
+        fun seekToCls(v: Int) = 0.5f + v / 100f * 0.5f
+        fun batchToSeek(v: Int) = ((v - 1) * 100 / 11).coerceIn(0, 100)
+        fun seekToBatch(v: Int) = 1 + v * 11 / 100
+        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
+        fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
+        fun mGapToSeek(v: Float) = ((v - 0.5f) / 4.5f * 100).toInt().coerceIn(0, 100)
+        fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
+
+        // 外层垂直容器
+        val outerPanel = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding((8 * dp).toInt(), (4 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
+            setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
+        }
+
+        data class SliderRef(
+            val label: android.widget.TextView,
+            val seekBar: android.widget.SeekBar,
+            val labelText: String,
+            val formatValue: (Int) -> String,
+            val save: (Int) -> Unit
+        )
+        val sliderRefs = mutableListOf<SliderRef>()
+
+        // ── 第一行：3 个滑块（det_thresh, box_thresh, unclip_ratio）──
+        val row1 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val sliders1 = listOf(
+            Triple("二值化阈值", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
+            Triple("检测置信度", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
+            Triple("扩展比例", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
+        )
+        val saveFns1: List<(Int) -> Unit> = listOf(
+            { v -> prefs.setFloat("ppocrv6_det_thresh", seekToDetThresh(v)) },
+            { v -> prefs.setFloat("ppocrv6_det_box_thresh", seekToBox(v)) },
+            { v -> prefs.setFloat("ppocrv6_det_unclip_ratio", seekToUnclip(v)) }
+        )
+
+        for ((idx, triple) in sliders1.withIndex()) {
+            val (name, seekInit, fmt) = triple
+            val group = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val label = android.widget.TextView(this).apply {
+                text = "$name\n${fmt(seekInit)}"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                maxLines = 2
+            }
+
+            val seekBar = android.widget.SeekBar(this).apply {
+                max = 100
+                progress = seekInit
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt()
+                )
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (fromUser) {
+                            label.text = "$name\n${fmt(progress)}"
+                            saveFns1[idx](progress)
+                            PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                        }
+                    }
+                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+                })
+            }
+
+            sliderRefs.add(SliderRef(label, seekBar, name, fmt, saveFns1[idx]))
+            group.addView(label)
+            group.addView(seekBar)
+            row1.addView(group)
+        }
+        outerPanel.addView(row1)
+
+        // ── 第二行：3 个滑块（text_score, cls_thresh, rec_batch_num）──
+        val row2 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+
+        val sliders2 = listOf(
+            Triple("识别置信度", textToSeek(prefs.getFloat("ppocrv6_text_score", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) }),
+            Triple("方向分类阈值", clsToSeek(prefs.getFloat("ppocrv6_cls_thresh", DEF_CLS)), { v: Int -> String.format("%.2f", seekToCls(v)) }),
+            Triple("批处理数", batchToSeek(prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH)), { v: Int -> "${seekToBatch(v)}" })
+        )
+        val saveFns2: List<(Int) -> Unit> = listOf(
+            { v -> prefs.setFloat("ppocrv6_text_score", seekToText(v)) },
+            { v -> prefs.setFloat("ppocrv6_cls_thresh", seekToCls(v)) },
+            { v -> prefs.setInt("ppocrv6_rec_batch_num", seekToBatch(v)) }
+        )
+
+        for ((idx, triple) in sliders2.withIndex()) {
+            val (name, seekInit, fmt) = triple
+            val group = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val label = android.widget.TextView(this).apply {
+                text = "$name\n${fmt(seekInit)}"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                maxLines = 2
+            }
+
+            val seekBar = android.widget.SeekBar(this).apply {
+                max = 100
+                progress = seekInit
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt()
+                )
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (fromUser) {
+                            label.text = "$name\n${fmt(progress)}"
+                            saveFns2[idx](progress)
+                            PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                        }
+                    }
+                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+                })
+            }
+
+            sliderRefs.add(SliderRef(label, seekBar, name, fmt, saveFns2[idx]))
+            group.addView(label)
+            group.addView(seekBar)
+            row2.addView(group)
+        }
+        outerPanel.addView(row2)
+
+        // ── 第三行：合并参数滑块（距离门控）──
+        val rowMerge = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+
+        data class MergeSliderRef(
+            val label: android.widget.TextView,
+            val seekBar: android.widget.SeekBar,
+            val labelText: String,
+            val formatValue: (Int) -> String,
+            val save: (Int) -> Unit
+        )
+        val mergeSliderRefs = mutableListOf<MergeSliderRef>()
+
+        val mergeSeekInit = mGapToSeek(prefs.getFloat("merge_discard_gap", DEF_GAP))
+        val mergeGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val mergeLabel = android.widget.TextView(this).apply {
+            text = "距离门控\n${String.format("%.1f", mSeekToGap(mergeSeekInit))}"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            gravity = android.view.Gravity.CENTER
+            maxLines = 2
+        }
+        val mergeSeek = android.widget.SeekBar(this).apply {
+            max = 100
+            progress = mergeSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt()
+            )
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = mSeekToGap(progress)
+                        mergeLabel.text = "距离门控\n${String.format("%.1f", v)}"
+                        prefs.setFloat("merge_discard_gap", v)
+                        TextRegionMerger.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        mergeSliderRefs.add(MergeSliderRef(mergeLabel, mergeSeek, "距离门控",
+            { v: Int -> String.format("%.1f", mSeekToGap(v)) },
+            { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextRegionMerger.refreshParams(this) }))
+        mergeGroup.addView(mergeLabel)
+        mergeGroup.addView(mergeSeek)
+        rowMerge.addView(mergeGroup)
+        outerPanel.addView(rowMerge)
+
+        // ── 第四行：大框过滤开关 ──
+        val row3 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+
+        val largeBoxLabel = android.widget.TextView(this).apply {
+            text = "大框过滤"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            setPadding(0, 0, (2 * dp).toInt(), 0)
+        }
+        val largeBoxToggle = android.widget.Switch(this).apply {
+            isChecked = prefs.getBoolean("ppocrv6_large_box_enabled", DEF_LARGE_ENABLED)
+            textSize = 10f
+            setTextColor(android.graphics.Color.WHITE)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.setBoolean("ppocrv6_large_box_enabled", isChecked)
+                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+            }
+        }
+
+        row3.addView(largeBoxLabel)
+        row3.addView(largeBoxToggle)
+        outerPanel.addView(row3)
+
+        // ── 第五行：大框丢弃比例滑块 ──
+        val row4 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+
+        val ratioLabel = android.widget.TextView(this).apply {
+            val cur = prefs.getFloat("ppocrv6_large_box_ratio", DEF_LARGE_RATIO)
+            text = "丢弃比例 ${String.format("%.0f%%", cur * 100)}"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 0, (4 * dp).toInt(), 0)
+        }
+        val ratioSeekBar = android.widget.SeekBar(this).apply {
+            max = 100
+            progress = ratioToSeek(prefs.getFloat("ppocrv6_large_box_ratio", DEF_LARGE_RATIO))
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, (24 * dp).toInt(), 1f)
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val ratio = seekToRatio(progress)
+                        ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", ratio * 100)}"
+                        prefs.setFloat("ppocrv6_large_box_ratio", ratio)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        row4.addView(ratioLabel)
+        row4.addView(ratioSeekBar)
+        outerPanel.addView(row4)
+
+        // ── 第六行：恢复默认按钮 ──
+        val row5 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        val resetBtn = android.widget.TextView(this).apply {
+            text = "恢复默认"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 12f
+            setPadding((16 * dp).toInt(), (4 * dp).toInt(), (16 * dp).toInt(), (4 * dp).toInt())
+            setBackgroundColor(android.graphics.Color.argb(150, 100, 100, 100))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                // 重置 SharedPreferences
+                prefs.setFloat("ppocrv6_det_thresh", DEF_DET_THRESH)
+                prefs.setFloat("ppocrv6_det_box_thresh", DEF_BOX)
+                prefs.setFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)
+                prefs.setFloat("ppocrv6_text_score", DEF_TEXT)
+                prefs.setFloat("ppocrv6_cls_thresh", DEF_CLS)
+                prefs.setInt("ppocrv6_rec_batch_num", DEF_BATCH)
+                prefs.setBoolean("ppocrv6_large_box_enabled", DEF_LARGE_ENABLED)
+                prefs.setFloat("ppocrv6_large_box_ratio", DEF_LARGE_RATIO)
+                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+
+                // 更新 UI
+                sliderRefs[0].apply { seekBar.progress = detThreshToSeek(DEF_DET_THRESH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[1].apply { seekBar.progress = boxToSeek(DEF_BOX); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[2].apply { seekBar.progress = unclipToSeek(DEF_UNCLIP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[3].apply { seekBar.progress = textToSeek(DEF_TEXT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[4].apply { seekBar.progress = clsToSeek(DEF_CLS); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[5].apply { seekBar.progress = batchToSeek(DEF_BATCH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                largeBoxToggle.isChecked = DEF_LARGE_ENABLED
+                ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
+                ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+
+                // 重置合并参数
+                TextRegionMerger.resetParams(this@MangaFloatingService)
+                mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+            }
+        }
+        row5.addView(resetBtn)
+        outerPanel.addView(row5)
+
+        return outerPanel
+    }
+
+    /**
      * 创建 info panel 视图（用于嵌入到 debug 图片窗口中）
      */
     @SuppressLint("SetTextI18n")
@@ -4977,8 +5326,8 @@ class MangaFloatingService : LifecycleService() {
         val foldableContent = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
         }
-        // 参数滑块（带恢复默认按钮）
-        val slidersView = createPPOcrParamSlidersView()
+        // 参数滑块（带恢复默认按钮）— v6 使用独立参数
+        val slidersView = createPPOcrV6ParamSlidersView()
         foldableContent.addView(slidersView, android.widget.LinearLayout.LayoutParams(
             android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT

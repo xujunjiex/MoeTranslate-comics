@@ -605,6 +605,10 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="ppocrv6_medium_desc">medium 检测+识别，可选下载 (~134MB)</string>
     <string name="manga_model_ppocrv6">PP-OCRv6</string>
     <string name="game_ocr_engine_ppocrv6">PP-OCRv6</string>
+    <string name="ppocrv6_medium_det_title">PP-OCRv6 检测</string>
+    <string name="ppocrv6_medium_det_desc">PP-OCRv6 检测 medium 模型，可选下载 (~60MB)</string>
+    <string name="ppocrv6_medium_rec_title">PP-OCRv6 识别</string>
+    <string name="ppocrv6_medium_rec_desc">PP-OCRv6 识别 medium 模型，可选下载 (~74MB)</string>
 
     <!-- PP-OCRv5 模型 -->
     <string name="ppocr_det_desc">det 文字区域检测，内置</string>
