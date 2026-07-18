@@ -62,9 +62,11 @@ class ModelManagementFragment : Fragment() {
         updatePPOcrEnStatus()
         updatePPOcrKoStatus()
         updatePPOcrRuStatus()
+        updatePPOcrV6Status()
 
         // 浏览器下载按钮
         setupBrowserDownloadButtons()
+        setupV6Buttons()
 
         // 显示模型存储路径（Android 通用格式）
         val pathText = rootView.findViewById<TextView>(R.id.model_storage_path)
@@ -614,5 +616,83 @@ class ModelManagementFragment : Fragment() {
         ppOcrKoDownloadJob = null
         ppOcrRuDownloadJob?.cancel()
         ppOcrRuDownloadJob = null
+        ppOcrV6DetJob?.cancel()
+        ppOcrV6DetJob = null
+        ppOcrV6RecJob?.cancel()
+        ppOcrV6RecJob = null
+    }
+
+    // ========== PP-OCRv6 下载相关 ==========
+
+    private var ppOcrV6DetJob: kotlinx.coroutines.Job? = null
+    private var ppOcrV6RecJob: kotlinx.coroutines.Job? = null
+
+    private fun setupV6Buttons() {
+        rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_action)?.setOnClickListener {
+            if (PPOcrModelManager.isV6MediumDownloaded(requireContext())) {
+                showV6DeleteConfirmDialog()
+            } else {
+                startV6Download("det")
+            }
+        }
+        rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_action)?.setOnClickListener {
+            if (PPOcrModelManager.isV6MediumDownloaded(requireContext())) {
+                showV6DeleteConfirmDialog()
+            } else {
+                startV6Download("rec")
+            }
+        }
+    }
+
+    private fun updatePPOcrV6Status() {
+        val detStatus = rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_status)
+        val recStatus = rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_status)
+        val detBtn = rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_action)
+        val recBtn = rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_action)
+        val isDownloaded = PPOcrModelManager.isV6MediumDownloaded(requireContext())
+
+        if (isDownloaded) {
+            detStatus?.text = "已下载"
+            recStatus?.text = "已下载"
+            detBtn?.text = getString(R.string.model_delete)
+            recBtn?.text = getString(R.string.model_delete)
+        } else {
+            detStatus?.text = "未下载"
+            recStatus?.text = "未下载"
+            detBtn?.text = getString(R.string.model_download)
+            recBtn?.text = getString(R.string.model_download)
+        }
+    }
+
+    private fun startV6Download(type: String) {
+        val statusId = if (type == "det") R.id.ppocrv6_medium_det_status else R.id.ppocrv6_medium_rec_status
+        lifecycleScope.launch {
+            try {
+                val statusText = rootView.findViewById<TextView>(statusId)
+                statusText?.text = "下载中..."
+                val result = PPOcrModelManager.downloadV6Medium(requireContext(), type)
+                if (result.isSuccess) {
+                    updatePPOcrV6Status()
+                } else {
+                    statusText?.text = "下载失败"
+                }
+            } catch (e: Exception) {
+                LogCollector.e("ModelManagement", "PP-OCRv6 $type 下载异常", e)
+                val statusText = rootView.findViewById<TextView>(statusId)
+                statusText?.text = "下载失败: ${e.message}"
+            }
+        }
+    }
+
+    private fun showV6DeleteConfirmDialog() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("删除 PP-OCRv6 medium 模型")
+            .setMessage("确定要删除已下载的 medium 模型吗？删除后将使用内置 small 模型。")
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                PPOcrModelManager.deleteV6Medium(requireContext())
+                updatePPOcrV6Status()
+            }
+            .setNegativeButton(R.string.user_cancel, null)
+            .show()
     }
 }
