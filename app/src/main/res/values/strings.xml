@@ -768,4 +768,27 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="history_original_abbr">Orig</string>
     <string name="history_translated_abbr">Trans</string>
 
+    <!-- 模型管理重构 - 引擎组 (English) -->
+    <string name="model_group_mlkit">ML Kit</string>
+    <string name="model_group_mlkit_desc">Google on-device ML, text detection and recognition</string>
+    <string name="model_group_rt_manga">RT-DETR-V2 + manga-ocr</string>
+    <string name="model_group_rt_manga_desc">Comic bubble detection and Japanese vertical OCR</string>
+    <string name="model_rtdetr_desc">Real-time end-to-end detection for text regions and bubbles</string>
+    <string name="model_mangaocr_desc">Japanese vertical text recognition, complex layouts and variants</string>
+    <string name="model_group_ppocrv5">PP-OCRv5</string>
+    <string name="model_group_ppocrv5_desc">From PaddleOCR, offline ONNX recognition</string>
+    <string name="model_v5_det_desc">Text region detection</string>
+    <string name="model_v5_rec_zh_desc">Chinese/Japanese/English recognition</string>
+    <string name="model_v5_rec_en_desc">English recognition</string>
+    <string name="model_v5_rec_ko_desc">Korean recognition</string>
+    <string name="model_v5_rec_ru_desc">Cyrillic recognition</string>
+    <string name="model_group_ppocrv6">PP-OCRv6</string>
+    <string name="model_group_ppocrv6_desc">Next-gen OCR engine, accuracy and speed</string>
+    <string name="model_hint_need_both">Each engine group requires at least one detector and one recognizer</string>
+    <string name="model_browser_onnx">Model</string>
+    <string name="model_browser_dict">Dict</string>
+    <string name="model_browser_encoder">encoder</string>
+    <string name="model_browser_decoder">decoder</string>
+    <string name="model_browser_vocab">vocab</string>
+
 </resources>
