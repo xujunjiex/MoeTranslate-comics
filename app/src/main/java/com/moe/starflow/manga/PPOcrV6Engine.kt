@@ -1,0 +1,1622 @@
+package com.moe.starflow.manga
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Point
+import android.graphics.PointF
+import android.graphics.Rect
+import com.moe.starflow.R
+import com.moe.starflow.utils.CustomPreference
+import com.moe.starflow.utils.LogCollector
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
+import org.locationtech.jts.geom.Coordinate
+import org.locationtech.jts.geom.GeometryFactory
+import org.locationtech.jts.operation.buffer.BufferOp
+import java.io.File
+import java.nio.FloatBuffer
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
+
+// Data classes reused from PPOcrV5Engine.kt (same package)
+// ============================================================================
+// PP-OCRv6 OCR Engine
+// ============================================================================
+
+/**
+ * PP-OCRv6 完整 OCR 引擎（det + cls + rec）。
+ *
+ * 对齐 RapidOCR Python 实现：det → crop → cls → rec → CTCLabelDecode。
+ * 所有模型输入名均为 `x`。
+ */
+object PPOcrV6Engine {
+
+    private const val TAG = "PPOcrV6Engine"
+
+    // -----------------------------------------------------------------------
+    // Det 常量 (ch_ppocr_det/utils.py DetPreProcess + DBPostProcess)
+    // -----------------------------------------------------------------------
+    private const val DET_LIMIT_SIDE_LEN = 736       // was 960
+    private const val DET_LIMIT_TYPE = "min"          // was "max"
+    private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)  // same
+    private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)   // same
+    private const val DET_THRESH = 0.3f               // was 0.1f
+    private const val DET_BOX_THRESH_DEFAULT = 0.5f   // was 0.3f
+    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6  // same
+    private const val DET_MAX_CANDIDATES = 100         // same
+    private const val DET_MIN_SIZE = 3                 // same
+
+    // -----------------------------------------------------------------------
+    // Cls 常量 (ch_ppocr_cls/main.py)
+    // -----------------------------------------------------------------------
+    private val CLS_IMAGE_SHAPE = intArrayOf(3, 80, 160) // [C, H, W] — matches cls_v6.onnx input
+    private const val CLS_THRESH = 0.9f                   // same
+
+    // -----------------------------------------------------------------------
+    // Rec 常量 (ch_ppocr_rec/main.py)
+    // -----------------------------------------------------------------------
+    private const val REC_IMG_HEIGHT = 48          // same
+    private const val REC_IMG_CHANNELS = 3         // same
+    private const val REC_BATCH_NUM = 6            // was 16
+
+    // -----------------------------------------------------------------------
+    // 全局常量
+    // -----------------------------------------------------------------------
+    private const val TEXT_SCORE_THRESH_DEFAULT = 0.5f
+
+    // -----------------------------------------------------------------------
+    // 用户可调参数（从 SharedPreferences 动态读取）
+    // -----------------------------------------------------------------------
+    // All params, with ppocrv6_ prefix
+    @Volatile private var detThresh = DET_THRESH
+    @Volatile private var detBoxThresh = DET_BOX_THRESH_DEFAULT
+    @Volatile private var detUnclipRatio = DET_UNCLIP_RATIO_DEFAULT.toDouble()  // note: double
+    @Volatile private var useDilation = true
+    @Volatile private var limitSideLen = DET_LIMIT_SIDE_LEN
+    @Volatile private var limitType = DET_LIMIT_TYPE
+    @Volatile private var textScoreThresh = TEXT_SCORE_THRESH_DEFAULT
+    @Volatile private var clsThresh = CLS_THRESH
+    @Volatile private var recBatchNum = REC_BATCH_NUM
+    @Volatile private var largeBoxEnabled = false
+    @Volatile private var largeBoxRatio = 0.6f  // 宽/高/面积占图片比例阈值
+
+    /**
+     * 从 SharedPreferences 刷新可调参数。
+     * 在每次 OCR 前调用，确保用户调整的滑块立即生效。
+     */
+    fun refreshParams(context: Context) {
+        val prefs = CustomPreference.getInstance(context)
+        detThresh = prefs.getFloat("ppocrv6_det_thresh", 0.3f)
+        detBoxThresh = prefs.getFloat("ppocrv6_det_box_thresh", 0.5f)
+        detUnclipRatio = prefs.getFloat("ppocrv6_det_unclip_ratio", 1.6f).toDouble()
+        useDilation = prefs.getBoolean("ppocrv6_use_dilation", true)
+        limitSideLen = prefs.getInt("ppocrv6_limit_side_len", 736)
+        limitType = prefs.getString("ppocrv6_limit_type", "min") ?: "min"
+        textScoreThresh = prefs.getFloat("ppocrv6_text_score", 0.5f)
+        clsThresh = prefs.getFloat("ppocrv6_cls_thresh", 0.9f)
+        recBatchNum = prefs.getInt("ppocrv6_rec_batch_num", 6)
+        largeBoxEnabled = prefs.getBoolean("ppocrv6_large_box_enabled", false)
+        largeBoxRatio = prefs.getFloat("ppocrv6_large_box_ratio", 0.6f)
+    }
+
+    // -----------------------------------------------------------------------
+    // ONNX 会话
+    // -----------------------------------------------------------------------
+    @Volatile private var ortEnv: OrtEnvironment? = null
+    @Volatile private var detSession: OrtSession? = null
+    @Volatile private var clsSession: OrtSession? = null
+    @Volatile private var recSession: OrtSession? = null  // single session, not EnumMap
+
+    // 字典：blank(0) + dict_chars + space(end)
+    private var dictionary: List<String> = emptyList()
+
+    @Volatile
+    var isInitialized = false
+        private set
+
+    // rec 会话加载锁
+    private val recLock = Any()
+
+    // 初始化/释放锁
+    private val lock = Any()
+
+    // ========================================================================
+    // 初始化 / 释放
+    // ========================================================================
+
+    /**
+     * 初始化引擎：加载 det + cls ONNX 会话 + 字典。
+     * rec 会话按需懒加载（首次调用 [getRecSession] 时）。
+     */
+    fun initialize(context: Context) {
+        synchronized(lock) {
+            if (isInitialized) return
+            try {
+                LogCollector.d(TAG, "开始初始化 PP-OCRv6 引擎...")
+                ortEnv = OrtEnvironment.getEnvironment()
+                val sessionOpts = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setIntraOpNumThreads(4)
+                }
+
+                // det（从 assets 加载）
+                val detBytes = context.assets.open("ppocrv6/det_v6_small.onnx").use { it.readBytes() }
+                detSession = ortEnv!!.createSession(detBytes, sessionOpts)
+
+                // cls（从 assets 加载）
+                try {
+                    val clsBytes = context.assets.open("ppocrv6/cls_v6.onnx").use { it.readBytes() }
+                    clsSession = ortEnv!!.createSession(clsBytes, sessionOpts)
+                } catch (e: Exception) {
+                    LogCollector.w(TAG, "cls 模型不可用: ${e.message}")
+                    clsSession = null
+                }
+
+                // 字典
+                loadDictionary(context)
+
+                isInitialized = true
+                LogCollector.d(TAG, "PP-OCRv6 引擎初始化完成")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "PP-OCRv6 初始化失败", e)
+                release()
+                throw e
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Rec 会话（单模型，懒加载）
+    // -----------------------------------------------------------------------
+    private fun getRecSession(context: Context): OrtSession? {
+        recSession?.let { return it }
+        synchronized(recLock) {
+            recSession?.let { return it }
+            return try {
+                LogCollector.d(TAG, "懒加载 rec 模型...")
+                val opts = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setMemoryPatternOptimization(true)
+                    setCPUArenaAllocator(true)
+                    setIntraOpNumThreads(4)
+                }
+                // Try medium first (external), fallback to small (assets)
+                val bytes = loadRecModelBytes(context)
+                val session = ortEnv!!.createSession(bytes, opts)
+                recSession = session
+                LogCollector.d(TAG, "rec 模型加载完成")
+                session
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "rec 模型加载失败", e)
+                throw e
+            }
+        }
+    }
+
+    private fun loadRecModelBytes(context: Context): ByteArray {
+        val tier = CustomPreference.getInstance(context).getString("ppocrv6_tier", "small") ?: "small"
+        if (tier == "medium") {
+            val file = File(PPOcrModelManager.getV6ModelDir(context), "rec_v6_medium.onnx")
+            if (file.exists() && file.length() > 0) {
+                LogCollector.d(TAG, "从外部存储加载 rec medium 模型")
+                return file.readBytes()
+            }
+            LogCollector.w(TAG, "rec medium 模型不存在，fallback 到 small")
+        }
+        LogCollector.d(TAG, "从 assets 加载 rec small 模型")
+        return context.assets.open("ppocrv6/rec_v6_small.onnx").use { it.readBytes() }
+    }
+
+    /**
+     * 加载字典文件：blank(0) + dict_chars + space(end)
+     */
+    private fun loadDictionary(context: Context) {
+        try {
+            val lines = context.assets.open("ppocrv6/ppocrv6_dict.txt")
+                .bufferedReader().readLines().filter { it.isNotEmpty() }
+            val dict = mutableListOf<String>()
+            dict.add("blank")
+            dict.addAll(lines)
+            dict.add(" ")
+            dictionary = dict
+            LogCollector.d(TAG, "字典: ${dict.size} 条")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "字典加载失败", e)
+            dictionary = emptyList()
+        }
+    }
+
+    /**
+     * 释放所有资源
+     */
+    fun release() {
+        synchronized(lock) {
+            try {
+                detSession?.close()
+                clsSession?.close()
+                recSession?.close()
+                ortEnv?.close()
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "释放资源失败", e)
+            } finally {
+                detSession = null
+                clsSession = null
+                recSession = null
+                ortEnv = null
+                dictionary = emptyList()
+                isInitialized = false
+            }
+        }
+    }
+
+    // ========================================================================
+    // DetPreProcess (ch_ppocr_det/utils.py)
+    // ========================================================================
+
+    /**
+     * 检测预处理。
+     * 返回 (FloatArray CHW, resizedH, resizedW)。
+     */
+    private fun preprocessDet(bitmap: Bitmap): Triple<FloatArray, Int, Int> {
+        val srcH = bitmap.height
+        val srcW = bitmap.width
+
+        // 1. 计算缩放 — 使用可调字段
+        var resizeH = srcH
+        var resizeW = srcW
+        val sideLen = limitSideLen
+
+        val ratio: Float
+        if (limitType == "min") {
+            val minSide = min(resizeH, resizeW).toFloat()
+            if (minSide < sideLen) {
+                ratio = sideLen / minSide
+                resizeH = (resizeH * ratio).roundToInt()
+                resizeW = (resizeW * ratio).roundToInt()
+            } else {
+                val maxSide = max(resizeH, resizeW).toFloat()
+                if (maxSide > sideLen) {
+                    ratio = sideLen / maxSide
+                    resizeH = (resizeH * ratio).roundToInt()
+                    resizeW = (resizeW * ratio).roundToInt()
+                }
+            }
+        } else {
+            val maxSide = max(resizeH, resizeW).toFloat()
+            if (maxSide > sideLen) {
+                ratio = sideLen / maxSide
+                resizeH = (resizeH * ratio).roundToInt()
+                resizeW = (resizeW * ratio).roundToInt()
+            }
+        }
+
+        // 2. 对齐 32 的倍数
+        resizeH = max(32, (resizeH / 32) * 32)
+        resizeW = max(32, (resizeW / 32) * 32)
+
+        // 3. Resize
+        val resized = Bitmap.createScaledBitmap(bitmap, resizeW, resizeH, true)
+
+        // 4. 提取像素
+        val pixels = IntArray(resizeH * resizeW)
+        resized.getPixels(pixels, 0, resizeW, 0, 0, resizeW, resizeH)
+        if (resized !== bitmap) resized.recycle()
+
+        // 5. HWC→CHW, normalize = (pixel/255 - mean) / std
+        val floatArr = FloatArray(3 * resizeH * resizeW)
+        for (c in 0 until 3) {
+            for (i in 0 until (resizeH * resizeW)) {
+                val pixel = pixels[i]
+                val v = when (c) {
+                    0 -> (pixel shr 16 and 0xFF) / 255.0f // R
+                    1 -> (pixel shr 8 and 0xFF) / 255.0f  // G
+                    2 -> (pixel and 0xFF) / 255.0f         // B
+                    else -> 0f
+                }
+                floatArr[c * resizeH * resizeW + i] = (v - DET_MEAN[c]) / DET_STD[c]
+            }
+        }
+
+        return Triple(floatArr, resizeH, resizeW)
+    }
+
+    // ========================================================================
+    // DBPostProcess (ch_ppocr_det/utils.py)
+    // ========================================================================
+
+    /**
+     * 检测后处理：pred → bounding boxes（原图坐标）。
+     */
+    private fun postprocessDet(
+        pred: FloatArray,
+        predH: Int,
+        predW: Int,
+        srcH: Int,
+        srcW: Int
+    ): BoxScoreResult {
+        // 1. 阈值化 — 使用可调字段
+        val cBitmap = Bitmap.createBitmap(predW, predH, Bitmap.Config.ARGB_8888)
+        for (i in 0 until predH * predW) {
+            val v = if (pred[i] > detThresh) Color.WHITE else Color.BLACK
+            cBitmap.setPixel(i % predW, i / predW, v)
+        }
+
+        // 2. BFS 连通域
+        val contours = findContours(cBitmap, predW, predH)
+        cBitmap.recycle()
+
+        if (contours.isEmpty()) return BoxScoreResult(emptyList(), emptyList())
+
+        // 3. 限制候选数量
+        val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
+            contours.sortedByDescending { it.size }.take(DET_MAX_CANDIDATES)
+        } else {
+            contours
+        }
+
+        // 4. 处理每个连通域
+        val boxes = mutableListOf<FloatArray>()
+        val scores = mutableListOf<Float>()
+
+        for (contour in limitedContours) {
+            // getMiniBoxes
+            val (boxPoints, _, _, w, h) = getMiniBoxes(contour)
+            if (boxPoints == null) continue
+            if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
+
+            // 概率评分
+            val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
+            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+
+            // box_thresh 过滤：低于阈值的候选框直接跳过
+            if (score < detBoxThresh) continue
+
+            // unclip
+            val unclipBoxes = unclip(boxPoints, detUnclipRatio)
+            for (ub in unclipBoxes) {
+                val (expPts, _, _, ew, eh) = getMiniBoxes(ub.map { Point(it.x.roundToInt(), it.y.roundToInt()) })
+                if (expPts == null) continue
+                if (ew < DET_MIN_SIZE + 2 || eh < DET_MIN_SIZE + 2) continue
+
+                val pts = expPts.map { PointF(it.x.toFloat(), it.y.toFloat()) }.toTypedArray()
+                val mapped = mapBoxToOriginal(pts, predH.toFloat(), predW.toFloat(), srcH, srcW)
+                boxes.add(mapped)
+                scores.add(score)
+            }
+        }
+
+        // 5. 过滤
+        return filterDetRes(boxes, scores, srcH, srcW)
+    }
+
+    private data class BoxScoreResult(
+        val boxes: List<FloatArray>,
+        val scores: List<Float>
+    )
+
+    /**
+     * 调试用检测结果：包含保留和被丢弃的选区
+     */
+    data class DebugDetResult(
+        val keptBoxes: List<FloatArray>,
+        val keptScores: List<Float>,
+        val discardedBoxes: List<FloatArray>,
+        val discardedScores: List<Float>,
+        val discardedReasons: List<String>
+    )
+
+    /**
+     * 过滤检测结果：裁剪到图像范围 + 最小尺寸检查
+     */
+    private fun filterDetRes(
+        boxes: List<FloatArray>,
+        scores: List<Float>,
+        h: Int,
+        w: Int
+    ): BoxScoreResult {
+        val resultBoxes = mutableListOf<FloatArray>()
+        val resultScores = mutableListOf<Float>()
+        for (i in boxes.indices) {
+            val box = boxes[i]
+            val clipped = FloatArray(8)
+            for (j in 0 until 4) {
+                clipped[j * 2] = box[j * 2].coerceIn(0f, (w - 1).toFloat())
+                clipped[j * 2 + 1] = box[j * 2 + 1].coerceIn(0f, (h - 1).toFloat())
+            }
+
+            // 计算宽度和高度
+            val widthA = sqrt(((clipped[4] - clipped[6]) * (clipped[4] - clipped[6]) +
+                    (clipped[5] - clipped[7]) * (clipped[5] - clipped[7])).toDouble()).toFloat()
+            val widthB = sqrt(((clipped[2] - clipped[0]) * (clipped[2] - clipped[0]) +
+                    (clipped[3] - clipped[1]) * (clipped[3] - clipped[1])).toDouble()).toFloat()
+            val boxWidth = max(widthA, widthB)
+
+            val heightA = sqrt(((clipped[2] - clipped[4]) * (clipped[2] - clipped[4]) +
+                    (clipped[3] - clipped[5]) * (clipped[3] - clipped[5])).toDouble()).toFloat()
+            val heightB = sqrt(((clipped[0] - clipped[6]) * (clipped[0] - clipped[6]) +
+                    (clipped[1] - clipped[7]) * (clipped[1] - clipped[7])).toDouble()).toFloat()
+            val boxHeight = max(heightA, heightB)
+
+            if (boxWidth < DET_MIN_SIZE || boxHeight < DET_MIN_SIZE) continue
+
+            // 大框过滤（可选）：宽/高/面积超过图片比例阈值时丢弃
+            if (largeBoxEnabled) {
+                val ratio = largeBoxRatio
+                val imgArea = w.toFloat() * h.toFloat()
+                val boxArea = boxWidth * boxHeight
+                if (boxWidth > w * ratio || boxHeight > h * ratio || boxArea > imgArea * ratio) {
+                    continue
+                }
+            }
+
+            resultBoxes.add(clipped)
+            if (i < scores.size) resultScores.add(scores[i])
+        }
+        return BoxScoreResult(resultBoxes, resultScores)
+    }
+
+    // -----------------------------------------------------------------------
+    // findContours: BFS 连通域 (对应 cv2.findContours)
+    // -----------------------------------------------------------------------
+
+    private fun findContours(
+        mask: Bitmap,
+        w: Int,
+        h: Int
+    ): List<List<Point>> {
+        val visited = BooleanArray(w * h)
+        val contours = mutableListOf<List<Point>>()
+        val pixels = IntArray(w * h)
+        mask.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val dx = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
+        val dy = intArrayOf(-1, -1, 0, 1, 1, 1, 0, -1)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val idx = y * w + x
+                if (visited[idx] || pixels[idx] != Color.WHITE) continue
+
+                val component = mutableListOf<Point>()
+                val queue = ArrayDeque<Int>()
+                queue.add(idx)
+                visited[idx] = true
+
+                while (queue.isNotEmpty()) {
+                    val cur = queue.removeFirst()
+                    val cy = cur / w
+                    val cx = cur % w
+                    component.add(Point(cx, cy))
+
+                    for (d in 0 until 8) {
+                        val nx = cx + dx[d]
+                        val ny = cy + dy[d]
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue
+                        val nIdx = ny * w + nx
+                        if (!visited[nIdx] && pixels[nIdx] == Color.WHITE) {
+                            visited[nIdx] = true
+                            queue.add(nIdx)
+                        }
+                    }
+                }
+
+                if (component.size >= DET_MIN_SIZE) {
+                    contours.add(component)
+                }
+            }
+        }
+
+        return contours
+    }
+
+    // -----------------------------------------------------------------------
+    // getMiniBoxes: 凸包 + 最小外接矩形
+    // -----------------------------------------------------------------------
+
+    private data class MiniBoxResult(
+        val points: List<PointF>?,
+        val centerX: Float,
+        val centerY: Float,
+        val width: Float,
+        val height: Float
+    )
+
+    private fun getMiniBoxes(contour: List<Point>): MiniBoxResult {
+        if (contour.size < 3) {
+            return MiniBoxResult(null, 0f, 0f, 0f, 0f)
+        }
+
+        val ptsD = contour.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
+        val hull = GeometryUtils.convexHull(ptsD)
+        if (hull.size < 3) {
+            return MiniBoxResult(null, 0f, 0f, 0f, 0f)
+        }
+
+        // 旋转卡壳：遍历凸包每条边作为候选方向
+        var minArea = Float.MAX_VALUE
+        var bestBox: MiniBoxResult? = null
+
+        for (i in hull.indices) {
+            val j = (i + 1) % hull.size
+            val edgeX = (hull[j].x - hull[i].x).toFloat()
+            val edgeY = (hull[j].y - hull[i].y).toFloat()
+            val edgeLen = sqrt(edgeX * edgeX + edgeY * edgeY)
+            if (edgeLen < 1e-6f) continue
+
+            val ux = edgeX / edgeLen
+            val uy = edgeY / edgeLen
+            val vx = -uy
+            val vy = ux
+
+            var minU = Float.MAX_VALUE; var maxU = -Float.MAX_VALUE
+            var minV = Float.MAX_VALUE; var maxV = -Float.MAX_VALUE
+
+            for (k in hull.indices) {
+                val dx = (hull[k].x - hull[i].x).toFloat()
+                val dy = (hull[k].y - hull[i].y).toFloat()
+                val projU = dx * ux + dy * uy
+                val projV = dx * vx + dy * vy
+                if (projU < minU) minU = projU
+                if (projU > maxU) maxU = projU
+                if (projV < minV) minV = projV
+                if (projV > maxV) maxV = projV
+            }
+
+            val w = maxU - minU
+            val h = maxV - minV
+            val area = w * h
+
+            if (area < minArea) {
+                minArea = area
+                val midU = (minU + maxU) / 2
+                val midV = (minV + maxV) / 2
+                val cx = hull[i].x.toFloat() + midU * ux + midV * vx
+                val cy = hull[i].y.toFloat() + midU * uy + midV * vy
+
+                // 构建四角点并排序：TL, TR, BR, BL
+                val corners = arrayOf(
+                    PointF(cx - w / 2 * ux - h / 2 * vx, cy - w / 2 * uy - h / 2 * vy),
+                    PointF(cx + w / 2 * ux - h / 2 * vx, cy + w / 2 * uy - h / 2 * vy),
+                    PointF(cx + w / 2 * ux + h / 2 * vx, cy + w / 2 * uy + h / 2 * vy),
+                    PointF(cx - w / 2 * ux + h / 2 * vx, cy - w / 2 * uy + h / 2 * vy)
+                )
+                val sorted = orderPointsClockwise(corners)
+                bestBox = MiniBoxResult(sorted.toList(), cx, cy, w, h)
+            }
+        }
+
+        return bestBox ?: MiniBoxResult(null, 0f, 0f, 0f, 0f)
+    }
+
+    // -----------------------------------------------------------------------
+    // orderPointsClockwise: 排序四角点 → TL, TR, BR, BL
+    // -----------------------------------------------------------------------
+
+    private fun orderPointsClockwise(pts: Array<PointF>): Array<PointF> {
+        val rect = arrayOfNulls<PointF>(4)
+
+        // TL: 最小和
+        val s = FloatArray(4) { pts[it].x + pts[it].y }
+        rect[0] = pts[s.indices.minByOrNull { s[it] }!!]
+        // BR: 最大和
+        rect[2] = pts[s.indices.maxByOrNull { s[it] }!!]
+
+        // TR: 最小差 (y - x)
+        val d = FloatArray(4) { pts[it].y - pts[it].x }
+        rect[1] = pts[d.indices.minByOrNull { d[it] }!!]
+        // BL: 最大差
+        rect[3] = pts[d.indices.maxByOrNull { d[it] }!!]
+
+        @Suppress("UNCHECKED_CAST")
+        return rect as Array<PointF>
+    }
+
+    // -----------------------------------------------------------------------
+    // unclip: Vatti unclip (JTS BufferOp)
+    // -----------------------------------------------------------------------
+
+    private fun unclip(box: List<PointF>, unclipRatio: Double): List<List<Coordinate>> {
+        val area = polygonArea(box)
+        val perimeter = polygonPerimeter(box)
+        if (perimeter < 1e-6) return emptyList()
+
+        val distance = area * unclipRatio / perimeter
+
+        val factory = GeometryFactory()
+        val coords = Array(box.size + 1) { i ->
+            if (i < box.size) Coordinate(box[i].x.toDouble(), box[i].y.toDouble())
+            else Coordinate(box[0].x.toDouble(), box[0].y.toDouble()) // close ring
+        }
+        val poly = try {
+            factory.createPolygon(coords)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+
+        val buffered = try {
+            BufferOp.bufferOp(poly, distance)
+        } catch (e: Exception) {
+            return emptyList()
+        } ?: return emptyList()
+
+        if (buffered.isEmpty) return emptyList()
+
+        val result = mutableListOf<List<Coordinate>>()
+        for (i in 0 until buffered.numGeometries) {
+            val coordsArr = buffered.getGeometryN(i).coordinates
+            result.add(coordsArr.toList())
+        }
+        return result
+    }
+
+    private fun polygonArea(box: List<PointF>): Double {
+        var area = 0.0
+        val n = box.size
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            area += box[i].x * box[j].y - box[j].x * box[i].y
+        }
+        return abs(area) / 2.0
+    }
+
+    private fun polygonPerimeter(box: List<PointF>): Double {
+        var peri = 0.0
+        val n = box.size
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            val dx = (box[j].x - box[i].x).toDouble()
+            val dy = (box[j].y - box[i].y).toDouble()
+            peri += sqrt(dx * dx + dy * dy)
+        }
+        return peri
+    }
+
+    // ========================================================================
+    // getRotateCropImage (utils/process_img.py)
+    // ========================================================================
+
+    /**
+     * 透视裁剪 + 自动旋转竖排文字。
+     *
+     * @param bitmap 原图
+     * @param points 4 个顶点 [TL, TR, BR, BL]（原图坐标）
+     * @return 裁剪后的正向文字图片
+     */
+    fun getRotateCropImage(bitmap: Bitmap, points: Array<PointF>): Bitmap {
+        // 1. 计算目标尺寸
+        val tl = points[0]; val tr = points[1]
+        val br = points[2]; val bl = points[3]
+
+        val widthA = sqrt(((br.x - bl.x) * (br.x - bl.x) + (br.y - bl.y) * (br.y - bl.y)).toDouble()).toFloat()
+        val widthB = sqrt(((tr.x - tl.x) * (tr.x - tl.x) + (tr.y - tl.y) * (tr.y - tl.y)).toDouble()).toFloat()
+        val maxWidth = max(widthA, widthB).roundToInt().coerceIn(4, bitmap.width)
+        val heightA = sqrt(((tr.x - br.x) * (tr.x - br.x) + (tr.y - br.y) * (tr.y - br.y)).toDouble()).toFloat()
+        val heightB = sqrt(((tl.x - bl.x) * (tl.x - bl.x) + (tl.y - bl.y) * (tl.y - bl.y)).toDouble()).toFloat()
+        val maxHeight = max(heightA, heightB).roundToInt().coerceIn(4, bitmap.height)
+
+        // 2. 使用 Android Canvas + Matrix 做透视裁剪（硬件加速，替代纯 Java 像素循环）
+        //    setPolyToPoly: src 点 → dst 点，drawBitmap 时反向映射
+        val srcPts = floatArrayOf(
+            tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y
+        )
+        val dstPts = floatArrayOf(
+            0f, 0f, (maxWidth - 1).toFloat(), 0f,
+            (maxWidth - 1).toFloat(), (maxHeight - 1).toFloat(), 0f, (maxHeight - 1).toFloat()
+        )
+        val matrix = android.graphics.Matrix()
+        matrix.setPolyToPoly(srcPts, 0, dstPts, 0, 4)
+
+        val cropImg = Bitmap.createBitmap(maxWidth, maxHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(cropImg)
+        canvas.drawBitmap(bitmap, matrix, null)
+
+        // 3. 竖排文字自动旋转 90° CCW
+        if (cropImg.height >= cropImg.width * 1.5f) {
+            val rotMatrix = android.graphics.Matrix().apply { setRotate(-90f) }
+            val rotated = Bitmap.createBitmap(cropImg, 0, 0, cropImg.width, cropImg.height, rotMatrix, true)
+            if (rotated !== cropImg) cropImg.recycle()
+            return rotated
+        }
+
+        return cropImg
+    }
+
+    // ========================================================================
+    // Cls (ch_ppocr_cls/main.py)
+    // ========================================================================
+
+    /**
+     * 方向分类 + 自动旋转。
+     *
+     * @param imgList 待分类图片列表
+     * @return 分类结果列表（label="0" 或 "180"）
+     */
+    fun clsAndRotate(imgList: List<Bitmap>): List<ClsResult> = synchronized(lock) {
+        val session = clsSession ?: return imgList.map { ClsResult("0", 1.0f) }
+        if (imgList.isEmpty()) return emptyList()
+
+        val t0 = System.currentTimeMillis()
+
+        // 按宽度降序排列（减少 batch padding）
+        val indices = imgList.indices.sortedByDescending { imgList[it].width }
+        val sortedImgs = indices.map { imgList[it] }
+
+        // 预处理
+        val preprocessed = sortedImgs.map { clsResizeNormImg(it) }
+        val batchSize = preprocessed.size
+        val channelSize = CLS_IMAGE_SHAPE[1] * CLS_IMAGE_SHAPE[2] // 80 * 160
+        val totalSize = batchSize * 3 * channelSize
+
+        val buffer = FloatBuffer.allocate(totalSize)
+        for (arr in preprocessed) {
+            buffer.put(arr)
+        }
+        buffer.rewind()
+
+        val inputTensor = OnnxTensor.createTensor(
+            ortEnv!!, buffer,
+            longArrayOf(batchSize.toLong(), 3, CLS_IMAGE_SHAPE[1].toLong(), CLS_IMAGE_SHAPE[2].toLong())
+        )
+
+        // 推理
+        val results = session.run(mapOf("x" to inputTensor))
+        inputTensor.close()
+
+        var outputData: FloatArray
+        try {
+            var outputTensor: OnnxTensor? = null
+            for (name in session.outputNames) {
+                val value = results.get(name)
+                if (value.isPresent && value.get() is OnnxTensor) {
+                    outputTensor = value.get() as OnnxTensor
+                    break
+                }
+            }
+            outputData = outputTensor!!.floatBuffer.array()
+            outputTensor.close()
+        } finally {
+            results.close()
+        }
+
+        // 后处理：恢复原始顺序
+        val sortedResults = (0 until batchSize).map { i ->
+            val start = i * 2
+            val end = (i + 1) * 2
+            val probs = if (end <= outputData.size) {
+                outputData.sliceArray(start until end)
+            } else {
+                LogCollector.w(TAG, "cls 输出不足: batchSize=$batchSize, outputSize=${outputData.size}, i=$i")
+                floatArrayOf(1f, 0f) // 默认不旋转
+            }
+            clsPostProcess(probs)
+        }
+
+        val finalResults = MutableList(batchSize) { ClsResult("0", 0f) }
+        for (i in indices.indices) {
+            finalResults[indices[i]] = ClsResult(sortedResults[i].first, sortedResults[i].second)
+        }
+
+        // 旋转 180° 由 runOCR 处理（此处仅返回分类结果）
+
+        LogCollector.d(TAG, "clsAndRotate: ${batchSize} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
+        finalResults
+    }
+
+    /**
+     * Cls 预处理：resize + pad + normalize [-1, 1]
+     */
+    private fun clsResizeNormImg(bitmap: Bitmap): FloatArray {
+        val imgC = CLS_IMAGE_SHAPE[0] // 3
+        val imgH = CLS_IMAGE_SHAPE[1] // 80
+        val imgW = CLS_IMAGE_SHAPE[2] // 160
+
+        val ratio = bitmap.width.toFloat() / bitmap.height
+        var resizeW = ceil(imgH * ratio).toInt()
+        if (resizeW > imgW) resizeW = imgW
+
+        val resized = Bitmap.createScaledBitmap(bitmap, resizeW, imgH, true)
+
+        // CHW, pad to (3, 80, 160), normalize [-1, 1]
+        val floatArr = FloatArray(imgC * imgH * imgW)
+        val pixels = IntArray(resizeW * imgH)
+        resized.getPixels(pixels, 0, resizeW, 0, 0, resizeW, imgH)
+        if (resized !== bitmap) resized.recycle()
+
+        for (c in 0 until 3) {
+            val cOffset = c * imgH * imgW
+            for (y in 0 until imgH) {
+                for (x in 0 until resizeW) {
+                    val pixel = pixels[y * resizeW + x]
+                    val v = when (c) {
+                        0 -> (pixel shr 16 and 0xFF) / 255.0f
+                        1 -> (pixel shr 8 and 0xFF) / 255.0f
+                        2 -> (pixel and 0xFF) / 255.0f
+                        else -> 0f
+                    }
+                    floatArr[cOffset + y * imgW + x] = (v - 0.5f) / 0.5f
+                }
+                // 右侧 padding 保持 0
+            }
+        }
+
+        return floatArr
+    }
+
+    /**
+     * Cls 后处理：argmax → ("0"/"180", score)
+     */
+    private fun clsPostProcess(probs: FloatArray): Pair<String, Float> {
+        val label = if (probs[0] > probs[1]) "0" else "180"
+        val score = max(probs[0], probs[1])
+        return Pair(label, score)
+    }
+
+    // ========================================================================
+    // Rec (ch_ppocr_rec/main.py + CTCLabelDecode)
+    // ========================================================================
+
+    /**
+     * 批量识别（按 wh_ratio 分组，batch 推理）。
+     */
+    fun recognizeBatch(context: Context, imgList: List<Bitmap>): List<RecResult> = synchronized(lock) {
+        if (imgList.isEmpty()) return emptyList()
+
+        val dict = dictionary
+        val session = getRecSession(context) ?: return imgList.map { RecResult("", 0f) }
+
+        val t0 = System.currentTimeMillis()
+        val allResults = mutableListOf<RecResult>()
+
+        var i = 0
+        while (i < imgList.size) {
+            val batchEnd = min(i + recBatchNum, imgList.size)
+            val batch = imgList.subList(i, batchEnd)
+
+            // 找 batch 内最大 wh_ratio
+            var maxWhRatio = 0f
+            for (img in batch) {
+                val r = img.width.toFloat() / img.height
+                if (r > maxWhRatio) maxWhRatio = r
+            }
+
+            // 预处理
+            val preprocessed = batch.map { recResizeNormImg(it, maxWhRatio) }
+            val batchSize = preprocessed.size
+            val recImgW = (REC_IMG_HEIGHT * maxWhRatio).roundToInt().coerceAtLeast(1)
+            val channelSize = REC_IMG_HEIGHT * recImgW
+            val totalSize = batchSize * REC_IMG_CHANNELS * channelSize
+
+            val buffer = FloatBuffer.allocate(totalSize)
+            for (arr in preprocessed) {
+                buffer.put(arr)
+            }
+            buffer.rewind()
+
+            val inputTensor = OnnxTensor.createTensor(
+                ortEnv!!, buffer,
+                longArrayOf(batchSize.toLong(), REC_IMG_CHANNELS.toLong(), REC_IMG_HEIGHT.toLong(), recImgW.toLong())
+            )
+
+            // 推理
+            val results = session.run(mapOf("x" to inputTensor))
+            inputTensor.close()
+
+            var outputData: FloatArray
+            var seqLen: Int
+            var numClasses: Int
+            try {
+                var batchOutputTensor: OnnxTensor? = null
+                for (name in session.outputNames) {
+                    val value = results.get(name)
+                    if (value.isPresent && value.get() is OnnxTensor) {
+                        batchOutputTensor = value.get() as OnnxTensor
+                        break
+                    }
+                }
+                outputData = batchOutputTensor!!.floatBuffer.array()
+                val outputShape = batchOutputTensor.info.shape // [batch, seq_len, num_classes]
+                batchOutputTensor.close()
+                seqLen = outputShape[1].toInt()
+                numClasses = outputShape[2].toInt()
+            } finally {
+                results.close()
+            }
+
+            // CTCLabelDecode per sample
+            for (j in 0 until batchSize) {
+                val start = j * seqLen * numClasses
+                val preds = outputData.sliceArray(start until start + seqLen * numClasses)
+                val (text, score) = ctcLabelDecode(preds, seqLen, numClasses, dict)
+                allResults.add(RecResult(text, score))
+            }
+
+            i = batchEnd
+        }
+
+        LogCollector.d(TAG, "recognizeBatch: ${imgList.size} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
+        allResults
+    }
+
+    /**
+     * Rec 预处理：resize + pad + normalize [-1, 1]
+     */
+    private fun recResizeNormImg(bitmap: Bitmap, maxWhRatio: Float): FloatArray {
+        val imgC = REC_IMG_CHANNELS // 3
+        val imgH = REC_IMG_HEIGHT   // 48
+        val imgW = (imgH * maxWhRatio).roundToInt().coerceAtLeast(1)
+
+        val ratio = bitmap.width.toFloat() / bitmap.height
+        var resizeW = ceil(imgH * ratio).toInt()
+        if (resizeW > imgW) resizeW = imgW
+
+        val resized = Bitmap.createScaledBitmap(bitmap, resizeW, imgH, true)
+
+        // CHW, pad to (3, 48, imgW), normalize [-1, 1]
+        val floatArr = FloatArray(imgC * imgH * imgW)
+        val pixels = IntArray(resizeW * imgH)
+        resized.getPixels(pixels, 0, resizeW, 0, 0, resizeW, imgH)
+        if (resized !== bitmap) resized.recycle()
+
+        for (c in 0 until 3) {
+            val cOffset = c * imgH * imgW
+            for (y in 0 until imgH) {
+                for (x in 0 until resizeW) {
+                    val pixel = pixels[y * resizeW + x]
+                    val v = when (c) {
+                        0 -> (pixel shr 16 and 0xFF) / 255.0f
+                        1 -> (pixel shr 8 and 0xFF) / 255.0f
+                        2 -> (pixel and 0xFF) / 255.0f
+                        else -> 0f
+                    }
+                    floatArr[cOffset + y * imgW + x] = (v - 0.5f) / 0.5f
+                }
+            }
+        }
+
+        return floatArr
+    }
+
+    /**
+     * CTCLabelDecode：argmax → remove_duplicate → filter blank(0) → join
+     *
+     * @param preds 扁平化预测 [seq_len * num_classes]
+     * @param seqLen 序列长度
+     * @param numClasses 类别数（= 字典大小）
+     * @param dict 字典 [blank, char1, char2, ..., space]
+     */
+    private fun ctcLabelDecode(
+        preds: FloatArray,
+        seqLen: Int,
+        numClasses: Int,
+        dict: List<String>
+    ): Pair<String, Float> {
+        // 1. argmax
+        val charIndices = IntArray(seqLen)
+        val confidences = FloatArray(seqLen)
+        for (t in 0 until seqLen) {
+            val offset = t * numClasses
+            var bestIdx = 0
+            var bestProb = preds[offset]
+            for (c in 1 until numClasses) {
+                if (preds[offset + c] > bestProb) {
+                    bestProb = preds[offset + c]
+                    bestIdx = c
+                }
+            }
+            charIndices[t] = bestIdx
+            confidences[t] = bestProb
+        }
+
+        // 2. remove_duplicate + filter blank(0)
+        val text = StringBuilder()
+        var totalScore = 0f
+        var count = 0
+        var prevIdx = -1
+
+        for (t in 0 until seqLen) {
+            val idx = charIndices[t]
+            if (idx > 0 && idx != prevIdx) {
+                if (idx < dict.size) {
+                    text.append(dict[idx])
+                    totalScore += confidences[t]
+                    count++
+                }
+            }
+            prevIdx = idx
+        }
+
+        // 3. 过滤纯空格
+        val resultText = text.toString()
+        if (resultText.isBlank()) return Pair("", 0f)
+
+        val avgScore = if (count > 0) totalScore / count else 0f
+        return Pair(resultText, avgScore)
+    }
+
+    // ========================================================================
+    // 主 pipeline
+    // ========================================================================
+
+    /**
+     * 运行完整 OCR 流水线。
+     *
+     * @param bitmap 输入图片
+     * @param recLang 识别语言
+     * @param useDet 是否使用检测（false 则全图识别）
+     * @param useCls 是否使用方向分类
+     * @return OCR 结果
+     */
+    fun runOCR(
+        context: Context,
+        bitmap: Bitmap,
+        useDet: Boolean = true,
+        useCls: Boolean = true
+    ): OcrResult {
+        if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
+        if (bitmap.isRecycled) throw IllegalArgumentException("Bitmap 已回收")
+
+        refreshParams(context)
+        val t0 = System.currentTimeMillis()
+
+        // 1. Det
+        val (boxes, detTime) = if (useDet && detSession != null) {
+            val dt = System.currentTimeMillis()
+            val det = runDet(bitmap)
+            Pair(det, System.currentTimeMillis() - dt)
+        } else {
+            // 无检测：全图作为一个 box
+            Pair(listOf(floatArrayOf(
+                0f, 0f,
+                (bitmap.width - 1).toFloat(), 0f,
+                (bitmap.width - 1).toFloat(), (bitmap.height - 1).toFloat(),
+                0f, (bitmap.height - 1).toFloat()
+            )), 0L)
+        }
+
+        // 2. Crop + Cls + Rec
+        val clsTime: Long
+        val recTime: Long
+        val allTexts = mutableListOf<String>()
+        val allScores = mutableListOf<Float>()
+
+        // 2a. 裁剪
+        val cropT0 = System.currentTimeMillis()
+        val cropResults = mutableListOf<Triple<Bitmap, FloatArray, Int>>() // crop, box, originalIndex
+
+        for ((idx, box) in boxes.withIndex()) {
+            val pts = boxToQuadPoints(box)
+            try {
+                val crop = getRotateCropImage(bitmap, pts)
+                cropResults.add(Triple(crop, box, idx))
+            } catch (e: Exception) {
+                LogCollector.w(TAG, "裁剪失败 box[$idx]: ${e.message}")
+            }
+        }
+        val cropTime = System.currentTimeMillis() - cropT0
+
+        // 2b. Cls
+        val clsT0 = System.currentTimeMillis()
+        val clsResults = if (useCls && clsSession != null && cropResults.isNotEmpty()) {
+            clsAndRotate(cropResults.map { it.first })
+        } else {
+            cropResults.map { ClsResult("0", 1.0f) }
+        }
+        clsTime = System.currentTimeMillis() - clsT0
+
+        // 应用 cls 旋转
+        for (i in cropResults.indices) {
+            if (i < clsResults.size && clsResults[i].label == "180" && clsResults[i].score > CLS_THRESH) {
+                val (crop, box, idx) = cropResults[i]
+                val matrix = android.graphics.Matrix().apply { setRotate(180f) }
+                val rotated = Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, matrix, true)
+                if (rotated !== crop) crop.recycle()
+                cropResults[i] = Triple(rotated, box, idx)
+            }
+        }
+
+        // 2c. Rec
+        val recT0 = System.currentTimeMillis()
+        if (cropResults.isNotEmpty()) {
+            val recResults = recognizeBatch(context, cropResults.map { it.first })
+            for (i in cropResults.indices) {
+                if (i < recResults.size) {
+                    allTexts.add(recResults[i].text)
+                    allScores.add(recResults[i].score)
+                } else {
+                    allTexts.add("")
+                    allScores.add(0f)
+                }
+            }
+        }
+        recTime = System.currentTimeMillis() - recT0
+
+        // 3. 过滤低置信度
+        val filtered = filterByTextScore(boxes, allTexts, allScores)
+
+        // 调试：记录识别阶段丢弃的选区
+        val recDebug = DebugRecResult(
+            keptBoxes = filtered.boxes,
+            keptTexts = filtered.texts,
+            keptScores = filtered.scores,
+            discardedBoxes = filtered.discardedBoxes,
+            discardedTexts = filtered.discardedTexts,
+            discardedScores = filtered.discardedScores
+        )
+
+        // 4. 释放裁剪图片
+        for ((crop, _, _) in cropResults) {
+            if (!crop.isRecycled) crop.recycle()
+        }
+
+        val totalTime = System.currentTimeMillis() - t0
+        val elapseList = listOf(
+            detTime / 1000f,
+            cropTime / 1000f,
+            clsTime / 1000f,
+            recTime / 1000f,
+            totalTime / 1000f
+        )
+
+        LogCollector.d(TAG, "runOCR: det=${boxes.size}(${detTime}ms), crop=${cropTime}ms, " +
+                "cls=${clsTime}ms, rec=${allTexts.size}(${recTime}ms), total=${totalTime}ms")
+
+        return OcrResult(
+            boxes = filtered.boxes,
+            texts = filtered.texts,
+            scores = filtered.scores,
+            elapseList = elapseList,
+            recDebug = recDebug
+        )
+    }
+
+    /**
+     * 批量识别（含 cls 方向分类）。
+     * 用于增量渲染场景：对已裁剪图片执行 cls + rec。
+     * 委托给 clsAndRotate + recognizeBatch，避免重复推理逻辑。
+     *
+     * @param context Context
+     * @param imgList 已裁剪图片列表
+     * @return 识别结果列表
+     */
+    fun recognizeBatchWithCls(context: Context, imgList: List<Bitmap>): List<RecResult> {
+        if (imgList.isEmpty()) return emptyList()
+
+        val t0 = System.currentTimeMillis()
+
+        // 1. Cls 方向分类 + 旋转
+        val clsResults = clsAndRotate(imgList)
+        val processedImgs = imgList.mapIndexed { i, bmp ->
+            if (clsResults.getOrNull(i)?.let { it.label == "180" && it.score > CLS_THRESH } == true) {
+                Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height,
+                    android.graphics.Matrix().apply { setRotate(180f) }, true)
+            } else {
+                bmp
+            }
+        }
+
+        // 2. Rec 批量识别
+        val results = recognizeBatch(context, processedImgs)
+
+        // 3. 清理旋转产生的额外 Bitmap
+        processedImgs.forEachIndexed { i, img -> if (img !== imgList[i]) img.recycle() }
+
+        LogCollector.d(TAG, "recognizeBatchWithCls: ${imgList.size} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
+        return results
+    }
+
+    /**
+     * 将 OcrResult 转换为 TextLine 列表。
+     * 统一 OcrResult → TextLineMerger 输入的转换逻辑。
+     *
+     * @param result OCR 结果
+     * @param bitmapWidth 原图宽度（用于 Rect 裁剪）
+     * @param bitmapHeight 原图高度（用于 Rect 裁剪）
+     * @return 过滤后的 TextLine 列表（score < 0.5 或空白文本已剔除）
+     */
+    fun ocrResultToTextLines(
+        result: OcrResult,
+        bitmapWidth: Int,
+        bitmapHeight: Int
+    ): List<PPOcrTextLine> {
+        return result.texts.indices.mapNotNull { i ->
+            val text = result.texts[i]
+            if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
+            val box = result.boxes.getOrNull(i) ?: return@mapNotNull null
+            if (box.size < 8) return@mapNotNull null
+            // 4 顶点：TL, TR, BR, BL
+            val tl = android.graphics.PointF(box[0], box[1])
+            val tr = android.graphics.PointF(box[2], box[3])
+            val br = android.graphics.PointF(box[4], box[5])
+            val bl = android.graphics.PointF(box[6], box[7])
+            val quadPoints = arrayOf(tl, tr, br, bl)
+
+            // 顶部边向量与真实长度
+            val topDx = tr.x - tl.x
+            val topDy = tr.y - tl.y
+            val topLen = sqrt((topDx * topDx + topDy * topDy).toDouble()).toFloat()
+            // 左侧边向量与真实长度
+            val leftDx = bl.x - tl.x
+            val leftDy = bl.y - tl.y
+            val leftLen = sqrt((leftDx * leftDx + leftDy * leftDy).toDouble()).toFloat()
+
+            // 倾斜角（度）：顶部边与水平线夹角
+            var angle = atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+            // ±3° 阈值：轻微倾斜归零（AA 文字角度一致便于合并判断）
+            if (abs(angle) <= 3f) angle = 0f
+
+            // 方向判断：用真实边长，左高 > 顶宽 * 1.5 才视为竖排
+            val isVertical = leftLen > topLen * 1.5f
+
+            // AABB 包围盒
+            var xMin = Float.MAX_VALUE; var yMin = Float.MAX_VALUE
+            var xMax = Float.MIN_VALUE; var yMax = Float.MIN_VALUE
+            for (k in box.indices step 2) {
+                if (box[k] < xMin) xMin = box[k]
+                if (box[k] > xMax) xMax = box[k]
+            }
+            for (k in 1 until box.size step 2) {
+                if (box[k] < yMin) yMin = box[k]
+                if (box[k] > yMax) yMax = box[k]
+            }
+            val rect = Rect(
+                xMin.toInt().coerceAtLeast(0), yMin.toInt().coerceAtLeast(0),
+                xMax.toInt().coerceAtMost(bitmapWidth - 1), yMax.toInt().coerceAtMost(bitmapHeight - 1)
+            )
+            // 用 QuadBox 真实边长计算 fontSize，不用 AABB（倾斜时 AABB 会放大）
+            // 横排：文字高度 = leftLen；竖排：文字宽度 = topLen
+            val fontSize = if (isVertical) topLen else leftLen
+            val center = android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY())
+            PPOcrTextLine(
+                rect = rect, text = text, fontSize = fontSize,
+                isVertical = isVertical, score = result.scores[i],
+                angle = angle, quadPoints = quadPoints, center = center
+            )
+        }
+    }
+
+    /**
+     * 将 RecResult 列表 + 对应 Rect 列表转换为 TextLine 列表。
+     * 用于增量渲染场景（先 det 裁剪，再 rec 识别）。
+     *
+     * @param recResults 识别结果列表
+     * @param rects 对应的原图位置列表
+     * @return 过滤后的 TextLine 列表
+     */
+    fun recResultsToTextLines(
+        recResults: List<RecResult>,
+        rects: List<Rect>,
+        angles: List<Float> = emptyList(),
+        centers: List<android.graphics.PointF> = emptyList()
+    ): List<PPOcrTextLine> {
+        val mergedInput = mutableListOf<PPOcrTextLine>()
+        for (i in recResults.indices) {
+            val r = recResults[i]
+            if (r.text.isNotBlank() && r.score >= 0.5f && i < rects.size) {
+                val rect = rects[i]
+                // 增量路径：det 后裁剪 + rec，RecResult 不带原始 box
+                // 只能从 angle 反推一个虚拟 quadPoints，让 TextLine 拿到方向信息
+                val angle = angles.getOrElse(i) { 0f }
+                val center = centers.getOrElse(i) { android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY()) }
+                val quadPoints = aabbToTiltedQuad(rect, angle, center)
+                // 真实边长可从虚拟 quad 推出
+                val rad = Math.toRadians(angle.toDouble())
+                val w = rect.width().toFloat()
+                val h = rect.height().toFloat()
+                val realW = kotlin.math.abs(w * kotlin.math.cos(rad).toFloat() - h * kotlin.math.sin(rad).toFloat())
+                val realH = kotlin.math.abs(w * kotlin.math.sin(rad).toFloat() + h * kotlin.math.cos(rad).toFloat())
+                val isVertical = realH > realW * 1.5f
+                val fontSize = if (isVertical) realW else realH
+                mergedInput.add(PPOcrTextLine(
+                    rect = rect, text = r.text, fontSize = fontSize,
+                    isVertical = isVertical, score = r.score,
+                    angle = angle, quadPoints = quadPoints, center = center
+                ))
+            }
+        }
+        return mergedInput
+    }
+
+    /**
+     * 增量路径：从 AABB + angle 反推虚拟 quad 4 顶点。
+     * 中心点固定不动，按 angle 旋转 AABB 4 角。
+     */
+    private fun aabbToTiltedQuad(
+        rect: Rect,
+        angleDeg: Float,
+        center: android.graphics.PointF
+    ): Array<android.graphics.PointF> {
+        val rad = Math.toRadians(angleDeg.toDouble())
+        val cosA = kotlin.math.cos(rad).toFloat()
+        val sinA = kotlin.math.sin(rad).toFloat()
+        val l = rect.left.toFloat()
+        val t = rect.top.toFloat()
+        val r = rect.right.toFloat()
+        val b = rect.bottom.toFloat()
+        val cx = center.x
+        val cy = center.y
+        fun rot(x: Float, y: Float): android.graphics.PointF {
+            val dx = x - cx
+            val dy = y - cy
+            return android.graphics.PointF(cx + dx * cosA - dy * sinA, cy + dx * sinA + dy * cosA)
+        }
+        return arrayOf(rot(l, t), rot(r, t), rot(r, b), rot(l, b))
+    }
+
+    /**
+     * 公开检测方法：返回原始坐标系的 box 数组。
+     * 用于增量渲染场景的 det 阶段。
+     */
+    fun runDetForBoxes(context: Context, bitmap: Bitmap): List<FloatArray> {
+        if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
+        refreshParams(context)
+        val boxes = runDet(bitmap)
+        LogCollector.d(TAG, "runDetForBoxes: ${boxes.size} 个文字行")
+        return boxes
+    }
+
+    /**
+     * 调试用检测：返回保留和被丢弃的选区。
+     * 丢弃原因：score<box_thresh、尺寸过小、unclip过小
+     */
+    fun runDetForDebug(context: Context, bitmap: Bitmap): DebugDetResult {
+        if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
+        refreshParams(context)
+
+        val (input, detH, detW) = preprocessDet(bitmap)
+        val buffer = FloatBuffer.wrap(input)
+        val inputTensor = OnnxTensor.createTensor(
+            ortEnv!!, buffer,
+            longArrayOf(1, 3, detH.toLong(), detW.toLong())
+        )
+        val results = detSession!!.run(mapOf("x" to inputTensor))
+        inputTensor.close()
+
+        try {
+            var detOutputTensor: OnnxTensor? = null
+            for (name in detSession!!.outputNames) {
+                val value = results.get(name)
+                if (value.isPresent && value.get() is OnnxTensor) {
+                    detOutputTensor = value.get() as OnnxTensor
+                    break
+                }
+            }
+            val outputData = detOutputTensor!!.floatBuffer.array()
+            val outputShape = detOutputTensor.info.shape
+            detOutputTensor.close()
+
+            val predH = outputShape[2].toInt()
+            val predW = outputShape[3].toInt()
+            val pred = outputData.sliceArray(0 until predH * predW)
+
+            return postprocessDetDebug(pred, predH, predW, bitmap.height, bitmap.width)
+        } finally {
+            results.close()
+        }
+    }
+
+    // 调试模式阈值（与正常模式一致）
+    private const val DET_DEBUG_THRESH = DET_THRESH
+
+    /**
+     * 调试版后处理：用更低阈值捕获弱检测区域，同时返回被丢弃的候选框
+     */
+    private fun postprocessDetDebug(
+        pred: FloatArray,
+        predH: Int,
+        predW: Int,
+        srcH: Int,
+        srcW: Int
+    ): DebugDetResult {
+        // 1. 阈值化（使用调试阈值 0.05，远低于正常 0.3）
+        val cBitmap = Bitmap.createBitmap(predW, predH, Bitmap.Config.ARGB_8888)
+        for (i in 0 until predH * predW) {
+            val v = if (pred[i] > DET_DEBUG_THRESH) Color.WHITE else Color.BLACK
+            cBitmap.setPixel(i % predW, i / predW, v)
+        }
+
+        // 2. BFS 连通域
+        val contours = findContours(cBitmap, predW, predH)
+        cBitmap.recycle()
+
+        if (contours.isEmpty()) return DebugDetResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+
+        // 3. 限制候选数量
+        val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
+            contours.sortedByDescending { it.size }.take(DET_MAX_CANDIDATES)
+        } else {
+            contours
+        }
+
+        // 4. 处理每个连通域
+        val keptBoxes = mutableListOf<FloatArray>()
+        val keptScores = mutableListOf<Float>()
+        val discBoxes = mutableListOf<FloatArray>()
+        val discScores = mutableListOf<Float>()
+        val discReasons = mutableListOf<String>()
+
+        for (contour in limitedContours) {
+            val (boxPoints, _, _, w, h) = getMiniBoxes(contour)
+            if (boxPoints == null) continue
+            if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
+
+            val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
+            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+
+            // box_thresh 过滤
+            if (score < detBoxThresh) {
+                val pts = boxPoints.map { PointF(it.x.toFloat(), it.y.toFloat()) }.toTypedArray()
+                val mapped = mapBoxToOriginal(pts, predH.toFloat(), predW.toFloat(), srcH, srcW)
+                discBoxes.add(mapped)
+                discScores.add(score)
+                discReasons.add("score=${String.format("%.3f", score)}<${detBoxThresh}")
+                continue
+            }
+
+            // unclip
+            val unclipBoxes = unclip(boxPoints, detUnclipRatio)
+            for (ub in unclipBoxes) {
+                val (expPts, _, _, ew, eh) = getMiniBoxes(ub.map { Point(it.x.roundToInt(), it.y.roundToInt()) })
+                if (expPts == null) continue
+                if (ew < DET_MIN_SIZE + 2 || eh < DET_MIN_SIZE + 2) {
+                    val pts = expPts.map { PointF(it.x.toFloat(), it.y.toFloat()) }.toTypedArray()
+                    val mapped = mapBoxToOriginal(pts, predH.toFloat(), predW.toFloat(), srcH, srcW)
+                    discBoxes.add(mapped)
+                    discScores.add(score)
+                    discReasons.add("unclip过小 ${ew.toInt()}×${eh.toInt()}")
+                    continue
+                }
+
+                val pts = expPts.map { PointF(it.x.toFloat(), it.y.toFloat()) }.toTypedArray()
+                val mapped = mapBoxToOriginal(pts, predH.toFloat(), predW.toFloat(), srcH, srcW)
+                keptBoxes.add(mapped)
+                keptScores.add(score)
+            }
+        }
+
+        // 5. 过滤保留的
+        val filtered = filterDetRes(keptBoxes, keptScores, srcH, srcW)
+
+        LogCollector.d(TAG, "det debug: 保留=${filtered.boxes.size}, 丢弃=${discBoxes.size} (连通域=${contours.size})")
+        for (i in discBoxes.indices) {
+            val b = discBoxes[i]
+            LogCollector.d(TAG, "  丢弃[$i]: ${discReasons[i]} [${b[0].toInt()},${b[1].toInt()}→${b[4].toInt()},${b[5].toInt()}]")
+        }
+
+        return DebugDetResult(
+            filtered.boxes, filtered.scores,
+            discBoxes, discScores, discReasons
+        )
+    }
+
+    /**
+     * 公开 boxToQuadPoints：将 8 元素 box 数组转为 4 点。
+     */
+    fun boxToQuadPointsPublic(box: FloatArray): Array<PointF> = boxToQuadPoints(box)
+
+    /**
+     * 运行检测，返回原始坐标系的 box 数组。
+     */
+    private fun runDet(bitmap: Bitmap): List<FloatArray> = synchronized(lock) {
+        val (input, detH, detW) = preprocessDet(bitmap)
+        LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH}")
+
+        val buffer = FloatBuffer.wrap(input)
+        val inputTensor = OnnxTensor.createTensor(
+            ortEnv!!, buffer,
+            longArrayOf(1, 3, detH.toLong(), detW.toLong())
+        )
+
+        val results = detSession!!.run(mapOf("x" to inputTensor))
+        inputTensor.close()
+
+        try {
+            var detOutputTensor: OnnxTensor? = null
+            for (name in detSession!!.outputNames) {
+                val value = results.get(name)
+                if (value.isPresent && value.get() is OnnxTensor) {
+                    detOutputTensor = value.get() as OnnxTensor
+                    break
+                }
+            }
+            val outputData = detOutputTensor!!.floatBuffer.array()
+            val outputShape = detOutputTensor.info.shape // [1, 1, H, W]
+            detOutputTensor.close()
+
+            val predH = outputShape[2].toInt()
+            val predW = outputShape[3].toInt()
+            val pred = outputData.sliceArray(0 until predH * predW)
+
+            postprocessDet(pred, predH, predW, bitmap.height, bitmap.width).boxes
+        } finally {
+            results.close()
+        }
+    }
+
+    /**
+     * 将 8 元素 box 数组转为 4 点 [TL, TR, BR, BL]
+     */
+    private fun boxToQuadPoints(box: FloatArray): Array<PointF> {
+        return arrayOf(
+            PointF(box[0], box[1]),
+            PointF(box[2], box[3]),
+            PointF(box[4], box[5]),
+            PointF(box[6], box[7])
+        )
+    }
+
+    /**
+     * 将 4 点映射回原图坐标系（pred 空间 → 原图空间）
+     */
+    private fun mapBoxToOriginal(
+        pts: Array<PointF>,
+        predH: Float,
+        predW: Float,
+        srcH: Int,
+        srcW: Int
+    ): FloatArray {
+        val ratioH = srcH.toFloat() / predH
+        val ratioW = srcW.toFloat() / predW
+
+        return floatArrayOf(
+            (pts[0].x * ratioW).coerceIn(0f, (srcW - 1).toFloat()),
+            (pts[0].y * ratioH).coerceIn(0f, (srcH - 1).toFloat()),
+            (pts[1].x * ratioW).coerceIn(0f, (srcW - 1).toFloat()),
+            (pts[1].y * ratioH).coerceIn(0f, (srcH - 1).toFloat()),
+            (pts[2].x * ratioW).coerceIn(0f, (srcW - 1).toFloat()),
+            (pts[2].y * ratioH).coerceIn(0f, (srcH - 1).toFloat()),
+            (pts[3].x * ratioW).coerceIn(0f, (srcW - 1).toFloat()),
+            (pts[3].y * ratioH).coerceIn(0f, (srcH - 1).toFloat())
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // filterByTextScore
+    // -----------------------------------------------------------------------
+
+    private fun filterByTextScore(
+        boxes: List<FloatArray>,
+        texts: List<String>,
+        scores: List<Float>
+    ): FilteredResult {
+        val fBoxes = mutableListOf<FloatArray>()
+        val fTexts = mutableListOf<String>()
+        val fScores = mutableListOf<Float>()
+        val dBoxes = mutableListOf<FloatArray>()
+        val dTexts = mutableListOf<String>()
+        val dScores = mutableListOf<Float>()
+
+        val n = min(boxes.size, min(texts.size, scores.size))
+        for (i in 0 until n) {
+            if (scores[i] > textScoreThresh) {
+                fBoxes.add(boxes[i])
+                fTexts.add(texts[i])
+                fScores.add(scores[i])
+            } else {
+                dBoxes.add(boxes[i])
+                dTexts.add(texts[i])
+                dScores.add(scores[i])
+            }
+        }
+
+        return FilteredResult(fBoxes, fTexts, fScores, dBoxes, dTexts, dScores)
+    }
+
+    private data class FilteredResult(
+        val boxes: List<FloatArray>,
+        val texts: List<String>,
+        val scores: List<Float>,
+        val discardedBoxes: List<FloatArray>,
+        val discardedTexts: List<String>,
+        val discardedScores: List<Float>
+    )
+}
