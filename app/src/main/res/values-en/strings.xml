@@ -304,9 +304,86 @@
     <string name="faq_a5">This is caused by the <b><u>content safety review mechanism</u></b> of the API platform. Translation platforms (such as Volc Engine, Tongyi Qianwen, etc.) may block sensitive content, and different platforms have different review thresholds.\n\nSolution: <b><u>Try switching to a different translation platform or model</u></b>. For example, switch from Volc Engine to DeepSeek or Tongyi Qianwen.</string>
     <string name="faq_q6">Manga translation results are missing, inaccurate, or slow?</string>
     <string name="faq_a6">You can try the following optimizations:\n\n1. <b><u>Frame the area that needs translation</u></b>: Precisely selecting the text area improves OCR accuracy and avoids recognizing irrelevant content.\n\n2. <b><u>Reduce UI interference</u></b>: Avoid selecting blank areas, game UI buttons, and other non-text content. Reducing unnecessary recognition improves speed.\n\n3. <b><u>Choose the right translation model</u></b>: Models with mini, lit, or flash labels have faster response times.</string>
-    <string name="faq_q7">PP-OCRv5 Debug Panel Parameter Guide</string>
-    <string name="faq_a7">In the PP-OCRv5 debug mode for manga translation, you can adjust the following parameters:\n\n<b><u>1. Detection Confidence (DET_BOX_THRESH)</u></b>\nDefault: 0.3 | Range: 0.01 ~ 0.5\n\nControls how strictly text regions are detected. Lower values detect more weak text areas (blurry, low-contrast text) but may introduce noise boxes. Higher values only keep high-confidence text boxes.\n\n• Text frequently missed → Lower the value (e.g. 0.2)\n• Too many noise boxes detected → Raise the value (e.g. 0.4)\n\n<b><u>2. Expansion Ratio (DET_UNCLIP_RATIO)</u></b>\nDefault: 1.6 | Range: 1.0 ~ 3.0\n\nHow much the detection box expands outward. OCR crops the text region for recognition. If the box hugs the text edge tightly, cropping may be incomplete and cause recognition errors. Expansion makes the box larger to ensure text is fully contained.\n\n• Recognition results have missing/truncated characters → Increase (e.g. 2.0)\n• Boxes too large, causing overlaps → Decrease (e.g. 1.2)\n\n<b><u>3. Recognition Confidence (TEXT_SCORE_THRESH)</u></b>\nDefault: 0.5 | Range: 0.1 ~ 0.9\n\nMinimum confidence for OCR recognition results. Text recognized below this score is discarded. Lower values keep more results (may include errors); higher values only keep high-confidence results.\n\n• Translation results frequently missing → Lower (e.g. 0.3)\n• Translation has garbled/wrong text → Raise (e.g. 0.6)\n\n<b><u>4. Large Box Filter (isLargeBox)</u></b>\nDefault: Off\n\nFilters detection boxes that occupy too much of the image. In some scenarios (manga backgrounds, decorative patterns), the detector may mistakenly identify large areas as text. When enabled, boxes whose width, height, or area exceeds a certain ratio of the image are discarded.\n\n• Large false-positive boxes appearing → Enable\n• Normal use: keep disabled\n\n<b><u>5. Discard Ratio (largeBoxRatio)</u></b>\nDefault: 60% | Range: 30% ~ 80%\n\nThreshold for the large box filter. Detection boxes whose width, height, or area exceed this ratio of the image are discarded. Only effective when large box filter is enabled.\n\n• Filtering too aggressive (normal boxes discarded) → Increase ratio\n• Not filtering enough (large boxes still appear) → Decrease ratio</string>
-    <string name="faq_q8">What is the purpose of downloading dedicated OCR recognition models?</string>
+    <string name="faq_q7">PP-OCRv Debug Panel Parameter Guide</string>
+    <string name="faq_a7">In the manga translation debug mode, you can adjust the following parameters in real time via sliders. Changes take effect immediately and automatically apply to the normal translation flow. Parameters marked "v5 only" apply only to PP-OCRv5; "v6 only" applies only to PP-OCRv6; shared parameters are stored independently per engine.
+
+<b><u>[Detection Parameters (Det)]</u></b>
+
+<b>1. det_thresh — Binarization Threshold (v6 only)</b>
+v6 default: 0.3 | Range: 0.05 ~ 0.5
+
+Text/background binarization threshold (DB internal segmentation map). Higher values → only keep high-confidence pixels (fewer boxes); lower values → more pixels classified as text (more boxes).
+
+<b>2. det_box_thresh — Detection Box Threshold</b>
+v5 default: 0.3 | v6 default: 0.5 | Range: 0.1 ~ 0.9
+
+Detection box retention threshold (bounding box score threshold). After synthesizing rectangles from the segmentation map, only boxes with scores above this value are kept. Higher → more precise boxes but possible missed detections; lower → higher recall but possible noise.
+
+• Text frequently missed → lower (e.g. v5: 0.2, v6: 0.3)
+• Too many noise boxes → raise (e.g. v5: 0.4, v6: 0.7)
+
+<b>3. det_unclip_ratio — Box Expansion Ratio</b>
+v5 default: 1.6 | v6 default: 1.6 | Range: 1.0 ~ 3.0
+
+Detection box outward expansion factor. When synthesizing rectangles from the segmentation region, boxes are expanded by this factor to avoid hugging the text edges too tightly. Higher → looser boxes (good for tightly packed characters); lower → more compact boxes.
+
+• Recognition results have missing/truncated characters → increase (e.g. 2.0)
+• Boxes too large, causing overlaps → decrease (e.g. 1.2)
+
+<b>4. use_dilation — Segmentation Dilation (v6 only)</b>
+v6 default: On
+
+Whether to apply dilation processing to the detection segmentation map. Dilation merges adjacent text into a single region (good for dense text); disable to keep the original segmentation. Recommended to keep enabled for vertical manga text.
+
+<b>5. limit_side_len — Detection Side Length Limit (v6 only)</b>
+v6 default: 736 | Range: 64 ~ 2048 (pixels)
+
+Image side length limit during detection. The input image is scaled if its side exceeds this value. Higher → more accurate detection but slower; lower → faster but may lose detail.
+
+<b>6. limit_type — Side Limit Strategy (v6 only)</b>
+v6 default: min (limit shortest side)
+
+Whether limit_side_len applies to the minimum or maximum side. min = limit the shortest side (preserve detail); max = limit the longest side (prioritize speed).
+
+<b><u>[Recognition Parameters (Rec)]</u></b>
+
+<b>7. text_score — Recognition Confidence Threshold</b>
+v5 default: 0.5 | v6 default: 0.5 | Range: 0.1 ~ 0.9
+
+Text recognition result confidence threshold. Results below this score are discarded. Higher → only keep high-confidence results (fewer but more accurate); lower → keep more results (more but possibly incorrect).
+
+• Translation frequently missing → lower (e.g. 0.3)
+• Translation has garbled/wrong text → raise (e.g. 0.6)
+
+<b>8. rec_batch_num — Recognition Batch Size (v6 only)</b>
+v6 default: 6 | Range: 1 ~ 32
+
+Text recognition batch inference size. Each batch processes N text lines simultaneously. Higher values improve throughput but use more memory; lower values use less memory but are slower.
+
+<b><u>[Classification Parameters (Cls)]</u></b>
+
+<b>9. cls_thresh — Orientation Classification Threshold (v6 only)</b>
+v6 default: 0.9 | Range: 0.5 ~ 1.0
+
+Text orientation classification confidence threshold. Text lines with classification scores below this value are not flipped (keep original orientation). Higher → only flip high-confidence upside-down text; lower → more lines may be flipped. Relevant for vertical or rotated text scenarios.
+
+<b><u>[v5-Only Parameters]</u></b>
+
+<b>10. large_box_enabled — Large Box Filter (v5 only)</b>
+v5 default: Off
+
+Filters detection boxes that occupy too much of the image. In some scenarios (manga backgrounds, decorative patterns), the detector may mistakenly identify large areas as text. When enabled, boxes whose width, height, or area exceeds a certain ratio of the image are discarded.
+
+• Large false-positive boxes appearing → enable
+• Normal use: keep disabled
+
+<b>11. large_box_ratio — Large Box Filter Threshold (v5 only)</b>
+v5 default: 60% | Range: 30% ~ 80%
+
+Threshold for the large box filter. Detection boxes whose width, height, or area exceed this ratio of the image are discarded. Only effective when large box filter is enabled.
+
+• Filtering too aggressive (normal boxes discarded) → increase ratio
+• Not filtering enough (large boxes still appear) → decrease ratio</string>
     <string name="faq_a8">PP-OCRv5\'s Chinese recognition model (rec_zh) is a Chinese-Japanese-English general model that can recognize Chinese, Japanese, and English. When no dedicated model is downloaded, English recognition uses this general model by default.\n\n<b><u>After downloading a dedicated model, the system automatically switches</u></b> for better results:\n\n• <b><u>English model (rec_en)</u></b>: Optimized for English, higher accuracy especially for uppercase/lowercase, numbers, and punctuation.\n• <b><u>Korean model (rec_ko)</u></b>: Dedicated to Korean. Without it, Korean text cannot be recognized.\n• <b><u>Russian model (rec_ru)</u></b>: Dedicated to Russian/Cyrillic script. Without it, Russian text cannot be recognized.\n\n<b><u>How to download</u></b>: Go to Settings → Model Management → PP-OCRv5 Recognition Models, tap download. Models are small (7~13MB) and take effect immediately without restarting.\n\n<b><u>How to verify</u></b>: When translating manga in a non-default language (e.g. English), a toast notification \"使用专用识别模型: rec_en\" will appear at the bottom of the screen, confirming the dedicated model is active. If no notification appears, the general Chinese model is still being used.</string>
     <string name="github_repo_title">GitHub Repository</string>
     <string name="github_repo_content">This project uses the LGPL-3.0 license. You can visit the GitHub repository at any time, welcome to give the project a "Star".</string>
