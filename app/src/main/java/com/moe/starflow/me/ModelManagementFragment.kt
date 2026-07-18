@@ -40,7 +40,13 @@ class ModelManagementFragment : Fragment() {
     @Volatile private var mangaOcrDownloadJob: Job? = null
     @Volatile private var mangaOcrIsCancelled = false
 
-    // PP-OCRv5 可选模型下载相关（核心模型内置在 assets 中）
+    // v5 核心模型下载（det + rec_zh，原内置改为下载）
+    @Volatile private var v5DetJob: Job? = null
+    @Volatile private var v5DetCancelled = false
+    @Volatile private var v5RecZhJob: Job? = null
+    @Volatile private var v5RecZhCancelled = false
+
+    // v5 可选模型下载（en/ko/ru）
     @Volatile private var ppOcrEnDownloadJob: Job? = null
     @Volatile private var ppOcrEnIsCancelled = false
     @Volatile private var ppOcrKoDownloadJob: Job? = null
@@ -61,9 +67,11 @@ class ModelManagementFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         updateRTDetrStatus()
         updateMangaOcrStatus()
-        updatePPOcrEnStatus()
-        updatePPOcrKoStatus()
-        updatePPOcrRuStatus()
+        updateV5DetStatus()
+        updateV5RecZhStatus()
+        updateV5RecEnStatus()
+        updateV5RecKoStatus()
+        updateV5RecRuStatus()
         updatePPOcrV6Status()
 
         // 浏览器下载按钮
@@ -88,17 +96,47 @@ class ModelManagementFragment : Fragment() {
         rootView.findViewById<TextView>(R.id.rtdetr_browser_button)?.setOnClickListener {
             openBrowser(RTDetrModelManager.DOWNLOAD_URL)
         }
-        // PP-OCRv5 EN
-        rootView.findViewById<TextView>(R.id.ppocr_en_browser_button)?.setOnClickListener {
+        // manga-ocr (3 independent buttons)
+        rootView.findViewById<TextView>(R.id.manga_ocr_encoder_button)?.setOnClickListener {
+            openBrowser("https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/encoder_model.onnx")
+        }
+        rootView.findViewById<TextView>(R.id.manga_ocr_decoder_button)?.setOnClickListener {
+            openBrowser("https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/decoder_model.onnx")
+        }
+        rootView.findViewById<TextView>(R.id.manga_ocr_vocab_button)?.setOnClickListener {
+            openBrowser("https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/vocab.txt")
+        }
+        // v5 det
+        rootView.findViewById<TextView>(R.id.v5_det_browser_button)?.setOnClickListener {
+            openBrowser(PPOcrModelManager.V5_DET_URL)
+        }
+        // v5 rec_zh ONNX+dict
+        rootView.findViewById<TextView>(R.id.v5_rec_zh_onnx_button)?.setOnClickListener {
+            openBrowser(PPOcrModelManager.V5_REC_ZH_ONNX_URL)
+        }
+        rootView.findViewById<TextView>(R.id.v5_rec_zh_dict_button)?.setOnClickListener {
+            openBrowser(PPOcrModelManager.V5_REC_ZH_DICT_URL)
+        }
+        // v5 EN ONNX+dict
+        rootView.findViewById<TextView>(R.id.v5_rec_en_onnx_button)?.setOnClickListener {
             PPOcrModelManager.DOWNLOAD_URLS["rec_en.onnx"]?.let { url -> openBrowser(url) }
         }
-        // PP-OCRv5 KO
-        rootView.findViewById<TextView>(R.id.ppocr_ko_browser_button)?.setOnClickListener {
+        rootView.findViewById<TextView>(R.id.v5_rec_en_dict_button)?.setOnClickListener {
+            PPOcrModelManager.REC_DICT_URLS["en"]?.let { url -> openBrowser(url) }
+        }
+        // v5 KO ONNX+dict
+        rootView.findViewById<TextView>(R.id.v5_rec_ko_onnx_button)?.setOnClickListener {
             PPOcrModelManager.DOWNLOAD_URLS["rec_ko.onnx"]?.let { url -> openBrowser(url) }
         }
-        // PP-OCRv5 RU
-        rootView.findViewById<TextView>(R.id.ppocr_ru_browser_button)?.setOnClickListener {
+        rootView.findViewById<TextView>(R.id.v5_rec_ko_dict_button)?.setOnClickListener {
+            PPOcrModelManager.REC_DICT_URLS["ko"]?.let { url -> openBrowser(url) }
+        }
+        // v5 RU ONNX+dict
+        rootView.findViewById<TextView>(R.id.v5_rec_ru_onnx_button)?.setOnClickListener {
             PPOcrModelManager.DOWNLOAD_URLS["rec_ru.onnx"]?.let { url -> openBrowser(url) }
+        }
+        rootView.findViewById<TextView>(R.id.v5_rec_ru_dict_button)?.setOnClickListener {
+            PPOcrModelManager.REC_DICT_URLS["ru"]?.let { url -> openBrowser(url) }
         }
     }
 
@@ -228,7 +266,6 @@ class ModelManagementFragment : Fragment() {
     private fun updateMangaOcrStatus() {
         val statusText = rootView.findViewById<TextView>(R.id.manga_ocr_status)
         val actionBtn = rootView.findViewById<TextView>(R.id.manga_ocr_action_button)
-        val browserBtn = rootView.findViewById<TextView>(R.id.manga_ocr_browser_button)
 
         val isDownloaded = MangaOcrDownloadManager.isModelDownloaded(requireContext())
         val isDownloading = mangaOcrDownloadJob != null
@@ -253,11 +290,6 @@ class ModelManagementFragment : Fragment() {
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startMangaOcrDownload() }
             }
-        }
-
-        // 浏览器下载按钮
-        browserBtn?.setOnClickListener {
-            openBrowser("https://huggingface.co/l0wgear/manga-ocr-2025-onnx")
         }
     }
 
@@ -368,11 +400,124 @@ class ModelManagementFragment : Fragment() {
         }
     }
 
-    // ========== PP-OCRv5 EN 下载相关 ==========（核心模型内置在 assets 中，无需下载）
+    // ========== v5 det 下载相关 ==========
 
-    private fun updatePPOcrEnStatus() {
-        val statusText = rootView.findViewById<TextView>(R.id.ppocr_en_status)
-        val actionBtn = rootView.findViewById<TextView>(R.id.ppocr_en_action_button)
+    private fun updateV5DetStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.v5_det_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.v5_det_action_button)
+        val isDownloaded = PPOcrModelManager.isV5DetDownloaded(requireContext())
+        val isDownloading = v5DetJob != null
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelV5DetDownload() }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getV5DetSizeString(requireContext())
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showV5DetDeleteConfirmDialog() }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startV5DetDownload() }
+            }
+        }
+    }
+
+    private fun cancelV5DetDownload() { v5DetCancelled = true; v5DetJob?.cancel(); v5DetJob = null; updateV5DetStatus() }
+    private fun startV5DetDownload() { startGenericDownload("det") }
+    private fun showV5DetDeleteConfirmDialog() { showDeleteDialog("v5 det", "det") }
+
+    // ========== v5 rec_zh 下载相关 ==========
+
+    private fun updateV5RecZhStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.v5_rec_zh_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.v5_rec_zh_action_button)
+        val isDownloaded = PPOcrModelManager.isV5RecZhDownloaded(requireContext())
+        val isDownloading = v5RecZhJob != null
+        when {
+            isDownloading -> {
+                statusText.text = getString(R.string.model_downloading)
+                actionBtn.text = getString(R.string.user_cancel)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { cancelV5RecZhDownload() }
+            }
+            isDownloaded -> {
+                val size = PPOcrModelManager.getV5RecZhSizeString(requireContext())
+                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                actionBtn.text = getString(R.string.model_delete)
+                setButtonDeleteStyle(actionBtn, true)
+                actionBtn.setOnClickListener { showV5RecZhDeleteConfirmDialog() }
+            }
+            else -> {
+                statusText.text = getString(R.string.model_not_downloaded)
+                actionBtn.text = getString(R.string.model_download)
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { startV5RecZhDownload() }
+            }
+        }
+    }
+
+    private fun cancelV5RecZhDownload() { v5RecZhCancelled = true; v5RecZhJob?.cancel(); v5RecZhJob = null; updateV5RecZhStatus() }
+    private fun startV5RecZhDownload() { startGenericDownload("rec_zh") }
+    private fun showV5RecZhDeleteConfirmDialog() { showDeleteDialog("v5 rec_zh", "rec_zh") }
+
+    // ========== Generic download helpers for v5 ==========
+
+    private fun startGenericDownload(type: String) {
+        when (type) {
+            "det" -> v5DetCancelled = false
+            "rec_zh" -> v5RecZhCancelled = false
+        }
+        val job = lifecycleScope.launch(Dispatchers.IO) {
+            val result = when (type) {
+                "det" -> PPOcrModelManager.downloadV5Det(requireContext())
+                "rec_zh" -> PPOcrModelManager.downloadV5RecZh(requireContext())
+                else -> return@launch
+            }
+            withContext(Dispatchers.Main) {
+                when (type) { "det" -> v5DetJob = null; "rec_zh" -> v5RecZhJob = null }
+                if (result.isSuccess) Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
+                else Toast.makeText(requireContext(), getString(R.string.model_download_failed, result.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
+                when (type) { "det" -> updateV5DetStatus(); "rec_zh" -> updateV5RecZhStatus() }
+            }
+        }
+        when (type) { "det" -> v5DetJob = job; "rec_zh" -> v5RecZhJob = job }
+        when (type) { "det" -> updateV5DetStatus(); "rec_zh" -> updateV5RecZhStatus() }
+    }
+
+    private fun showDeleteDialog(name: String, type: String) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.model_delete)
+            .setMessage(getString(R.string.model_delete_confirm, name))
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val result = when (type) {
+                        "det" -> PPOcrModelManager.deleteV5Det(requireContext())
+                        "rec_zh" -> PPOcrModelManager.deleteV5RecZh(requireContext())
+                        else -> return@launch
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (result.isSuccess) Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                        else Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
+                        when (type) { "det" -> updateV5DetStatus(); "rec_zh" -> updateV5RecZhStatus() }
+                    }
+                }
+            }
+            .setNegativeButton(R.string.user_cancel, null).show()
+    }
+
+    // ========== v5 EN 下载相关 ==========
+
+    private fun updateV5RecEnStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.v5_rec_en_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.v5_rec_en_action_button)
 
         val isDownloaded = PPOcrModelManager.isRecModelDownloaded(requireContext(), "en")
         val isDownloading = ppOcrEnDownloadJob != null
@@ -382,7 +527,7 @@ class ModelManagementFragment : Fragment() {
                 statusText.text = getString(R.string.model_downloading)
                 actionBtn.text = getString(R.string.user_cancel)
                 setButtonDeleteStyle(actionBtn, false)
-                actionBtn.setOnClickListener { cancelPPOcrEnDownload() }
+                actionBtn.setOnClickListener { cancelV5RecEnDownload() }
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "en")
@@ -400,15 +545,15 @@ class ModelManagementFragment : Fragment() {
         }
     }
 
-    private fun cancelPPOcrEnDownload() {
+    private fun cancelV5RecEnDownload() {
         cancelPPOcrDownload("en")
     }
 
     // ========== PP-OCRv5 KO 下载相关 ==========
 
-    private fun updatePPOcrKoStatus() {
-        val statusText = rootView.findViewById<TextView>(R.id.ppocr_ko_status)
-        val actionBtn = rootView.findViewById<TextView>(R.id.ppocr_ko_action_button)
+    private fun updateV5RecKoStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.v5_rec_ko_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.v5_rec_ko_action_button)
 
         val isDownloaded = PPOcrModelManager.isRecModelDownloaded(requireContext(), "ko")
         val isDownloading = ppOcrKoDownloadJob != null
@@ -418,7 +563,7 @@ class ModelManagementFragment : Fragment() {
                 statusText.text = getString(R.string.model_downloading)
                 actionBtn.text = getString(R.string.user_cancel)
                 setButtonDeleteStyle(actionBtn, false)
-                actionBtn.setOnClickListener { cancelPPOcrKoDownload() }
+                actionBtn.setOnClickListener { cancelV5RecKoDownload() }
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "ko")
@@ -436,15 +581,15 @@ class ModelManagementFragment : Fragment() {
         }
     }
 
-    private fun cancelPPOcrKoDownload() {
+    private fun cancelV5RecKoDownload() {
         cancelPPOcrDownload("ko")
     }
 
     // ========== PP-OCRv5 RU 下载相关 ==========
 
-    private fun updatePPOcrRuStatus() {
-        val statusText = rootView.findViewById<TextView>(R.id.ppocr_ru_status)
-        val actionBtn = rootView.findViewById<TextView>(R.id.ppocr_ru_action_button)
+    private fun updateV5RecRuStatus() {
+        val statusText = rootView.findViewById<TextView>(R.id.v5_rec_ru_status)
+        val actionBtn = rootView.findViewById<TextView>(R.id.v5_rec_ru_action_button)
 
         val isDownloaded = PPOcrModelManager.isRecModelDownloaded(requireContext(), "ru")
         val isDownloading = ppOcrRuDownloadJob != null
@@ -486,9 +631,9 @@ class ModelManagementFragment : Fragment() {
 
     private fun updatePPOcrStatus(lang: String) {
         when (lang) {
-            "en" -> updatePPOcrEnStatus()
-            "ko" -> updatePPOcrKoStatus()
-            "ru" -> updatePPOcrRuStatus()
+            "en" -> updateV5RecEnStatus()
+            "ko" -> updateV5RecKoStatus()
+            "ru" -> updateV5RecRuStatus()
         }
     }
 
@@ -508,9 +653,9 @@ class ModelManagementFragment : Fragment() {
         }
 
         val statusId = when (lang) {
-            "en" -> R.id.ppocr_en_status
-            "ko" -> R.id.ppocr_ko_status
-            else -> R.id.ppocr_ru_status
+            "en" -> R.id.v5_rec_en_status
+            "ko" -> R.id.v5_rec_ko_status
+            else -> R.id.v5_rec_ru_status
         }
 
         val job = lifecycleScope.launch(Dispatchers.IO) {
@@ -598,9 +743,9 @@ class ModelManagementFragment : Fragment() {
                     Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
                 }
                 when (lang) {
-                    "en" -> updatePPOcrEnStatus()
-                    "ko" -> updatePPOcrKoStatus()
-                    "ru" -> updatePPOcrRuStatus()
+                    "en" -> updateV5RecEnStatus()
+                    "ko" -> updateV5RecKoStatus()
+                    "ru" -> updateV5RecRuStatus()
                 }
             }
         }
@@ -619,6 +764,10 @@ class ModelManagementFragment : Fragment() {
         ppOcrKoDownloadJob = null
         ppOcrRuDownloadJob?.cancel()
         ppOcrRuDownloadJob = null
+        v5DetJob?.cancel()
+        v5DetJob = null
+        v5RecZhJob?.cancel()
+        v5RecZhJob = null
         ppOcrV6DetJob?.cancel()
         ppOcrV6DetJob = null
         ppOcrV6RecJob?.cancel()
@@ -692,6 +841,7 @@ class ModelManagementFragment : Fragment() {
             // medium 被删了，回退到 small
             PreferenceManager.getDefaultSharedPreferences(requireContext()).edit().putString("ppocrv6_tier", "small").commit()
             smallRadio.isChecked = true
+            Toast.makeText(requireContext(), "medium 模型不完整，已自动切回 small", Toast.LENGTH_SHORT).show()
         }
     }
 

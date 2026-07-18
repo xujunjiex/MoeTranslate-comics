@@ -9,23 +9,17 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- 检测器区域 -->
+        <!-- ════════════════════════════════════════════════════════
+             1. ML Kit（内置，无需下载）
+             ════════════════════════════════════════════════════════ -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/detector_section"
+            android:text="@string/model_group_mlkit"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginTop="8dp"/>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/detector_tip"
-            android:textSize="12sp"
-            android:textColor="#888"
-            android:layout_marginTop="4dp"/>
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -34,160 +28,214 @@
             android:padding="12dp"
             android:layout_marginTop="8dp">
 
-            <!-- MLKit 检测（内置） -->
-            <LinearLayout
-                android:layout_width="match_parent"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp">
+                android:text="@string/model_group_mlkit_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:layout_marginBottom="4dp"/>
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="MLKit"
-                        android:textSize="16sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/detector_mlkit_desc"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_built_in"
-                    android:textSize="12sp"
-                    android:textColor="#888"/>
-            </LinearLayout>
-
-            <!-- PP-OCRv5 检测（内置在核心包中） -->
-            <LinearLayout
-                android:layout_width="match_parent"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="PP-OCRv5"
-                        android:textSize="16sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/ppocr_det_desc"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ppocr_included_in_core"
-                    android:textSize="12sp"
-                    android:textColor="#888"/>
-            </LinearLayout>
-
-
-            <!-- RT-DETR-V2（需下载） -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="8dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="RT-DETR-V2"
-                    android:textSize="16sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/rtdetr_download_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginTop="2dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/rtdetr_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/rtdetr_browser_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
-                        android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/rtdetr_action_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
-                </LinearLayout>
-            </LinearLayout>
-
+                android:text="@string/model_built_in"
+                android:textSize="12sp"
+                android:textColor="#4CAF50"/>
         </LinearLayout>
 
-        <!-- PP-OCRv6 区域 -->
+        <!-- ════════════════════════════════════════════════════════
+             2. RT-DETR-V2 + manga-ocr（均需下载）
+             ════════════════════════════════════════════════════════ -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/ppocrv6_section_title"
+            android:text="@string/model_group_rt_manga"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginTop="16dp"/>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/setting_shape"
+            android:padding="12dp"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_group_rt_manga_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- RT-DETR-V2 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RT-DETR-V2"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_rtdetr_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/rtdetr_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/rtdetr_browser_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_download_in_browser"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/rtdetr_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#E0E0E0"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- manga-ocr -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="manga-ocr"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_mangaocr_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/manga_ocr_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/manga_ocr_encoder_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_encoder"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="4dp"/>
+
+                <TextView
+                    android:id="@+id/manga_ocr_decoder_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_decoder"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="4dp"/>
+
+                <TextView
+                    android:id="@+id/manga_ocr_vocab_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_vocab"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/manga_ocr_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ════════════════════════════════════════════════════════
+             3. PP-OCRv5（全部改为下载）
+             ════════════════════════════════════════════════════════ -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/ppocrv6_section_desc"
-            android:textSize="12sp"
-            android:textColor="#888"
-            android:layout_marginTop="4dp"/>
+            android:text="@string/model_group_ppocrv5"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -196,13 +244,436 @@
             android:background="@drawable/setting_shape"
             android:padding="12dp"
             android:layout_marginTop="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_group_ppocrv5_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- 检测模型 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="检测模型"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_v5_det_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/v5_det_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/v5_det_browser_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_download_in_browser"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/v5_det_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#E0E0E0"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- 中日英 rec -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="中日英"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_v5_rec_zh_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/v5_rec_zh_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_zh_onnx_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_onnx"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="4dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_zh_dict_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_dict"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_zh_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#E0E0E0"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- 英文 rec -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="英文"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_v5_rec_en_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/v5_rec_en_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_en_onnx_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_onnx"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="4dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_en_dict_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_dict"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_en_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#E0E0E0"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- 韩文 rec -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="韩文"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_v5_rec_ko_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/v5_rec_ko_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_ko_onnx_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_onnx"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="4dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_ko_dict_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_dict"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_ko_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#E0E0E0"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- 俄文 rec -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="俄文"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_v5_rec_ru_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/v5_rec_ru_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_ru_onnx_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_onnx"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="4dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_ru_dict_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_browser_dict"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/v5_rec_ru_action_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ════════════════════════════════════════════════════════
+             4. PP-OCRv6（small 内置 + medium 可下载）
+             ════════════════════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/model_group_ppocrv6"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/setting_shape"
+            android:padding="12dp"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/model_group_ppocrv6_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:layout_marginBottom="8dp"/>
 
             <!-- small tier（内置） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="8dp"
+                android:padding="4dp"
                 android:gravity="center_vertical">
 
                 <LinearLayout
@@ -238,8 +709,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="#E0E0E0"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
                 android:layout_marginTop="4dp"
                 android:layout_marginBottom="4dp"/>
 
@@ -247,105 +718,29 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="8dp">
+                android:orientation="horizontal"
+                android:padding="4dp"
+                android:gravity="center_vertical">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="medium"
-                    android:textSize="16sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ppocrv6_medium_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginTop="2dp"/>
-
-                <!-- 检测模型 -->
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical">
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
-                        android:id="@+id/ppocrv6_medium_det_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/ppocrv6_medium_det_browser_button"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
+                        android:text="medium"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/ppocrv6_medium_desc"
                         android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/ppocrv6_medium_det_action"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
-                </LinearLayout>
-
-                <!-- 识别模型 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="4dp"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/ppocrv6_medium_rec_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/ppocrv6_medium_rec_browser_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
-                        android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/ppocrv6_medium_rec_action"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
+                        android:textColor="#888"
+                        android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
                 <RadioButton
@@ -353,405 +748,141 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
-                    android:layout_marginTop="4dp"
                     android:visibility="gone"/>
             </LinearLayout>
 
-        </LinearLayout>
-
-        <!-- 识别器区域 -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/recognizer_section"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginTop="16dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/recognizer_tip"
-            android:textSize="12sp"
-            android:textColor="#888"
-            android:layout_marginTop="4dp"/>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/setting_shape"
-            android:padding="12dp"
-            android:layout_marginTop="8dp">
-
-            <!-- MLKit 识别（内置） -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="MLKit"
-                        android:textSize="16sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/recognizer_mlkit_desc"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_built_in"
-                    android:textSize="12sp"
-                    android:textColor="#888"/>
-            </LinearLayout>
-
-            <!-- manga-ocr（需下载） -->
-            <LinearLayout
-                android:id="@+id/manga_ocr_version_list"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="8dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="manga-ocr"
-                    android:textSize="16sp"
-                    android:layout_marginBottom="4dp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/recognizer_manga_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginBottom="8dp"/>
-
-                <LinearLayout
-                    android:id="@+id/manga_ocr_row"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="8dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/manga_ocr_status"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:textSize="12sp"/>
-
-                        <TextView
-                            android:id="@+id/manga_ocr_browser_button"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp"
-                            android:text="@string/model_download_in_browser"
-                            android:textSize="11sp"
-                            android:textColor="#666"
-                            android:layout_marginEnd="8dp"/>
-
-                        <TextView
-                            android:id="@+id/manga_ocr_action_button"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:paddingStart="18dp"
-                            android:paddingEnd="18dp"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp"
-                            android:background="@drawable/btn_download"
-                            android:textColor="@android:color/white"
-                            android:textSize="12sp"
-                            android:text="@string/model_download"/>
-                    </LinearLayout>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- 分隔线 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#E0E0E0"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="4dp"/>
-
-            <!-- PP-OCRv5 标题 -->
+            <!-- medium 检测模型 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="PP-OCRv5"
-                android:textSize="14sp"
+                android:text="检测模型"
+                android:textSize="13sp"
                 android:textStyle="bold"
-                android:paddingStart="8dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="4dp"/>
+                android:paddingStart="4dp"
+                android:layout_marginTop="4dp"/>
 
-            <!-- 中日英（内置） -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ppocrv6_medium_det_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:paddingStart="24dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp">
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
 
-                <LinearLayout
+                <TextView
+                    android:id="@+id/ppocrv6_medium_det_status"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="中日英"
-                        android:textSize="14sp"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/ppocr_rec_zh_desc"
-                        android:textSize="11sp"
-                        android:textColor="#888"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                    android:textSize="12sp"/>
 
                 <TextView
+                    android:id="@+id/ppocrv6_medium_det_browser_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/ppocr_included_in_core"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_download_in_browser"
+                    android:textSize="11sp"
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/ppocrv6_medium_det_action"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
                     android:textSize="12sp"
-                    android:textColor="#888"/>
+                    android:text="@string/model_download"/>
             </LinearLayout>
 
-            <!-- 英文（可下载） -->
+            <!-- medium 识别模型 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="识别模型"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:paddingStart="4dp"
+                android:layout_marginTop="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ppocrv6_medium_rec_desc"
+                android:textSize="11sp"
+                android:textColor="#888"
+                android:paddingStart="4dp"
+                android:layout_marginTop="2dp"/>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="24dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp">
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:id="@+id/ppocrv6_medium_rec_status"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="英文"
-                    android:textSize="14sp"/>
+                    android:layout_weight="1"
+                    android:textSize="12sp"/>
 
                 <TextView
+                    android:id="@+id/ppocrv6_medium_rec_browser_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/ppocr_rec_en_desc"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/model_download_in_browser"
                     android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginTop="2dp"/>
+                    android:textColor="#666"
+                    android:layout_marginEnd="6dp"/>
 
-                <LinearLayout
-                    android:layout_width="match_parent"
+                <TextView
+                    android:id="@+id/ppocrv6_medium_rec_action"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/ppocr_en_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/ppocr_en_browser_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
-                        android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/ppocr_en_action_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
-                </LinearLayout>
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:text="@string/model_download"/>
             </LinearLayout>
-
-            <!-- 韩文（可下载） -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="24dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="韩文"
-                    android:textSize="14sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ppocr_rec_ko_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginTop="2dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/ppocr_ko_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/ppocr_ko_browser_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
-                        android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/ppocr_ko_action_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- 俄文（可下载） -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="24dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="俄文"
-                    android:textSize="14sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ppocr_rec_ru_desc"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginTop="2dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/ppocr_ru_status"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"/>
-
-                    <TextView
-                        android:id="@+id/ppocr_ru_browser_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:text="@string/model_download_in_browser"
-                        android:textSize="11sp"
-                        android:textColor="#666"
-                        android:layout_marginEnd="8dp"/>
-
-                    <TextView
-                        android:id="@+id/ppocr_ru_action_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@drawable/btn_download"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:text="@string/model_download"/>
-                </LinearLayout>
-            </LinearLayout>
-
         </LinearLayout>
 
+        <!-- ════════════════════════════════════════════════════════
+             底部提示
+             ════════════════════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/model_hint_need_both"
+            android:textSize="11sp"
+            android:textColor="#888"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"/>
 
         <!-- 模型存储路径 -->
         <TextView
@@ -760,7 +891,7 @@
             android:text="@string/model_storage_path_label"
             android:textSize="12sp"
             android:textColor="#888"
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="8dp"/>
 
         <TextView
             android:id="@+id/model_storage_path"
@@ -771,7 +902,7 @@
             android:layout_marginTop="4dp"
             android:textIsSelectable="true"/>
 
-        <!-- VPN 提示 -->
+        <!-- 下载提示 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
