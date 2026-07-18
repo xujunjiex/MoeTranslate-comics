@@ -93,7 +93,7 @@ class GameOcrEngine(
     private suspend fun recognizeWithPPOcrV6(bitmap: Bitmap, language: String): String {
         initPPOcrV6IfNeeded()
         val result = withContext(Dispatchers.IO) {
-            PPOcrV6Engine.runOCR(context, bitmap, useDet = true, useCls = false)
+            PPOcrV6Engine.runOCR(context, bitmap, useDet = true)
         }
         return result.texts.joinToString("")
     }

@@ -65,7 +65,7 @@ adb devices
 **包结构** (`app/src/main/java/com/moe/starflow/`):
 
 - `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`BallStateManager`（悬浮球状态图标管理器）
-- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
+- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
 - `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，10 条 FAQ）
 - `launch/` — 首次启动引导
@@ -230,6 +230,10 @@ private suspend fun processMangaScreenshot(
 | **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | getExternalFilesDir/ 可选下载 |
 | **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | getExternalFilesDir/ 可选下载 |
 | **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **PP-OCRv6 det small** | 文字区域检测 | ~9.9MB | RapidAI/RapidOCR | **assets/ 内置** |
+| **PP-OCRv6 rec small** | 多语言混合识别 | ~21MB | RapidAI/RapidOCR | **assets/ 内置** |
+| **PP-OCRv6 det medium** | 文字区域检测（高精度） | ~60MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **PP-OCRv6 rec medium** | 多语言混合识别（高精度） | ~74MB | ModelScope | getExternalFilesDir/ 可选下载 |
 | **RT-DETR-V2** | 文字/气泡检测 | ~11MB | HuggingFace | getExternalFilesDir/ 下载 |
 | **manga-ocr** | 竖排日文识别 | ~135MB | HuggingFace | getExternalFilesDir/ 下载 |
 
@@ -280,10 +284,24 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 **检测引擎（DetEngine）：**
 - `MLKIT(0)` — ML Kit 检测+识别一体化
 - `RT_DETR_V2(3)` — RT-DETR-V2 气泡/文字检测
-- `PP_OCR_V5(4)` — PP-OCRv5 独立 det+cls+rec 全流水线（**默认**）
+- `PP_OCR_V5(4)` — PP-OCRv5 独立流水线
+- `PP_OCR_V6(5)` — PP-OCRv6 独立流水线（**默认**）
 
 **OCR 引擎（OcrEngine）：**
-- `MLKit(0)`、`MangaOcr(1)`、`PPOcrV5(4)`（**默认**）
+- `MLKit(0)`、`MangaOcr(1)`、`PPOcrV5(4)`、`PPOcrV6(5)`（**默认**）
+
+**引擎切换架构（重要）：**
+
+游戏模式和漫画模式均使用"单一声源"模式避免分支遗漏：
+
+- **游戏模式**（`FloatingBallService`）：`engineCycle` 数组定义切换顺序 `[V5, V6, MLKIT, MANGA]`，`engineLabel()` 统一值→标签映射，`cycleOcrEngine()` 用 `engineCycle.indexOf() + 1` 查找下一个
+- **漫画模式**（`MangaFloatingService`）：`engineCombos` 列表定义 det+ocr 固定搭配，包含 `key`/`detEngine`/`ocrEngine`/`labelRes`/`needsDownloadCheck` 五元组。四个方法覆盖所有需求：
+  - `currentCombo()` — config → 组合
+  - `comboLabel()` — 组合 → 标签字符串
+  - `isComboAvailable()` — 检查是否可用（自动处理 manga-ocr 下载检测）
+  - `applyCombo()` — 应用组合（更新 config + 持久化 prefs + 启动引擎）
+
+**添加新引擎只需：** 1) 枚举加值 2) `engineCombos`/`engineCycle` 加一项 3) `applyCombo`/`initEngineAsync` 加 `when` 分支。不需要同步多个分散的 `when` 表达式。
 
 **合并机制：**
 
@@ -306,7 +324,7 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 - 正常漫画翻译不使用上下文（`forceContext=false` 时直接关闭）
 - MangaOcr encoder 是批处理瓶颈（~3s），分批可提前显示部分结果
 
-**Debug 系统：** 关于页面可开启 3 个独立 debug 开关（RT-DETR-V2 / MLKit / PP-OCRv5），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
+**Debug 系统：** 关于页面可开启 4 个独立 debug 开关（RT-DETR-V2 / MLKit / PP-OCRv5 / PP-OCRv6），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
 
 **PP-OCRv5 参数调节：**
 用户可通过调试面板滑块实时调整 5 个参数（存 SharedPreferences，`PPOcrV5Engine.refreshParams()` 每次 OCR 前读取）：
@@ -388,7 +406,8 @@ IDLE（跳过OCR）──像素变化──→ CHANGED ──稳定1帧──→
 - `pixel_stability_check`：翻页稳定性检测开关
 
 **OCR 引擎（GameOcrEngine）：**
-- MLKit(0)、PP-OCRv5(1)、manga-ocr(2)
+- MLKit(0)、PP-OCRv5(1)、manga-ocr(2)、PP-OCRv6(3)
+- 切换顺序：v5 → v6 → MLKit → manga（`engineCycle` 数组，`engineLabel()` 统一标签映射）
 - MLKit 和 PP-OCRv5 固定使用直接合并（不保留换行）
 
 **调试浮窗（GameDebugOverlay）：** 关于页面开启，显示状态 + 像素差异 + 耗时，点击展开日志面板（最近 20 条，自动去重）

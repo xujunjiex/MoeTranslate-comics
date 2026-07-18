@@ -54,11 +54,7 @@ object PPOcrV6Engine {
     private const val DET_MAX_CANDIDATES = 100         // same
     private const val DET_MIN_SIZE = 3                 // same
 
-    // -----------------------------------------------------------------------
-    // Cls 常量 (ch_ppocr_cls/main.py)
-    // -----------------------------------------------------------------------
-    private val CLS_IMAGE_SHAPE = intArrayOf(3, 80, 160) // [C, H, W] — matches cls_v6.onnx input
-    private const val CLS_THRESH = 0.9f                   // same
+    // cls removed — direction classification is no longer used
 
     // -----------------------------------------------------------------------
     // Rec 常量 (ch_ppocr_rec/main.py)
@@ -82,7 +78,6 @@ object PPOcrV6Engine {
     @Volatile private var limitSideLen = DET_LIMIT_SIDE_LEN
     @Volatile private var limitType = DET_LIMIT_TYPE
     @Volatile private var textScoreThresh = TEXT_SCORE_THRESH_DEFAULT
-    @Volatile private var clsThresh = CLS_THRESH
     @Volatile private var recBatchNum = REC_BATCH_NUM
     @Volatile private var largeBoxEnabled = false
     @Volatile private var largeBoxRatio = 0.6f  // 宽/高/面积占图片比例阈值
@@ -99,7 +94,6 @@ object PPOcrV6Engine {
         limitSideLen = prefs.getInt("ppocrv6_limit_side_len", 736)
         limitType = prefs.getString("ppocrv6_limit_type", "min") ?: "min"
         textScoreThresh = prefs.getFloat("ppocrv6_text_score", 0.5f)
-        clsThresh = prefs.getFloat("ppocrv6_cls_thresh", 0.9f)
         recBatchNum = prefs.getInt("ppocrv6_rec_batch_num", 6)
         largeBoxEnabled = prefs.getBoolean("ppocrv6_large_box_enabled", false)
         largeBoxRatio = prefs.getFloat("ppocrv6_large_box_ratio", 0.6f)
@@ -110,7 +104,6 @@ object PPOcrV6Engine {
     // -----------------------------------------------------------------------
     @Volatile private var ortEnv: OrtEnvironment? = null
     @Volatile private var detSession: OrtSession? = null
-    @Volatile private var clsSession: OrtSession? = null
     @Volatile private var recSession: OrtSession? = null  // single session, not EnumMap
 
     // 字典：blank(0) + dict_chars + space(end)
@@ -151,14 +144,7 @@ object PPOcrV6Engine {
                 val detBytes = loadDetModelBytes(context)
                 detSession = ortEnv!!.createSession(detBytes, sessionOpts)
 
-                // cls（从 assets 加载）
-                try {
-                    val clsBytes = context.assets.open("ppocrv6/cls_v6.onnx").use { it.readBytes() }
-                    clsSession = ortEnv!!.createSession(clsBytes, sessionOpts)
-                } catch (e: Exception) {
-                    LogCollector.w(TAG, "cls 模型不可用: ${e.message}")
-                    clsSession = null
-                }
+                // cls removed — direction classification is no longer used
 
                 // 字典
                 loadDictionary(context)
@@ -255,14 +241,12 @@ object PPOcrV6Engine {
         synchronized(lock) {
             try {
                 detSession?.close()
-                clsSession?.close()
                 recSession?.close()
                 ortEnv?.close()
             } catch (e: Exception) {
                 LogCollector.e(TAG, "释放资源失败", e)
             } finally {
                 detSession = null
-                clsSession = null
                 recSession = null
                 ortEnv = null
                 dictionary = emptyList()
@@ -743,135 +727,7 @@ object PPOcrV6Engine {
         return cropImg
     }
 
-    // ========================================================================
-    // Cls (ch_ppocr_cls/main.py)
-    // ========================================================================
-
-    /**
-     * 方向分类 + 自动旋转。
-     *
-     * @param imgList 待分类图片列表
-     * @return 分类结果列表（label="0" 或 "180"）
-     */
-    fun clsAndRotate(imgList: List<Bitmap>): List<ClsResult> = synchronized(lock) {
-        val session = clsSession ?: return imgList.map { ClsResult("0", 1.0f) }
-        if (imgList.isEmpty()) return emptyList()
-
-        val t0 = System.currentTimeMillis()
-
-        // 按宽度降序排列（减少 batch padding）
-        val indices = imgList.indices.sortedByDescending { imgList[it].width }
-        val sortedImgs = indices.map { imgList[it] }
-
-        // 预处理
-        val preprocessed = sortedImgs.map { clsResizeNormImg(it) }
-        val batchSize = preprocessed.size
-        val channelSize = CLS_IMAGE_SHAPE[1] * CLS_IMAGE_SHAPE[2] // 80 * 160
-        val totalSize = batchSize * 3 * channelSize
-
-        val buffer = FloatBuffer.allocate(totalSize)
-        for (arr in preprocessed) {
-            buffer.put(arr)
-        }
-        buffer.rewind()
-
-        val inputTensor = OnnxTensor.createTensor(
-            ortEnv!!, buffer,
-            longArrayOf(batchSize.toLong(), 3, CLS_IMAGE_SHAPE[1].toLong(), CLS_IMAGE_SHAPE[2].toLong())
-        )
-
-        // 推理
-        val results = session.run(mapOf("x" to inputTensor))
-        inputTensor.close()
-
-        var outputData: FloatArray
-        try {
-            var outputTensor: OnnxTensor? = null
-            for (name in session.outputNames) {
-                val value = results.get(name)
-                if (value.isPresent && value.get() is OnnxTensor) {
-                    outputTensor = value.get() as OnnxTensor
-                    break
-                }
-            }
-            outputData = outputTensor!!.floatBuffer.array()
-            outputTensor.close()
-        } finally {
-            results.close()
-        }
-
-        // 后处理：恢复原始顺序
-        val sortedResults = (0 until batchSize).map { i ->
-            val start = i * 2
-            val end = (i + 1) * 2
-            val probs = if (end <= outputData.size) {
-                outputData.sliceArray(start until end)
-            } else {
-                LogCollector.w(TAG, "cls 输出不足: batchSize=$batchSize, outputSize=${outputData.size}, i=$i")
-                floatArrayOf(1f, 0f) // 默认不旋转
-            }
-            clsPostProcess(probs)
-        }
-
-        val finalResults = MutableList(batchSize) { ClsResult("0", 0f) }
-        for (i in indices.indices) {
-            finalResults[indices[i]] = ClsResult(sortedResults[i].first, sortedResults[i].second)
-        }
-
-        // 旋转 180° 由 runOCR 处理（此处仅返回分类结果）
-
-        LogCollector.d(TAG, "clsAndRotate: ${batchSize} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
-        finalResults
-    }
-
-    /**
-     * Cls 预处理：resize + pad + normalize [-1, 1]
-     */
-    private fun clsResizeNormImg(bitmap: Bitmap): FloatArray {
-        val imgC = CLS_IMAGE_SHAPE[0] // 3
-        val imgH = CLS_IMAGE_SHAPE[1] // 80
-        val imgW = CLS_IMAGE_SHAPE[2] // 160
-
-        val ratio = bitmap.width.toFloat() / bitmap.height
-        var resizeW = ceil(imgH * ratio).toInt()
-        if (resizeW > imgW) resizeW = imgW
-
-        val resized = Bitmap.createScaledBitmap(bitmap, resizeW, imgH, true)
-
-        // CHW, pad to (3, 80, 160), normalize [-1, 1]
-        val floatArr = FloatArray(imgC * imgH * imgW)
-        val pixels = IntArray(resizeW * imgH)
-        resized.getPixels(pixels, 0, resizeW, 0, 0, resizeW, imgH)
-        if (resized !== bitmap) resized.recycle()
-
-        for (c in 0 until 3) {
-            val cOffset = c * imgH * imgW
-            for (y in 0 until imgH) {
-                for (x in 0 until resizeW) {
-                    val pixel = pixels[y * resizeW + x]
-                    val v = when (c) {
-                        0 -> (pixel shr 16 and 0xFF) / 255.0f
-                        1 -> (pixel shr 8 and 0xFF) / 255.0f
-                        2 -> (pixel and 0xFF) / 255.0f
-                        else -> 0f
-                    }
-                    floatArr[cOffset + y * imgW + x] = (v - 0.5f) / 0.5f
-                }
-                // 右侧 padding 保持 0
-            }
-        }
-
-        return floatArr
-    }
-
-    /**
-     * Cls 后处理：argmax → ("0"/"180", score)
-     */
-    private fun clsPostProcess(probs: FloatArray): Pair<String, Float> {
-        val label = if (probs[0] > probs[1]) "0" else "180"
-        val score = max(probs[0], probs[1])
-        return Pair(label, score)
-    }
+    // cls removed — direction classification code deleted; use recognizeBatch directly
 
     // ========================================================================
     // Rec (ch_ppocr_rec/main.py + CTCLabelDecode)
@@ -1065,14 +921,12 @@ object PPOcrV6Engine {
      * @param bitmap 输入图片
      * @param recLang 识别语言
      * @param useDet 是否使用检测（false 则全图识别）
-     * @param useCls 是否使用方向分类
      * @return OCR 结果
      */
     fun runOCR(
         context: Context,
         bitmap: Bitmap,
-        useDet: Boolean = true,
-        useCls: Boolean = false
+        useDet: Boolean = true
     ): OcrResult {
         if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
         if (bitmap.isRecycled) throw IllegalArgumentException("Bitmap 已回收")
@@ -1116,25 +970,8 @@ object PPOcrV6Engine {
         }
         val cropTime = System.currentTimeMillis() - cropT0
 
-        // 2b. Cls
-        val clsT0 = System.currentTimeMillis()
-        val clsResults = if (useCls && clsSession != null && cropResults.isNotEmpty()) {
-            clsAndRotate(cropResults.map { it.first })
-        } else {
-            cropResults.map { ClsResult("0", 1.0f) }
-        }
-        clsTime = System.currentTimeMillis() - clsT0
-
-        // 应用 cls 旋转
-        for (i in cropResults.indices) {
-            if (i < clsResults.size && clsResults[i].label == "180" && clsResults[i].score > CLS_THRESH) {
-                val (crop, box, idx) = cropResults[i]
-                val matrix = android.graphics.Matrix().apply { setRotate(180f) }
-                val rotated = Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, matrix, true)
-                if (rotated !== crop) crop.recycle()
-                cropResults[i] = Triple(rotated, box, idx)
-            }
-        }
+        // 2b. Cls removed — direction classification is no longer used
+        clsTime = 0L
 
         // 2c. Rec
         val recT0 = System.currentTimeMillis()
@@ -1192,38 +1029,11 @@ object PPOcrV6Engine {
     }
 
     /**
-     * 批量识别（含 cls 方向分类）。
-     * 用于增量渲染场景：对已裁剪图片执行 cls + rec。
-     * 委托给 clsAndRotate + recognizeBatch，避免重复推理逻辑。
-     *
-     * @param context Context
-     * @param imgList 已裁剪图片列表
-     * @return 识别结果列表
+     * 批量识别（直接委托 recognizeBatch，cls 已删除）。
+     * 保留此方法以兼容调用方。
      */
     fun recognizeBatchWithCls(context: Context, imgList: List<Bitmap>): List<RecResult> {
-        if (imgList.isEmpty()) return emptyList()
-
-        val t0 = System.currentTimeMillis()
-
-        // 1. Cls 方向分类 + 旋转
-        val clsResults = clsAndRotate(imgList)
-        val processedImgs = imgList.mapIndexed { i, bmp ->
-            if (clsResults.getOrNull(i)?.let { it.label == "180" && it.score > CLS_THRESH } == true) {
-                Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height,
-                    android.graphics.Matrix().apply { setRotate(180f) }, true)
-            } else {
-                bmp
-            }
-        }
-
-        // 2. Rec 批量识别
-        val results = recognizeBatch(context, processedImgs)
-
-        // 3. 清理旋转产生的额外 Bitmap
-        processedImgs.forEachIndexed { i, img -> if (img !== imgList[i]) img.recycle() }
-
-        LogCollector.d(TAG, "recognizeBatchWithCls: ${imgList.size} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
-        return results
+        return recognizeBatch(context, imgList)
     }
 
     /**

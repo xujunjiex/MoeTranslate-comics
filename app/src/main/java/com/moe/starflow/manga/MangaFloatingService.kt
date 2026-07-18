@@ -2491,7 +2491,7 @@ class MangaFloatingService : LifecycleService() {
                         LogCollector.d(TAG, "PP-OCRv6 Debug Mode: 开始检测+识别")
                         initPPOcrV6IfNeeded()
                         val ocrResult = withContext(Dispatchers.IO) {
-                            PPOcrV6Engine.runOCR(this@MangaFloatingService, bitmap, useDet = true, useCls = false)
+                            PPOcrV6Engine.runOCR(this@MangaFloatingService, bitmap, useDet = true)
                         }
                         val debugDet = withContext(Dispatchers.IO) {
                             PPOcrV6Engine.runDetForDebug(this@MangaFloatingService, bitmap)
@@ -3997,7 +3997,7 @@ class MangaFloatingService : LifecycleService() {
 
         // 默认值（与 PPOcrV6Engine.refreshParams 默认值一致）
         val DEF_DET_THRESH = 0.3f; val DEF_BOX = 0.5f; val DEF_UNCLIP = 1.6f
-        val DEF_TEXT = 0.5f; val DEF_CLS = 0.9f; val DEF_BATCH = 6
+        val DEF_TEXT = 0.5f; val DEF_BATCH = 6
         val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
         val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
 
@@ -4010,8 +4010,6 @@ class MangaFloatingService : LifecycleService() {
         fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
-        fun clsToSeek(v: Float) = ((v - 0.5f) / 0.5f * 100).toInt().coerceIn(0, 100)
-        fun seekToCls(v: Int) = 0.5f + v / 100f * 0.5f
         fun batchToSeek(v: Int) = ((v - 1) * 100 / 11).coerceIn(0, 100)
         fun seekToBatch(v: Int) = 1 + v * 11 / 100
         fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
@@ -4097,7 +4095,7 @@ class MangaFloatingService : LifecycleService() {
         }
         outerPanel.addView(row1)
 
-        // ── 第二行：3 个滑块（text_score, cls_thresh, rec_batch_num）──
+        // ── 第二行：2 个滑块（text_score, rec_batch_num）──
         val row2 = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -4108,12 +4106,10 @@ class MangaFloatingService : LifecycleService() {
 
         val sliders2 = listOf(
             Triple("识别置信度", textToSeek(prefs.getFloat("ppocrv6_text_score", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) }),
-            Triple("方向分类阈值", clsToSeek(prefs.getFloat("ppocrv6_cls_thresh", DEF_CLS)), { v: Int -> String.format("%.2f", seekToCls(v)) }),
             Triple("批处理数", batchToSeek(prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH)), { v: Int -> "${seekToBatch(v)}" })
         )
         val saveFns2: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_text_score", seekToText(v)) },
-            { v -> prefs.setFloat("ppocrv6_cls_thresh", seekToCls(v)) },
             { v -> prefs.setInt("ppocrv6_rec_batch_num", seekToBatch(v)) }
         )
 
@@ -4309,7 +4305,6 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setFloat("ppocrv6_det_box_thresh", DEF_BOX)
                 prefs.setFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)
                 prefs.setFloat("ppocrv6_text_score", DEF_TEXT)
-                prefs.setFloat("ppocrv6_cls_thresh", DEF_CLS)
                 prefs.setInt("ppocrv6_rec_batch_num", DEF_BATCH)
                 prefs.setBoolean("ppocrv6_large_box_enabled", DEF_LARGE_ENABLED)
                 prefs.setFloat("ppocrv6_large_box_ratio", DEF_LARGE_RATIO)
@@ -4320,8 +4315,7 @@ class MangaFloatingService : LifecycleService() {
                 sliderRefs[1].apply { seekBar.progress = boxToSeek(DEF_BOX); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 sliderRefs[2].apply { seekBar.progress = unclipToSeek(DEF_UNCLIP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 sliderRefs[3].apply { seekBar.progress = textToSeek(DEF_TEXT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[4].apply { seekBar.progress = clsToSeek(DEF_CLS); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[5].apply { seekBar.progress = batchToSeek(DEF_BATCH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[4].apply { seekBar.progress = batchToSeek(DEF_BATCH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
                 ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"

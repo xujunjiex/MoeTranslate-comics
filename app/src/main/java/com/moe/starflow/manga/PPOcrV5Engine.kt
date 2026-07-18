@@ -43,11 +43,6 @@ data class DetBox(val points: Array<Point>) {
 }
 
 /**
- * 分类结果
- */
-data class ClsResult(val label: String, val score: Float)
-
-/**
  * 识别结果
  */
 data class RecResult(val text: String, val score: Float)

@@ -1064,7 +1064,7 @@ object DetectionBridge {
             LogCollector.d(TAG, "使用 PP-OCRv6 独立检测+识别, language=$language")
 
             val result = withContext(Dispatchers.IO) {
-                PPOcrV6Engine.runOCR(context, bitmap, useDet = true, useCls = false)
+                PPOcrV6Engine.runOCR(context, bitmap, useDet = true)
             }
 
             // 转换为 TextLine（识别后的文字行）
