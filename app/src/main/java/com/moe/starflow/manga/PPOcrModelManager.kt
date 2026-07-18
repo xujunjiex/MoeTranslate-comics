@@ -129,4 +129,75 @@ object PPOcrModelManager {
         bytes < 1024 * 1024 -> String.format("%.1f KB", bytes / 1024.0)
         else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
     }
+
+    // ========================================================================
+    // PP-OCRv6 medium 模型下载管理
+    // ========================================================================
+
+    private const val V6_MODEL_DIR = "ppocrv6"
+
+    private const val V6_BASE_URL = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv6"
+
+    val V6_DOWNLOAD_URLS = mapOf(
+        "det" to "$V6_BASE_URL/det/PP-OCRv6_det_medium.onnx",
+        "rec" to "$V6_BASE_URL/rec/PP-OCRv6_rec_medium.onnx"
+    )
+
+    fun getV6ModelDir(context: Context): File = File(context.getExternalFilesDir(null), V6_MODEL_DIR)
+
+    fun isV6MediumDownloaded(context: Context): Boolean {
+        val detFile = File(getV6ModelDir(context), "det_v6_medium.onnx")
+        val recFile = File(getV6ModelDir(context), "rec_v6_medium.onnx")
+        return detFile.exists() && detFile.length() > 0 && recFile.exists() && recFile.length() > 0
+    }
+
+    suspend fun downloadV6Medium(
+        context: Context,
+        type: String,
+        onProgress: ModelDownloadManager.ProgressCallback? = null
+    ): Result<Unit> {
+        val v6Dir = getV6ModelDir(context)
+        if (!v6Dir.exists()) v6Dir.mkdirs()
+
+        val fileName = if (type == "det") "det_v6_medium.onnx" else "rec_v6_medium.onnx"
+        val destFile = File(v6Dir, fileName)
+        if (destFile.exists() && destFile.length() > 0) {
+            LogCollector.d(TAG, "v6 $fileName 已存在，跳过")
+            return Result.success(Unit)
+        }
+
+        val url = V6_DOWNLOAD_URLS[type]
+            ?: return Result.failure(IllegalArgumentException("Unknown v6 model type: $type"))
+        LogCollector.d(TAG, "开始下载 v6 $fileName: $url")
+        val result = ModelDownloadManager.downloadModel(
+            context = context,
+            url = url,
+            sha256Hash = "",
+            destFile = destFile,
+            onProgress = onProgress
+        )
+        if (result.isFailure) return result
+
+        LogCollector.d(TAG, "v6 模型 $type 下载完成")
+        return Result.success(Unit)
+    }
+
+    fun deleteV6Medium(context: Context): Result<Unit> {
+        return try {
+            val dir = getV6ModelDir(context)
+            File(dir, "det_v6_medium.onnx").let { if (it.exists()) it.delete() }
+            File(dir, "rec_v6_medium.onnx").let { if (it.exists()) it.delete() }
+            LogCollector.d(TAG, "v6 模型已删除")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "删除 v6 模型失败", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getV6MediumSize(type: String): String = when (type) {
+        "det" -> "~60MB"
+        "rec" -> "~74MB"
+        else -> "?"
+    }
 }
