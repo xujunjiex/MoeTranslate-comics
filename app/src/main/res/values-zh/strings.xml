@@ -597,6 +597,14 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <!-- 模型下载提示 -->
     <string name="model_download_vpn_tip">💡 如无法下载模型，请开启 VPN 后重试\n下载过程中请勿退出当前页面</string>
 
+    <!-- PP-OCRv6 -->
+    <string name="ppocrv6_section_title">PP-OCRv6</string>
+    <string name="ppocrv6_section_desc">PP-OCRv6 多语言文字识别引擎</string>
+    <string name="ppocrv6_small_desc">small 检测+识别，内置 (~30MB)</string>
+    <string name="ppocrv6_medium_desc">medium 检测+识别，可选下载 (~134MB)</string>
+    <string name="manga_model_ppocrv6">PP-OCRv6</string>
+    <string name="game_ocr_engine_ppocrv6">PP-OCRv6</string>
+
     <!-- PP-OCRv5 模型 -->
     <string name="ppocr_det_desc">det 文字区域检测，内置</string>
     <string name="ppocr_included_in_core">内置</string>

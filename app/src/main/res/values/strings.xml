@@ -702,6 +702,14 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="update_downloaded_ready">Update package downloaded. Please grant install permission to continue.</string>
     <string name="update_install_now">Install Update</string>
 
+    <!-- PP-OCRv6 -->
+    <string name="ppocrv6_section_title">PP-OCRv6</string>
+    <string name="ppocrv6_section_desc">PP-OCRv6 multilingual text recognition engine</string>
+    <string name="ppocrv6_small_desc">small det+rec, built-in (~30MB)</string>
+    <string name="ppocrv6_medium_desc">medium det+rec, optional download (~134MB)</string>
+    <string name="manga_model_ppocrv6">PP-OCRv6</string>
+    <string name="game_ocr_engine_ppocrv6">PP-OCRv6</string>
+
     <!-- PP-OCRv5 models -->
     <string name="ppocr_det_desc">det text detection, built-in</string>
     <string name="ppocr_included_in_core">Built-in</string>
