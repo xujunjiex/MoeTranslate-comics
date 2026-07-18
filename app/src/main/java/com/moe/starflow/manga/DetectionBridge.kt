@@ -783,6 +783,10 @@ object DetectionBridge {
                 LogCollector.d(TAG, "使用 PP-OCRv5 独立检测+识别, language=$language")
                 detectWithPPOcrV5(bitmap, language, context)
             }
+            DetEngine.PP_OCR_V6 -> {
+                LogCollector.d(TAG, "使用 PP-OCRv6 独立检测+识别, language=$language")
+                detectWithPPOcrV6(bitmap, language, context)
+            }
         }
     }
 
@@ -863,6 +867,67 @@ object DetectionBridge {
         )
 
         LogCollector.d(TAG, "detectAndCropPPOcrV5Lines: ${boxes.size} 行裁剪完成")
+        sorted
+    }
+
+    /**
+     * PP-OCRv6 增量渲染：det 检测全部文字行 → 逐行裁剪。
+     * 不做 cls/rec/分组，后续分批识别 + TextLineMerger 合并。
+     *
+     * @return 按漫画阅读顺序排列的裁剪文字行列表
+     */
+    suspend fun detectAndCropPPOcrV6Lines(
+        context: android.content.Context,
+        bitmap: Bitmap
+    ): List<CroppedTextLine> = withContext(Dispatchers.IO) {
+        LogCollector.d(TAG, "detectAndCropPPOcrV6Lines: 开始检测")
+
+        // det 检测全部文字行框
+        val boxes = PPOcrV6Engine.runDetForBoxes(context, bitmap)
+        if (boxes.isEmpty()) {
+            LogCollector.d(TAG, "detectAndCropPPOcrV6Lines: 未检测到文字区域")
+            return@withContext emptyList()
+        }
+        LogCollector.d(TAG, "detectAndCropPPOcrV6Lines: 检测到 ${boxes.size} 个文字行")
+
+        // 逐行裁剪（透视校正）
+        val result = boxes.map { box ->
+            var xMin = Float.MAX_VALUE; var yMin = Float.MAX_VALUE
+            var xMax = Float.MIN_VALUE; var yMax = Float.MIN_VALUE
+            for (k in box.indices step 2) {
+                if (box[k] < xMin) xMin = box[k]
+                if (box[k] > xMax) xMax = box[k]
+            }
+            for (k in 1 until box.size step 2) {
+                if (box[k] < yMin) yMin = box[k]
+                if (box[k] > yMax) yMax = box[k]
+            }
+            val rect = Rect(
+                xMin.toInt().coerceAtLeast(0),
+                yMin.toInt().coerceAtLeast(0),
+                xMax.toInt().coerceAtMost(bitmap.width - 1),
+                yMax.toInt().coerceAtMost(bitmap.height - 1)
+            )
+            // 从 QuadBox 计算倾斜角
+            val tl = PointF(box[0], box[1])
+            val tr = PointF(box[2], box[3])
+            val topDx = tr.x - tl.x
+            val topDy = tr.y - tl.y
+            var angle = Math.toDegrees(kotlin.math.atan2(topDy, topDx).toDouble()).toFloat()
+            if (kotlin.math.abs(angle) <= 3f) angle = 0f
+
+            val pts = PPOcrV6Engine.boxToQuadPointsPublic(box)
+            val crop = PPOcrV6Engine.getRotateCropImage(bitmap, pts)
+            CroppedTextLine(crop, rect, angle, rect.exactCenterX(), rect.exactCenterY())
+        }
+
+        // 按漫画阅读顺序排序（从上到下，从右到左）
+        val sorted = result.sortedWith(
+            compareBy<CroppedTextLine> { it.rect.top }
+                .thenByDescending { it.rect.left }
+        )
+
+        LogCollector.d(TAG, "detectAndCropPPOcrV6Lines: ${boxes.size} 行裁剪完成")
         sorted
     }
 
@@ -978,6 +1043,117 @@ object DetectionBridge {
 
         } catch (e: Exception) {
             LogCollector.e(TAG, "PP-OCRv5 检测失败", e)
+            throw e
+        }
+    }
+
+    /**
+     * 使用 PP-OCRv6 独立检测 + 识别（det + cls + rec 完整流水线）。
+     * V6 支持多语言，无需 resolveRecLang。
+     *
+     * @param bitmap 输入图片
+     * @param language 语言代码
+     * @return TextBlockInfo 列表
+     */
+    suspend fun detectWithPPOcrV6(
+        bitmap: Bitmap,
+        language: String,
+        context: Context
+    ): List<TextBlockInfo> {
+        try {
+            LogCollector.d(TAG, "使用 PP-OCRv6 独立检测+识别, language=$language")
+
+            val result = withContext(Dispatchers.IO) {
+                PPOcrV6Engine.runOCR(context, bitmap, useDet = true, useCls = false)
+            }
+
+            // 转换为 TextLine（识别后的文字行）
+            val textLines = result.texts.indices.mapNotNull { i ->
+                val text = result.texts[i]
+                if (text.isBlank() || result.scores[i] < 0.5f) return@mapNotNull null
+
+                val box = result.boxes.getOrNull(i) ?: return@mapNotNull null
+                if (box.size < 8) return@mapNotNull null
+
+                // 4 顶点：TL, TR, BR, BL
+                val tl = android.graphics.PointF(box[0], box[1])
+                val tr = android.graphics.PointF(box[2], box[3])
+                val br = android.graphics.PointF(box[4], box[5])
+                val bl = android.graphics.PointF(box[6], box[7])
+                val quadPoints = arrayOf(tl, tr, br, bl)
+
+                val topDx = tr.x - tl.x
+                val topDy = tr.y - tl.y
+                val topLen = kotlin.math.sqrt((topDx * topDx + topDy * topDy).toDouble()).toFloat()
+                val leftDx = bl.x - tl.x
+                val leftDy = bl.y - tl.y
+                val leftLen = kotlin.math.sqrt((leftDx * leftDx + leftDy * leftDy).toDouble()).toFloat()
+
+                var angle = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+                if (kotlin.math.abs(angle) <= 3f) angle = 0f
+
+                val isVertical = leftLen > topLen * 1.5f
+                val fontSize = if (isVertical) topLen else leftLen
+
+                var xMin = Float.MAX_VALUE
+                var yMin = Float.MAX_VALUE
+                var xMax = Float.MIN_VALUE
+                var yMax = Float.MIN_VALUE
+                for (k in box.indices step 2) {
+                    if (box[k] < xMin) xMin = box[k]
+                    if (box[k] > xMax) xMax = box[k]
+                }
+                for (k in 1 until box.size step 2) {
+                    if (box[k] < yMin) yMin = box[k]
+                    if (box[k] > yMax) yMax = box[k]
+                }
+                val rect = Rect(
+                    xMin.toInt().coerceAtLeast(0),
+                    yMin.toInt().coerceAtLeast(0),
+                    xMax.toInt().coerceAtMost(bitmap.width - 1),
+                    yMax.toInt().coerceAtMost(bitmap.height - 1)
+                )
+                val center = android.graphics.PointF(rect.exactCenterX(), rect.exactCenterY())
+
+                PPOcrTextLine(
+                    rect = rect, text = text, fontSize = fontSize,
+                    isVertical = isVertical, score = result.scores[i],
+                    angle = angle, quadPoints = quadPoints, center = center
+                )
+            }
+
+            // 识别后合并（对齐参考项目 merge_bboxes_text_region）
+            TextRegionMerger.refreshParams(context)
+            val allMerged = TextRegionMerger.merge(textLines.map { TextRegion(quad = QuadBox(it.quadPoints), text = it.text, score = it.score) })
+            // 合并后内容过滤：丢弃空白、单字符、纯符号、短数字
+            val mergedRegions = allMerged.filter { region ->
+                val text = region.texts.joinToString("").trim()
+                val discard = text.isEmpty() || text.length == 1 ||
+                    text.all { !it.isLetterOrDigit() } ||
+                    (text.length <= 2 && text.all { it.isDigit() })
+                if (discard) LogCollector.d(TAG, "PP-OCRv6 内容丢弃: \"${text.take(20)}\"")
+                !discard
+            }
+            LogCollector.d(TAG, "PP-OCRv6: ${textLines.size} 行 → ${allMerged.size} 合并 → 内容丢弃${allMerged.size - mergedRegions.size} → ${mergedRegions.size} 输出")
+
+            // 转换为 TextBlockInfo
+            val textBlocks = mergedRegions.map { region ->
+                TextBlockInfo(
+                    text = region.texts.joinToString("\n"),
+                    boundingBox = region.rect,
+                    cornerPoints = null,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    angle = region.angle,
+                    centerX = region.center.x,
+                    centerY = region.center.y
+                )
+            }
+
+            LogCollector.d(TAG, "PP-OCRv6 独立完成，共 ${textBlocks.size} 个文本区域")
+            return textBlocks
+
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "PP-OCRv6 检测失败", e)
             throw e
         }
     }
