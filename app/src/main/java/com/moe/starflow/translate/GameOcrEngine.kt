@@ -56,7 +56,7 @@ class GameOcrEngine(
         }
         return if (recLang != null) {
             val result = withContext(Dispatchers.IO) {
-                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = false)
+                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true)
             }
             result.texts.joinToString("")
         } else {

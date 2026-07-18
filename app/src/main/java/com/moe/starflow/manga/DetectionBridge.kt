@@ -953,7 +953,7 @@ object DetectionBridge {
             }
 
             val result = withContext(Dispatchers.IO) {
-                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true, useCls = false)
+                PPOcrV5Engine.runOCR(context, bitmap, recLang, useDet = true)
             }
 
             // 转换为 TextLine（识别后的文字行）

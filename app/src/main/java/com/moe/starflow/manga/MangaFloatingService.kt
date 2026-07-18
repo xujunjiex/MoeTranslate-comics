@@ -208,6 +208,51 @@ class MangaFloatingService : LifecycleService() {
 
     private lateinit var prefs: CustomPreference
     private lateinit var config: MangaModeConfig
+
+    // ── 引擎组合：单一数据源，所有标签/切换/初始化共用 ──
+    private data class ComboDef(
+        val key: String,
+        val detEngine: DetEngine,
+        val ocrEngine: OcrEngine,
+        val labelRes: Int,
+        val needsDownloadCheck: Boolean = false
+    )
+
+    /** 切换顺序：mlkit → ppocr → ppocrv6 → manga → mlkit */
+    private val engineCombos = listOf(
+        ComboDef("mlkit", DetEngine.MLKIT, OcrEngine.MLKit, R.string.manga_model_mlkit),
+        ComboDef("ppocr", DetEngine.PP_OCR_V5, OcrEngine.PPOcrV5, R.string.manga_model_ppocr),
+        ComboDef("ppocrv6", DetEngine.PP_OCR_V6, OcrEngine.PPOcrV6, R.string.manga_model_ppocrv6),
+        ComboDef("manga", DetEngine.RT_DETR_V2, OcrEngine.MangaOcr, R.string.manga_model_manga_ocr, needsDownloadCheck = true),
+    )
+
+    /** 当前 config 匹配的组合（兜底 mlkit） */
+    private fun currentCombo(): ComboDef = engineCombos.firstOrNull {
+        it.detEngine == config.detEngine && it.ocrEngine == config.ocrEngine
+    } ?: engineCombos[0]
+
+    /** combo key → 显示标签 */
+    private fun comboLabel(combo: ComboDef): String = getString(combo.labelRes)
+
+    /** 检查需下载的组合是否可用 */
+    private fun isComboAvailable(combo: ComboDef): Boolean = when {
+        !combo.needsDownloadCheck -> true
+        else -> RTDetrModelManager.isModelAvailable(this) && MangaOcrDownloadManager.isModelDownloaded(this)
+    }
+
+    /** 应用组合：更新 config + 持久化 + 初始化引擎 */
+    private fun applyCombo(combo: ComboDef) {
+        config = config.copy(detEngine = combo.detEngine, ocrEngine = combo.ocrEngine)
+        prefs.setInt("Manga_Det_Model", combo.detEngine.value)
+        prefs.setInt("Manga_Rec_Model", combo.ocrEngine.value)
+        showToast(getString(combo.labelRes), true)
+        when (combo.key) {
+            "ppocr" -> lifecycleScope.launch { initPPOcrV5("检测器+识别器") }
+            "ppocrv6" -> lifecycleScope.launch { initPPOcrV6("检测器+识别器") }
+            "manga" -> lifecycleScope.launch { initRTDetrV2(); ensureMangaOcrInitialized() }
+            else -> {} // MLKit 无需初始化
+        }
+    }
     private var translatorText: TranslationTextAPI? = null
 
     // 截图提供者
@@ -938,21 +983,10 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 普通模式菜单：固定搭配
-     * MLKit → det=MLKIT, ocr=MLKit
-     * PP-OCRv5 → det=PP_OCR_V5, ocr=PPOcrV5
-     * manga-ocr → det=RT_DETR_V2, ocr=MangaOcr
+     * 普通模式菜单：从 engineCombos 读取当前标签
      */
     private fun showMenuSimple(cropLabel: String) {
-        val modelLabel = when {
-            config.detEngine == DetEngine.MLKIT && config.ocrEngine == OcrEngine.MLKit ->
-                getString(R.string.manga_model_mlkit)
-            config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5 ->
-                getString(R.string.manga_model_ppocr)
-            config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr ->
-                getString(R.string.manga_model_manga_ocr)
-            else -> getString(R.string.manga_model_mlkit)  // 兜底
-        }
+        val modelLabel = comboLabel(currentCombo())
 
         val langName = getCurrentSourceLangName()
         val (dialog, listView) = Dialogs.mangaMenuDialogSimple(
@@ -1140,47 +1174,19 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 普通模式：切换固定搭配模型
-     * MLKit → PP-OCRv5 → manga-ocr → MLKit
+     * 切换模型组合（循环遍历 engineCombos，跳过不可用的）
      */
     private fun toggleModelSimple(@Suppress("UNUSED_PARAMETER") dialog: AlertDialog, listView: android.widget.ListView) {
-        // 判断当前是哪个组合
-        val currentCombo = when {
-            config.detEngine == DetEngine.MLKIT && config.ocrEngine == OcrEngine.MLKit -> "mlkit"
-            config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5 -> "ppocr"
-            config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr -> "manga"
-            else -> "mlkit"
-        }
+        val cur = currentCombo()
+        val curIdx = engineCombos.indexOf(cur).coerceAtLeast(0)
 
-        // 循环切换，最多尝试3次找到可用模型
-        val combos = listOf("mlkit", "ppocr", "ppocrv6", "manga")
-        val startIndex = combos.indexOf(currentCombo).coerceAtLeast(0)
-        var newCombo: String
-        var attempts = 0
-
-        while (true) {
-            val nextIndex = (startIndex + 1 + attempts) % combos.size
-            newCombo = combos[nextIndex]
-            attempts++
-
-            // MLKit 和 PP-OCRv5 内置，始终可用
-            if (newCombo == "mlkit" || newCombo == "ppocr" || newCombo == "ppocrv6") break
-
-            // manga-ocr 需要检查模型是否已下载
-            if (newCombo == "manga") {
-                val rtdetrReady = RTDetrModelManager.isModelAvailable(this)
-                val mangaOcrReady = MangaOcrDownloadManager.isModelDownloaded(this)
-
-                if (rtdetrReady && mangaOcrReady) break
-
-                // manga-ocr 不可用，跳过继续循环
-                if (attempts >= combos.size) {
-                    // 所有模型都不可用（理论上不会发生，MLKit 始终可用）
-                    newCombo = "mlkit"
-                    break
-                }
-            }
-        }
+        // 找下一个可用组合（向前循环，最多绕过一圈）
+        var nextIdx = curIdx
+        var next: ComboDef
+        do {
+            nextIdx = (nextIdx + 1) % engineCombos.size
+            next = engineCombos[nextIdx]
+        } while (!isComboAvailable(next) && nextIdx != curIdx)
 
         // 释放所有旧引擎
         releaseMangaOcr()
@@ -1188,49 +1194,11 @@ class MangaFloatingService : LifecycleService() {
         releasePPOcrV6()
         releaseRTDetrV2()
 
-        when (newCombo) {
-            "mlkit" -> {
-                config = config.copy(detEngine = DetEngine.MLKIT, ocrEngine = OcrEngine.MLKit)
-                prefs.setInt("Manga_Det_Model", DetEngine.MLKIT.value)
-                prefs.setInt("Manga_Rec_Model", OcrEngine.MLKit.value)
-                showToast(getString(R.string.manga_model_mlkit), true)
-            }
-            "ppocr" -> {
-                config = config.copy(detEngine = DetEngine.PP_OCR_V5, ocrEngine = OcrEngine.PPOcrV5)
-                prefs.setInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value)
-                prefs.setInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)
-                showToast(getString(R.string.manga_model_ppocr), true)
-                lifecycleScope.launch { initPPOcrV5("检测器+识别器") }
-            }
-            "ppocrv6" -> {
-                config = config.copy(detEngine = DetEngine.PP_OCR_V6, ocrEngine = OcrEngine.PPOcrV6)
-                prefs.setInt("Manga_Det_Model", DetEngine.PP_OCR_V6.value)
-                prefs.setInt("Manga_Rec_Model", OcrEngine.PPOcrV6.value)
-                showToast(getString(R.string.manga_model_ppocrv6), true)
-                lifecycleScope.launch { initPPOcrV6("检测器+识别器") }
-            }
-            "manga" -> {
-                config = config.copy(detEngine = DetEngine.RT_DETR_V2, ocrEngine = OcrEngine.MangaOcr)
-                prefs.setInt("Manga_Det_Model", DetEngine.RT_DETR_V2.value)
-                prefs.setInt("Manga_Rec_Model", OcrEngine.MangaOcr.value)
-                showToast(getString(R.string.manga_model_manga_ocr), true)
-                lifecycleScope.launch {
-                    initRTDetrV2()
-                    ensureMangaOcrInitialized()
-                }
-            }
-        }
+        applyCombo(next)
 
         // 更新菜单标签
         val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-        val label = when (newCombo) {
-            "mlkit" -> getString(R.string.manga_model_mlkit)
-            "ppocr" -> getString(R.string.manga_model_ppocr)
-            "ppocrv6" -> getString(R.string.manga_model_ppocrv6)
-            "manga" -> getString(R.string.manga_model_manga_ocr)
-            else -> ""
-        }
-        adapter.updateLabel(2, "${getString(R.string.manga_model_toggle)}：$label")
+        adapter.updateLabel(2, "${getString(R.string.manga_model_toggle)}：${comboLabel(next)}")
     }
 
     private fun showFontSizeDialog() {
@@ -2550,7 +2518,7 @@ class MangaFloatingService : LifecycleService() {
                         }
                         if (recLang != null) {
                             val ocrResult = withContext(Dispatchers.IO) {
-                                PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true, useCls = false)
+                                PPOcrV5Engine.runOCR(this@MangaFloatingService, bitmap, recLang, useDet = true)
                             }
                             // 调试检测：获取被丢弃的选区
                             val debugDet = withContext(Dispatchers.IO) {

@@ -91,10 +91,10 @@ data class VisResult(
 // ============================================================================
 
 /**
- * PP-OCRv5 完整 OCR 引擎（det + cls + rec）。
+ * PP-OCRv5 完整 OCR 引擎（det + rec）。
  *
- * 对齐 RapidOCR Python 实现：det → crop → cls → rec → CTCLabelDecode。
- * 所有模型输入名均为 `x`。
+ * 对齐 RapidOCR Python 实现：det → crop → rec → CTCLabelDecode。
+ * 所有模型输入名均为 `x`。方向分类（cls）已删除。
  */
 object PPOcrV5Engine {
 
@@ -116,8 +116,7 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // Cls 常量 (ch_ppocr_cls/main.py)
     // -----------------------------------------------------------------------
-    private val CLS_IMAGE_SHAPE = intArrayOf(3, 80, 160) // [C, H, W]
-    private const val CLS_THRESH = 0.9f
+    // cls removed — direction classification is no longer used
 
     // -----------------------------------------------------------------------
     // Rec 常量 (ch_ppocr_rec/main.py)
@@ -182,8 +181,6 @@ object PPOcrV5Engine {
     private var ortEnv: OrtEnvironment? = null
     @Volatile
     private var detSession: OrtSession? = null
-    @Volatile
-    private var clsSession: OrtSession? = null
     private val recSessions = EnumMap<RecLang, OrtSession>(RecLang::class.java)
 
     // 字典：blank(0) + dict_chars + space(end)
@@ -204,7 +201,7 @@ object PPOcrV5Engine {
     // ========================================================================
 
     /**
-     * 初始化引擎：加载 det + cls ONNX 会话 + 字典。
+     * 初始化引擎：加载 det ONNX 会话 + 字典。
      * rec 会话按需懒加载（首次调用 [getRecSession] 时）。
      */
     fun initialize(context: Context) {
@@ -223,22 +220,18 @@ object PPOcrV5Engine {
                     setIntraOpNumThreads(4)
                 }
 
-                // det（内置，从 assets 加载）
+                // det（从 filesDir 加载）
                 LogCollector.d(TAG, "加载 det 模型...")
-                val detBytes = context.assets.open("ppocrv5/det_v5.onnx").use { it.readBytes() }
-                detSession = ortEnv!!.createSession(detBytes, sessionOpts)
-                LogCollector.d(TAG, "det 模型加载完成")
-
-                // cls（内置，可选，从 assets 加载）
-                try {
-                    LogCollector.d(TAG, "加载 cls 模型...")
-                    val clsBytes = context.assets.open("ppocrv5/cls.onnx").use { it.readBytes() }
-                    clsSession = ortEnv!!.createSession(clsBytes, sessionOpts)
-                    LogCollector.d(TAG, "cls 模型加载完成")
-                } catch (e: Exception) {
-                    LogCollector.w(TAG, "cls 模型不可用，将跳过方向分类: ${e.message}")
-                    clsSession = null
+                val detFile = java.io.File(PPOcrModelManager.getModelDir(context), "det_v5.onnx")
+                if (!detFile.exists() || detFile.length() == 0L) {
+                    LogCollector.e(TAG, "v5 det 模型未下载，请先在模型管理中下载")
+                    throw IllegalStateException("PP-OCRv5 检测模型未下载，请在模型管理中下载")
                 }
+                val detBytes = detFile.readBytes()
+                detSession = ortEnv!!.createSession(detBytes, sessionOpts)
+                LogCollector.d(TAG, "det 模型加载完成 (${detBytes.size / 1024}KB)")
+
+                // cls removed — direction classification is no longer used
 
                 // 初始化 rec 锁
                 for (lang in RecLang.entries) {
@@ -261,7 +254,7 @@ object PPOcrV5Engine {
 
     /**
      * 懒加载 rec 会话（线程安全）
-     * ZH/JA（code="zh"）从内置 assets 加载；EN/KO 从 filesDir 加载（需用户下载）。
+     * 所有语言从 filesDir 加载（需用户下载）。
      */
     private fun getRecSession(context: Context, lang: RecLang): OrtSession? {
         recSessions[lang]?.let { return it }
@@ -279,9 +272,14 @@ object PPOcrV5Engine {
                 }
 
                 val bytes = if (lang == RecLang.ZH || lang == RecLang.JA) {
-                    // 内置模型，从 assets 加载
-                    LogCollector.d(TAG, "从 assets 加载 rec 模型: ${lang.code}")
-                    context.assets.open("ppocrv5/rec_zh.onnx").use { it.readBytes() }
+                    // 从 filesDir 加载（原内置，现需下载）
+                    val recFile = java.io.File(PPOcrModelManager.getModelDir(context), "rec_zh.onnx")
+                    if (!recFile.exists() || recFile.length() == 0L) {
+                        LogCollector.w(TAG, "rec_zh 模型未下载")
+                        return null
+                    }
+                    LogCollector.d(TAG, "从 filesDir 加载 rec 模型: ${lang.code}")
+                    recFile.readBytes()
                 } else {
                     // 可选模型，从 filesDir 加载
                     val modelFile = PPOcrModelManager.getRecModelFile(context, lang.code)
@@ -305,33 +303,33 @@ object PPOcrV5Engine {
 
     /**
      * 加载字典文件：blank(0) + dict_chars + space(end)
-     * 所有字典内置在 assets 中。
+     * 仅从 filesDir 读取，不 fallback assets。
      */
     private fun loadDictionary(context: Context) {
         val dicts = mutableMapOf<RecLang, List<String>>()
+        val modelDir = PPOcrModelManager.getModelDir(context)
 
         for (lang in RecLang.entries) {
             try {
-                // ZH 和 JA 共用同一个字典文件
-                val dictFileName = if (lang == RecLang.JA) "ppocrv5/rec_zh_dict.txt"
-                    else "ppocrv5/rec_${lang.code}_dict.txt"
-
-                LogCollector.d(TAG, "从 assets 加载字典: ${lang.code} ($dictFileName)")
-                val lines = context.assets.open(dictFileName)
-                    .bufferedReader().readLines().filter { it.isNotEmpty() }
-
+                val dictFileName = if (lang == RecLang.JA) "rec_zh_dict.txt"
+                    else "rec_${lang.code}_dict.txt"
+                val dictFile = java.io.File(modelDir, dictFileName)
+                if (!dictFile.exists() || dictFile.length() == 0L) {
+                    LogCollector.w(TAG, "字典 ${lang.code} 未下载，跳过 ($dictFileName)")
+                    continue
+                }
+                LogCollector.d(TAG, "从 filesDir 加载字典: ${lang.code} ($dictFileName)")
+                val lines = dictFile.bufferedReader().readLines().filter { it.isNotEmpty() }
                 val dict = mutableListOf<String>()
                 dict.add("blank") // index 0
                 dict.addAll(lines)
                 dict.add(" ")     // end
-
                 dicts[lang] = dict
                 LogCollector.d(TAG, "字典 ${lang.code}: ${dict.size} 条 (含 blank+space)")
             } catch (e: Exception) {
                 LogCollector.e(TAG, "字典 ${lang.code} 加载失败", e)
             }
         }
-
         dictionary = dicts
     }
 
@@ -342,14 +340,12 @@ object PPOcrV5Engine {
         synchronized(lock) {
             try {
                 detSession?.close()
-                clsSession?.close()
                 recSessions.values.forEach { try { it.close() } catch (_: Exception) {} }
                 ortEnv?.close()
             } catch (e: Exception) {
                 LogCollector.e(TAG, "释放资源失败", e)
             } finally {
                 detSession = null
-                clsSession = null
                 recSessions.clear()
                 ortEnv = null
                 dictionary = emptyMap()
@@ -373,11 +369,11 @@ object PPOcrV5Engine {
 
     /**
      * 检查指定语言的 rec 模型是否可用（已下载到 filesDir）。
-     * ZH/JA 内置（始终可用），EN/KO/RU 需用户下载。
+     * 所有语言（包括 ZH/JA）均需下载。
      */
     fun isRecModelAvailable(context: Context, lang: RecLang): Boolean {
         return if (lang == RecLang.ZH || lang == RecLang.JA) {
-            true // 内置模型
+            PPOcrModelManager.isV5RecZhDownloaded(context)
         } else {
             PPOcrModelManager.isRecModelDownloaded(context, lang.code)
         }
@@ -902,135 +898,7 @@ object PPOcrV5Engine {
         return cropImg
     }
 
-    // ========================================================================
-    // Cls (ch_ppocr_cls/main.py)
-    // ========================================================================
-
-    /**
-     * 方向分类 + 自动旋转。
-     *
-     * @param imgList 待分类图片列表
-     * @return 分类结果列表（label="0" 或 "180"）
-     */
-    fun clsAndRotate(imgList: List<Bitmap>): List<ClsResult> = synchronized(lock) {
-        val session = clsSession ?: return imgList.map { ClsResult("0", 1.0f) }
-        if (imgList.isEmpty()) return emptyList()
-
-        val t0 = System.currentTimeMillis()
-
-        // 按宽度降序排列（减少 batch padding）
-        val indices = imgList.indices.sortedByDescending { imgList[it].width }
-        val sortedImgs = indices.map { imgList[it] }
-
-        // 预处理
-        val preprocessed = sortedImgs.map { clsResizeNormImg(it) }
-        val batchSize = preprocessed.size
-        val channelSize = CLS_IMAGE_SHAPE[1] * CLS_IMAGE_SHAPE[2] // 80 * 160
-        val totalSize = batchSize * 3 * channelSize
-
-        val buffer = FloatBuffer.allocate(totalSize)
-        for (arr in preprocessed) {
-            buffer.put(arr)
-        }
-        buffer.rewind()
-
-        val inputTensor = OnnxTensor.createTensor(
-            ortEnv!!, buffer,
-            longArrayOf(batchSize.toLong(), 3, CLS_IMAGE_SHAPE[1].toLong(), CLS_IMAGE_SHAPE[2].toLong())
-        )
-
-        // 推理
-        val results = session.run(mapOf("x" to inputTensor))
-        inputTensor.close()
-
-        var outputData: FloatArray
-        try {
-            var outputTensor: OnnxTensor? = null
-            for (name in session.outputNames) {
-                val value = results.get(name)
-                if (value.isPresent && value.get() is OnnxTensor) {
-                    outputTensor = value.get() as OnnxTensor
-                    break
-                }
-            }
-            outputData = outputTensor!!.floatBuffer.array()
-            outputTensor.close()
-        } finally {
-            results.close()
-        }
-
-        // 后处理：恢复原始顺序
-        val sortedResults = (0 until batchSize).map { i ->
-            val start = i * 2
-            val end = (i + 1) * 2
-            val probs = if (end <= outputData.size) {
-                outputData.sliceArray(start until end)
-            } else {
-                LogCollector.w(TAG, "cls 输出不足: batchSize=$batchSize, outputSize=${outputData.size}, i=$i")
-                floatArrayOf(1f, 0f) // 默认不旋转
-            }
-            clsPostProcess(probs)
-        }
-
-        val finalResults = MutableList(batchSize) { ClsResult("0", 0f) }
-        for (i in indices.indices) {
-            finalResults[indices[i]] = ClsResult(sortedResults[i].first, sortedResults[i].second)
-        }
-
-        // 旋转 180° 由 runOCR 处理（此处仅返回分类结果）
-
-        LogCollector.d(TAG, "clsAndRotate: ${batchSize} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
-        finalResults
-    }
-
-    /**
-     * Cls 预处理：resize + pad + normalize [-1, 1]
-     */
-    private fun clsResizeNormImg(bitmap: Bitmap): FloatArray {
-        val imgC = CLS_IMAGE_SHAPE[0] // 3
-        val imgH = CLS_IMAGE_SHAPE[1] // 80
-        val imgW = CLS_IMAGE_SHAPE[2] // 160
-
-        val ratio = bitmap.width.toFloat() / bitmap.height
-        var resizeW = ceil(imgH * ratio).toInt()
-        if (resizeW > imgW) resizeW = imgW
-
-        val resized = Bitmap.createScaledBitmap(bitmap, resizeW, imgH, true)
-
-        // CHW, pad to (3, 80, 160), normalize [-1, 1]
-        val floatArr = FloatArray(imgC * imgH * imgW)
-        val pixels = IntArray(resizeW * imgH)
-        resized.getPixels(pixels, 0, resizeW, 0, 0, resizeW, imgH)
-        if (resized !== bitmap) resized.recycle()
-
-        for (c in 0 until 3) {
-            val cOffset = c * imgH * imgW
-            for (y in 0 until imgH) {
-                for (x in 0 until resizeW) {
-                    val pixel = pixels[y * resizeW + x]
-                    val v = when (c) {
-                        0 -> (pixel shr 16 and 0xFF) / 255.0f
-                        1 -> (pixel shr 8 and 0xFF) / 255.0f
-                        2 -> (pixel and 0xFF) / 255.0f
-                        else -> 0f
-                    }
-                    floatArr[cOffset + y * imgW + x] = (v - 0.5f) / 0.5f
-                }
-                // 右侧 padding 保持 0
-            }
-        }
-
-        return floatArr
-    }
-
-    /**
-     * Cls 后处理：argmax → ("0"/"180", score)
-     */
-    private fun clsPostProcess(probs: FloatArray): Pair<String, Float> {
-        val label = if (probs[0] > probs[1]) "0" else "180"
-        val score = max(probs[0], probs[1])
-        return Pair(label, score)
-    }
+    // cls removed — direction classification code deleted; use recognizeBatch directly
 
     // ========================================================================
     // Rec (ch_ppocr_rec/main.py + CTCLabelDecode)
@@ -1224,15 +1092,13 @@ object PPOcrV5Engine {
      * @param bitmap 输入图片
      * @param recLang 识别语言
      * @param useDet 是否使用检测（false 则全图识别）
-     * @param useCls 是否使用方向分类
      * @return OCR 结果
      */
     fun runOCR(
         context: Context,
         bitmap: Bitmap,
         recLang: RecLang = RecLang.ZH,
-        useDet: Boolean = true,
-        useCls: Boolean = true
+        useDet: Boolean = true
     ): OcrResult {
         if (!isInitialized) throw IllegalStateException("PPOcrV5Engine 未初始化")
         if (bitmap.isRecycled) throw IllegalArgumentException("Bitmap 已回收")
@@ -1276,25 +1142,8 @@ object PPOcrV5Engine {
         }
         val cropTime = System.currentTimeMillis() - cropT0
 
-        // 2b. Cls
-        val clsT0 = System.currentTimeMillis()
-        val clsResults = if (useCls && clsSession != null && cropResults.isNotEmpty()) {
-            clsAndRotate(cropResults.map { it.first })
-        } else {
-            cropResults.map { ClsResult("0", 1.0f) }
-        }
-        clsTime = System.currentTimeMillis() - clsT0
-
-        // 应用 cls 旋转
-        for (i in cropResults.indices) {
-            if (i < clsResults.size && clsResults[i].label == "180" && clsResults[i].score > CLS_THRESH) {
-                val (crop, box, idx) = cropResults[i]
-                val matrix = android.graphics.Matrix().apply { setRotate(180f) }
-                val rotated = Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, matrix, true)
-                if (rotated !== crop) crop.recycle()
-                cropResults[i] = Triple(rotated, box, idx)
-            }
-        }
+        // 2b. Cls removed — direction classification is no longer used
+        clsTime = 0L
 
         // 2c. Rec
         val recT0 = System.currentTimeMillis()
@@ -1352,39 +1201,11 @@ object PPOcrV5Engine {
     }
 
     /**
-     * 批量识别（含 cls 方向分类）。
-     * 用于增量渲染场景：对已裁剪图片执行 cls + rec。
-     * 委托给 clsAndRotate + recognizeBatch，避免重复推理逻辑。
-     *
-     * @param context Context
-     * @param imgList 已裁剪图片列表
-     * @param lang 识别语言
-     * @return 识别结果列表
+     * 批量识别（直接委托 recognizeBatch，cls 已删除）。
+     * 保留此方法以兼容调用方，避免修改 MangaFloatingService。
      */
     fun recognizeBatchWithCls(context: Context, imgList: List<Bitmap>, lang: RecLang): List<RecResult> {
-        if (imgList.isEmpty()) return emptyList()
-
-        val t0 = System.currentTimeMillis()
-
-        // 1. Cls 方向分类 + 旋转
-        val clsResults = clsAndRotate(imgList)
-        val processedImgs = imgList.mapIndexed { i, bmp ->
-            if (clsResults.getOrNull(i)?.let { it.label == "180" && it.score > CLS_THRESH } == true) {
-                Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height,
-                    android.graphics.Matrix().apply { setRotate(180f) }, true)
-            } else {
-                bmp
-            }
-        }
-
-        // 2. Rec 批量识别
-        val results = recognizeBatch(context, processedImgs, lang)
-
-        // 3. 清理旋转产生的额外 Bitmap
-        processedImgs.forEachIndexed { i, img -> if (img !== imgList[i]) img.recycle() }
-
-        LogCollector.d(TAG, "recognizeBatchWithCls: ${imgList.size} 张, lang=${lang.code}, 耗时 ${System.currentTimeMillis() - t0}ms")
-        return results
+        return recognizeBatch(context, imgList, lang)
     }
 
     /**
