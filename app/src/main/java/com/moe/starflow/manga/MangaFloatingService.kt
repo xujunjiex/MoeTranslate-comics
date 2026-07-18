@@ -2520,8 +2520,22 @@ class MangaFloatingService : LifecycleService() {
                         showMLKitDebugView(bitmap, mlKitResult)
                     }
                     DetEngine.PP_OCR_V6 -> {
-                        LogCollector.d(TAG, "PP-OCRv6 Debug Mode")
-                        // v6 debug handled by showPPOcrV6DebugView
+                        LogCollector.d(TAG, "PP-OCRv6 Debug Mode: 开始检测+识别")
+                        initPPOcrV6IfNeeded()
+                        val ocrResult = withContext(Dispatchers.IO) {
+                            PPOcrV6Engine.runOCR(this@MangaFloatingService, bitmap, useDet = true, useCls = false)
+                        }
+                        val debugDet = withContext(Dispatchers.IO) {
+                            PPOcrV6Engine.runDetForDebug(this@MangaFloatingService, bitmap)
+                        }
+                        val recDisc = ocrResult.recDebug
+                        val scoreDisc = recDisc?.discardedReasons?.count { it == "score" } ?: 0
+                        val contentDisc = recDisc?.discardedReasons?.count { it != "score" } ?: 0
+                        LogCollector.d(TAG, "PP-OCRv6 Debug: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}, det丢弃=${debugDet.discardedBoxes.size}, 识别丢弃=$scoreDisc, 内容丢弃=$contentDisc")
+                        val allMerged = runTextLineMerge(ocrResult, bitmap.width, bitmap.height, isV6 = true)
+                        val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+                        LogCollector.d(TAG, "PP-OCRv6 Debug: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
+                        showPPOcrV6DebugView(bitmap, ocrResult, mergedRegions, debugDet)
                     }
                     DetEngine.PP_OCR_V5 -> {
                         LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
@@ -4336,8 +4350,9 @@ class MangaFloatingService : LifecycleService() {
     /**
      * 从 OcrResult 构建 TextRegionMerger 输入并执行合并
      */
-    private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int): List<TextRegionGroup> {
-        val textLines = PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
+    private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int, isV6: Boolean = false): List<TextRegionGroup> {
+        val textLines = if (isV6) PPOcrV6Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
+        else PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
         TextRegionMerger.refreshParams(this)
         return TextRegionMerger.merge(textLines.map { it.toTextRegion() })
     }
@@ -4385,6 +4400,12 @@ class MangaFloatingService : LifecycleService() {
     private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup>, debugDet: PPOcrV5Engine.DebugDetResult? = null) {
         val debugBitmap = renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet)
         showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult, mergedRegions, debugDet)
+    }
+
+
+    private fun showPPOcrV6DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup>, debugDet: PPOcrV6Engine.DebugDetResult? = null) {
+        val debugBitmap = renderPPOcrV6DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet)
+        showPPOcrV6DebugResultOverlay(debugBitmap, ocrResult, mergedRegions, debugDet)
     }
 
     /**
@@ -4522,6 +4543,149 @@ class MangaFloatingService : LifecycleService() {
                 val label = if (reason == "score") {
                     val score = ocrResult.recDebug.discardedScores.getOrElse(i) { 0f }
                     "✗${String.format("%.2f", score)}<${String.format("%.2f", prefs.getFloat("ppocr_text_score_thresh", 0.5f))}"
+                } else {
+                    "✗内容:$reason"
+                }
+                canvas.drawText(label, box[0], box[1] - 4f, recDiscLabelPaint)
+            }
+        }
+
+        return output
+    }
+
+
+    private fun renderPPOcrV6DebugWithMerge(
+        bitmap: Bitmap,
+        ocrResult: OcrResult,
+        mergedRegions: List<TextRegionGroup>,
+        debugDet: PPOcrV6Engine.DebugDetResult? = null
+    ): Bitmap {
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(output)
+
+        // 原始检测框（绿色，细线）
+        val rawPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GREEN
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 2f
+            isAntiAlias = true
+        }
+
+        // 合并区域框（青色，粗线）
+        val mergedPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.CYAN
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 4f
+            isAntiAlias = true
+        }
+
+        // 合并区域半透明填充
+        val mergedFillPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(30, 0, 255, 255)
+            style = android.graphics.Paint.Style.FILL
+        }
+
+        // 文字标签画笔
+        val labelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            isAntiAlias = true
+            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+
+        // ① 绘制原始检测框（绿色）
+        for (box in ocrResult.boxes) {
+            canvas.drawLine(box[0], box[1], box[2], box[3], rawPaint)
+            canvas.drawLine(box[2], box[3], box[4], box[5], rawPaint)
+            canvas.drawLine(box[4], box[5], box[6], box[7], rawPaint)
+            canvas.drawLine(box[6], box[7], box[0], box[1], rawPaint)
+        }
+
+        // ② 绘制合并区域框（青色）+ 标签
+        for ((idx, region) in mergedRegions.withIndex()) {
+            val r = region.rect
+            val hasTilt = kotlin.math.abs(region.angle) > 0.5f
+
+            canvas.save()
+            if (hasTilt) {
+                canvas.rotate(region.angle, region.center.x, region.center.y)
+            }
+            canvas.drawRect(r, mergedFillPaint)
+            canvas.drawRect(r, mergedPaint)
+
+            // 标签：序号 + 方向 + 文字数 + 倾斜角
+            val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "V" else "H"
+            val angleStr = if (hasTilt) " ∠${String.format("%.0f°", region.angle)}" else ""
+            val label = "[$idx]$dirLabel ×${region.texts.size}$angleStr"
+            canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)
+            canvas.restore()
+        }
+
+        // ③ 绘制被丢弃的选区（红色虚线）
+        if (debugDet != null && debugDet.discardedBoxes.isNotEmpty()) {
+            val discPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f
+                isAntiAlias = true
+                pathEffect = android.graphics.DashPathEffect(floatArrayOf(8f, 4f), 0f)
+            }
+            val discLabelPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                textSize = 20f
+                isAntiAlias = true
+                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+            }
+            for (i in debugDet.discardedBoxes.indices) {
+                val box = debugDet.discardedBoxes[i]
+                canvas.drawLine(box[0], box[1], box[2], box[3], discPaint)
+                canvas.drawLine(box[2], box[3], box[4], box[5], discPaint)
+                canvas.drawLine(box[4], box[5], box[6], box[7], discPaint)
+                canvas.drawLine(box[6], box[7], box[0], box[1], discPaint)
+                // 标签：分数 + 原因
+                val score = debugDet.discardedScores.getOrElse(i) { 0f }
+                val reason = debugDet.discardedReasons.getOrElse(i) { "" }
+                val label = "✗${String.format("%.2f", score)} $reason"
+                canvas.drawText(label, box[0], box[1] - 4f, discLabelPaint)
+            }
+        }
+
+        // ④ 绘制被识别置信度丢弃的选区（橙色虚线）
+        if (ocrResult.recDebug != null && ocrResult.recDebug.discardedBoxes.isNotEmpty()) {
+            val recDiscPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.rgb(255, 165, 0) // 橙色
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f
+                isAntiAlias = true
+                pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f, 2f, 4f), 0f)
+            }
+            val recDiscFillPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.argb(40, 255, 165, 0)
+                style = android.graphics.Paint.Style.FILL
+            }
+            val recDiscLabelPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.rgb(255, 165, 0)
+                textSize = 18f
+                isAntiAlias = true
+                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+            }
+            for (i in ocrResult.recDebug.discardedBoxes.indices) {
+                val box = ocrResult.recDebug.discardedBoxes[i]
+                // 半透明填充
+                val path = android.graphics.Path().apply {
+                    moveTo(box[0], box[1])
+                    lineTo(box[2], box[3])
+                    lineTo(box[4], box[5])
+                    lineTo(box[6], box[7])
+                    close()
+                }
+                canvas.drawPath(path, recDiscFillPaint)
+                canvas.drawPath(path, recDiscPaint)
+                // 标签：根据丢弃原因显示
+                val reason = ocrResult.recDebug.discardedReasons.getOrElse(i) { "score" }
+                val label = if (reason == "score") {
+                    val score = ocrResult.recDebug.discardedScores.getOrElse(i) { 0f }
+                    "✗${String.format("%.2f", score)}<${String.format("%.2f", prefs.getFloat("ppocrv6_text_score", 0.5f))}"
                 } else {
                     "✗内容:$reason"
                 }
@@ -4704,6 +4868,184 @@ class MangaFloatingService : LifecycleService() {
             toggleButton.text = "▲"
         } catch (e: Exception) {
             LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
+        }
+
+        bringFloatingBallToFront()
+    }
+
+
+    private fun showPPOcrV6DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup> = emptyList(), debugDet: PPOcrV6Engine.DebugDetResult? = null) {
+        if (isResultShowing) {
+            dismissResultOverlay()
+        }
+
+        // 应用框选外区域遮罩
+        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+
+        // 创建容器 FrameLayout
+        val container = android.widget.FrameLayout(this)
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(displayBitmap)
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+        }
+        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // 添加底部 info panel 到容器中（包含参数滑块 + 调试信息）
+        val infoLines = buildList {
+            val discCount = debugDet?.discardedBoxes?.size ?: 0
+            val recDebug = ocrResult.recDebug
+            val scoreDisc = recDebug?.discardedReasons?.count { it == "score" } ?: 0
+            val contentDisc = recDebug?.discardedReasons?.count { it != "score" } ?: 0
+            val curBox = prefs.getFloat("ppocrv6_det_box_thresh", 0.3f)
+            val curUnclip = prefs.getFloat("ppocrv6_det_unclip_ratio", 1.6f)
+            val curText = prefs.getFloat("ppocrv6_text_score", 0.5f)
+            add("PP-OCRv6 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $scoreDisc  内容丢弃: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
+            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
+            add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
+            val curGap = prefs.getFloat("merge_discard_gap", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)
+            add("合并参数（对齐 manga-image-translator）:")
+            add("  距离门控 = ${String.format("%.1f", curGap)} (×字号, AABB距离超过则拒绝合并)")
+            add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
+            add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
+                "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
+                "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
+                "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
+            add("━━━ 合并结果 ━━━")
+            for ((idx, region) in mergedRegions.withIndex()) {
+                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
+                val srcCount = region.texts.size
+                val merged = region.texts.joinToString("｜")
+                val r = region.rect
+                val angleStr = if (kotlin.math.abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
+                add("【$idx】$dirLabel ×$srcCount$angleStr [${r.left},${r.top},${r.right},${r.bottom}]")
+                add("    $merged")
+            }
+            add("")
+            add("━━━ 原始识别 ━━━")
+            for (i in ocrResult.texts.indices) {
+                val text = ocrResult.texts[i]
+                val score = ocrResult.scores.getOrElse(i) { 0f }
+                val box = ocrResult.boxes.getOrNull(i)
+                val boxStr = if (box != null && box.size >= 8) {
+                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
+                } else ""
+                // 计算每个 box 的倾斜角（与 ocrResultToTextLines 同样的算法）
+                val angleStr = if (box != null && box.size >= 8) {
+                    val topDx = box[2] - box[0]
+                    val topDy = box[3] - box[1]
+                    val ang = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+                    val finalAng = if (kotlin.math.abs(ang) <= 3f) 0f else ang
+                    if (kotlin.math.abs(finalAng) > 0.5f) " ∠${String.format("%.1f°", finalAng)}" else ""
+                } else ""
+                add("[$i] ${String.format("%.2f", score)}$angleStr $boxStr \"$text\"")
+            }
+            if (debugDet != null && debugDet.discardedBoxes.isNotEmpty()) {
+                add("")
+                add("━━━ 被检测丢弃选区 (${debugDet.discardedBoxes.size}) ━━━")
+                for (i in debugDet.discardedBoxes.indices) {
+                    val box = debugDet.discardedBoxes[i]
+                    val score = debugDet.discardedScores.getOrElse(i) { 0f }
+                    val reason = debugDet.discardedReasons.getOrElse(i) { "" }
+                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
+                }
+            }
+            // 识别置信度丢弃的选区
+            val recDisc = ocrResult.recDebug
+            if (recDisc != null && recDisc.discardedBoxes.isNotEmpty()) {
+                add("")
+                add("━━━ 被识别/内容丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
+                for (i in recDisc.discardedBoxes.indices) {
+                    val box = recDisc.discardedBoxes[i]
+                    val score = recDisc.discardedScores.getOrElse(i) { 0f }
+                    val text = recDisc.discardedTexts.getOrElse(i) { "" }
+                    val reason = recDisc.discardedReasons.getOrElse(i) { "score" }
+                    val preview = text.take(20).ifEmpty { "(空)" }
+                    if (reason == "score") {
+                        add("✗[$i] 分数${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    } else {
+                        add("✗[$i] 内容:$reason [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    }
+                }
+            }
+        }
+        val infoPanel = createInfoPanelView(infoLines, scrollable = true)
+
+        // 创建可折叠内容容器：参数滑块 + 调试信息
+        val foldableContent = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        // 参数滑块（带恢复默认按钮）
+        val slidersView = createPPOcrParamSlidersView()
+        foldableContent.addView(slidersView, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        // 调试信息
+        foldableContent.addView(infoPanel, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        val foldableParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+        }
+        container.addView(foldableContent, foldableParams)
+        debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
+
+        // 添加右下角展开/折叠按钮
+        val toggleButton = createToggleButton()
+        val toggleParams = android.widget.FrameLayout.LayoutParams(
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
+            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+            marginEnd = margin
+            bottomMargin = margin
+        }
+        container.addView(toggleButton, toggleParams)
+
+        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
+        imageView.isClickable = true
+        imageView.setOnClickListener {
+            dismissDebugInfoPanel()
+            dismissResultOverlay()
+        }
+
+        // 始终全屏显示
+        val screenSize = getScreenSize()
+        val params = android.view.WindowManager.LayoutParams(
+            screenSize.width,
+            screenSize.height,
+            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.START or android.view.Gravity.TOP
+            x = 0; y = 0
+        }
+
+        try {
+            windowManager.addView(container, params)
+            debugInfoPanelView = container
+            debugInfoPanelAdded = true
+            debugInfoPanelCollapsed = true  // 默认折叠
+            debugToggleButton = toggleButton
+            debugToggleButtonAdded = true
+            isResultShowing = true
+            // 初始折叠状态：隐藏内容，按钮显示展开箭头
+            foldableContent.visibility = android.view.View.GONE
+            toggleButton.text = "▲"
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "PP-OCRv6 Debug: 显示失败", e)
         }
 
         bringFloatingBallToFront()
