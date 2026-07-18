@@ -297,6 +297,32 @@
                 <RelativeLayout
                     android:background="?attr/selectableItemBackground"
                     android:clickable="true"
+                    android:id="@+id/ppocrv6Debug"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
+
+                    <TextView
+                        android:id="@+id/ppocrv6DebugTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:text="PP-OCRv6 调试"
+                        android:textColor="#6A6464"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/ppocrv6DebugSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true" />
+                </RelativeLayout>
+
+                <RelativeLayout
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
                     android:id="@+id/gameTranslateDebug"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

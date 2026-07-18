@@ -29,6 +29,7 @@ import com.moe.starflow.manga.OcrEngine
 import com.moe.starflow.manga.OcrLock
 import com.moe.starflow.manga.OverlayRenderer
 import com.moe.starflow.manga.PPOcrV5Engine
+import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.manga.TextDirection
 import com.moe.starflow.manga.TranslatedBubble
 import com.moe.starflow.manga.TranslateUtils
@@ -473,6 +474,7 @@ class MangaViewerActivity : AppCompatActivity() {
         return when (engineName) {
             "PP_OCR_V5" -> DetEngine.PP_OCR_V5 to OcrEngine.PPOcrV5
             "MANGA_OCR" -> DetEngine.RT_DETR_V2 to OcrEngine.MangaOcr  // 与 MangaFloatingService 一致
+            "PP_OCR_V6" -> DetEngine.PP_OCR_V6 to OcrEngine.PPOcrV6
             "MLKIT" -> DetEngine.MLKIT to OcrEngine.MLKit
             else -> DetEngine.PP_OCR_V5 to OcrEngine.PPOcrV5
         }
@@ -485,12 +487,14 @@ class MangaViewerActivity : AppCompatActivity() {
         // Det 引擎
         when (det) {
             DetEngine.PP_OCR_V5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
+            DetEngine.PP_OCR_V6 -> PPOcrV6Engine.initialize(this@MangaViewerActivity)
             DetEngine.RT_DETR_V2 -> ComicBubbleDetector.initialize(this@MangaViewerActivity)
             DetEngine.MLKIT -> {} // 无需初始化
         }
         // Ocr 引擎
         when (ocr) {
             OcrEngine.PPOcrV5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
+            OcrEngine.PPOcrV6 -> PPOcrV6Engine.initialize(this@MangaViewerActivity)
             OcrEngine.MangaOcr -> {
                 if (MangaOcrDownloadManager.isModelDownloaded(this@MangaViewerActivity)) {
                     MangaOcrRecognizer.initialize(this@MangaViewerActivity, useAssets = false)
@@ -507,10 +511,15 @@ class MangaViewerActivity : AppCompatActivity() {
         val apiStr = if (model.isNotEmpty()) model else translator.javaClass.simpleName
         val detStr = when (det) {
             DetEngine.MLKIT -> "MLKit"
-            DetEngine.RT_DETR_V2 -> "RT-DETR"; DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+            DetEngine.RT_DETR_V2 -> "RT-DETR"
+            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+            DetEngine.PP_OCR_V6 -> "PP-OCRv6"
         }
         val ocrStr = when (ocr) {
-            OcrEngine.MLKit -> "MLKit"; OcrEngine.MangaOcr -> "manga-ocr"; OcrEngine.PPOcrV5 -> "PP-OCRv5"
+            OcrEngine.MLKit -> "MLKit"
+            OcrEngine.MangaOcr -> "manga-ocr"
+            OcrEngine.PPOcrV5 -> "PP-OCRv5"
+            OcrEngine.PPOcrV6 -> "PP-OCRv6"
         }
         val parts = mutableListOf(apiStr, "$detStr+$ocrStr")
         if (det == DetEngine.PP_OCR_V5 || ocr == OcrEngine.PPOcrV5) {

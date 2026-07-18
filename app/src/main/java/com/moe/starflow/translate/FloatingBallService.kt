@@ -53,6 +53,7 @@ import com.moe.starflow.manga.MangaOcrBridge
 import com.moe.starflow.manga.MangaOcrDownloadManager
 import com.moe.starflow.manga.MangaOcrRecognizer
 import com.moe.starflow.manga.PPOcrV5Engine
+import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.KeystoreManager
@@ -987,19 +988,21 @@ class FloatingBallService : LifecycleService() {
         return com.moe.starflow.translate.CustomLocale.getInstance(lang).getDisplayName()
     }
 
-    /** 循环切换 OCR 引擎：MLKit → PP-OCRv5 → manga-ocr → MLKit */
+    /** 循环切换 OCR 引擎：MLKit → PP-OCRv5 → manga-ocr → PP-OCRv6 → MLKit */
     private fun cycleOcrEngine() {
         val current = prefs.getInt("Game_OCR_Engine", 0)
-        val next = (current + 1) % 3
+        val next = (current + 1) % 4
         prefs.setInt("Game_OCR_Engine", next)
         val label = when (next) {
             1 -> getString(R.string.game_ocr_engine_ppocr)
             2 -> getString(R.string.game_ocr_engine_manga_ocr)
+            3 -> getString(R.string.game_ocr_engine_ppocrv6)
             else -> getString(R.string.game_ocr_engine_mlkit)
         }
         val fromLabel = when (current) {
             1 -> getString(R.string.game_ocr_engine_ppocr)
             2 -> getString(R.string.game_ocr_engine_manga_ocr)
+            3 -> getString(R.string.game_ocr_engine_ppocrv6)
             else -> getString(R.string.game_ocr_engine_mlkit)
         }
         LogCollector.d(TAG, "OCR 引擎切换: $fromLabel → $label")
@@ -1017,6 +1020,12 @@ class FloatingBallService : LifecycleService() {
                 if (MangaOcrBridge.isAvailable()) {
                     LogCollector.d(TAG, "释放 manga-ocr 识别器")
                     MangaOcrRecognizer.release()
+                }
+            }
+            3 -> {
+                if (PPOcrV6Engine.isInitialized) {
+                    LogCollector.d(TAG, "释放 PP-OCRv6 识别器")
+                    PPOcrV6Engine.release()
                 }
             }
         }
@@ -1049,6 +1058,16 @@ class FloatingBallService : LifecycleService() {
                             LogCollector.w(TAG, "manga-ocr 未下载")
                             showToast("manga-ocr 未下载，请先在模型管理中下载", true)
                         }
+                    }
+                    3 -> {
+                        // PP-OCRv6
+                        LogCollector.d(TAG, "初始化 PP-OCRv6 识别器...")
+                        showToast("PP-OCRv6 识别器初始化中...", true)
+                        withContext(Dispatchers.IO) {
+                            PPOcrV6Engine.initialize(this@FloatingBallService)
+                        }
+                        LogCollector.d(TAG, "PP-OCRv6 识别器初始化成功")
+                        showToast("PP-OCRv6 识别器初始化成功", true)
                     }
                     else -> {
                         // MLKit 无需初始化

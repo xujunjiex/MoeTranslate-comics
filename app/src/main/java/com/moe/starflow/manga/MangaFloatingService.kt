@@ -335,6 +335,7 @@ class MangaFloatingService : LifecycleService() {
             OcrEngine.MLKit -> {}  // MLKit 无需初始化
             OcrEngine.MangaOcr -> lifecycleScope.launch { ensureMangaOcrInitialized() }
             OcrEngine.PPOcrV5 -> lifecycleScope.launch { initPPOcrV5("识别器") }
+            OcrEngine.PPOcrV6 -> lifecycleScope.launch { initPPOcrV6("识别器") }
         }
 
         // 初始化检测引擎（检测器）
@@ -342,6 +343,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> lifecycleScope.launch { initRTDetrV2() }
             DetEngine.PP_OCR_V5 -> lifecycleScope.launch { initPPOcrV5("检测器") }
+            DetEngine.PP_OCR_V6 -> lifecycleScope.launch { initPPOcrV6("检测器") }
         }
 
         LogCollector.d(TAG, "MangaFloatingService created")
@@ -406,6 +408,7 @@ class MangaFloatingService : LifecycleService() {
             OcrEngine.MLKit -> {}
             OcrEngine.MangaOcr -> releaseMangaOcr()
             OcrEngine.PPOcrV5 -> releasePPOcrV5()
+            OcrEngine.PPOcrV6 -> releasePPOcrV6()
         }
 
         // 释放检测引擎资源
@@ -413,6 +416,7 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.MLKIT -> {}
             DetEngine.RT_DETR_V2 -> releaseRTDetrV2()
             DetEngine.PP_OCR_V5 -> releasePPOcrV5()
+            DetEngine.PP_OCR_V6 -> releasePPOcrV6()
         }
 
         // 发送广播通知 UI 更新按钮状态
@@ -600,6 +604,41 @@ class MangaFloatingService : LifecycleService() {
             PPOcrV5Engine.release()
         } catch (e: Exception) {
             LogCollector.e(TAG, "releasePPOcrV5: 释放失败", e)
+        }
+    }
+
+    private fun initPPOcrV6(role: String = "检测器") {
+        lifecycleScope.launch {
+            try {
+                initPPOcrV6IfNeeded()
+                showToast("PP-OCRv6${role}初始化成功")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "PP-OCRv6${role}初始化失败", e)
+                showToast("PP-OCRv6${role}初始化失败: ${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    private suspend fun initPPOcrV6IfNeeded() {
+        if (PPOcrV6Engine.isInitialized) return
+        try {
+            LogCollector.d(TAG, "initPPOcrV6IfNeeded: 开始初始化 PP-OCRv6")
+            withContext(Dispatchers.IO) {
+                PPOcrV6Engine.initialize(this@MangaFloatingService)
+            }
+            LogCollector.d(TAG, "initPPOcrV6IfNeeded: PP-OCRv6 初始化完成")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "initPPOcrV6IfNeeded: 初始化失败", e)
+            throw e
+        }
+    }
+
+    private fun releasePPOcrV6() {
+        try {
+            LogCollector.d(TAG, "releasePPOcrV6: 释放 PP-OCRv6 资源")
+            PPOcrV6Engine.release()
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "releasePPOcrV6: 释放失败", e)
         }
     }
 
@@ -1114,7 +1153,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 循环切换，最多尝试3次找到可用模型
-        val combos = listOf("mlkit", "ppocr", "manga")
+        val combos = listOf("mlkit", "ppocr", "ppocrv6", "manga")
         val startIndex = combos.indexOf(currentCombo).coerceAtLeast(0)
         var newCombo: String
         var attempts = 0
@@ -1125,7 +1164,7 @@ class MangaFloatingService : LifecycleService() {
             attempts++
 
             // MLKit 和 PP-OCRv5 内置，始终可用
-            if (newCombo == "mlkit" || newCombo == "ppocr") break
+            if (newCombo == "mlkit" || newCombo == "ppocr" || newCombo == "ppocrv6") break
 
             // manga-ocr 需要检查模型是否已下载
             if (newCombo == "manga") {
@@ -1146,6 +1185,7 @@ class MangaFloatingService : LifecycleService() {
         // 释放所有旧引擎
         releaseMangaOcr()
         releasePPOcrV5()
+        releasePPOcrV6()
         releaseRTDetrV2()
 
         when (newCombo) {
@@ -1161,6 +1201,13 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)
                 showToast(getString(R.string.manga_model_ppocr), true)
                 lifecycleScope.launch { initPPOcrV5("检测器+识别器") }
+            }
+            "ppocrv6" -> {
+                config = config.copy(detEngine = DetEngine.PP_OCR_V6, ocrEngine = OcrEngine.PPOcrV6)
+                prefs.setInt("Manga_Det_Model", DetEngine.PP_OCR_V6.value)
+                prefs.setInt("Manga_Rec_Model", OcrEngine.PPOcrV6.value)
+                showToast(getString(R.string.manga_model_ppocrv6), true)
+                lifecycleScope.launch { initPPOcrV6("检测器+识别器") }
             }
             "manga" -> {
                 config = config.copy(detEngine = DetEngine.RT_DETR_V2, ocrEngine = OcrEngine.MangaOcr)
@@ -1179,6 +1226,7 @@ class MangaFloatingService : LifecycleService() {
         val label = when (newCombo) {
             "mlkit" -> getString(R.string.manga_model_mlkit)
             "ppocr" -> getString(R.string.manga_model_ppocr)
+            "ppocrv6" -> getString(R.string.manga_model_ppocrv6)
             "manga" -> getString(R.string.manga_model_manga_ocr)
             else -> ""
         }
@@ -2052,10 +2100,13 @@ class MangaFloatingService : LifecycleService() {
 
         val isRTDetrMangaOcr = config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr
         val isPPOcrV5Standalone = config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5
-        if (!isRTDetrMangaOcr && !isPPOcrV5Standalone) return false
+        val isPPOcrV6Standalone = config.detEngine == DetEngine.PP_OCR_V6 && config.ocrEngine == OcrEngine.PPOcrV6
+        if (!isRTDetrMangaOcr && !isPPOcrV5Standalone && !isPPOcrV6Standalone) return false
 
         return if (isRTDetrMangaOcr) {
             incrementalRTDetrMangaOcr(bitmap)
+        } else if (isPPOcrV6Standalone) {
+            incrementalPPOcrV6(bitmap)
         } else {
             incrementalPPOcrV5(bitmap)
         }
@@ -2270,8 +2321,117 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
+    private suspend fun incrementalPPOcrV6(bitmap: Bitmap): Boolean {
+        initPPOcrV6IfNeeded()
+
+        LogCollector.d(TAG, "incrementalPPOcrV6: 开始检测")
+        val textLines = DetectionBridge.detectAndCropPPOcrV6Lines(this@MangaFloatingService, bitmap)
+        if (textLines.isEmpty()) {
+            LogCollector.d(TAG, "incrementalPPOcrV6: 未检测到文字")
+            if (!isAutoTranslating) {
+                withContext(Dispatchers.Main) { showToast(getString(R.string.no_text_found), true) }
+            }
+            return true
+        }
+
+        if (textLines.size <= INCREMENTAL_THRESHOLD) {
+            LogCollector.d(TAG, "incrementalPPOcrV6: ${textLines.size} <= $INCREMENTAL_THRESHOLD，不触发")
+            textLines.forEach { it.croppedBitmap.recycle() }
+            return false
+        }
+
+        val groups = groupByProximity(textLines, { it.rect }, "PP-OCRv6")
+        val (firstBatch, secondBatch) = splitAtGroupBoundaries(groups)
+        LogCollector.d(TAG, "incrementalPPOcrV6: 第一批 ${firstBatch.size} 行，第二批 ${secondBatch.size} 行")
+
+        suspend fun recognizeBatch(batch: List<CroppedTextLine>): List<TextBlockInfo> {
+            val crops = batch.map { it.croppedBitmap }
+            val rects = batch.map { it.rect }
+            val angles = batch.map { it.angle }
+            val centers = batch.map { android.graphics.PointF(it.centerX, it.centerY) }
+            val recResults = try {
+                withContext(Dispatchers.IO) {
+                    PPOcrV6Engine.recognizeBatchWithCls(this@MangaFloatingService, crops)
+                }
+            } catch (e: java.io.FileNotFoundException) {
+                crops.forEach { it.recycle() }
+                statusOverlay.showError("识别模型加载失败：${e.message}")
+                ballStateManager?.setState(BallStateManager.State.Error)
+                throw e
+            } catch (e: Exception) {
+                crops.forEach { it.recycle() }
+                statusOverlay.showError("识别模型异常：${e.message}")
+                ballStateManager?.setState(BallStateManager.State.Error)
+                throw e
+            }
+            crops.forEach { it.recycle() }
+            val mergedInput = PPOcrV6Engine.recResultsToTextLines(recResults, rects, angles, centers)
+            TextRegionMerger.refreshParams(this@MangaFloatingService)
+            val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() })
+            val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+            LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
+            return mergedRegions.map { region ->
+                TextBlockInfo(
+                    text = region.texts.joinToString("\n"),
+                    boundingBox = region.rect,
+                    cornerPoints = null,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    angle = region.angle,
+                    centerX = region.center.x,
+                    centerY = region.center.y
+                )
+            }.filter { it.text.isNotBlank() }
+        }
+
+        var ocrJob: kotlinx.coroutines.Deferred<List<TextBlockInfo>>? = null
+        try {
+            showProgressOverlay("识别中（1/2）...")
+            val firstTextBlocks = recognizeBatch(firstBatch)
+            LogCollector.d(TAG, "incrementalPPOcrV6: 第一批 OCR ${firstTextBlocks.size} 个文字块")
+
+            val contextSnapshotSize = contextHistory.size
+            val firstTranslated = if (firstTextBlocks.isEmpty()) {
+                emptyList()
+            } else {
+                val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
+                withContext(Dispatchers.Main) {
+                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
+                    ballStateManager?.setState(BallStateManager.State.Translating)
+                }
+
+                ocrJob = lifecycleScope.async(Dispatchers.IO) {
+                    recognizeBatch(secondBatch)
+                }
+
+                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
+                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
+
+                val secondTextBlocks = ocrJob.await()
+                ocrJob = null
+                LogCollector.d(TAG, "incrementalPPOcrV6: 第二批 OCR ${secondTextBlocks.size} 个文字块")
+                if (secondTextBlocks.isNotEmpty()) {
+                    val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
+                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true)
+                } else {
+                    result
+                }
+            }
+
+            while (contextHistory.size > contextSnapshotSize) {
+                contextHistory.removeLast()
+            }
+
+            finalizeIncremental(bitmap, firstTranslated)
+            return true
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "incrementalPPOcrV6: 失败", e)
+            ocrJob?.cancel()
+            secondBatch.forEach { if (!it.croppedBitmap.isRecycled) it.croppedBitmap.recycle() }
+            return false
+        }
+    }
+
     /**
-     * 增量渲染公共收尾：最终渲染/缓存 + 状态更新。
      */
     private suspend fun finalizeIncremental(bitmap: Bitmap, allTranslated: List<TranslatedBubble>) {
         if (allTranslated.isNotEmpty()) {
@@ -2336,6 +2496,7 @@ class MangaFloatingService : LifecycleService() {
                 DetEngine.RT_DETR_V2 -> prefs.getBoolean("RTDetrV2_Debug_View", false)
                 DetEngine.MLKIT -> prefs.getBoolean("MLKit_Debug_View", false)
                 DetEngine.PP_OCR_V5 -> prefs.getBoolean("PPOcrV5_Debug_View", false)
+                DetEngine.PP_OCR_V6 -> prefs.getBoolean("PPOcrV6_Debug_View", false)
             }
 
             if (isDebugMode) {
@@ -2357,6 +2518,10 @@ class MangaFloatingService : LifecycleService() {
                         }
                         LogCollector.d(TAG, "ML Kit Debug Mode: blocks=${mlKitResult.textBlocks.size}, totalLines=${mlKitResult.totalLines}, totalElements=${mlKitResult.totalElements}")
                         showMLKitDebugView(bitmap, mlKitResult)
+                    }
+                    DetEngine.PP_OCR_V6 -> {
+                        LogCollector.d(TAG, "PP-OCRv6 Debug Mode")
+                        // v6 debug handled by showPPOcrV6DebugView
                     }
                     DetEngine.PP_OCR_V5 -> {
                         LogCollector.d(TAG, "PP-OCRv5 Debug Mode: 开始检测+识别")
@@ -2500,11 +2665,13 @@ class MangaFloatingService : LifecycleService() {
                     DetEngine.MLKIT -> {}
                     DetEngine.RT_DETR_V2 -> initRTDetrV2IfNeeded()
                     DetEngine.PP_OCR_V5 -> initPPOcrV5IfNeeded()
+                    DetEngine.PP_OCR_V6 -> initPPOcrV6IfNeeded()
                 }
                 when (config.ocrEngine) {
                     OcrEngine.MLKit -> {}
                     OcrEngine.MangaOcr -> ensureMangaOcrInitialized()
                     OcrEngine.PPOcrV5 -> initPPOcrV5IfNeeded()
+                    OcrEngine.PPOcrV6 -> initPPOcrV6IfNeeded()
                 }
 
                 // Step 1: 文字检测 + 识别
@@ -2536,6 +2703,10 @@ class MangaFloatingService : LifecycleService() {
                         DetEngine.PP_OCR_V5 -> {
                             LogCollector.d(TAG, "使用 PP-OCRv5(独立det+cls+rec), lang=${config.sourceLang}, rec=${ppRecLang?.code}")
                             DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)
+                        }
+                        DetEngine.PP_OCR_V6 -> {
+                            LogCollector.d(TAG, "使用 PP-OCRv6(独立det+cls+rec), lang=${config.sourceLang}")
+                            DetectionBridge.detectWithPPOcrV6(bitmap, config.sourceLang, this@MangaFloatingService)
                         }
                     }
                 }
@@ -2925,11 +3096,13 @@ class MangaFloatingService : LifecycleService() {
             DetEngine.MLKIT -> "MLKit"
             DetEngine.RT_DETR_V2 -> "RT-DETR"
             DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+            DetEngine.PP_OCR_V6 -> "PP-OCRv6"
         }
         val ocr = when (config.ocrEngine) {
             OcrEngine.MLKit -> "MLKit"
             OcrEngine.MangaOcr -> "manga-ocr"
             OcrEngine.PPOcrV5 -> "PP-OCRv5"
+            OcrEngine.PPOcrV6 -> "PP-OCRv6"
         }
 
         val parts = mutableListOf(apiStr, "$det+$ocr")
@@ -2938,7 +3111,8 @@ class MangaFloatingService : LifecycleService() {
         val incrementalEnabled = prefs.getBoolean("Incremental_Render", true)
         val isRTDetrMangaOcr = config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr
         val isPPOcrV5Standalone = config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5
-        if (incrementalEnabled && (isRTDetrMangaOcr || isPPOcrV5Standalone)) {
+        val isPPOcrV6Standalone2 = config.detEngine == DetEngine.PP_OCR_V6 && config.ocrEngine == OcrEngine.PPOcrV6
+        if (incrementalEnabled && (isRTDetrMangaOcr || isPPOcrV5Standalone || isPPOcrV6Standalone2)) {
             parts.add("分批✓")
         } else if (incrementalEnabled) {
             parts.add("分批✗")  // 开关打开但组合不支持
@@ -4556,6 +4730,9 @@ class MangaFloatingService : LifecycleService() {
                 }
                 DetEngine.RT_DETR_V2 -> {
                     DetectionBridge.detectWithRTDetrV2(bitmap, config.sourceLang, this@MangaFloatingService, config.keepTextFree)
+                }
+                DetEngine.PP_OCR_V6 -> {
+                    DetectionBridge.detectWithPPOcrV6(bitmap, config.sourceLang, this@MangaFloatingService)
                 }
                 DetEngine.PP_OCR_V5 -> {
                     DetectionBridge.detectWithPPOcrV5(bitmap, config.sourceLang, this@MangaFloatingService)

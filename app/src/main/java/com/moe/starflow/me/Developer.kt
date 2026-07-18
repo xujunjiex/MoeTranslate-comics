@@ -132,6 +132,15 @@ class Developer : Fragment() {
             }
         }
 
+        // PP-OCRv6 调试开关
+        binding.ppocrv6DebugSwitch.isChecked = prefs.getBoolean("PPOcrV6_Debug_View", false)
+        binding.ppocrv6DebugSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean("PPOcrV6_Debug_View", isChecked)
+            if (isChecked) {
+                UiUtils.showToast(requireContext(),"PP-OCRv6 调试模式已开启，请在漫画翻译界面截图测试")
+            }
+        }
+
         // 游戏翻译调试开关
         binding.gameTranslateDebugSwitch.isChecked = prefs.getBoolean("Game_Translate_Debug_View", false)
         binding.gameTranslateDebugSwitch.setOnCheckedChangeListener { _, isChecked ->

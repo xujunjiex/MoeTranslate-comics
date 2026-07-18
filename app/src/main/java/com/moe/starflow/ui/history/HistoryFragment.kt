@@ -216,8 +216,8 @@ class HistoryFragment : Fragment() {
             setTextColor(android.graphics.Color.parseColor("#666666"))
             setPadding(0, 24, 0, 8)
         })
-        val engineValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT")
-        val engineNames = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit")
+        val engineValues = arrayOf("PP_OCR_V5", "MANGA_OCR", "MLKIT", "PP_OCR_V6")
+        val engineNames = arrayOf("PP-OCRv5", "manga-ocr", "ML Kit", "PP-OCRv6")
         val savedEngine = prefs.getString("history_retranslate_engine", "PP_OCR_V5")
         val currentEngineIdx = engineValues.indexOfFirst { it == savedEngine }.coerceAtLeast(0)
         val engineGroup = android.widget.RadioGroup(requireContext()).apply { orientation = android.widget.RadioGroup.VERTICAL }
