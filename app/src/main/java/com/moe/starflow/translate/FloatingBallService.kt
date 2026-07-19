@@ -473,7 +473,8 @@ class FloatingBallService : LifecycleService() {
             "Custom_Result_Font_Size",
             "Custom_Result_Font_Color",
             "Custom_Result_Background_Color",
-            "Custom_Result_Font"
+            "Custom_Result_Font",
+            "text_shadow_enabled"
         )
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when {
@@ -705,6 +706,7 @@ class FloatingBallService : LifecycleService() {
         translationResultView = TranslationResultView(this, windowManager, resultViewParams!!)
         translationResultView.onClose = { removeResultView() }
         translationResultView.onRetranslate = { retranslateCurrentText() }
+        translationResultView.applyStyle()  // 读取 text_shadow_enabled 覆盖 init 块中的硬编码 setShadowLayer
 
         // 创建裁剪框视图
         cropView = CropView(this)
@@ -1545,7 +1547,7 @@ class FloatingBallService : LifecycleService() {
                                         statusOverlay.showImmediate("缓存命中")
                                         ballStateManager?.setState(BallStateManager.State.Completed)
                                         composeResultText(ocrDecision.ocrText, ocrDecision.cachedText)
-                                            ?.let { translationResultView.setText(it) }
+                                            ?.let { translationResultView.setText(it, fromCache = true) }
                                         translationResultView.showCacheIndicator()
                                         engine.markIdle()
                                         ballStateManager?.setState(BallStateManager.State.Idle)
@@ -1565,7 +1567,7 @@ class FloatingBallService : LifecycleService() {
                                             statusOverlay.showImmediate("缓存命中")
                                             ballStateManager?.setState(BallStateManager.State.Completed)
                                             composeResultText(ocrDecision.ocrText, dbCache.translatedText)
-                                                ?.let { translationResultView.setText(it) }
+                                                ?.let { translationResultView.setText(it, fromCache = true) }
                                             translationResultView.showCacheIndicator()
                                             lastTranslatedSource = ocrDecision.ocrText
                                             autoTranslateEngine?.onTranslationSuccess(ocrDecision.ocrText, dbCache.translatedText)
@@ -1619,7 +1621,7 @@ class FloatingBallService : LifecycleService() {
                         statusOverlay.show("缓存命中")
                         ballStateManager?.setState(BallStateManager.State.Completed)
                         composeResultText(normalizedTxt, dbCache.translatedText)
-                            ?.let { translationResultView.setText(it) }
+                            ?.let { translationResultView.setText(it, fromCache = true) }
                         translationResultView.showCacheIndicator()
                         lastTranslatedSource = normalizedTxt
                         isTranslating.set(false)
