@@ -221,7 +221,7 @@ class MangaFloatingService : LifecycleService() {
     /** 切换顺序：mlkit → ppocr → ppocrv6 → manga → mlkit */
     private val engineCombos = listOf(
         ComboDef("mlkit", DetEngine.MLKIT, OcrEngine.MLKit, R.string.manga_model_mlkit),
-        ComboDef("ppocr", DetEngine.PP_OCR_V5, OcrEngine.PPOcrV5, R.string.manga_model_ppocr),
+        ComboDef("ppocr", DetEngine.PP_OCR_V5, OcrEngine.PPOcrV5, R.string.manga_model_ppocr, needsDownloadCheck = true),
         ComboDef("ppocrv6", DetEngine.PP_OCR_V6, OcrEngine.PPOcrV6, R.string.manga_model_ppocrv6),
         ComboDef("manga", DetEngine.RT_DETR_V2, OcrEngine.MangaOcr, R.string.manga_model_manga_ocr, needsDownloadCheck = true),
     )
@@ -237,6 +237,7 @@ class MangaFloatingService : LifecycleService() {
     /** 检查需下载的组合是否可用 */
     private fun isComboAvailable(combo: ComboDef): Boolean = when {
         !combo.needsDownloadCheck -> true
+        combo.key == "ppocr" -> PPOcrModelManager.isV5DetDownloaded(this) && PPOcrModelManager.isV5RecZhDownloaded(this)
         else -> RTDetrModelManager.isModelAvailable(this) && MangaOcrDownloadManager.isModelDownloaded(this)
     }
 
@@ -4616,7 +4617,18 @@ class MangaFloatingService : LifecycleService() {
         row5.addView(resetBtn)
         outerPanel.addView(row5)
 
-        return outerPanel
+        // 包裹 ScrollView：参数过多时避免遮挡全屏
+        val scrollView = android.widget.ScrollView(this).apply {
+            addView(outerPanel)
+            // 最大高度限制为屏幕高度的 60%
+            val screenHeight = getScreenSize().height
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                (screenHeight * 0.6).toInt()
+            )
+            setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
+        }
+        return scrollView
     }
 
     /**

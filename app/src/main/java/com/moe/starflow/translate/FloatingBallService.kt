@@ -52,6 +52,7 @@ import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.manga.MangaOcrBridge
 import com.moe.starflow.manga.MangaOcrDownloadManager
 import com.moe.starflow.manga.MangaOcrRecognizer
+import com.moe.starflow.manga.PPOcrModelManager
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.utils.Constants
@@ -1005,17 +1006,37 @@ class FloatingBallService : LifecycleService() {
     private fun cycleOcrEngine() {
         val current = prefs.getInt("Game_OCR_Engine", 0)
         val currentIdx = engineCycle.indexOf(current).coerceAtLeast(0)
-        val next = engineCycle[(currentIdx + 1) % engineCycle.size]
+
+        // 循环查找下一个可用引擎（跳过未下载的）
+        var nextIdx = currentIdx
+        var next: Int
+        do {
+            nextIdx = (nextIdx + 1) % engineCycle.size
+            next = engineCycle[nextIdx]
+        } while (!isEngineAvailable(next) && nextIdx != currentIdx)
+
+        if (!isEngineAvailable(next)) {
+            showToast("无可用的 OCR 引擎", true)
+            return
+        }
 
         prefs.setIntSync("Game_OCR_Engine", next)
         val label = engineLabel(next)
         val fromLabel = engineLabel(current)
 
-        LogCollector.d(TAG, "OCR 引擎切换: fromLabel(current) → label(next)")
+        LogCollector.d(TAG, "OCR 引擎切换: $fromLabel($current) → $label($next)")
         showToast(getString(R.string.game_ocr_engine_label) + "：" + label, true)
 
         releaseEngine(current)
         initEngineAsync(next)
+    }
+
+    private fun isEngineAvailable(engine: Int): Boolean = when (engine) {
+        ENGINE_V5 -> PPOcrModelManager.isV5DetDownloaded(this) && PPOcrModelManager.isV5RecZhDownloaded(this)
+        ENGINE_V6 -> true  // small 内置，始终可用
+        ENGINE_MANGA -> MangaOcrDownloadManager.isModelDownloaded(this)
+        ENGINE_MLKIT -> true
+        else -> false
     }
 
     private fun releaseEngine(engine: Int) {
