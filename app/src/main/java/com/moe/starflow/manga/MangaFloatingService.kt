@@ -4043,6 +4043,16 @@ class MangaFloatingService : LifecycleService() {
             setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
         }
 
+        fun addSection(text: String) {
+            val h = android.widget.TextView(this@MangaFloatingService).apply {
+                this.text = text
+                setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
+                textSize = 11f
+                setPadding(0, (6 * dp).toInt(), 0, (2 * dp).toInt())
+            }
+            outerPanel.addView(h)
+        }
+
         data class SliderRef(
             val label: android.widget.TextView,
             val seekBar: android.widget.SeekBar,
@@ -4052,6 +4062,7 @@ class MangaFloatingService : LifecycleService() {
         )
         val sliderRefs = mutableListOf<SliderRef>()
 
+        addSection("── Det ──")
         // ── 第一行：3 个滑块（det_thresh, box_thresh, unclip_ratio）──
         val row1 = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
@@ -4114,6 +4125,7 @@ class MangaFloatingService : LifecycleService() {
         }
         outerPanel.addView(row1)
 
+        addSection("── Rec ──")
         // ── 第二行：2 个滑块（text_score, rec_batch_num）──
         val row2 = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
@@ -4256,6 +4268,7 @@ class MangaFloatingService : LifecycleService() {
         ltGroup.addView(ltLabel); ltGroup.addView(ltBtnRow); rowLimit.addView(ltGroup)
         outerPanel.addView(rowLimit)
 
+        addSection("── Global ──")
         // ── 第四行：max_side_len + min_side_len ──
         val rowGlobalSide = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
@@ -4426,23 +4439,19 @@ class MangaFloatingService : LifecycleService() {
         mcGroup.addView(mcLabel); mcGroup.addView(mcSeek); rowCand.addView(mcGroup)
         outerPanel.addView(rowCand)
 
-        // ── 第七行：use_dilation + 合并参数滑块（距离门控）──
-        val row7 = android.widget.LinearLayout(this).apply {
+        // use_dilation 开关（Det 最后一个）
+        val rowDil = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (4 * dp).toInt() }
         }
-        // use_dilation 开关
-        val dilGroup = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
-        }
         val dilLabel = android.widget.TextView(this).apply {
             text = "use_dilation"
-            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f
+            setPadding(0, 0, (4 * dp).toInt(), 0)
         }
         val dilSwitch = android.widget.Switch(this).apply {
             isChecked = prefs.getBoolean("ppocrv6_use_dilation", DEF_USE_DILATION)
@@ -4451,8 +4460,11 @@ class MangaFloatingService : LifecycleService() {
                 PPOcrV6Engine.refreshParams(this@MangaFloatingService)
             }
         }
-        dilGroup.addView(dilLabel); dilGroup.addView(dilSwitch); row7.addView(dilGroup)
-        // 合并参数：距离门控
+        rowDil.addView(dilLabel); rowDil.addView(dilSwitch)
+        outerPanel.addView(rowDil)
+
+        addSection("── App ──")
+        // merge_gap + large_box
         data class MergeSliderRef(
             val label: android.widget.TextView,
             val seekBar: android.widget.SeekBar,
@@ -4463,23 +4475,27 @@ class MangaFloatingService : LifecycleService() {
         val mergeSliderRefs = mutableListOf<MergeSliderRef>()
 
         val mergeSeekInit = mGapToSeek(prefs.getFloat("merge_discard_gap", DEF_GAP))
-        val mergeGroup = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER_HORIZONTAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val mergeRow = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
         }
         val mergeLabel = android.widget.TextView(this).apply {
-            text = "距离门控\n${String.format("%.1f", mSeekToGap(mergeSeekInit))}"
-            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+            text = "merge_gap"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f
+            setPadding(0, 0, (4 * dp).toInt(), 0)
         }
         val mergeSeek = android.widget.SeekBar(this).apply {
             max = 100; progress = mergeSeekInit
-            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, (24 * dp).toInt(), 1f)
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = mSeekToGap(progress)
-                        mergeLabel.text = "距离门控\n${String.format("%.1f", v)}"
+                        mergeLabel.text = "merge_gap ${String.format("%.1f", v)}"
                         prefs.setFloat("merge_discard_gap", v)
                         TextRegionMerger.refreshParams(this@MangaFloatingService)
                     }
@@ -4491,8 +4507,8 @@ class MangaFloatingService : LifecycleService() {
         mergeSliderRefs.add(MergeSliderRef(mergeLabel, mergeSeek, "merge_gap",
             { v: Int -> String.format("%.1f", mSeekToGap(v)) },
             { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextRegionMerger.refreshParams(this) }))
-        mergeGroup.addView(mergeLabel); mergeGroup.addView(mergeSeek); row7.addView(mergeGroup)
-        outerPanel.addView(row7)
+        mergeRow.addView(mergeLabel); mergeRow.addView(mergeSeek)
+        outerPanel.addView(mergeRow)
 
         // ── 第八行：大框过滤开关 ──
         val row3 = android.widget.LinearLayout(this).apply {
