@@ -195,20 +195,25 @@ class TranslationCacheManager(private val context: Context) {
             // overlay 窗口 / 下载：裁剪后渲染，气泡坐标直接对应
             val cropW = (pageCache.cropRight - pageCache.cropLeft).coerceAtLeast(1)
             val cropH = (pageCache.cropBottom - pageCache.cropTop).coerceAtLeast(1)
+            // 注意：Bitmap.createBitmap 共享底层数据，必须先渲染完再 recycle 原图
             val croppedBitmap = Bitmap.createBitmap(fullBitmap, pageCache.cropLeft, pageCache.cropTop, cropW, cropH)
-            fullBitmap.recycle()
-            if (mode == OverlayMode.PLAIN) {
-                croppedBitmap
-            } else {
-                OverlayRenderer.renderOverlay(
-                    original = croppedBitmap,
-                    regions = bubbles,
-                    fontSize = config.fontSize,
-                    autoFit = config.autoFit,
-                    textColor = config.textColor,
-                    bgColor = config.bgColor,
-                    useOriginalText = (mode == OverlayMode.ORIGINAL)
-                )
+            try {
+                if (mode == OverlayMode.PLAIN) {
+                    croppedBitmap
+                } else {
+                    OverlayRenderer.renderOverlay(
+                        original = croppedBitmap,
+                        regions = bubbles,
+                        fontSize = config.fontSize,
+                        autoFit = config.autoFit,
+                        textColor = config.textColor,
+                        bgColor = config.bgColor,
+                        useOriginalText = (mode == OverlayMode.ORIGINAL)
+                    )
+                }
+            } finally {
+                croppedBitmap.recycle()
+                fullBitmap.recycle()
             }
         }
     }

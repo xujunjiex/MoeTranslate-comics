@@ -546,7 +546,10 @@ class HistoryFragment : Fragment() {
         var variantIdx = 0
 
         try {
-            for (entry in session.entries) {
+            LogCollector.d("HistoryFragment", "doDownloadSession: ${session.entries.size} entries")
+            withContext(Dispatchers.IO) {
+            for ((idx, entry) in session.entries.withIndex()) {
+                LogCollector.d("HistoryFragment", "download entry[$idx] id=${entry.id} bubbleRects=${if (entry.bubbleRects.isNullOrBlank()) "EMPTY" else "${entry.bubbleRects.length} chars"} imagePath=${entry.imagePath}")
                 val bitmap: Bitmap? = if (entry.bubbleRects.isNullOrBlank()) {
                     // 旧数据兼容：直接读 imagePath
                     entry.imagePath?.let { BitmapFactory.decodeFile(it) }
@@ -581,6 +584,7 @@ class HistoryFragment : Fragment() {
 
                 withContext(Dispatchers.Main) { progressDialog.progress = tempFiles.size }
             }
+            } // end withContext(IO) for render loop
 
             withContext(Dispatchers.Main) { progressDialog.dismiss() }
 
