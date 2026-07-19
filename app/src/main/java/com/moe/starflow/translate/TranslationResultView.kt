@@ -1,7 +1,9 @@
 package com.moe.starflow.translate
 
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.Context
+import android.content.ClipboardManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -28,8 +30,8 @@ class TranslationResultView(
     private val textView: TextView
     private val closeButton: ImageButton
     private val lockButton: ImageButton
-    private val cacheIndicator: TextView
     private val retranslateButton: ImageButton
+    private val copyButton: ImageButton
     private var isLocked: Boolean = false
 
     // 拖动相关变量
@@ -100,13 +102,20 @@ class TranslationResultView(
             setOnClickListener { onClose?.invoke() }
         }
 
-        // 缓存标识（左下角）
-        cacheIndicator = TextView(context).apply {
-            text = "⚡"
-            setTextColor(Color.argb(200, 255, 165, 0))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            visibility = View.GONE
-            setShadowLayer(2f, 1f, 1f, Color.BLACK)
+        // 复制按钮（左下角，始终显示）
+        val copySize = dpToPx(16)
+        copyButton = ImageButton(context).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setImageResource(R.drawable.ic_copy)
+            setColorFilter(Color.argb(160, 80, 80, 80))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(0, 0, 0, 0)
+            setOnClickListener {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val text = textView.text.toString().removePrefix("⚡")
+                clipboard.setPrimaryClip(ClipData.newPlainText("translated_text", text))
+                android.widget.Toast.makeText(context, R.string.text_copied, android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
 
         // 重新翻译按钮（右下角）
@@ -136,8 +145,8 @@ class TranslationResultView(
             topMargin = btnMargin
         })
 
-        // 缓存标识（左下角）
-        addView(cacheIndicator, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+        // 复制按钮（左下角，替代旧的 cacheIndicator 位置）
+        addView(copyButton, LayoutParams(copySize, copySize).apply {
             gravity = Gravity.START or Gravity.BOTTOM
             marginStart = btnSpace
             bottomMargin = btnMargin
@@ -192,17 +201,19 @@ class TranslationResultView(
         textView.text = text
     }
 
+    fun setText(text: String, fromCache: Boolean) {
+        textView.text = if (fromCache) "⚡$text" else text
+    }
+
     fun getText(): String = textView.text.toString()
 
-    /** 显示缓存标识 + 重新翻译按钮 */
+    /** 显示重新翻译按钮（缓存标识已迁移到文本前缀） */
     fun showCacheIndicator() {
-        cacheIndicator.visibility = View.VISIBLE
         retranslateButton.visibility = View.VISIBLE
     }
 
-    /** 隐藏缓存标识 + 重新翻译按钮 */
+    /** 隐藏重新翻译按钮 */
     fun hideCacheIndicator() {
-        cacheIndicator.visibility = View.GONE
         retranslateButton.visibility = View.GONE
     }
 
@@ -233,6 +244,12 @@ class TranslationResultView(
             } catch (e: Exception) {
                 textView.typeface = Typeface.DEFAULT
             }
+        }
+        val shadowEnabled = prefs.getBoolean("text_shadow_enabled", true)
+        if (shadowEnabled) {
+            textView.setShadowLayer(2f, 1f, 1f, Color.BLACK)
+        } else {
+            textView.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
         }
     }
 
