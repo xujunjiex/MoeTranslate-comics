@@ -4194,14 +4194,15 @@ class MangaFloatingService : LifecycleService() {
             ).apply { topMargin = (4 * dp).toInt() }
         }
         // limit_side_len 滑块
-        val lslSeekInit = limitSideToSeek(prefs.getInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE))
+        val lslRaw = prefs.getInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE)
+        val lslSeekInit = limitSideToSeek(lslRaw)
         val lslGroup = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER_HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val lslLabel = android.widget.TextView(this).apply {
-            text = "limit_side_len\n${seekToLimitSide(lslSeekInit)}"
+            text = "limit_side_len\n${lslRaw}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val lslSeek = android.widget.SeekBar(this).apply {
@@ -4278,14 +4279,15 @@ class MangaFloatingService : LifecycleService() {
             ).apply { topMargin = (4 * dp).toInt() }
         }
         // max_side_len 滑块
-        val maxslSeekInit = maxSideToSeek(prefs.getInt("ppocrv6_max_side_len", DEF_MAX_SIDE))
+        val maxslRaw = prefs.getInt("ppocrv6_max_side_len", DEF_MAX_SIDE)
+        val maxslSeekInit = maxSideToSeek(maxslRaw)
         val maxslGroup = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER_HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val maxslLabel = android.widget.TextView(this).apply {
-            text = "max_side_len\n${seekToMaxSide(maxslSeekInit)}"
+            text = "max_side_len\n${maxslRaw}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val maxslSeek = android.widget.SeekBar(this).apply {
@@ -4307,14 +4309,15 @@ class MangaFloatingService : LifecycleService() {
         sliderRefs.add(SliderRef(maxslLabel, maxslSeek, "max_side_len", { v: Int -> "${seekToMaxSide(v)}" }, { v -> prefs.setInt("ppocrv6_max_side_len", seekToMaxSide(v)) }))
         maxslGroup.addView(maxslLabel); maxslGroup.addView(maxslSeek); rowGlobalSide.addView(maxslGroup)
         // min_side_len 滑块
-        val minslSeekInit = minSideToSeek(prefs.getInt("ppocrv6_min_side_len", DEF_MIN_SIDE))
+        val minslRaw = prefs.getInt("ppocrv6_min_side_len", DEF_MIN_SIDE)
+        val minslSeekInit = minSideToSeek(minslRaw)
         val minslGroup = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER_HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val minslLabel = android.widget.TextView(this).apply {
-            text = "min_side_len\n${seekToMinSide(minslSeekInit)}"
+            text = "min_side_len\n${minslRaw}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val minslSeek = android.widget.SeekBar(this).apply {
@@ -4346,14 +4349,15 @@ class MangaFloatingService : LifecycleService() {
             ).apply { topMargin = (4 * dp).toInt() }
         }
         // min_height 滑块
-        val mhSeekInit = minHToSeek(prefs.getInt("ppocrv6_min_height", DEF_MIN_HEIGHT))
+        val mhRaw = prefs.getInt("ppocrv6_min_height", DEF_MIN_HEIGHT)
+        val mhSeekInit = minHToSeek(mhRaw)
         val mhGroup = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER_HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val mhLabel = android.widget.TextView(this).apply {
-            text = "min_height\n${seekToMinH(mhSeekInit)}"
+            text = "min_height\n${mhRaw}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val mhSeek = android.widget.SeekBar(this).apply {
@@ -4385,14 +4389,15 @@ class MangaFloatingService : LifecycleService() {
             ).apply { topMargin = (4 * dp).toInt() }
         }
         // max_candidates 滑块
-        val mcSeekInit = maxCandToSeek(prefs.getInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES))
+        val mcRaw = prefs.getInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES)
+        val mcSeekInit = maxCandToSeek(mcRaw)
         val mcGroup = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER_HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val mcLabel = android.widget.TextView(this).apply {
-            text = "max_candidates\n${seekToMaxCand(mcSeekInit)}"
+            text = "max_candidates\n${mcRaw}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val mcSeek = android.widget.SeekBar(this).apply {
