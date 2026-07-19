@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.PerceptualHash
+import com.moe.starflow.manga.OverlayRenderer
 import com.moe.starflow.manga.TextDirection
 import com.moe.starflow.manga.TranslatedBubble
 import kotlinx.coroutines.Dispatchers
@@ -120,6 +121,104 @@ class TranslationCacheManager(private val context: Context) {
         } catch (e: Exception) {
             DEFAULT_CACHE_COUNT
         }
+    }
+
+    // ========== 共享渲染层 ==========
+
+    /** 渲染配置（字体、颜色等）*/
+    data class OverlayConfig(
+        val fontSize: Float = 16f,
+        val autoFit: Boolean = true,
+        val textColor: Int = android.graphics.Color.BLACK,
+        val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255)
+    )
+
+    /**
+     * 共享渲染方法：从 HistoryEntity + PageCacheEntity 渲染 overlay。
+     * @param forFullImage true=全屏渲染（MangaViewerActivity，坐标映射），false=裁剪渲染（overlay/下载，裁剪后渲染）
+     */
+    suspend fun renderOverlay(
+        history: HistoryEntry,
+        pageCache: PageCacheEntity,
+        mode: OverlayMode,
+        forFullImage: Boolean,
+        config: OverlayConfig = OverlayConfig()
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        // 1. 加载全屏原图
+        val originalPath = history.originalImagePath
+        if (originalPath == null) {
+            LogCollector.e(TAG, "renderOverlay: originalImagePath is null for history ${history.id}")
+            return@withContext null
+        }
+        val fullBitmap = try {
+            BitmapFactory.decodeFile(originalPath)
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "renderOverlay: failed to decode $originalPath", e)
+            return@withContext null
+        } ?: return@withContext null
+
+        // 2. 解析气泡数据
+        val originals = parseIndexedTextList(history.sourceText)
+        val translations = parseIndexedTextList(history.translatedText)
+        val bubbles = rebuildBubblesFromCache(originals, translations, history.bubbleRects, config.fontSize, config.bgColor)
+
+        // 3. 根据 forFullImage 决定渲染策略
+        return@withContext if (forFullImage) {
+            // MangaViewerActivity：在全屏原图上渲染，气泡坐标需映射
+            if (mode == OverlayMode.PLAIN) {
+                fullBitmap
+            } else {
+                val mappedBubbles = bubbles.map { b ->
+                    b.copy(rect = android.graphics.Rect(
+                        pageCache.cropLeft + b.rect.left,
+                        pageCache.cropTop + b.rect.top,
+                        pageCache.cropLeft + b.rect.right,
+                        pageCache.cropTop + b.rect.bottom
+                    ))
+                }
+                try {
+                    OverlayRenderer.renderOverlay(
+                        original = fullBitmap,
+                        regions = mappedBubbles,
+                        fontSize = config.fontSize,
+                        autoFit = config.autoFit,
+                        textColor = config.textColor,
+                        bgColor = config.bgColor,
+                        useOriginalText = (mode == OverlayMode.ORIGINAL)
+                    )
+                } finally {
+                    // fullBitmap 由 OverlayRenderer 内部 copy 后返回，需要 recycle 原图
+                    if (mode != OverlayMode.PLAIN) fullBitmap.recycle()
+                }
+            }
+        } else {
+            // overlay 窗口 / 下载：裁剪后渲染，气泡坐标直接对应
+            val cropW = (pageCache.cropRight - pageCache.cropLeft).coerceAtLeast(1)
+            val cropH = (pageCache.cropBottom - pageCache.cropTop).coerceAtLeast(1)
+            val croppedBitmap = Bitmap.createBitmap(fullBitmap, pageCache.cropLeft, pageCache.cropTop, cropW, cropH)
+            fullBitmap.recycle()
+            if (mode == OverlayMode.PLAIN) {
+                croppedBitmap
+            } else {
+                OverlayRenderer.renderOverlay(
+                    original = croppedBitmap,
+                    regions = bubbles,
+                    fontSize = config.fontSize,
+                    autoFit = config.autoFit,
+                    textColor = config.textColor,
+                    bgColor = config.bgColor,
+                    useOriginalText = (mode == OverlayMode.ORIGINAL)
+                )
+            }
+        }
+    }
+
+    fun getOverlayConfig(prefs: android.content.SharedPreferences): OverlayConfig {
+        val fontSize = (prefs.getString("manga_font_size", "16")?.toFloatOrNull() ?: 16f)
+        val autoFit = prefs.getBoolean("manga_auto_fit", true)
+        val textColor = prefs.getInt("manga_text_color", android.graphics.Color.BLACK)
+        val bgColor = prefs.getInt("manga_bg_color", android.graphics.Color.argb(200, 255, 255, 255))
+        return OverlayConfig(fontSize, autoFit, textColor, bgColor)
     }
 
     // ========== 缓存操作 ==========
