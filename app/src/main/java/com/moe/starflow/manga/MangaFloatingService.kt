@@ -82,6 +82,8 @@ import translationapi.nllbtranslation.NLLBTranslation
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.utils.PerceptualHash
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.LinkedList
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -266,6 +268,17 @@ class MangaFloatingService : LifecycleService() {
     private var isForceRefreshActive = false  // 保存 forceRefresh 状态，用于保存缓存时判断
     private var lastCachedHistoryId: Long = 0  // 缓存命中的 historyId，用于强制刷新时删除旧记录
     private var lastCachedPHash: Long = 0      // 缓存命中的 pHash，用于验证 historyId 有效性
+
+    // 复制模式
+    private var isCopyMode = false
+    private var copyOriginalMode = false  // false=译文, true=原文
+    private var copyClickLayer: android.widget.FrameLayout? = null
+    private var copyBubbleViews: MutableList<View> = mutableListOf()
+    private var copyButtonsContainer: android.widget.LinearLayout? = null
+    private var currentShowBubbles: List<TranslatedBubble> = emptyList()  // 当前显示的翻译气泡（非缓存）
+    private var lastCacheBubbleRects: String? = null  // 缓存命中的气泡 rect JSON
+    private var cachedOriginalTextList: List<String> = emptyList()  // 缓存结果解析后的原文列表
+    private var cachedTranslatedTextList: List<String> = emptyList()  // 缓存结果解析后的译文列表
 
     // 翻译会话 ID（每次服务启动生成新的）
     private val sessionId = java.util.UUID.randomUUID().toString()
@@ -863,6 +876,10 @@ class MangaFloatingService : LifecycleService() {
         val realSize = android.graphics.Point()
         defaultDisplay.getRealSize(realSize)
         return android.util.Size(realSize.x, realSize.y)
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
     }
 
     // ---------- Touch handling (matches original FloatingBallService pattern) ----------
@@ -2041,7 +2058,10 @@ class MangaFloatingService : LifecycleService() {
                 cropLeft = if (useCrop) cropRect!!.left.toInt() else 0,
                 cropTop = if (useCrop) cropRect!!.top.toInt() else 0,
                 cropRight = if (useCrop) cropRect!!.right.toInt() else fullWidth,
-                cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight
+                cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight,
+                bubbleRects = if (allBubbles.isNotEmpty()) {
+                    serializeBubbleRects(allBubbles)
+                } else null
             )
             if (isForceRefreshActive) {
                 // 只删除同页面的缓存（pHash 匹配），避免误删其他页面
@@ -2613,6 +2633,10 @@ class MangaFloatingService : LifecycleService() {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
                     lastCachedHistoryId = cached.historyId
                     lastCachedPHash = currentPHash
+                    lastCacheBubbleRects = cached.bubbleRects
+                    // 解析缓存的原文/译文列表供复制模式使用
+                    cachedOriginalTextList = parseIndexedTextList(cached.originalText)
+                    cachedTranslatedTextList = parseIndexedTextList(cached.translatedText)
                     statusOverlay.showImmediate("缓存命中")
                     ballStateManager?.setState(BallStateManager.State.Completed)
                     lastTranslatedHash = currentPHash
@@ -2997,6 +3021,7 @@ class MangaFloatingService : LifecycleService() {
 
         // 显示
         withContext(Dispatchers.Main) {
+            currentShowBubbles = newBubbles
             showResultOverlay(resultBitmap)
         }
 
@@ -3049,7 +3074,10 @@ class MangaFloatingService : LifecycleService() {
                     cropLeft = entryCropLeft,
                     cropTop = entryCropTop,
                     cropRight = entryCropRight,
-                    cropBottom = entryCropBottom
+                    cropBottom = entryCropBottom,
+                    bubbleRects = if (newBubbles.isNotEmpty()) {
+                        serializeBubbleRects(newBubbles)
+                    } else null
                 )
                 if (isRetranslate && historyIdToDelete > 0) {
                     cacheManager.refreshCache(historyIdToDelete, entry, originalBitmap = saveOrigBmp)
@@ -3190,6 +3218,7 @@ class MangaFloatingService : LifecycleService() {
         isResultShowing = true
 
         bringFloatingBallToFront()
+        showCopyButtons()
     }
 
     private fun dismissResultOverlay() {
@@ -3197,6 +3226,10 @@ class MangaFloatingService : LifecycleService() {
             dismissCacheOverlay()
             return
         }
+        if (isCopyMode) {
+            exitCopyMode()
+        }
+        removeCopyButtons()
         dismissDebugInfoPanel()
         if (isResultShowing) {
             try {
@@ -3212,6 +3245,7 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.e(TAG, "Error dismissing overlay", e)
             }
             isResultShowing = false
+            currentShowBubbles = emptyList()
 
             // 重置自动翻译状态，但不清楚文本缓存（文本缓存跨页面有效）
             if (isAutoTranslating) {
@@ -3335,6 +3369,7 @@ class MangaFloatingService : LifecycleService() {
         isResultShowing = true
 
         bringFloatingBallToFront()
+        showCopyButtons()
     }
 
     /**
@@ -3357,6 +3392,16 @@ class MangaFloatingService : LifecycleService() {
             }
             cacheOverlayContainer = null
             isResultShowing = false
+            currentShowBubbles = emptyList()
+            lastCacheBubbleRects = null
+            cachedOriginalTextList = emptyList()
+            cachedTranslatedTextList = emptyList()
+
+            // 清理复制模式
+            if (isCopyMode) {
+                exitCopyMode()
+            }
+            removeCopyButtons()
 
             // 重置自动翻译：清除区域缓存，立刻恢复检测
             if (isAutoTranslating) {
@@ -3368,6 +3413,250 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
+    // ---------- 复制模式 ----------
+
+    private fun serializeBubbleRects(bubbles: List<TranslatedBubble>): String {
+        val jsonArray = JSONArray()
+        for (b in bubbles) {
+            val obj = JSONObject()
+            obj.put("l", b.rect.left)
+            obj.put("t", b.rect.top)
+            obj.put("r", b.rect.right)
+            obj.put("b", b.rect.bottom)
+            jsonArray.put(obj)
+        }
+        return jsonArray.toString()
+    }
+
+    private fun parseBubbleRectsJson(json: String?): List<android.graphics.Rect> {
+        if (json.isNullOrEmpty()) return emptyList()
+        return try {
+            val result = mutableListOf<android.graphics.Rect>()
+            val jsonArray = JSONArray(json)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                result.add(android.graphics.Rect(
+                    obj.getInt("l"), obj.getInt("t"),
+                    obj.getInt("r"), obj.getInt("b")
+                ))
+            }
+            result
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "parseBubbleRectsJson failed", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * 解析 "[1] text1\n[2] text2\n..." 格式的文本列表
+     */
+    private fun parseIndexedTextList(text: String?): List<String> {
+        if (text.isNullOrEmpty()) return emptyList()
+        return try {
+            text.split("\n").mapNotNull { line ->
+                val match = Regex("^\\[\\d+\\]\\s?(.*)$").find(line.trim())
+                match?.groupValues?.getOrNull(1)?.trim()
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun showCopyButtons() {
+        if (copyButtonsContainer != null) return
+
+        copyButtonsContainer = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+
+        // 复制模式按钮
+        val btnCopy = android.widget.TextView(this).apply {
+            text = "📋"
+            textSize = 18f
+            setTextColor(android.graphics.Color.argb(200, 255, 255, 255))
+            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            setOnClickListener { toggleCopyMode() }
+        }
+        copyButtonsContainer!!.addView(btnCopy)
+
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.TRANSLUCENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = dpToPx(8)
+            y = dpToPx(8)
+        }
+        windowManager.addView(copyButtonsContainer, params)
+    }
+
+    private fun removeCopyButtons() {
+        if (copyButtonsContainer != null) {
+            try {
+                if (copyButtonsContainer!!.isAttachedToWindow) {
+                    windowManager.removeView(copyButtonsContainer)
+                }
+            } catch (_: Exception) {}
+            copyButtonsContainer = null
+        }
+    }
+
+    private fun toggleCopyMode() {
+        isCopyMode = !isCopyMode
+        if (isCopyMode) {
+            enterCopyMode()
+        } else {
+            exitCopyMode()
+        }
+    }
+
+    private fun enterCopyMode() {
+        // 1. 展开额外按钮
+        if (copyButtonsContainer != null && copyButtonsContainer!!.childCount < 3) {
+            val btnToggle = android.widget.TextView(this).apply {
+                text = if (copyOriginalMode) "原文" else "译文"
+                textSize = 14f
+                setTextColor(android.graphics.Color.argb(200, 255, 255, 255))
+                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+                setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4))
+                setOnClickListener {
+                    copyOriginalMode = !copyOriginalMode
+                    text = if (copyOriginalMode) "原文" else "译文"
+                }
+            }
+            copyButtonsContainer!!.addView(btnToggle, 0)
+
+            val btnCopyAll = android.widget.TextView(this).apply {
+                text = "📄"
+                textSize = 18f
+                setTextColor(android.graphics.Color.argb(200, 255, 255, 255))
+                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+                setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+                setOnClickListener { copyAllBubbles() }
+            }
+            copyButtonsContainer!!.addView(btnCopyAll, 0)
+        }
+
+        // 2. 创建可点击区域 + 气泡框
+        createCopyClickLayer()
+    }
+
+    private fun exitCopyMode() {
+        // 移除额外按钮
+        if (copyButtonsContainer != null && copyButtonsContainer!!.childCount > 1) {
+            copyButtonsContainer!!.removeViews(0, 2)
+        }
+        // 移除可点击层
+        removeCopyClickLayer()
+    }
+
+    private fun createCopyClickLayer() {
+        removeCopyClickLayer()
+
+        val container = android.widget.FrameLayout(this)
+        copyBubbleViews.clear()
+
+        // 获取气泡 rect 列表：优先用 currentShowBubbles（新翻译），否则用缓存数据
+        val bubbles: List<android.graphics.Rect> = if (currentShowBubbles.isNotEmpty()) {
+            currentShowBubbles.map { it.rect }
+        } else {
+            parseBubbleRectsJson(lastCacheBubbleRects)
+        }
+
+        if (bubbles.isEmpty()) {
+            LogCollector.d(TAG, "createCopyClickLayer: 无气泡数据，仅支持复制全部")
+            return
+        }
+
+        for ((idx, rect) in bubbles.withIndex()) {
+            val overlay = View(this).apply {
+                setBackgroundColor(android.graphics.Color.argb(40, 100, 200, 255))
+                setOnClickListener {
+                    copyBubbleText(idx)
+                    // 高亮反馈
+                    setBackgroundColor(android.graphics.Color.argb(120, 100, 200, 255))
+                    postDelayed({
+                        setBackgroundColor(android.graphics.Color.argb(40, 100, 200, 255))
+                    }, 200)
+                }
+            }
+            val lp = android.widget.FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
+                leftMargin = rect.left
+                topMargin = rect.top
+            }
+            container.addView(overlay, lp)
+            copyBubbleViews.add(overlay)
+        }
+
+        copyClickLayer = container
+
+        val params = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.TRANSLUCENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.START or Gravity.TOP
+            x = 0
+            y = 0
+        }
+        windowManager.addView(container, params)
+    }
+
+    private fun removeCopyClickLayer() {
+        copyBubbleViews.clear()
+        if (copyClickLayer != null) {
+            try {
+                if (copyClickLayer!!.isAttachedToWindow) {
+                    windowManager.removeView(copyClickLayer)
+                }
+            } catch (_: Exception) {}
+            copyClickLayer = null
+        }
+    }
+
+    private fun copyBubbleText(idx: Int) {
+        val text = if (currentShowBubbles.isNotEmpty()) {
+            val bubble = currentShowBubbles.getOrNull(idx) ?: return
+            if (copyOriginalMode) bubble.originalText else bubble.translatedText
+        } else {
+            // 缓存命中：从解析的文本列表中获取
+            val list = if (copyOriginalMode) cachedOriginalTextList else cachedTranslatedTextList
+            list.getOrNull(idx) ?: return
+        }
+        copyToClipboard(text)
+    }
+
+    private fun copyAllBubbles() {
+        if (currentShowBubbles.isNotEmpty()) {
+            val regions = currentShowBubbles
+            val text = regions.mapIndexed { idx, r ->
+                val content = if (copyOriginalMode) r.originalText else r.translatedText
+                "[${idx + 1}] $content"
+            }.joinToString("\n")
+            copyToClipboard(text)
+        } else {
+            // 缓存命中：使用解析的文本列表，保留原有 [N] 格式
+            val list = if (copyOriginalMode) cachedOriginalTextList else cachedTranslatedTextList
+            if (list.isEmpty()) return
+            val text = list.mapIndexed { idx, content ->
+                "[${idx + 1}] $content"
+            }.joinToString("\n")
+            copyToClipboard(text)
+        }
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("copied_text", text))
+        android.widget.Toast.makeText(this, R.string.text_copied, android.widget.Toast.LENGTH_SHORT).show()
+        LogCollector.d(TAG, "copyToClipboard: ${text.take(50)}...")
+    }
 
     /**
      * RT-DETR-V2 调试模式：渲染检测结果到图片上并显示

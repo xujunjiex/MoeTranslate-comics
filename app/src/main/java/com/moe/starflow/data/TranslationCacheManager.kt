@@ -680,7 +680,8 @@ class TranslationCacheManager(private val context: Context) {
             sourceLang = history.sourceLang,
             targetLang = history.targetLang,
             cropWidth = cropWidth,
-            cropHeight = cropHeight
+            cropHeight = cropHeight,
+            bubbleRects = history.bubbleRects
         )
     }
 
@@ -717,7 +718,8 @@ data class CacheResult(
     val sourceLang: String,
     val targetLang: String,
     val cropWidth: Int = 0,     // 缓存时的裁剪宽度（用于面积比校验）
-    val cropHeight: Int = 0     // 缓存时的裁剪高度（用于面积比校验）
+    val cropHeight: Int = 0,    // 缓存时的裁剪高度（用于面积比校验）
+    val bubbleRects: String? = null  // JSON: [{"l":10,"t":20,"r":100,"b":60}, ...] 气泡位置数据
 )
 
 data class CacheEntry(
