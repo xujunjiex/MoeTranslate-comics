@@ -14,7 +14,8 @@ object OverlayRenderer {
         fontSize: Float = 16f,
         autoFit: Boolean = true,
         textColor: Int = Color.BLACK,
-        bgColor: Int = Color.argb(200, 255, 255, 255)
+        bgColor: Int = Color.argb(200, 255, 255, 255),
+        useOriginalText: Boolean = false
     ): Bitmap {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
@@ -26,7 +27,14 @@ object OverlayRenderer {
         val drawInfoMap = mutableMapOf<TranslatedBubble, DrawInfo>()
 
         for (region in sortedRegions) {
-            val displayText = if (region.fromCache) "⚡${region.translatedText}" else region.translatedText
+            // 实际显示的文字：原文模式用 originalText，否则用译文
+            val displayText = if (useOriginalText) {
+                region.originalText
+            } else if (region.fromCache) {
+                "⚡${region.translatedText}"
+            } else {
+                region.translatedText
+            }
             val baseFontSize = if (autoFit) region.fontSize else fontSize
             val fitFontSize = if (autoFit) {
                 VerticalTextRenderer.calculateFitFontSize(

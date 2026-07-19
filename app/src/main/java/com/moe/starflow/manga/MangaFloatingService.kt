@@ -28,6 +28,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.view.WindowManager
 import android.widget.ImageView
 import androidx.core.app.NotificationCompat
@@ -141,7 +142,8 @@ class MangaFloatingService : LifecycleService() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var floatingBallView: View
-    private lateinit var resultOverlayView: ImageView
+    private lateinit var resultOverlayView: FrameLayout
+    private lateinit var resultOverlayImage: ImageView  // overlay 内的图片子 View
 
     private var floatingBallParams: WindowManager.LayoutParams? = null
     private var resultOverlayParams: WindowManager.LayoutParams? = null
@@ -276,6 +278,8 @@ class MangaFloatingService : LifecycleService() {
     private var copyBubbleViews: MutableList<View> = mutableListOf()
     private var copyButtonsContainer: android.widget.LinearLayout? = null
     private var currentShowBubbles: List<TranslatedBubble> = emptyList()  // 当前显示的翻译气泡（非缓存）
+    private var currentOriginalBitmap: Bitmap? = null  // 原始截图（用于原文模式重新渲染）
+    private var currentTranslatedOverlay: Bitmap? = null  // 译文模式 overlay 图（切换回译文时直接复原）
     private var currentOverlayBitmapW: Int = 0  // 当前 overlay 对应的 bitmap 宽度（用于坐标映射）
     private var currentOverlayBitmapH: Int = 0  // 当前 overlay 对应的 bitmap 高度（用于坐标映射）
     private var lastCacheBubbleRects: String? = null  // 缓存命中的气泡 rect JSON
@@ -450,6 +454,8 @@ class MangaFloatingService : LifecycleService() {
             prefs.getSharedPreferences().unregisterOnSharedPreferenceChangeListener(it)
         }
         prefChangeListener = null
+        // 先取消协程，防止 View 清理后又由协程回调添加新 View
+        lifecycleScope.cancel()
         removeAllViews()
         statusOverlay.release()
         ballStateManager?.release()
@@ -458,9 +464,8 @@ class MangaFloatingService : LifecycleService() {
         autoTranslateHandler.removeCallbacksAndMessages(null)
         clearRegionCache()
 
-        // 取消所有协程，等待正在执行的 ONNX 推理完成后再释放资源
+        // 等待正在执行的 ONNX 推理完成后再释放资源
         // 防止 session.close() 和 session.run() 并发导致 native 内存损坏
-        lifecycleScope.cancel()
         runBlocking(Dispatchers.IO) {
             coroutineContext[Job]?.children?.forEach { it.join() }
         }
@@ -833,10 +838,16 @@ class MangaFloatingService : LifecycleService() {
 
         setupTouchListener()
 
-        // Result overlay (initially not added)
-        resultOverlayView = ImageView(this).apply {
+        // Result overlay (initially not added) — FrameLayout 包含 ImageView，按钮可加入同一窗口
+        resultOverlayImage = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_XY
+        }
+        resultOverlayView = FrameLayout(this).apply {
             setBackgroundColor(Color.argb(180, 0, 0, 0))
+            addView(resultOverlayImage, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ))
         }
 
         resultOverlayParams = WindowManager.LayoutParams().apply {
@@ -2159,7 +2170,7 @@ class MangaFloatingService : LifecycleService() {
                 }
 
                 val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
+                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
 
                 val secondTextBlocks = ocrJob.await()
                 LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第二批 OCR ${secondTextBlocks.size} 个文字块")
@@ -2283,7 +2294,7 @@ class MangaFloatingService : LifecycleService() {
                 }
 
                 val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
+                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
 
                 val secondTextBlocks = ocrJob.await()
                 ocrJob = null // 已完成，不再需要取消
@@ -2396,7 +2407,7 @@ class MangaFloatingService : LifecycleService() {
                 }
 
                 val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false)
+                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
 
                 val secondTextBlocks = ocrJob.await()
                 ocrJob = null
@@ -2637,13 +2648,19 @@ class MangaFloatingService : LifecycleService() {
                     lastCachedPHash = currentPHash
                     lastCacheBubbleRects = cached.bubbleRects
                     // 解析缓存的原文/译文列表供复制模式使用
-                    cachedOriginalTextList = parseIndexedTextList(cached.originalText)
-                    cachedTranslatedTextList = parseIndexedTextList(cached.translatedText)
+                    cachedOriginalTextList = TranslationCacheManager.parseIndexedTextList(cached.originalText)
+                    cachedTranslatedTextList = TranslationCacheManager.parseIndexedTextList(cached.translatedText)
+                    // 从缓存数据重建 TranslatedBubble 列表（供原文模式 overlay 渲染）
+                    currentShowBubbles = TranslationCacheManager.rebuildBubblesFromCache(
+                        cachedOriginalTextList, cachedTranslatedTextList, lastCacheBubbleRects, config.fontSize, config.bgColor)
                     statusOverlay.showImmediate("缓存命中")
                     ballStateManager?.setState(BallStateManager.State.Completed)
                     lastTranslatedHash = currentPHash
         lastTranslatedTime = System.currentTimeMillis()
                     withContext(Dispatchers.Main) {
+                        currentOriginalBitmap?.recycle()
+                        currentOriginalBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                        currentTranslatedOverlay = cached.resultBitmap
                         showResultOverlay(cached.resultBitmap, fromCache = true)
                     }
                     return
@@ -2997,7 +3014,8 @@ class MangaFloatingService : LifecycleService() {
         cropLeft: Int = 0,
         cropTop: Int = 0,
         cropRight: Int = 0,
-        cropBottom: Int = 0
+        cropBottom: Int = 0,
+        showCopyButton: Boolean = true  // 分批中间结果不显示复制按钮
     ) {
         if (newBubbles.isEmpty()) {
             LogCollector.d(TAG, "renderAndShowMergedOverlay: no content to render")
@@ -3023,8 +3041,14 @@ class MangaFloatingService : LifecycleService() {
 
         // 显示
         withContext(Dispatchers.Main) {
+            showResultOverlay(resultBitmap, showCopyButton = showCopyButton)
+            // 必须在 showResultOverlay 之后赋值，因为 dismissResultOverlay 会清空 currentShowBubbles
             currentShowBubbles = newBubbles
-            showResultOverlay(resultBitmap)
+            currentOriginalBitmap?.recycle()
+            currentOriginalBitmap = original.copy(Bitmap.Config.ARGB_8888, false)
+            currentTranslatedOverlay = resultBitmap
+            currentOverlayBitmapW = resultBitmap.width
+            currentOverlayBitmapH = resultBitmap.height
         }
 
         // 保存到缓存和历史（分批翻译时由 finalizeIncremental 统一保存，避免保存中间结果）
@@ -3162,7 +3186,7 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Result overlay ----------
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun showResultOverlay(bitmap: Bitmap, fromCache: Boolean = false) {
+    private fun showResultOverlay(bitmap: Bitmap, fromCache: Boolean = false, showCopyButton: Boolean = true) {
         if (isResultShowing) {
             dismissResultOverlay()
         }
@@ -3174,13 +3198,20 @@ class MangaFloatingService : LifecycleService() {
 
         currentOverlayBitmapW = bitmap.width
         currentOverlayBitmapH = bitmap.height
-        resultOverlayView.setImageBitmap(bitmap)
-        resultOverlayView.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_UP) {
-                dismissResultOverlay()
+        resultOverlayImage.setImageBitmap(bitmap)
+        // touch listener 放在 ImageView 上（FrameLayout 最底层子 View），
+        // 按钮作为更上层子 View 先收到触摸，不会被打断
+        resultOverlayImage.setOnTouchListener { _, event ->
+            if (isCopyMode) {
+                false  // 复制模式穿透
+            } else {
+                if (event.action == MotionEvent.ACTION_UP) {
+                    dismissResultOverlay()
+                }
+                true
             }
-            true
         }
+        // 确保 FrameLayout 本身不拦截触摸（使用默认行为）
 
         // 框选模式下，结果只显示在框选区域内
         if (cropRect != null) {
@@ -3196,7 +3227,7 @@ class MangaFloatingService : LifecycleService() {
                 x = crop.left.toInt() + cropView.absolutePointOffset.x
                 y = crop.top.toInt() + cropView.absolutePointOffset.y
             }
-            resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
+            resultOverlayImage.scaleType = ImageView.ScaleType.FIT_XY
             windowManager.addView(resultOverlayView, params)
         } else {
             // 全屏模式：获取屏幕真实像素尺寸，overlay 精确覆盖全屏
@@ -3216,13 +3247,15 @@ class MangaFloatingService : LifecycleService() {
                 x = 0
                 y = 0
             }
-            resultOverlayView.scaleType = ImageView.ScaleType.FIT_XY
+            resultOverlayImage.scaleType = ImageView.ScaleType.FIT_XY
             windowManager.addView(resultOverlayView, params)
         }
         isResultShowing = true
 
         bringFloatingBallToFront()
-        showCopyButtons()
+        if (showCopyButton) {
+            showCopyButtons()
+        }
     }
 
     private fun dismissResultOverlay() {
@@ -3231,17 +3264,19 @@ class MangaFloatingService : LifecycleService() {
             return
         }
         if (isCopyMode) {
-            exitCopyMode()
+            isCopyMode = false
+            removeCopyClickLayer()
         }
         removeCopyButtons()
         dismissDebugInfoPanel()
         if (isResultShowing) {
             try {
                 // 先清除引用再回收，避免 Choreographer 待处理帧使用已回收的 bitmap
-                val oldBitmap = (resultOverlayView.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
-                resultOverlayView.setImageBitmap(null)
+                val oldBitmap = (resultOverlayImage.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                resultOverlayImage.setImageBitmap(null)
                 oldBitmap?.recycle()
                 resultOverlayView.setOnTouchListener(null)
+                resultOverlayImage.setOnTouchListener(null)
                 if (resultOverlayView.isAttachedToWindow) {
                     windowManager.removeView(resultOverlayView)
                 }
@@ -3250,6 +3285,9 @@ class MangaFloatingService : LifecycleService() {
             }
             isResultShowing = false
             currentShowBubbles = emptyList()
+            currentOriginalBitmap?.recycle()
+            currentOriginalBitmap = null
+            currentTranslatedOverlay = null
 
             // 重置自动翻译状态，但不清楚文本缓存（文本缓存跨页面有效）
             if (isAutoTranslating) {
@@ -3324,9 +3362,8 @@ class MangaFloatingService : LifecycleService() {
             setMargins(0, 24, 24, 0)
         })
 
-        // 点击其他区域关闭
+        // 点击其他区域关闭（复制模式下不拦截，让气泡窗口和按钮处理）
         container.setOnTouchListener { _, event ->
-            // 检查是否点击在刷新按钮区域
             val refreshRight = screenW - 24
             val refreshLeft = refreshRight - 120
             val refreshTop = 24
@@ -3335,6 +3372,8 @@ class MangaFloatingService : LifecycleService() {
             val touchY = event.y.toInt()
             if (touchX in refreshLeft..refreshRight && touchY in refreshTop..refreshBottom) {
                 false  // 让刷新按钮处理
+            } else if (isCopyMode) {
+                false  // 复制模式下不拦截触摸
             } else {
                 if (event.action == MotionEvent.ACTION_UP) {
                     dismissCacheOverlay()
@@ -3400,13 +3439,17 @@ class MangaFloatingService : LifecycleService() {
             cacheOverlayContainer = null
             isResultShowing = false
             currentShowBubbles = emptyList()
+            currentOriginalBitmap?.recycle()
+            currentOriginalBitmap = null
+            currentTranslatedOverlay = null
             lastCacheBubbleRects = null
             cachedOriginalTextList = emptyList()
             cachedTranslatedTextList = emptyList()
 
             // 清理复制模式
             if (isCopyMode) {
-                exitCopyMode()
+                isCopyMode = false
+                removeCopyClickLayer()
             }
             removeCopyButtons()
 
@@ -3430,6 +3473,8 @@ class MangaFloatingService : LifecycleService() {
             obj.put("t", b.rect.top)
             obj.put("r", b.rect.right)
             obj.put("b", b.rect.bottom)
+            obj.put("fs", b.fontSize.toDouble())           // 保存每个气泡的精确字号
+            obj.put("dir", b.direction.name)               // 保存文字方向
             jsonArray.put(obj)
         }
         return jsonArray.toString()
@@ -3454,20 +3499,8 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    /**
-     * 解析 "[1] text1\n[2] text2\n..." 格式的文本列表
-     */
-    private fun parseIndexedTextList(text: String?): List<String> {
-        if (text.isNullOrEmpty()) return emptyList()
-        return try {
-            text.split("\n").mapNotNull { line ->
-                val match = Regex("^\\[\\d+\\]\\s?(.*)$").find(line.trim())
-                match?.groupValues?.getOrNull(1)?.trim()
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
+    // parseBubbleEntriesJson / parseIndexedTextList / rebuildBubblesFromCache / BubbleJsonEntry
+    // 已搬迁至 TranslationCacheManager，调用时加 TranslationCacheManager. 前缀
 
     // ---------- 按钮工具方法 ----------
 
@@ -3517,13 +3550,13 @@ class MangaFloatingService : LifecycleService() {
         toggleSegOriginal = android.widget.TextView(this).apply {
             text = getString(R.string.copy_original)
             textSize = 11f
-            setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+            setTextColor(if (copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
             gravity = Gravity.CENTER
             setPadding(padH, padV, padH, padV)
-            background = if (!copyOriginalMode) activeBgLeft else null
+            background = if (copyOriginalMode) activeBgLeft else null
             setOnClickListener {
-                if (copyOriginalMode) {
-                    copyOriginalMode = false
+                if (!copyOriginalMode) {
+                    copyOriginalMode = true
                     updateToggleSegments()
                 }
             }
@@ -3532,13 +3565,13 @@ class MangaFloatingService : LifecycleService() {
         toggleSegTranslation = android.widget.TextView(this).apply {
             text = getString(R.string.copy_translation)
             textSize = 11f
-            setTextColor(if (copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+            setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
             gravity = Gravity.CENTER
             setPadding(padH, padV, padH, padV)
-            background = if (copyOriginalMode) activeBgRight else null
+            background = if (!copyOriginalMode) activeBgRight else null
             setOnClickListener {
-                if (!copyOriginalMode) {
-                    copyOriginalMode = true
+                if (copyOriginalMode) {
+                    copyOriginalMode = false
                     updateToggleSegments()
                 }
             }
@@ -3558,7 +3591,7 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
-    /** 更新分段切换的激活状态 */
+    /** 更新分段切换的激活状态 + 切换 overlay 显示原文/译文 */
     private fun updateToggleSegments() {
         val r = dpToPx(6).toFloat()
         val activeBgLeft = android.graphics.drawable.GradientDrawable().apply {
@@ -3570,12 +3603,51 @@ class MangaFloatingService : LifecycleService() {
             cornerRadii = floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
         }
         toggleSegOriginal?.apply {
-            background = if (!copyOriginalMode) activeBgLeft else null
-            setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+            background = if (copyOriginalMode) activeBgLeft else null
+            setTextColor(if (copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
         }
         toggleSegTranslation?.apply {
-            background = if (copyOriginalMode) activeBgRight else null
-            setTextColor(if (copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+            background = if (!copyOriginalMode) activeBgRight else null
+            setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+        }
+        // 切换 overlay 图片：原文 → 原图上渲染原文；译文 → 恢复译文 overlay
+        lifecycleScope.launch {
+            if (copyOriginalMode) {
+                // 原文模式：在原图上渲染识别原文
+                val original = currentOriginalBitmap ?: return@launch
+                val bubbles = currentShowBubbles
+                if (bubbles.isEmpty()) return@launch
+                val originalOverlay = withContext(Dispatchers.Default) {
+                    OverlayRenderer.renderOverlay(
+                        original = original,
+                        regions = bubbles,
+                        fontSize = config.fontSize,
+                        autoFit = config.autoFontSize,
+                        textColor = config.textColor,
+                        bgColor = config.bgColor,
+                        useOriginalText = true
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    if (!isResultShowing || !copyOriginalMode) return@withContext
+                    if (cacheOverlayContainer != null) {
+                        (cacheOverlayContainer!!.getChildAt(0) as? ImageView)?.setImageBitmap(originalOverlay)
+                    } else {
+                        resultOverlayImage.setImageBitmap(originalOverlay)
+                    }
+                }
+            } else {
+                // 译文模式：恢复译文 overlay
+                val translated = currentTranslatedOverlay ?: return@launch
+                withContext(Dispatchers.Main) {
+                    if (!isResultShowing || copyOriginalMode) return@withContext
+                    if (cacheOverlayContainer != null) {
+                        (cacheOverlayContainer!!.getChildAt(0) as? ImageView)?.setImageBitmap(translated)
+                    } else {
+                        resultOverlayImage.setImageBitmap(translated)
+                    }
+                }
+            }
         }
     }
 
@@ -3585,9 +3657,8 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 重建按钮面板。容器为 VERTICAL LinearLayout，
-     * 每个子视图用自己的 layout_gravity=END 右对齐，容器不设 gravity，
-     * 保证每个子视图按自身内容独立测量，互不压缩。
+     * 重建按钮面板。独立 WindowManager 窗口，始终在屏幕右下角，
+     * enterCopyMode 保证在气泡窗口之后添加，所以 z 层在气泡之上。
      */
     private fun buildCopyButtonsLayout() {
         val oldContainer = copyButtonsContainer
@@ -3601,8 +3672,6 @@ class MangaFloatingService : LifecycleService() {
 
         if (isCopyMode) {
             val gap = dpToPx(4)
-
-            // 切换控件 — layout_gravity=END，自身 WRAP_CONTENT，不受其他子视图宽度影响
             container.addView(createSegmentedToggle(), android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -3611,7 +3680,6 @@ class MangaFloatingService : LifecycleService() {
                 bottomMargin = gap
             })
 
-            // 操作按钮行 — 独立的 HORIZONTAL LinearLayout，同样 layout_gravity=END
             val row = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
             }
@@ -3643,7 +3711,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         copyButtonsContainer = container
-
+        // 独立窗口，屏幕右下角固定位置，不受 crop 影响
         val params = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             format = PixelFormat.TRANSLUCENT
@@ -3655,7 +3723,6 @@ class MangaFloatingService : LifecycleService() {
             x = dpToPx(8)
             y = dpToPx(8)
         }
-
         windowManager.addView(container, params)
 
         oldContainer?.let {
@@ -3684,11 +3751,12 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun enterCopyMode() {
-        buildCopyButtonsLayout()
         createCopyClickLayer()
+        buildCopyButtonsLayout()
     }
 
     private fun exitCopyMode() {
+        copyOriginalMode = false  // 退出时重置为译文模式
         removeCopyClickLayer()
         buildCopyButtonsLayout()
     }
@@ -3746,7 +3814,7 @@ class MangaFloatingService : LifecycleService() {
             overlayHeight = screenH
         }
 
-        // bitmap → overlay 缩放比例（通常为 1.0，bitmap 和 overlay 尺寸一致）
+        // bitmap → overlay 缩放比例
         val scaleX = if (bitmapW > 0) overlayWidth.toFloat() / bitmapW else 1f
         val scaleY = if (bitmapH > 0) overlayHeight.toFloat() / bitmapH else 1f
 
@@ -3754,6 +3822,7 @@ class MangaFloatingService : LifecycleService() {
             "bitmap=${bitmapW}x${bitmapH}, overlay=${overlayWidth}x${overlayHeight}@($overlayScreenX,$overlayScreenY), " +
             "cropRect=${cropRect != null}, scale=(${scaleX},${scaleY})")
 
+        // 每个气泡一个独立小窗口，精确覆盖气泡区域，不阻挡按钮和悬浮球
         for ((idx, rect) in bubbles.withIndex()) {
             // bitmap 坐标 → 屏幕坐标
             val screenLeft = (rect.left * scaleX + overlayScreenX).toInt()
@@ -3772,32 +3841,34 @@ class MangaFloatingService : LifecycleService() {
                     }, 200)
                 }
             }
-            val lp = android.widget.FrameLayout.LayoutParams(bubbleW, bubbleH).apply {
-                leftMargin = screenLeft
-                topMargin = screenTop
-            }
-            container.addView(overlay, lp)
             copyBubbleViews.add(overlay)
-        }
 
-        copyClickLayer = container
-
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-            width = WindowManager.LayoutParams.MATCH_PARENT
-            height = WindowManager.LayoutParams.MATCH_PARENT
-            gravity = Gravity.START or Gravity.TOP
-            x = 0
-            y = 0
+            val params = WindowManager.LayoutParams().apply {
+                type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                format = PixelFormat.TRANSLUCENT
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                width = bubbleW
+                height = bubbleH
+                gravity = Gravity.START or Gravity.TOP
+                x = screenLeft
+                y = screenTop
+            }
+            windowManager.addView(overlay, params)
         }
-        windowManager.addView(container, params)
     }
 
     private fun removeCopyClickLayer() {
+        for (v in copyBubbleViews) {
+            try {
+                if (v.isAttachedToWindow) {
+                    windowManager.removeView(v)
+                }
+            } catch (_: Exception) {}
+        }
         copyBubbleViews.clear()
+        // 兼容旧版单容器模式
         if (copyClickLayer != null) {
             try {
                 if (copyClickLayer!!.isAttachedToWindow) {
@@ -3842,7 +3913,8 @@ class MangaFloatingService : LifecycleService() {
     private fun copyToClipboard(text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("copied_text", text))
-        android.widget.Toast.makeText(this, R.string.text_copied, android.widget.Toast.LENGTH_SHORT).show()
+        // 用 statusOverlay 显示反馈（Service 上下文下系统 Toast 可能被 overlay 遮挡）
+        statusOverlay.showImmediate(getString(R.string.text_copied))
         LogCollector.d(TAG, "copyToClipboard: ${text.take(50)}...")
     }
 
@@ -5183,6 +5255,10 @@ class MangaFloatingService : LifecycleService() {
         } catch (e: Exception) {
             LogCollector.e(TAG, "Error removing floating ball", e)
         }
+        // 清理复制模式状态
+        isCopyMode = false
+        removeCopyClickLayer()
+        removeCopyButtons()
         dismissCacheOverlay()
         dismissDebugInfoPanel()
         dismissResultOverlay()

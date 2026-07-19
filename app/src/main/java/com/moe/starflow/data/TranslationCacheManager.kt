@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.PerceptualHash
+import com.moe.starflow.manga.TextDirection
+import com.moe.starflow.manga.TranslatedBubble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -25,7 +27,86 @@ class TranslationCacheManager(private val context: Context) {
         private const val THUMBNAIL_SIZE = 200
         private const val AREA_RATIO_MIN = 0.8f   // 面积比下限（框选偏移面积变化 <1%，宽松允许 ±20%）
         private const val AREA_RATIO_MAX = 1.25f  // 面积比上限
+
+        // ========== 气泡解析工具函数 ==========
+
+        /** 解析扩展气泡 JSON（含 fontSize + direction），兼容旧格式无 fs/dir 字段 */
+        fun parseBubbleEntriesJson(json: String?, defaultFontSize: Float): List<BubbleJsonEntry> {
+            if (json.isNullOrEmpty()) return emptyList()
+            return try {
+                val result = mutableListOf<BubbleJsonEntry>()
+                val jsonArray = org.json.JSONArray(json)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val rect = android.graphics.Rect(
+                        obj.getInt("l"), obj.getInt("t"),
+                        obj.getInt("r"), obj.getInt("b")
+                    )
+                    val fs = if (obj.has("fs")) obj.getDouble("fs").toFloat() else defaultFontSize
+                    val dir = if (obj.has("dir")) {
+                        try { TextDirection.valueOf(obj.getString("dir")) }
+                        catch (_: Exception) { TextDirection.VERTICAL_RL }
+                    } else {
+                        TextDirection.VERTICAL_RL
+                    }
+                    result.add(BubbleJsonEntry(rect, fs, dir))
+                }
+                result
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "parseBubbleEntriesJson failed", e)
+                emptyList()
+            }
+        }
+
+        /**
+         * 解析 "[1] text1\n[2] text2\n..." 格式的文本列表
+         */
+        fun parseIndexedTextList(text: String?): List<String> {
+            if (text.isNullOrEmpty()) return emptyList()
+            return try {
+                text.split("\n").mapNotNull { line ->
+                    val match = Regex("^\\[\\d+\\]\\s?(.*)$").find(line.trim())
+                    match?.groupValues?.getOrNull(1)?.trim()
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+
+        /** 从缓存的 rect JSON + 文本列表重建 TranslatedBubble */
+        fun rebuildBubblesFromCache(
+            originals: List<String>,
+            translations: List<String>,
+            bubbleRectsJson: String?,
+            defaultFontSize: Float,
+            bgColor: Int
+        ): List<TranslatedBubble> {
+            val entries = parseBubbleEntriesJson(bubbleRectsJson, defaultFontSize)
+            if (entries.isEmpty() || originals.isEmpty()) return emptyList()
+            return entries.mapIndexed { idx, (rect, fontSize, direction) ->
+                TranslatedBubble(
+                    rect = rect,
+                    originalText = originals.getOrElse(idx) { "" },
+                    translatedText = translations.getOrElse(idx) { "" },
+                    backgroundColor = bgColor,
+                    fontSize = fontSize,
+                    direction = direction,
+                    angle = 0f,
+                    fromCache = true
+                )
+            }
+        }
     }
+
+    // ========== 共享类型 ==========
+
+    enum class OverlayMode { TRANSLATED, ORIGINAL, PLAIN }
+
+    data class BubbleJsonEntry(
+        val rect: android.graphics.Rect,
+        val fontSize: Float,
+        val direction: TextDirection
+    )
 
     private val db = TranslationHistoryDatabase.getInstance(context)
     private val dao = db.historyDao()
@@ -72,7 +153,7 @@ class TranslationCacheManager(private val context: Context) {
                         }
                     }
                     LogCollector.d(TAG, "findCache: 精确命中, historyId=${history.id}, crop=${bestExact.effectiveCropWidth()}x${bestExact.effectiveCropHeight()}")
-                    return@withContext buildCacheResult(history, bestExact.effectiveCropWidth(), bestExact.effectiveCropHeight())
+                    return@withContext buildCacheResult(history, bestExact.effectiveCropWidth(), bestExact.effectiveCropHeight(), bestExact)
                 }
             } else {
                 LogCollector.d(TAG, "findCache: 精确匹配存在但面积比都不兼容, 跳过")
@@ -130,7 +211,7 @@ class TranslationCacheManager(private val context: Context) {
                         }
                     }
                     LogCollector.d(TAG, "findCacheExt: 精确命中, historyId=${history.id}, crop=${exactMatch.effectiveCropWidth()}x${exactMatch.effectiveCropHeight()}")
-                    return@withContext buildCacheResult(history, exactMatch.effectiveCropWidth(), exactMatch.effectiveCropHeight())
+                    return@withContext buildCacheResult(history, exactMatch.effectiveCropWidth(), exactMatch.effectiveCropHeight(), exactMatch)
                 }
             }
         }
@@ -166,7 +247,7 @@ class TranslationCacheManager(private val context: Context) {
                     }
                     val entryBits = java.lang.Long.bitCount(bestMatch.pHash) + java.lang.Long.bitCount(bestMatch.pHash2) + java.lang.Long.bitCount(bestMatch.pHash3) + java.lang.Long.bitCount(bestMatch.pHash4)
                     LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=$currentBits/256, entryBits=$entryBits/256), historyId=${history.id}")
-                    return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight())
+                    return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight(), bestMatch)
                 }
             }
         }
@@ -663,7 +744,7 @@ class TranslationCacheManager(private val context: Context) {
         }
     }
 
-    private fun buildCacheResult(history: HistoryEntity, cropWidth: Int = 0, cropHeight: Int = 0): CacheResult {
+    private fun buildCacheResult(history: HistoryEntity, cropWidth: Int = 0, cropHeight: Int = 0, pageCache: PageCacheEntity? = null): CacheResult {
         val bitmap = history.imagePath?.let { path ->
             try {
                 BitmapFactory.decodeFile(path)
@@ -681,7 +762,9 @@ class TranslationCacheManager(private val context: Context) {
             targetLang = history.targetLang,
             cropWidth = cropWidth,
             cropHeight = cropHeight,
-            bubbleRects = history.bubbleRects
+            bubbleRects = history.bubbleRects,
+            pageCache = pageCache,
+            historyEntity = history.toHistoryEntry()
         )
     }
 
@@ -719,7 +802,9 @@ data class CacheResult(
     val targetLang: String,
     val cropWidth: Int = 0,     // 缓存时的裁剪宽度（用于面积比校验）
     val cropHeight: Int = 0,    // 缓存时的裁剪高度（用于面积比校验）
-    val bubbleRects: String? = null  // JSON: [{"l":10,"t":20,"r":100,"b":60}, ...] 气泡位置数据
+    val bubbleRects: String? = null,  // JSON: [{"l":10,"t":20,"r":100,"b":60}, ...] 气泡位置数据
+    val pageCache: PageCacheEntity? = null,  // 关联的缓存条目（含 crop 坐标）
+    val historyEntity: HistoryEntry? = null  // 关联的历史条目（含 bubbleRects 等）
 )
 
 data class CacheEntry(
