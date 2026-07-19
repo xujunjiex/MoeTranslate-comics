@@ -4005,13 +4005,13 @@ class MangaFloatingService : LifecycleService() {
         val DEF_LIMIT_SIDE = 736; val DEF_LIMIT_TYPE = "min"
         val DEF_USE_DILATION = true; val DEF_SCORE_MODE = "fast"; val DEF_MAX_CANDIDATES = 1000
         val DEF_MAX_SIDE = 2000; val DEF_MIN_SIDE = 30
-        val DEF_MIN_HEIGHT = 30; val DEF_WH_RATIO = 8f
+        val DEF_MIN_HEIGHT = 30
 
         // 滑块范围映射
         fun detThreshToSeek(v: Float) = ((v - 0.1f) / 0.4f * 100).toInt().coerceIn(0, 100)
         fun seekToDetThresh(v: Int) = 0.1f + v / 100f * 0.4f
-        fun boxToSeek(v: Float) = ((v - 0.01f) / 0.69f * 100).toInt().coerceIn(0, 100)
-        fun seekToBox(v: Int) = 0.01f + v / 100f * 0.69f
+        fun boxToSeek(v: Float) = (v * 100).toInt().coerceIn(0, 100)
+        fun seekToBox(v: Int) = v / 100f
         fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).toInt().coerceIn(0, 100)
         fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
@@ -4375,35 +4375,6 @@ class MangaFloatingService : LifecycleService() {
         }
         sliderRefs.add(SliderRef(mhLabel, mhSeek, "min_height", { v: Int -> "${seekToMinH(v)}" }, { v -> prefs.setInt("ppocrv6_min_height", seekToMinH(v)) }))
         mhGroup.addView(mhLabel); mhGroup.addView(mhSeek); rowFilter.addView(mhGroup)
-        // width_height_ratio 滑块
-        val whrSeekInit = whRatioToSeek(prefs.getFloat("ppocrv6_width_height_ratio", DEF_WH_RATIO))
-        val whrGroup = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER_HORIZONTAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val whrLabel = android.widget.TextView(this).apply {
-            text = "width_height_ratio\n${String.format("%.1f", seekToWhRatio(whrSeekInit))}"
-            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
-        }
-        val whrSeek = android.widget.SeekBar(this).apply {
-            max = 100; progress = whrSeekInit
-            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
-            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) {
-                        val v = seekToWhRatio(progress)
-                        whrLabel.text = "width_height_ratio\n${String.format("%.1f", v)}"
-                        prefs.setFloat("ppocrv6_width_height_ratio", v)
-                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
-                    }
-                }
-                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
-            })
-        }
-        sliderRefs.add(SliderRef(whrLabel, whrSeek, "width_height_ratio", { v: Int -> String.format("%.1f", seekToWhRatio(v)) }, { v -> prefs.setFloat("ppocrv6_width_height_ratio", seekToWhRatio(v)) }))
-        whrGroup.addView(whrLabel); whrGroup.addView(whrSeek); rowFilter.addView(whrGroup)
         outerPanel.addView(rowFilter)
 
         // ── 第六行：max_candidates ──
@@ -4620,7 +4591,6 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setInt("ppocrv6_max_side_len", DEF_MAX_SIDE)
                 prefs.setInt("ppocrv6_min_side_len", DEF_MIN_SIDE)
                 prefs.setInt("ppocrv6_min_height", DEF_MIN_HEIGHT)
-                prefs.setFloat("ppocrv6_width_height_ratio", DEF_WH_RATIO)
                 PPOcrV6Engine.refreshParams(this@MangaFloatingService)
 
                 // 更新 UI
@@ -4633,8 +4603,7 @@ class MangaFloatingService : LifecycleService() {
                 sliderRefs[6].apply { seekBar.progress = maxSideToSeek(DEF_MAX_SIDE); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 sliderRefs[7].apply { seekBar.progress = minSideToSeek(DEF_MIN_SIDE); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 sliderRefs[8].apply { seekBar.progress = minHToSeek(DEF_MIN_HEIGHT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[9].apply { seekBar.progress = whRatioToSeek(DEF_WH_RATIO); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[10].apply { seekBar.progress = maxCandToSeek(DEF_MAX_CANDIDATES); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[9].apply { seekBar.progress = maxCandToSeek(DEF_MAX_CANDIDATES); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
                 ratioLabel.text = "ratio ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"

@@ -90,7 +90,7 @@ object PPOcrV6Engine {
     @Volatile private var maxSideLen = 2000            // Global.max_side_len (px)
     @Volatile private var minSideLen = 30              // Global.min_side_len (px)
     @Volatile private var minHeight = 30               // Global.min_height (px)
-    @Volatile private var widthHeightRatio = 8f        // Global.width_height_ratio (-1 不启用)
+    @Volatile private var widthHeightRatio = -1f  // Global.width_height_ratio (-1 不启用，默认关闭)
 
     /**
      * 从 SharedPreferences 刷新可调参数。
@@ -115,7 +115,7 @@ object PPOcrV6Engine {
         maxSideLen = prefs.getInt("ppocrv6_max_side_len", 2000)
         minSideLen = prefs.getInt("ppocrv6_min_side_len", 30)
         minHeight = prefs.getInt("ppocrv6_min_height", 30)
-        widthHeightRatio = prefs.getFloat("ppocrv6_width_height_ratio", 8f)
+        widthHeightRatio = prefs.getFloat("ppocrv6_width_height_ratio", -1f)
     }
 
     // -----------------------------------------------------------------------
