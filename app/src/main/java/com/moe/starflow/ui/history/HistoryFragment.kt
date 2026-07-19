@@ -325,7 +325,12 @@ class HistoryFragment : Fragment() {
                         val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = false)
                         gameGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: game groups=${groups.size}, session-based")
+                        LogCollector.d(TAG, "loadHistory: game groups=${groups.size}, sessions total=${groups.sumOf { it.sessions.size }}, entries total=${groups.sumOf { g -> g.sessions.sumOf { it.entries.size } }}")
+                        for ((gi, g) in groups.withIndex()) {
+                            for ((si, s) in g.sessions.withIndex()) {
+                                LogCollector.d(TAG, "  group[$gi].session[$si]: id=${s.sessionId.take(8)}, entries=${s.entries.size}")
+                            }
+                        }
                     }
                     TranslationCacheManager.MODE_MANGA -> {
                         mangaGroupAdapter.isManageView = (viewMode == "manage")
@@ -563,11 +568,25 @@ class HistoryFragment : Fragment() {
                     val txtFile = File(requireContext().cacheDir, "session_${session.sessionId.take(8)}.txt")
                     val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
+                    // 如果会话条目为空，尝试直接从 DB 获取（兜底）
+                    val entriesToDownload = if (session.entries.isEmpty()) {
+                        LogCollector.w(TAG, "downloadGameSession: session entries empty, fetching from DB directly")
+                        cacheManager.getHistory(TranslationCacheManager.MODE_GAME, limit = 500)
+                            .filter { it.sessionId == session.sessionId || it.lastSessionId == session.sessionId }
+                    } else {
+                        session.entries
+                    }
+
+                    LogCollector.d(TAG, "downloadGameSession: sessionId=${session.sessionId.take(8)}, entries=${entriesToDownload.size}")
+                    for ((i, e) in entriesToDownload.withIndex()) {
+                        LogCollector.d(TAG, "  entry[$i]: src=${e.sourceText?.take(20) ?: "null"}, trans=${e.translatedText?.take(20) ?: "null"}")
+                    }
+
                     txtFile.bufferedWriter().use { writer ->
-                        if (session.entries.isEmpty()) {
+                        if (entriesToDownload.isEmpty()) {
                             writer.write("(无翻译记录)\n")
                         } else {
-                            for (entry in session.entries) {
+                            for (entry in entriesToDownload) {
                                 val time = dateFormat.format(Date(entry.updatedAt))
                                 writer.write("[$time]\n")
                                 val src = entry.sourceText
