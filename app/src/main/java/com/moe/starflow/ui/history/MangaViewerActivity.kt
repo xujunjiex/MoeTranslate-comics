@@ -73,6 +73,7 @@ class MangaViewerActivity : AppCompatActivity() {
     private var groupEntryIds: List<Long> = emptyList()
     private var overlayState = TranslationCacheManager.OverlayMode.TRANSLATED  // 默认译文
     private val renderCache = mutableMapOf<String, Bitmap?>()  // key="historyId_mode"
+    private var pageCacheMap: Map<Long, PageCacheEntity> = emptyMap()
     private var savedClickedEntryId: Long = -1L
     private var savedEntryIds: LongArray? = null
     private var isManageView = false
@@ -317,6 +318,7 @@ class MangaViewerActivity : AppCompatActivity() {
                 val allIds = allEntries.map { it.id }
                 val pageCaches = cacheManager.getPageCachesByHistoryIds(allIds)
                 val pageCacheMap = pageCaches.associateBy { it.historyId }
+                this@MangaViewerActivity.pageCacheMap = pageCacheMap
 
                 // 设置 ViewPager（每页 = 一个 pHash 组）
                 val adapter = PageGroupAdapter(
@@ -386,9 +388,17 @@ class MangaViewerActivity : AppCompatActivity() {
         }
         binding.spinnerVariant.visibility = android.view.View.VISIBLE
         val items = group.variants.map { v ->
-            // 优先读 originalImagePath（旧数据 fallback imagePath）
-            val path = v.originalImagePath ?: v.imagePath ?: v.thumbnailPath
-            path?.let { getImageDimensions(it) } ?: "?"
+            // 显示用户实际框选的尺寸（crop 区域），而不是原图尺寸
+            val pc = pageCacheMap[v.id]
+            if (pc != null) {
+                val cropW = (pc.cropRight - pc.cropLeft).coerceAtLeast(0)
+                val cropH = (pc.cropBottom - pc.cropTop).coerceAtLeast(0)
+                if (cropW > 0 && cropH > 0) "${cropW}×${cropH}" else "?"
+            } else {
+                // fallback：读文件头
+                val path = v.originalImagePath ?: v.imagePath ?: v.thumbnailPath
+                path?.let { getImageDimensions(it) } ?: "?"
+            }
         }
         val adapter = android.widget.ArrayAdapter(this, R.layout.spinner_item_dark, items)
         adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_dark)
