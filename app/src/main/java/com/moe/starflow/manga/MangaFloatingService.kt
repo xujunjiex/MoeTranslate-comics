@@ -279,7 +279,6 @@ class MangaFloatingService : LifecycleService() {
     private var copyButtonsContainer: android.widget.LinearLayout? = null
     private var currentShowBubbles: List<TranslatedBubble> = emptyList()  // 当前显示的翻译气泡（非缓存）
     private var currentOriginalBitmap: Bitmap? = null  // 原始截图（用于原文模式重新渲染）
-    private var currentTranslatedOverlay: Bitmap? = null  // 译文模式 overlay 图（切换回译文时直接复原）
     private var currentOverlayBitmapW: Int = 0  // 当前 overlay 对应的 bitmap 宽度（用于坐标映射）
     private var currentOverlayBitmapH: Int = 0  // 当前 overlay 对应的 bitmap 高度（用于坐标映射）
     private var lastCacheBubbleRects: String? = null  // 缓存命中的气泡 rect JSON
@@ -2058,7 +2057,7 @@ class MangaFloatingService : LifecycleService() {
                 type = TranslationCacheManager.MODE_MANGA,
                 sourceText = ocrTexts.ifEmpty { null },
                 translatedText = transTexts.ifEmpty { null },
-                resultBitmap = resultBitmap.copy(resultBitmap.config ?: Bitmap.Config.ARGB_8888, false),
+                resultBitmap = null,
                 sourceLang = config.sourceLang,
                 targetLang = config.targetLang,
                 translatorName = translatorName,
@@ -2653,6 +2652,16 @@ class MangaFloatingService : LifecycleService() {
                     // 从缓存数据重建 TranslatedBubble 列表（供原文模式 overlay 渲染）
                     currentShowBubbles = TranslationCacheManager.rebuildBubblesFromCache(
                         cachedOriginalTextList, cachedTranslatedTextList, lastCacheBubbleRects, config.fontSize, config.bgColor)
+                    // 通过共享层渲染裁剪区域的译文 overlay（替代加载预渲染 JPEG）
+                    val rendered = if (cached.historyEntity != null && cached.pageCache != null) {
+                        cacheManager.renderOverlay(
+                            history = cached.historyEntity,
+                            pageCache = cached.pageCache,
+                            mode = TranslationCacheManager.OverlayMode.TRANSLATED,
+                            forFullImage = false,
+                            config = TranslationCacheManager.OverlayConfig(config.fontSize, config.autoFontSize, config.textColor, config.bgColor)
+                        )
+                    } else null
                     statusOverlay.showImmediate("缓存命中")
                     ballStateManager?.setState(BallStateManager.State.Completed)
                     lastTranslatedHash = currentPHash
@@ -2660,8 +2669,7 @@ class MangaFloatingService : LifecycleService() {
                     withContext(Dispatchers.Main) {
                         currentOriginalBitmap?.recycle()
                         currentOriginalBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                        currentTranslatedOverlay = cached.resultBitmap
-                        showResultOverlay(cached.resultBitmap, fromCache = true)
+                        showResultOverlay(rendered ?: cached.resultBitmap, fromCache = true)
                     }
                     return
                 }
@@ -3046,7 +3054,6 @@ class MangaFloatingService : LifecycleService() {
             currentShowBubbles = newBubbles
             currentOriginalBitmap?.recycle()
             currentOriginalBitmap = original.copy(Bitmap.Config.ARGB_8888, false)
-            currentTranslatedOverlay = resultBitmap
             currentOverlayBitmapW = resultBitmap.width
             currentOverlayBitmapH = resultBitmap.height
         }
@@ -3287,7 +3294,6 @@ class MangaFloatingService : LifecycleService() {
             currentShowBubbles = emptyList()
             currentOriginalBitmap?.recycle()
             currentOriginalBitmap = null
-            currentTranslatedOverlay = null
 
             // 重置自动翻译状态，但不清楚文本缓存（文本缓存跨页面有效）
             if (isAutoTranslating) {
@@ -3441,7 +3447,6 @@ class MangaFloatingService : LifecycleService() {
             currentShowBubbles = emptyList()
             currentOriginalBitmap?.recycle()
             currentOriginalBitmap = null
-            currentTranslatedOverlay = null
             lastCacheBubbleRects = null
             cachedOriginalTextList = emptyList()
             cachedTranslatedTextList = emptyList()
@@ -3610,43 +3615,26 @@ class MangaFloatingService : LifecycleService() {
             background = if (!copyOriginalMode) activeBgRight else null
             setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
         }
-        // 切换 overlay 图片：原文 → 原图上渲染原文；译文 → 恢复译文 overlay
+        // 切换 overlay 图片：原文/译文都实时渲染（不再依赖预渲染的 currentTranslatedOverlay）
         lifecycleScope.launch {
-            if (copyOriginalMode) {
-                // 原文模式：在原图上渲染识别原文
-                val original = currentOriginalBitmap ?: return@launch
-                val bubbles = currentShowBubbles
-                if (bubbles.isEmpty()) return@launch
-                val originalOverlay = withContext(Dispatchers.Default) {
-                    OverlayRenderer.renderOverlay(
-                        original = original,
-                        regions = bubbles,
-                        fontSize = config.fontSize,
-                        autoFit = config.autoFontSize,
-                        textColor = config.textColor,
-                        bgColor = config.bgColor,
-                        useOriginalText = true
-                    )
-                }
-                withContext(Dispatchers.Main) {
-                    if (!isResultShowing || !copyOriginalMode) return@withContext
-                    if (cacheOverlayContainer != null) {
-                        (cacheOverlayContainer!!.getChildAt(0) as? ImageView)?.setImageBitmap(originalOverlay)
-                    } else {
-                        resultOverlayImage.setImageBitmap(originalOverlay)
-                    }
-                }
-            } else {
-                // 译文模式：恢复译文 overlay
-                val translated = currentTranslatedOverlay ?: return@launch
-                withContext(Dispatchers.Main) {
-                    if (!isResultShowing || copyOriginalMode) return@withContext
-                    if (cacheOverlayContainer != null) {
-                        (cacheOverlayContainer!!.getChildAt(0) as? ImageView)?.setImageBitmap(translated)
-                    } else {
-                        resultOverlayImage.setImageBitmap(translated)
-                    }
-                }
+            val original = currentOriginalBitmap ?: return@launch
+            val bubbles = currentShowBubbles
+            if (bubbles.isEmpty()) return@launch
+            val overlay = withContext(Dispatchers.Default) {
+                OverlayRenderer.renderOverlay(
+                    original = original,
+                    regions = bubbles,
+                    fontSize = config.fontSize,
+                    autoFit = config.autoFontSize,
+                    textColor = config.textColor,
+                    bgColor = config.bgColor,
+                    useOriginalText = copyOriginalMode
+                )
+            }
+            withContext(Dispatchers.Main) {
+                if (!isResultShowing) return@withContext
+                val target = (cacheOverlayContainer?.getChildAt(0) as? ImageView) ?: resultOverlayImage
+                target.setImageBitmap(overlay)
             }
         }
     }
