@@ -4210,7 +4210,7 @@ class MangaFloatingService : LifecycleService() {
             })
         }
         lslGroup.addView(lslLabel); lslGroup.addView(lslSeek); rowLimit.addView(lslGroup)
-        // limit_type 切换
+        // limit_type：min / max 双按钮
         val ltGroup = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER
@@ -4220,17 +4220,40 @@ class MangaFloatingService : LifecycleService() {
             text = "limit_type"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
         }
-        val ltSwitch = android.widget.Switch(this).apply {
-            isChecked = (prefs.getString("ppocrv6_limit_type", DEF_LIMIT_TYPE) ?: "min") == "min"
-            text = if (isChecked) "min" else "max"
-            setTextColor(android.graphics.Color.WHITE); textSize = 10f
-            setOnCheckedChangeListener { _, isChecked ->
-                val v = if (isChecked) "min" else "max"
-                prefs.setString("ppocrv6_limit_type", v)
+        val ltBtnRow = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
+        val curLimitType = prefs.getString("ppocrv6_limit_type", DEF_LIMIT_TYPE) ?: "min"
+        var ltMaxBtn: android.widget.TextView? = null
+        val ltMinBtn = android.widget.TextView(this).apply {
+            text = "min"
+            textSize = 10f; gravity = android.view.Gravity.CENTER
+            setPadding((4 * dp).toInt(), 2, (4 * dp).toInt(), 2)
+            setTextColor(if (curLimitType == "min") android.graphics.Color.argb(255, 76, 175, 80) else android.graphics.Color.argb(150, 200, 200, 200))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                prefs.setString("ppocrv6_limit_type", "min")
                 PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
+                ltMaxBtn?.setTextColor(android.graphics.Color.argb(150, 200, 200, 200))
             }
         }
-        ltGroup.addView(ltLabel); ltGroup.addView(ltSwitch); rowLimit.addView(ltGroup)
+        ltMaxBtn = android.widget.TextView(this).apply {
+            text = "max"
+            textSize = 10f; gravity = android.view.Gravity.CENTER
+            setPadding((4 * dp).toInt(), 2, (4 * dp).toInt(), 2)
+            setTextColor(if (curLimitType == "max") android.graphics.Color.argb(255, 76, 175, 80) else android.graphics.Color.argb(150, 200, 200, 200))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                prefs.setString("ppocrv6_limit_type", "max")
+                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
+                ltMinBtn.setTextColor(android.graphics.Color.argb(150, 200, 200, 200))
+            }
+        }
+        ltBtnRow.addView(ltMinBtn); ltBtnRow.addView(ltMaxBtn!!)
+        ltGroup.addView(ltLabel); ltGroup.addView(ltBtnRow); rowLimit.addView(ltGroup)
         outerPanel.addView(rowLimit)
 
         // ── 第四行：max_side_len + min_side_len ──
@@ -4365,7 +4388,7 @@ class MangaFloatingService : LifecycleService() {
         whrGroup.addView(whrLabel); whrGroup.addView(whrSeek); rowFilter.addView(whrGroup)
         outerPanel.addView(rowFilter)
 
-        // ── 第六行：max_candidates + score_mode ──
+        // ── 第六行：max_candidates ──
         val rowCand = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -4401,27 +4424,6 @@ class MangaFloatingService : LifecycleService() {
             })
         }
         mcGroup.addView(mcLabel); mcGroup.addView(mcSeek); rowCand.addView(mcGroup)
-        // score_mode 切换
-        val smGroup = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f)
-        }
-        val smLabel = android.widget.TextView(this).apply {
-            text = "score_mode"
-            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
-        }
-        val smSwitch = android.widget.Switch(this).apply {
-            isChecked = (prefs.getString("ppocrv6_score_mode", DEF_SCORE_MODE) ?: "fast") == "fast"
-            text = if (isChecked) "fast" else "slow"
-            setTextColor(android.graphics.Color.WHITE); textSize = 10f
-            setOnCheckedChangeListener { _, isChecked ->
-                val v = if (isChecked) "fast" else "slow"
-                prefs.setString("ppocrv6_score_mode", v)
-                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
-            }
-        }
-        smGroup.addView(smLabel); smGroup.addView(smSwitch); rowCand.addView(smGroup)
         outerPanel.addView(rowCand)
 
         // ── 第七行：use_dilation + 合并参数滑块（距离门控）──
@@ -4591,7 +4593,6 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE)
                 prefs.setString("ppocrv6_limit_type", DEF_LIMIT_TYPE)
                 prefs.setBoolean("ppocrv6_use_dilation", DEF_USE_DILATION)
-                prefs.setString("ppocrv6_score_mode", DEF_SCORE_MODE)
                 prefs.setInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES)
                 prefs.setInt("ppocrv6_max_side_len", DEF_MAX_SIDE)
                 prefs.setInt("ppocrv6_min_side_len", DEF_MIN_SIDE)
