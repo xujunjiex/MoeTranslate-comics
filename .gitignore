@@ -49,6 +49,9 @@ docs/superpowers/
 CLAUDE.md
 
 # 模型文件 (太大不适合 git)
+# PP-OCRv6 small 内置模型例外
+!app/src/main/assets/ppocrv6/
+!app/src/main/assets/ppocrv6/*.onnx
 app/src/main/assets/**/*.onnx
 app/src/main/assets/**/*.onnx.bak
 app/src/main/assets/**/*.onnx.data
