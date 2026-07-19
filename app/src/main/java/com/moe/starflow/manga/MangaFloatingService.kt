@@ -2869,7 +2869,7 @@ class MangaFloatingService : LifecycleService() {
                     angle = bubble.angle,
                     centerX = bubble.centerX,
                     centerY = bubble.centerY,
-                    fromCache = true
+                    isInMemoryCache = true
                 ))
                 // 更新时间
                 translatedRegions.remove(exactMatch)
@@ -3529,6 +3529,19 @@ class MangaFloatingService : LifecycleService() {
             gravity = Gravity.CENTER
             setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6))
             background = bg
+            isClickable = true
+            isFocusable = true
+            setOnTouchListener { v, event ->
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(80).start()
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                    }
+                }
+                false
+            }
         }
     }
 

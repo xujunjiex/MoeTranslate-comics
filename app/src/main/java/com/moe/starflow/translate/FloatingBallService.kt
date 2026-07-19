@@ -1567,7 +1567,7 @@ class FloatingBallService : LifecycleService() {
                                             statusOverlay.showImmediate("缓存命中")
                                             ballStateManager?.setState(BallStateManager.State.Completed)
                                             composeResultText(ocrDecision.ocrText, dbCache.translatedText)
-                                                ?.let { translationResultView.setText(it, fromCache = true) }
+                                                ?.let { translationResultView.setText(it) }
                                             translationResultView.showCacheIndicator()
                                             lastTranslatedSource = ocrDecision.ocrText
                                             autoTranslateEngine?.onTranslationSuccess(ocrDecision.ocrText, dbCache.translatedText)
@@ -1621,7 +1621,7 @@ class FloatingBallService : LifecycleService() {
                         statusOverlay.show("缓存命中")
                         ballStateManager?.setState(BallStateManager.State.Completed)
                         composeResultText(normalizedTxt, dbCache.translatedText)
-                            ?.let { translationResultView.setText(it, fromCache = true) }
+                            ?.let { translationResultView.setText(it) }
                         translationResultView.showCacheIndicator()
                         lastTranslatedSource = normalizedTxt
                         isTranslating.set(false)

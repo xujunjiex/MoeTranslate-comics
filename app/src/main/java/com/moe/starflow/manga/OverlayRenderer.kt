@@ -28,9 +28,10 @@ object OverlayRenderer {
 
         for (region in sortedRegions) {
             // 实际显示的文字：原文模式用 originalText，否则用译文
+            // 注意：⚡ 标志只用于翻译进程中的内存缓存命中（isInMemoryCache），数据库反序列化的 bubbles 永远不显示 ⚡
             val displayText = if (useOriginalText) {
                 region.originalText
-            } else if (region.fromCache) {
+            } else if (region.isInMemoryCache) {
                 "⚡${region.translatedText}"
             } else {
                 region.translatedText
@@ -156,5 +157,6 @@ data class TranslatedBubble(
     val angle: Float = 0f,
     val centerX: Float = -1f,
     val centerY: Float = -1f,
-    val fromCache: Boolean = false
+    val fromCache: Boolean = false,  // true = 来自数据库反序列化（不进 ⚡）
+    val isInMemoryCache: Boolean = false  // true = 来自内存 translatedRegions 命中（显示 ⚡）
 )

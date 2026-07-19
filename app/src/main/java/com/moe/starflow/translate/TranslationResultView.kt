@@ -201,7 +201,7 @@ class TranslationResultView(
         textView.text = text
     }
 
-    fun setText(text: String, fromCache: Boolean) {
+    fun setText(text: String, fromCache: Boolean = false) {
         textView.text = if (fromCache) "⚡$text" else text
     }
 
