@@ -606,17 +606,36 @@ class HistoryFragment : Fragment() {
                         zos.closeEntry()
                     }
                 }
+                LogCollector.d(TAG, "zip created at ${zipFile.absolutePath} size=${zipFile.length()}B")
                 tempDir.deleteRecursively()
 
                 withContext(Dispatchers.Main) {
-                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/zip"
-                        putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.zip")
+                    // 直接复制到 Download 公共目录，绕过 SAF（SAF 写入时似乎丢数据）
+                    try {
+                        val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS
+                        )
+                        val targetFile = File(downloadDir, "session_${session.sessionId.take(8)}.zip")
+                        zipFile.inputStream().use { input ->
+                            targetFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        LogCollector.d(TAG, "zip copied to ${targetFile.absolutePath} size=${targetFile.length()}B")
+                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "已保存到 Download/${targetFile.name}")
+                        zipFile.delete()
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "Download to public failed, fallback to SAF", e)
+                        // fallback: SAF
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/zip"
+                            putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.zip")
+                        }
+                        pendingDownloadZip = zipFile
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQUEST_DOWNLOAD_ZIP)
                     }
-                    pendingDownloadZip = zipFile
-                    @Suppress("DEPRECATION")
-                    startActivityForResult(intent, REQUEST_DOWNLOAD_ZIP)
                 }
             }
         } catch (e: Exception) {
@@ -701,9 +720,11 @@ class HistoryFragment : Fragment() {
                     try {
                         withContext(Dispatchers.IO) {
                             pendingDownloadZip?.let { zip ->
+                                LogCollector.d(TAG, "zip saved uri=$uri, zipFile=${zip.absolutePath} size=${zip.length()}")
                                 requireContext().contentResolver.openOutputStream(uri)?.use { out ->
                                     zip.inputStream().use { it.copyTo(out) }
                                 }
+                                LogCollector.d(TAG, "zip copied to uri, deleting temp file")
                                 zip.delete()
                             }
                         }
