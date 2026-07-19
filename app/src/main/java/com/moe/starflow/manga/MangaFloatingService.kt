@@ -4062,9 +4062,9 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sliders1 = listOf(
-            Triple("二值化阈值", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
-            Triple("检测置信度", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
-            Triple("扩展比例", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
+            Triple("thresh\n二值化", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
+            Triple("box_thresh\n检测置信度", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
+            Triple("unclip_ratio\n扩展比例", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
         )
         val saveFns1: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_det_thresh", seekToDetThresh(v)) },
@@ -4124,8 +4124,8 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sliders2 = listOf(
-            Triple("识别置信度", textToSeek(prefs.getFloat("ppocrv6_text_score", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) }),
-            Triple("批处理数", batchToSeek(prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH)), { v: Int -> "${seekToBatch(v)}" })
+            Triple("text_score\n识别置信度", textToSeek(prefs.getFloat("ppocrv6_text_score", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) }),
+            Triple("rec_batch_num\n批处理数", batchToSeek(prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH)), { v: Int -> "${seekToBatch(v)}" })
         )
         val saveFns2: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_text_score", seekToText(v)) },
@@ -4190,7 +4190,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val lslLabel = android.widget.TextView(this).apply {
-            text = "限制边长\n${seekToLimitSide(lslSeekInit)}"
+            text = "limit_side_len\n${seekToLimitSide(lslSeekInit)}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val lslSeek = android.widget.SeekBar(this).apply {
@@ -4200,7 +4200,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = seekToLimitSide(progress)
-                        lslLabel.text = "限制边长\n${v}"
+                        lslLabel.text = "limit_side_len\n${v}"
                         prefs.setInt("ppocrv6_limit_side_len", v)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4217,7 +4217,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f)
         }
         val ltLabel = android.widget.TextView(this).apply {
-            text = "限制策略"
+            text = "limit_type"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
         }
         val ltSwitch = android.widget.Switch(this).apply {
@@ -4249,7 +4249,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val maxslLabel = android.widget.TextView(this).apply {
-            text = "全局最长边\n${seekToMaxSide(maxslSeekInit)}"
+            text = "max_side_len\n${seekToMaxSide(maxslSeekInit)}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val maxslSeek = android.widget.SeekBar(this).apply {
@@ -4259,7 +4259,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = seekToMaxSide(progress)
-                        maxslLabel.text = "全局最长边\n${v}"
+                        maxslLabel.text = "max_side_len\n${v}"
                         prefs.setInt("ppocrv6_max_side_len", v)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4277,7 +4277,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val minslLabel = android.widget.TextView(this).apply {
-            text = "全局最短边\n${seekToMinSide(minslSeekInit)}"
+            text = "min_side_len\n${seekToMinSide(minslSeekInit)}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val minslSeek = android.widget.SeekBar(this).apply {
@@ -4287,7 +4287,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = seekToMinSide(progress)
-                        minslLabel.text = "全局最短边\n${v}"
+                        minslLabel.text = "min_side_len\n${v}"
                         prefs.setInt("ppocrv6_min_side_len", v)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4315,7 +4315,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val mhLabel = android.widget.TextView(this).apply {
-            text = "最小高度\n${seekToMinH(mhSeekInit)}"
+            text = "min_height\n${seekToMinH(mhSeekInit)}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val mhSeek = android.widget.SeekBar(this).apply {
@@ -4325,7 +4325,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = seekToMinH(progress)
-                        mhLabel.text = "最小高度\n${v}"
+                        mhLabel.text = "min_height\n${v}"
                         prefs.setInt("ppocrv6_min_height", v)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4343,7 +4343,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val whrLabel = android.widget.TextView(this).apply {
-            text = "宽高比限制\n${String.format("%.1f", seekToWhRatio(whrSeekInit))}"
+            text = "width_height_ratio\n${String.format("%.1f", seekToWhRatio(whrSeekInit))}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val whrSeek = android.widget.SeekBar(this).apply {
@@ -4353,7 +4353,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = seekToWhRatio(progress)
-                        whrLabel.text = "宽高比限制\n${String.format("%.1f", v)}"
+                        whrLabel.text = "width_height_ratio\n${String.format("%.1f", v)}"
                         prefs.setFloat("ppocrv6_width_height_ratio", v)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4381,7 +4381,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val mcLabel = android.widget.TextView(this).apply {
-            text = "候选框上限\n${seekToMaxCand(mcSeekInit)}"
+            text = "max_candidates\n${seekToMaxCand(mcSeekInit)}"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val mcSeek = android.widget.SeekBar(this).apply {
@@ -4391,7 +4391,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val v = seekToMaxCand(progress)
-                        mcLabel.text = "候选框上限\n${v}"
+                        mcLabel.text = "max_candidates\n${v}"
                         prefs.setInt("ppocrv6_max_candidates", v)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4408,7 +4408,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f)
         }
         val smLabel = android.widget.TextView(this).apply {
-            text = "评分模式"
+            text = "score_mode"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
         }
         val smSwitch = android.widget.Switch(this).apply {
@@ -4439,7 +4439,7 @@ class MangaFloatingService : LifecycleService() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
         }
         val dilLabel = android.widget.TextView(this).apply {
-            text = "膨胀"
+            text = "use_dilation"
             setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
         }
         val dilSwitch = android.widget.Switch(this).apply {
@@ -4617,7 +4617,17 @@ class MangaFloatingService : LifecycleService() {
         row5.addView(resetBtn)
         outerPanel.addView(row5)
 
-        return outerPanel
+        // 包裹 ScrollView：内容过多可滚动，避免遮挡全屏
+        val scrollView = android.widget.ScrollView(this).apply {
+            addView(outerPanel)
+            isVerticalScrollBarEnabled = true
+            // 限制高度为屏幕的 50%
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                (resources.displayMetrics.heightPixels * 0.5).toInt()
+            )
+        }
+        return scrollView
     }
 
     /**
@@ -5573,11 +5583,9 @@ class MangaFloatingService : LifecycleService() {
         }
         val infoPanel = createInfoPanelView(infoLines, scrollable = true)
 
-        // 创建可折叠内容容器：参数滑块 + 调试信息
-        // 外层 ScrollView：内容过多时滚动，不遮挡全屏
+        // 创建可折叠内容容器：参数滑块 + 调试信息（外层 ScrollView，限制高度）
         val foldableContent = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
-            setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
         }
         // 参数滑块（带恢复默认按钮）— v6 使用独立参数
         val slidersView = createPPOcrV6ParamSlidersView()
@@ -5591,19 +5599,14 @@ class MangaFloatingService : LifecycleService() {
             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        val scrollWrapper = android.widget.ScrollView(this).apply {
-            addView(foldableContent)
-            isVerticalScrollBarEnabled = true
-        }
-        val maxH = (resources.displayMetrics.heightPixels * 0.55).toInt()
         val foldableParams = android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            maxH
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = android.view.Gravity.BOTTOM
         }
-        container.addView(scrollWrapper, foldableParams)
-        debugInfoPanelContentView = scrollWrapper  // 折叠时隐藏整个内容区
+        container.addView(foldableContent, foldableParams)
+        debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
 
         // 添加右下角展开/折叠按钮
         val toggleButton = createToggleButton()
