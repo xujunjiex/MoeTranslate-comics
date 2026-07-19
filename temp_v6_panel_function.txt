@@ -1,0 +1,42 @@
+private fun createPPOcrV6ParamSlidersView(): android.view.View {
+        val dp = resources.displayMetrics.density
+
+        // 默认值（与 PPOcrV6Engine.refreshParams 默认值一致）
+        val DEF_DET_THRESH = 0.3f; val DEF_BOX = 0.5f; val DEF_UNCLIP = 1.6f
+        val DEF_TEXT = 0.5f; val DEF_BATCH = 6
+        val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
+        val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
+        // v6 新增参数默认值（对齐 RapidOCR 官方）
+        val DEF_LIMIT_SIDE = 736; val DEF_LIMIT_TYPE = "min"
+        val DEF_USE_DILATION = true; val DEF_SCORE_MODE = "fast"; val DEF_MAX_CANDIDATES = 1000
+        val DEF_MAX_SIDE = 2000; val DEF_MIN_SIDE = 30
+        val DEF_MIN_HEIGHT = 30; val DEF_WH_RATIO = 8f
+
+        // 滑块范围映射
+        fun detThreshToSeek(v: Float) = ((v - 0.1f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun seekToDetThresh(v: Int) = 0.1f + v / 100f * 0.4f
+        fun boxToSeek(v: Float) = ((v - 0.01f) / 0.69f * 100).toInt().coerceIn(0, 100)
+        fun seekToBox(v: Int) = 0.01f + v / 100f * 0.69f
+        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).toInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
+        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
+        fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
+        fun batchToSeek(v: Int) = ((v - 1) * 100 / 11).coerceIn(0, 100)
+        fun seekToBatch(v: Int) = 1 + v * 11 / 100
+        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
+        fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
+        fun mGapToSeek(v: Float) = ((v - 0.5f) / 4.5f * 100).toInt().coerceIn(0, 100)
+        fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
+        // v6 新增滑块范围映射
+        fun limitSideToSeek(v: Int) = ((v - 64) * 100 / (2048 - 64)).coerceIn(0, 100)
+        fun seekToLimitSide(v: Int) = 64 + v * (2048 - 64) / 100
+        fun maxSideToSeek(v: Int) = ((v - 400) * 100 / 3600).coerceIn(0, 100)
+        fun seekToMaxSide(v: Int) = 400 + v * 3600 / 100
+        fun minSideToSeek(v: Int) = ((v - 10) * 100 / 390).coerceIn(0, 100)
+        fun seekToMinSide(v: Int) = 10 + v * 390 / 100
+        fun minHToSeek(v: Int) = ((v - 10) * 100 / 190).coerceIn(0, 100)
+        fun seekToMinH(v: Int) = 10 + v * 190 / 100
+        fun whRatioToSeek(v: Float) = ((v - 2f) / 30f * 100).toInt().coerceIn(0, 100)
+        fun seekToWhRatio(v: Int) = 2f + v / 100f * 30f
+        fun maxCandToSeek(v: Int) = ((v - 50) * 100 / 1950).coerceIn(0, 100)
+        fun seekToMaxCand(v: Int) = 50 + v * 1950 / 100

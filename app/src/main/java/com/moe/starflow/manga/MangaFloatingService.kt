@@ -4000,6 +4000,11 @@ class MangaFloatingService : LifecycleService() {
         val DEF_TEXT = 0.5f; val DEF_BATCH = 6
         val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
         val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
+        // v6 新增参数默认值（对齐 RapidOCR 官方）
+        val DEF_LIMIT_SIDE = 736; val DEF_LIMIT_TYPE = "min"
+        val DEF_USE_DILATION = true; val DEF_SCORE_MODE = "fast"; val DEF_MAX_CANDIDATES = 1000
+        val DEF_MAX_SIDE = 2000; val DEF_MIN_SIDE = 30
+        val DEF_MIN_HEIGHT = 30; val DEF_WH_RATIO = 8f
 
         // 滑块范围映射
         fun detThreshToSeek(v: Float) = ((v - 0.1f) / 0.4f * 100).toInt().coerceIn(0, 100)
@@ -4016,6 +4021,19 @@ class MangaFloatingService : LifecycleService() {
         fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
         fun mGapToSeek(v: Float) = ((v - 0.5f) / 4.5f * 100).toInt().coerceIn(0, 100)
         fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
+        // v6 新增滑块范围映射
+        fun limitSideToSeek(v: Int) = ((v - 64) * 100 / (2048 - 64)).coerceIn(0, 100)
+        fun seekToLimitSide(v: Int) = 64 + v * (2048 - 64) / 100
+        fun maxSideToSeek(v: Int) = ((v - 400) * 100 / 3600).coerceIn(0, 100)
+        fun seekToMaxSide(v: Int) = 400 + v * 3600 / 100
+        fun minSideToSeek(v: Int) = ((v - 10) * 100 / 390).coerceIn(0, 100)
+        fun seekToMinSide(v: Int) = 10 + v * 390 / 100
+        fun minHToSeek(v: Int) = ((v - 10) * 100 / 190).coerceIn(0, 100)
+        fun seekToMinH(v: Int) = 10 + v * 190 / 100
+        fun whRatioToSeek(v: Float) = ((v - 2f) / 30f * 100).toInt().coerceIn(0, 100)
+        fun seekToWhRatio(v: Int) = 2f + v / 100f * 30f
+        fun maxCandToSeek(v: Int) = ((v - 50) * 100 / 1950).coerceIn(0, 100)
+        fun seekToMaxCand(v: Int) = 50 + v * 1950 / 100
 
         // 外层垂直容器
         val outerPanel = android.widget.LinearLayout(this).apply {
@@ -4155,15 +4173,283 @@ class MangaFloatingService : LifecycleService() {
         }
         outerPanel.addView(row2)
 
-        // ── 第三行：合并参数滑块（距离门控）──
-        val rowMerge = android.widget.LinearLayout(this).apply {
+        // ── 第三行：limit_side_len + limit_type ──
+        val rowLimit = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (4 * dp).toInt() }
         }
+        // limit_side_len 滑块
+        val lslSeekInit = limitSideToSeek(prefs.getInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE))
+        val lslGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val lslLabel = android.widget.TextView(this).apply {
+            text = "限制边长\n${seekToLimitSide(lslSeekInit)}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val lslSeek = android.widget.SeekBar(this).apply {
+            max = 100; progress = lslSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToLimitSide(progress)
+                        lslLabel.text = "限制边长\n${v}"
+                        prefs.setInt("ppocrv6_limit_side_len", v)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        lslGroup.addView(lslLabel); lslGroup.addView(lslSeek); rowLimit.addView(lslGroup)
+        // limit_type 切换
+        val ltGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f)
+        }
+        val ltLabel = android.widget.TextView(this).apply {
+            text = "限制策略"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
+        }
+        val ltSwitch = android.widget.Switch(this).apply {
+            isChecked = (prefs.getString("ppocrv6_limit_type", DEF_LIMIT_TYPE) ?: "min") == "min"
+            text = if (isChecked) "min" else "max"
+            setTextColor(android.graphics.Color.WHITE); textSize = 10f
+            setOnCheckedChangeListener { _, isChecked ->
+                val v = if (isChecked) "min" else "max"
+                prefs.setString("ppocrv6_limit_type", v)
+                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+            }
+        }
+        ltGroup.addView(ltLabel); ltGroup.addView(ltSwitch); rowLimit.addView(ltGroup)
+        outerPanel.addView(rowLimit)
 
+        // ── 第四行：max_side_len + min_side_len ──
+        val rowGlobalSide = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        // max_side_len 滑块
+        val maxslSeekInit = maxSideToSeek(prefs.getInt("ppocrv6_max_side_len", DEF_MAX_SIDE))
+        val maxslGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val maxslLabel = android.widget.TextView(this).apply {
+            text = "全局最长边\n${seekToMaxSide(maxslSeekInit)}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val maxslSeek = android.widget.SeekBar(this).apply {
+            max = 100; progress = maxslSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToMaxSide(progress)
+                        maxslLabel.text = "全局最长边\n${v}"
+                        prefs.setInt("ppocrv6_max_side_len", v)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        maxslGroup.addView(maxslLabel); maxslGroup.addView(maxslSeek); rowGlobalSide.addView(maxslGroup)
+        // min_side_len 滑块
+        val minslSeekInit = minSideToSeek(prefs.getInt("ppocrv6_min_side_len", DEF_MIN_SIDE))
+        val minslGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val minslLabel = android.widget.TextView(this).apply {
+            text = "全局最短边\n${seekToMinSide(minslSeekInit)}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val minslSeek = android.widget.SeekBar(this).apply {
+            max = 100; progress = minslSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToMinSide(progress)
+                        minslLabel.text = "全局最短边\n${v}"
+                        prefs.setInt("ppocrv6_min_side_len", v)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        minslGroup.addView(minslLabel); minslGroup.addView(minslSeek); rowGlobalSide.addView(minslGroup)
+        outerPanel.addView(rowGlobalSide)
+
+        // ── 第五行：min_height + width_height_ratio ──
+        val rowFilter = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        // min_height 滑块
+        val mhSeekInit = minHToSeek(prefs.getInt("ppocrv6_min_height", DEF_MIN_HEIGHT))
+        val mhGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val mhLabel = android.widget.TextView(this).apply {
+            text = "最小高度\n${seekToMinH(mhSeekInit)}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val mhSeek = android.widget.SeekBar(this).apply {
+            max = 100; progress = mhSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToMinH(progress)
+                        mhLabel.text = "最小高度\n${v}"
+                        prefs.setInt("ppocrv6_min_height", v)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        mhGroup.addView(mhLabel); mhGroup.addView(mhSeek); rowFilter.addView(mhGroup)
+        // width_height_ratio 滑块
+        val whrSeekInit = whRatioToSeek(prefs.getFloat("ppocrv6_width_height_ratio", DEF_WH_RATIO))
+        val whrGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val whrLabel = android.widget.TextView(this).apply {
+            text = "宽高比限制\n${String.format("%.1f", seekToWhRatio(whrSeekInit))}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val whrSeek = android.widget.SeekBar(this).apply {
+            max = 100; progress = whrSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToWhRatio(progress)
+                        whrLabel.text = "宽高比限制\n${String.format("%.1f", v)}"
+                        prefs.setFloat("ppocrv6_width_height_ratio", v)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        whrGroup.addView(whrLabel); whrGroup.addView(whrSeek); rowFilter.addView(whrGroup)
+        outerPanel.addView(rowFilter)
+
+        // ── 第六行：max_candidates + score_mode ──
+        val rowCand = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        // max_candidates 滑块
+        val mcSeekInit = maxCandToSeek(prefs.getInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES))
+        val mcGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val mcLabel = android.widget.TextView(this).apply {
+            text = "候选框上限\n${seekToMaxCand(mcSeekInit)}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val mcSeek = android.widget.SeekBar(this).apply {
+            max = 100; progress = mcSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToMaxCand(progress)
+                        mcLabel.text = "候选框上限\n${v}"
+                        prefs.setInt("ppocrv6_max_candidates", v)
+                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        mcGroup.addView(mcLabel); mcGroup.addView(mcSeek); rowCand.addView(mcGroup)
+        // score_mode 切换
+        val smGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f)
+        }
+        val smLabel = android.widget.TextView(this).apply {
+            text = "评分模式"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
+        }
+        val smSwitch = android.widget.Switch(this).apply {
+            isChecked = (prefs.getString("ppocrv6_score_mode", DEF_SCORE_MODE) ?: "fast") == "fast"
+            text = if (isChecked) "fast" else "slow"
+            setTextColor(android.graphics.Color.WHITE); textSize = 10f
+            setOnCheckedChangeListener { _, isChecked ->
+                val v = if (isChecked) "fast" else "slow"
+                prefs.setString("ppocrv6_score_mode", v)
+                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+            }
+        }
+        smGroup.addView(smLabel); smGroup.addView(smSwitch); rowCand.addView(smGroup)
+        outerPanel.addView(rowCand)
+
+        // ── 第七行：use_dilation + 合并参数滑块（距离门控）──
+        val row7 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        // use_dilation 开关
+        val dilGroup = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
+        }
+        val dilLabel = android.widget.TextView(this).apply {
+            text = "膨胀"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
+        }
+        val dilSwitch = android.widget.Switch(this).apply {
+            isChecked = prefs.getBoolean("ppocrv6_use_dilation", DEF_USE_DILATION)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.setBoolean("ppocrv6_use_dilation", isChecked)
+                PPOcrV6Engine.refreshParams(this@MangaFloatingService)
+            }
+        }
+        dilGroup.addView(dilLabel); dilGroup.addView(dilSwitch); row7.addView(dilGroup)
+        // 合并参数：距离门控
         data class MergeSliderRef(
             val label: android.widget.TextView,
             val seekBar: android.widget.SeekBar,
@@ -4181,17 +4467,11 @@ class MangaFloatingService : LifecycleService() {
         }
         val mergeLabel = android.widget.TextView(this).apply {
             text = "距离门控\n${String.format("%.1f", mSeekToGap(mergeSeekInit))}"
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = 11f
-            gravity = android.view.Gravity.CENTER
-            maxLines = 2
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
         }
         val mergeSeek = android.widget.SeekBar(this).apply {
-            max = 100
-            progress = mergeSeekInit
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt()
-            )
+            max = 100; progress = mergeSeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
@@ -4208,12 +4488,10 @@ class MangaFloatingService : LifecycleService() {
         mergeSliderRefs.add(MergeSliderRef(mergeLabel, mergeSeek, "距离门控",
             { v: Int -> String.format("%.1f", mSeekToGap(v)) },
             { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextRegionMerger.refreshParams(this) }))
-        mergeGroup.addView(mergeLabel)
-        mergeGroup.addView(mergeSeek)
-        rowMerge.addView(mergeGroup)
-        outerPanel.addView(rowMerge)
+        mergeGroup.addView(mergeLabel); mergeGroup.addView(mergeSeek); row7.addView(mergeGroup)
+        outerPanel.addView(row7)
 
-        // ── 第四行：大框过滤开关 ──
+        // ── 第八行：大框过滤开关 ──
         val row3 = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
@@ -4308,6 +4586,16 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setInt("ppocrv6_rec_batch_num", DEF_BATCH)
                 prefs.setBoolean("ppocrv6_large_box_enabled", DEF_LARGE_ENABLED)
                 prefs.setFloat("ppocrv6_large_box_ratio", DEF_LARGE_RATIO)
+                // 新增参数
+                prefs.setInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE)
+                prefs.setString("ppocrv6_limit_type", DEF_LIMIT_TYPE)
+                prefs.setBoolean("ppocrv6_use_dilation", DEF_USE_DILATION)
+                prefs.setString("ppocrv6_score_mode", DEF_SCORE_MODE)
+                prefs.setInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES)
+                prefs.setInt("ppocrv6_max_side_len", DEF_MAX_SIDE)
+                prefs.setInt("ppocrv6_min_side_len", DEF_MIN_SIDE)
+                prefs.setInt("ppocrv6_min_height", DEF_MIN_HEIGHT)
+                prefs.setFloat("ppocrv6_width_height_ratio", DEF_WH_RATIO)
                 PPOcrV6Engine.refreshParams(this@MangaFloatingService)
 
                 // 更新 UI

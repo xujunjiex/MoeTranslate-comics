@@ -51,7 +51,7 @@ object PPOcrV6Engine {
     private const val DET_THRESH = 0.3f               // was 0.1f
     private const val DET_BOX_THRESH_DEFAULT = 0.5f   // was 0.3f
     private const val DET_UNCLIP_RATIO_DEFAULT = 1.6  // same
-    private const val DET_MAX_CANDIDATES = 100         // same
+    private const val DET_MAX_CANDIDATES_DEFAULT = 1000  // was 100; 对齐 RapidOCR v6 默认值
     private const val DET_MIN_SIZE = 3                 // same
 
     // cls removed — direction classification is no longer used
@@ -82,6 +82,16 @@ object PPOcrV6Engine {
     @Volatile private var largeBoxEnabled = false
     @Volatile private var largeBoxRatio = 0.6f  // 宽/高/面积占图片比例阈值
 
+    // v6 新增可调参数（对齐 RapidOCR 官方参数表）
+    // 参考: https://rapidai.github.io/RapidOCRDocs/latest/install_usage/rapidocr/parameters/
+    @Volatile private var useDilation = true           // Det.use_dilation
+    @Volatile private var scoreMode = "fast"           // Det.score_mode: "fast" | "slow"
+    @Volatile private var maxCandidates = DET_MAX_CANDIDATES_DEFAULT  // Det.max_candidates (默认 1000)
+    @Volatile private var maxSideLen = 2000            // Global.max_side_len (px)
+    @Volatile private var minSideLen = 30              // Global.min_side_len (px)
+    @Volatile private var minHeight = 30               // Global.min_height (px)
+    @Volatile private var widthHeightRatio = 8f        // Global.width_height_ratio (-1 不启用)
+
     /**
      * 从 SharedPreferences 刷新可调参数。
      * 在每次 OCR 前调用，确保用户调整的滑块立即生效。
@@ -97,6 +107,15 @@ object PPOcrV6Engine {
         recBatchNum = prefs.getInt("ppocrv6_rec_batch_num", 6)
         largeBoxEnabled = prefs.getBoolean("ppocrv6_large_box_enabled", false)
         largeBoxRatio = prefs.getFloat("ppocrv6_large_box_ratio", 0.6f)
+
+        // v6 新增参数
+        useDilation = prefs.getBoolean("ppocrv6_use_dilation", true)
+        scoreMode = prefs.getString("ppocrv6_score_mode", "fast") ?: "fast"
+        maxCandidates = prefs.getInt("ppocrv6_max_candidates", DET_MAX_CANDIDATES_DEFAULT)
+        maxSideLen = prefs.getInt("ppocrv6_max_side_len", 2000)
+        minSideLen = prefs.getInt("ppocrv6_min_side_len", 30)
+        minHeight = prefs.getInt("ppocrv6_min_height", 30)
+        widthHeightRatio = prefs.getFloat("ppocrv6_width_height_ratio", 8f)
     }
 
     // -----------------------------------------------------------------------
@@ -267,9 +286,28 @@ object PPOcrV6Engine {
         val srcH = bitmap.height
         val srcW = bitmap.width
 
-        // 1. 计算缩放 — 使用可调字段
+        // Step 0: 全局缩放（Global.max_side_len / Global.min_side_len）
+        // 在 Det.limit_side_len 之前独立应用，对齐 RapidOCR 行为
         var resizeH = srcH
         var resizeW = srcW
+
+        // max_side_len: 输入图像最大边超过此值时，按宽高比等比缩放至该值
+        val maxSide = max(resizeH, resizeW).toFloat()
+        if (maxSide > maxSideLen) {
+            val ratio = maxSideLen.toFloat() / maxSide
+            resizeH = (resizeH * ratio).roundToInt()
+            resizeW = (resizeW * ratio).roundToInt()
+        }
+
+        // min_side_len: 输入图像最小边小于此值时，按宽高比等比缩放至该值
+        val minSide = min(resizeH, resizeW).toFloat()
+        if (minSide < minSideLen) {
+            val ratio = minSideLen.toFloat() / minSide
+            resizeH = (resizeH * ratio).roundToInt()
+            resizeW = (resizeW * ratio).roundToInt()
+        }
+
+        // 1. 计算缩放 — 使用可调字段
         val sideLen = limitSideLen
 
         val ratio: Float
@@ -347,15 +385,24 @@ object PPOcrV6Engine {
             cBitmap.setPixel(i % predW, i / predW, v)
         }
 
+        // use_dilation: 形态学膨胀处理
+        // 对应 RapidOCR Det.use_dilation：是否对检测到的文本区域做形态学膨胀处理
+        var maskBitmap = cBitmap
+        if (useDilation) {
+            val dilated = dilateMask(maskBitmap, predW, predH)
+            maskBitmap.recycle()
+            maskBitmap = dilated
+        }
+
         // 2. BFS 连通域
-        val contours = findContours(cBitmap, predW, predH)
-        cBitmap.recycle()
+        val contours = findContours(maskBitmap, predW, predH)
+        maskBitmap.recycle()
 
         if (contours.isEmpty()) return BoxScoreResult(emptyList(), emptyList())
 
-        // 3. 限制候选数量
-        val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
-            contours.sortedByDescending { it.size }.take(DET_MAX_CANDIDATES)
+        // 3. 限制候选数量 — 使用可调字段
+        val limitedContours = if (contours.size > maxCandidates) {
+            contours.sortedByDescending { it.size }.take(maxCandidates)
         } else {
             contours
         }
@@ -370,9 +417,13 @@ object PPOcrV6Engine {
             if (boxPoints == null) continue
             if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
 
-            // 概率评分
+            // 概率评分 — 使用可调字段 score_mode
             val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
-            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            val score = if (scoreMode == "slow") {
+                GeometryUtils.boxScoreSlow(pred, predW, predH, boxCoords)
+            } else {
+                GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            }
 
             // box_thresh 过滤：低于阈值的候选框直接跳过
             if (score < detBoxThresh) continue
@@ -934,8 +985,23 @@ object PPOcrV6Engine {
         refreshParams(context)
         val t0 = System.currentTimeMillis()
 
+        // min_height + width_height_ratio 预检查
+        // 对应 RapidOCR Global.min_height + Global.width_height_ratio：
+        // 低于最小高度 + 宽高比过大时跳过检测，直接全图识别（单行文本加速）
+        // width_height_ratio = -1 时不启用此过滤
+        val effectiveUseDet = if (!useDet) {
+            false
+        } else if (minHeight > 0 && bitmap.height < minHeight
+            && (widthHeightRatio < 0 || bitmap.width.toFloat() / bitmap.height > widthHeightRatio)
+        ) {
+            LogCollector.d(TAG, "跳过检测: h=${bitmap.height}<${minHeight}, whRatio=${"%.1f".format(bitmap.width.toFloat() / bitmap.height)}>${widthHeightRatio}")
+            false
+        } else {
+            true
+        }
+
         // 1. Det
-        val (boxes, detTime) = if (useDet && detSession != null) {
+        val (boxes, detTime) = if (effectiveUseDet && detSession != null) {
             val dt = System.currentTimeMillis()
             val det = runDet(bitmap)
             Pair(det, System.currentTimeMillis() - dt)
@@ -1194,6 +1260,13 @@ object PPOcrV6Engine {
         if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
         refreshParams(context)
 
+        // min_height + width_height_ratio 预检查
+        if (minHeight > 0 && bitmap.height < minHeight
+            && (widthHeightRatio < 0 || bitmap.width.toFloat() / bitmap.height > widthHeightRatio)
+        ) {
+            return DebugDetResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        }
+
         val (input, detH, detW) = preprocessDet(bitmap)
         val buffer = FloatBuffer.wrap(input)
         val inputTensor = OnnxTensor.createTensor(
@@ -1239,22 +1312,30 @@ object PPOcrV6Engine {
         srcH: Int,
         srcW: Int
     ): DebugDetResult {
-        // 1. 阈值化（使用调试阈值 0.05，远低于正常 0.3）
+        // 1. 阈值化（使用调试阈值 0.3，与正常模式一致）
         val cBitmap = Bitmap.createBitmap(predW, predH, Bitmap.Config.ARGB_8888)
         for (i in 0 until predH * predW) {
             val v = if (pred[i] > DET_DEBUG_THRESH) Color.WHITE else Color.BLACK
             cBitmap.setPixel(i % predW, i / predW, v)
         }
 
+        // use_dilation: 形态学膨胀处理
+        var maskBitmap = cBitmap
+        if (useDilation) {
+            val dilated = dilateMask(maskBitmap, predW, predH)
+            maskBitmap.recycle()
+            maskBitmap = dilated
+        }
+
         // 2. BFS 连通域
-        val contours = findContours(cBitmap, predW, predH)
-        cBitmap.recycle()
+        val contours = findContours(maskBitmap, predW, predH)
+        maskBitmap.recycle()
 
         if (contours.isEmpty()) return DebugDetResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
 
-        // 3. 限制候选数量
-        val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
-            contours.sortedByDescending { it.size }.take(DET_MAX_CANDIDATES)
+        // 3. 限制候选数量 — 使用可调字段
+        val limitedContours = if (contours.size > maxCandidates) {
+            contours.sortedByDescending { it.size }.take(maxCandidates)
         } else {
             contours
         }
@@ -1272,7 +1353,11 @@ object PPOcrV6Engine {
             if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
 
             val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
-            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            val score = if (scoreMode == "slow") {
+                GeometryUtils.boxScoreSlow(pred, predW, predH, boxCoords)
+            } else {
+                GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            }
 
             // box_thresh 过滤
             if (score < detBoxThresh) {
@@ -1399,6 +1484,55 @@ object PPOcrV6Engine {
             (pts[3].x * ratioW).coerceIn(0f, (srcW - 1).toFloat()),
             (pts[3].y * ratioH).coerceIn(0f, (srcH - 1).toFloat())
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // dilateMask: 形态学膨胀（对应 RapidOCR Det.use_dilation）
+    // -----------------------------------------------------------------------
+
+    /**
+     * 形态学膨胀：对二值 mask 做 3×3 十字核膨胀。
+     * 对应 RapidOCR Det.use_dilation — 是否对检测到的文本区域做形态学膨胀处理。
+     * 白色像素（文字区域）扩展一个邻域，使相邻文字区域合并。
+     *
+     * @param mask 输入二值图（ARGB_8888，仅黑/白）
+     * @param w 宽度
+     * @param h 高度
+     * @return 膨胀后的二值图（新 Bitmap）
+     */
+    private fun dilateMask(mask: Bitmap, w: Int, h: Int): Bitmap {
+        val srcPixels = IntArray(w * h)
+        mask.getPixels(srcPixels, 0, w, 0, 0, w, h)
+
+        val dstPixels = IntArray(w * h)
+        // 4-connected 十字核: 上(-1,0) 下(+1,0) 左(0,-1) 右(0,+1)
+        val dx = intArrayOf(-1, 1, 0, 0)
+        val dy = intArrayOf(0, 0, -1, 1)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val idx = y * w + x
+                // 只要自身或任一邻域是白色，输出就是白色
+                var isWhite = srcPixels[idx] == Color.WHITE
+                if (!isWhite) {
+                    for (d in 0 until 4) {
+                        val nx = x + dx[d]
+                        val ny = y + dy[d]
+                        if (nx in 0 until w && ny in 0 until h) {
+                            if (srcPixels[ny * w + nx] == Color.WHITE) {
+                                isWhite = true
+                                break
+                            }
+                        }
+                    }
+                }
+                dstPixels[idx] = if (isWhite) Color.WHITE else Color.BLACK
+            }
+        }
+
+        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        result.setPixels(dstPixels, 0, w, 0, 0, w, h)
+        return result
     }
 
     // -----------------------------------------------------------------------
