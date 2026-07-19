@@ -747,6 +747,10 @@ class TranslationCacheManager(private val context: Context) {
         dao.getPageCachesByHistoryIds(ids)
     }
 
+    suspend fun getPageCacheByHistoryId(historyId: Long): PageCacheEntity? = withContext(Dispatchers.IO) {
+        dao.findCacheByHistoryId(historyId)
+    }
+
     suspend fun getHistoryById(id: Long): HistoryEntry? = withContext(Dispatchers.IO) {
         dao.getHistoryById(id)?.toHistoryEntry()
     }

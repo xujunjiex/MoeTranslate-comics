@@ -16,6 +16,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import android.app.Activity
 import android.app.AlertDialog
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.google.android.material.tabs.TabLayout
 import com.moe.starflow.R
 import com.moe.starflow.data.HistoryEntry
@@ -526,34 +528,98 @@ class HistoryFragment : Fragment() {
     }
 
     private suspend fun doDownloadSession(session: com.moe.starflow.data.HistorySession) {
-        val paths = session.entries.mapNotNull { it.imagePath }.filter { File(it).exists() }
-        if (paths.isEmpty()) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(requireContext(), "没有可下载的图片", Toast.LENGTH_SHORT).show()
+        // 进度提示
+        val progressDialog = withContext(Dispatchers.Main) {
+            android.app.ProgressDialog(requireContext()).apply {
+                setMessage("正在准备下载...")
+                setCancelable(false)
+                setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL)
+                setMax(session.entries.size)
+                show()
             }
-            return
         }
-        withContext(Dispatchers.IO) {
-            val zipFile = File(requireContext().cacheDir, "session_${session.sessionId}.zip")
-            java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
-                paths.forEachIndexed { idx, path ->
-                    val f = File(path)
-                    if (f.exists()) {
-                        zos.putNextEntry(java.util.zip.ZipEntry("img_${idx}.jpg"))
-                        FileInputStream(f).use { it.copyTo(zos) }
+
+        val config = TranslationCacheManager.OverlayConfig()
+        val tempFiles = mutableListOf<File>()
+        val tempDir = File(requireContext().cacheDir, "download_${System.currentTimeMillis()}").also { it.mkdirs() }
+        var pageIdx = 1
+        var variantIdx = 0
+
+        try {
+            for (entry in session.entries) {
+                val bitmap: Bitmap? = if (entry.bubbleRects.isNullOrBlank()) {
+                    // 旧数据兼容：直接读 imagePath
+                    entry.imagePath?.let { BitmapFactory.decodeFile(it) }
+                } else {
+                    val pageCache = cacheManager.getPageCacheByHistoryId(entry.id)
+                    if (pageCache != null) {
+                        cacheManager.renderOverlay(entry, pageCache, TranslationCacheManager.OverlayMode.TRANSLATED, forFullImage = false, config = config)
+                    } else entry.imagePath?.let { BitmapFactory.decodeFile(it) }
+                }
+
+                if (bitmap != null) {
+                    val isMultiVariant = entry.variantCount > 1
+                    val fileName = if (isMultiVariant) {
+                        if (variantIdx == 0) "page_%02d.jpg".format(pageIdx)
+                        else "page_%02d_v%d.jpg".format(pageIdx, variantIdx + 1)
+                    } else {
+                        "page_%02d.jpg".format(pageIdx)
+                    }
+
+                    val file = File(tempDir, fileName)
+                    FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out) }
+                    tempFiles.add(file)
+                    bitmap.recycle()
+
+                    if (isMultiVariant) {
+                        variantIdx++
+                        if (variantIdx >= entry.variantCount) { pageIdx++; variantIdx = 0 }
+                    } else {
+                        pageIdx++
+                    }
+                }
+
+                withContext(Dispatchers.Main) { progressDialog.progress = tempFiles.size }
+            }
+
+            withContext(Dispatchers.Main) { progressDialog.dismiss() }
+
+            if (tempFiles.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(requireContext(), "没有可下载的图片", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
+
+            withContext(Dispatchers.IO) {
+                val zipFile = File(requireContext().cacheDir, "session_${session.sessionId}.zip")
+                java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+                    for (file in tempFiles) {
+                        zos.putNextEntry(java.util.zip.ZipEntry(file.name))
+                        FileInputStream(file).use { it.copyTo(zos) }
                         zos.closeEntry()
                     }
                 }
-            }
-            withContext(Dispatchers.Main) {
-                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/zip"
-                    putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.zip")
+                tempDir.deleteRecursively()
+
+                withContext(Dispatchers.Main) {
+                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.zip")
+                    }
+                    pendingDownloadZip = zipFile
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(intent, REQUEST_DOWNLOAD_ZIP)
                 }
-                pendingDownloadZip = zipFile
-                @Suppress("DEPRECATION")
-                startActivityForResult(intent, REQUEST_DOWNLOAD_ZIP)
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) { try { progressDialog.dismiss() } catch (_: Exception) {} }
+            tempDir.deleteRecursively()
+            tempFiles.forEach { it.delete() }
+            LogCollector.e(TAG, "Download session failed", e)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "下载失败", Toast.LENGTH_SHORT).show()
             }
         }
     }
