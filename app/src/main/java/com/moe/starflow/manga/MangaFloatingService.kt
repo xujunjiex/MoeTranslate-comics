@@ -5509,7 +5509,7 @@ class MangaFloatingService : LifecycleService() {
             val recDebug = ocrResult.recDebug
             val scoreDisc = recDebug?.discardedReasons?.count { it == "score" } ?: 0
             val contentDisc = recDebug?.discardedReasons?.count { it != "score" } ?: 0
-            val curBox = prefs.getFloat("ppocrv6_det_box_thresh", 0.3f)
+            val curBox = prefs.getFloat("ppocrv6_det_box_thresh", 0.5f)
             val curUnclip = prefs.getFloat("ppocrv6_det_unclip_ratio", 1.6f)
             val curText = prefs.getFloat("ppocrv6_text_score", 0.5f)
             add("PP-OCRv6 调试模式 | det尺寸: ${PPOcrV6Engine.lastDetSize}")
