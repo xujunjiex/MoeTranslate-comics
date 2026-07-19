@@ -17,6 +17,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.moe.starflow.R
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.HistoryEntry
+import com.moe.starflow.data.PageCacheEntity
 import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.databinding.ActivityMangaViewerBinding
 import com.moe.starflow.manga.BubbleRegion
@@ -70,7 +71,8 @@ class MangaViewerActivity : AppCompatActivity() {
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private var isPanelExpanded = false
     private var groupEntryIds: List<Long> = emptyList()
-    private var showingOriginal = false
+    private var overlayState = TranslationCacheManager.OverlayMode.TRANSLATED  // 默认译文
+    private val renderCache = mutableMapOf<String, Bitmap?>()  // key="historyId_mode"
     private var savedClickedEntryId: Long = -1L
     private var savedEntryIds: LongArray? = null
     private var isManageView = false
@@ -120,28 +122,25 @@ class MangaViewerActivity : AppCompatActivity() {
             confirmDeleteCurrentEntry()
         }
 
-        // 原图/译文切换
+        // 三态循环切换：译文 → 原文 → 纯原图
         binding.btnToggleImage.setOnClickListener {
-            showingOriginal = !showingOriginal
-            binding.btnToggleImage.setImageResource(
-                if (showingOriginal) android.R.drawable.ic_menu_gallery
-                else android.R.drawable.ic_menu_camera
-            )
-            val entry = getCurrentVariant()
-            val path = if (showingOriginal) entry.originalImagePath else (entry.imagePath ?: entry.thumbnailPath)
-            if (path != null && java.io.File(path).exists()) {
-                val bmp = android.graphics.BitmapFactory.decodeFile(path)
-                val adapter = binding.viewPager.adapter as? PageGroupAdapter
-                adapter?.setOverrideImage(bmp)
-                adapter?.notifyItemChanged(binding.viewPager.currentItem)
-                // 直接更新当前可见页面的图片（notifyItemChanged 在 ViewPager2 第一页可能不触发 rebind）
-                val recyclerView = binding.viewPager.getChildAt(0) as? RecyclerView
-                val viewHolder = recyclerView?.findViewHolderForAdapterPosition(binding.viewPager.currentItem) as? PageGroupAdapter.ViewHolder
-                if (viewHolder != null) {
-                    viewHolder.imageView.setImageBitmap(bmp)
-                    viewHolder.imageView.resetZoom()
-                }
+            overlayState = when (overlayState) {
+                TranslationCacheManager.OverlayMode.TRANSLATED -> TranslationCacheManager.OverlayMode.ORIGINAL
+                TranslationCacheManager.OverlayMode.ORIGINAL -> TranslationCacheManager.OverlayMode.PLAIN
+                TranslationCacheManager.OverlayMode.PLAIN -> TranslationCacheManager.OverlayMode.TRANSLATED
             }
+            binding.btnToggleImage.setImageResource(when (overlayState) {
+                TranslationCacheManager.OverlayMode.TRANSLATED -> android.R.drawable.ic_menu_camera
+                TranslationCacheManager.OverlayMode.ORIGINAL -> android.R.drawable.ic_menu_gallery
+                TranslationCacheManager.OverlayMode.PLAIN -> android.R.drawable.ic_menu_view
+            })
+            // 清除当前页渲染缓存，触发重新渲染
+            val entry = getCurrentVariant()
+            renderCache.remove("${entry.id}_TRANSLATED")
+            renderCache.remove("${entry.id}_ORIGINAL")
+            renderCache.remove("${entry.id}_PLAIN")
+            val adapter = binding.viewPager.adapter as? PageGroupAdapter
+            adapter?.notifyItemChanged(binding.viewPager.currentItem)
         }
 
         // Variant spinner
@@ -150,13 +149,10 @@ class MangaViewerActivity : AppCompatActivity() {
                 val group = pageGroups.getOrNull(binding.viewPager.currentItem) ?: return
                 val variant = group.variants.getOrNull(position) ?: return
                 activeVariantIds[binding.viewPager.currentItem] = variant.id
-                // 切换尺寸时清除原图覆盖，否则 loadImage 会一直返回 overrideBitmap
-                if (showingOriginal) {
-                    showingOriginal = false
-                    binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
-                    val adapter = binding.viewPager.adapter as? PageGroupAdapter
-                    adapter?.setOverrideImage(null)
-                }
+                // 切换尺寸时重置 overlay 状态为译文
+                overlayState = TranslationCacheManager.OverlayMode.TRANSLATED
+                binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
+                renderCache.clear()
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 adapter?.setActiveVariant(binding.viewPager.currentItem, variant.id)
                 adapter?.notifyItemChanged(binding.viewPager.currentItem)
@@ -274,12 +270,12 @@ class MangaViewerActivity : AppCompatActivity() {
         binding.viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 updatePageIndicator(position)
-                // 翻页时重置原图/译文切换
-                showingOriginal = false
+                // 翻页时重置为译文 overlay
+                overlayState = TranslationCacheManager.OverlayMode.TRANSLATED
                 binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
+                renderCache.clear()
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
-                adapter?.setOverrideImage(null)
-                // 只通知旧页面清除 override（不通知新页面，避免闪屏）
+                // 通知旧页面和新页面重新渲染
                 if (currentPagePosition != position) {
                     adapter?.notifyItemChanged(currentPagePosition)
                 }
@@ -317,8 +313,20 @@ class MangaViewerActivity : AppCompatActivity() {
                 pageGroups.clear()
                 pageGroups.addAll(buildPageGroups(allEntries))
 
+                // 预加载所有 entry 的 PageCacheEntity（用于渲染时获取 crop 坐标）
+                val allIds = allEntries.map { it.id }
+                val pageCaches = cacheManager.getPageCachesByHistoryIds(allIds)
+                val pageCacheMap = pageCaches.associateBy { it.historyId }
+
                 // 设置 ViewPager（每页 = 一个 pHash 组）
-                val adapter = PageGroupAdapter(pageGroups)
+                val adapter = PageGroupAdapter(
+                    pageGroups = pageGroups,
+                    pageCacheMap = pageCacheMap,
+                    renderCache = renderCache,
+                    cacheManager = cacheManager,
+                    getOverlayState = { overlayState },
+                    lifecycleScope = lifecycleScope
+                )
                 binding.viewPager.adapter = adapter
 
                 // 跳转到点击的组
@@ -784,16 +792,18 @@ data class TranslationDetailItem(
 )
 
 /**
- * 每页显示一个 pHash 组的代表图片。
- * 支持 switchCurrentImage 切换当前页的尺寸变体。
+ * 每页显示一个 pHash 组的代表图片。支持三态 overlay 渲染。
  */
 class PageGroupAdapter(
-    private val pageGroups: List<MangaViewerActivity.PageGroup>
+    private val pageGroups: List<MangaViewerActivity.PageGroup>,
+    private val pageCacheMap: Map<Long, PageCacheEntity>,
+    private val renderCache: MutableMap<String, Bitmap?>,
+    private val cacheManager: TranslationCacheManager,
+    private val getOverlayState: () -> TranslationCacheManager.OverlayMode,
+    private val lifecycleScope: kotlinx.coroutines.CoroutineScope
 ) : RecyclerView.Adapter<PageGroupAdapter.ViewHolder>() {
 
-    // 当前每页显示的变体（position → entryId），null 表示用代表条目
     private val activeVariants = mutableMapOf<Int, Long>()
-    private var overrideBitmap: Bitmap? = null
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView: ZoomableImageView = view.findViewById(R.id.ivFullImage)
@@ -818,44 +828,50 @@ class PageGroupAdapter(
 
     override fun getItemCount() = pageGroups.size
 
-    /**
-     * 切换当前 ViewPager 页面的图片（不 notify，直接操作当前 ViewHolder）。
-     */
-    fun updateCurrentImage(entry: HistoryEntry) {
-        // 通过 ViewPager2 找到当前 ViewHolder
-        // ViewPager2 内部用 RecyclerView，但没有直接 API 获取当前 holder
-        // 用 notifyItemChanged 触发重新绑定
-        val position = activeVariants.entries.find { it.value == entry.id }?.key ?: return
-        notifyItemChanged(position)
-    }
-
-    /**
-     * 记录某页的活跃变体。
-     */
     fun setActiveVariant(position: Int, entryId: Long) {
         activeVariants[position] = entryId
     }
 
-    fun setOverrideImage(bitmap: Bitmap?) {
-        overrideBitmap = bitmap
-    }
-
     private fun loadImage(holder: ViewHolder, entry: HistoryEntry) {
-        if (overrideBitmap != null) {
+        val mode = getOverlayState()
+        val cacheKey = "${entry.id}_${mode.name}"
+
+        renderCache[cacheKey]?.let {
             holder.imageView.resetZoom()
-            holder.imageView.setImageBitmap(overrideBitmap)
+            holder.imageView.setImageBitmap(it)
             return
         }
-        val path = entry.imagePath ?: entry.thumbnailPath
-        val isThumbnail = entry.imagePath == null
-        if (path != null && java.io.File(path).exists()) {
-            val bitmap = BitmapFactory.decodeFile(path)
-            LogCollector.d("MangaViewer", "加载图片: ${bitmap.width}x${bitmap.height}, isThumbnail=$isThumbnail, fileSize=${java.io.File(path).length() / 1024}KB")
-            holder.imageView.resetZoom()
-            holder.imageView.setImageBitmap(bitmap)
-        } else {
-            holder.imageView.resetZoom()
-            holder.imageView.setImageBitmap(null)
+
+        if (entry.bubbleRects.isNullOrBlank()) {
+            val path = entry.imagePath ?: entry.thumbnailPath
+            if (path != null && java.io.File(path).exists()) {
+                val bitmap = BitmapFactory.decodeFile(path)
+                holder.imageView.resetZoom()
+                holder.imageView.setImageBitmap(bitmap)
+            }
+            return
+        }
+
+        val pageCache = pageCacheMap[entry.id] ?: run {
+            LogCollector.e("MangaViewer", "loadImage: pageCache is null for entry ${entry.id}")
+            return
+        }
+
+        lifecycleScope.launch {
+            val bitmap = cacheManager.renderOverlay(
+                history = entry,
+                pageCache = pageCache,
+                mode = mode,
+                forFullImage = true,
+                config = TranslationCacheManager.OverlayConfig()
+            )
+            if (bitmap != null) {
+                renderCache[cacheKey] = bitmap
+                withContext(Dispatchers.Main) {
+                    holder.imageView.resetZoom()
+                    holder.imageView.setImageBitmap(bitmap)
+                }
+            }
         }
     }
 }

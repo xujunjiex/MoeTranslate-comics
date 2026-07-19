@@ -742,6 +742,11 @@ class TranslationCacheManager(private val context: Context) {
     /**
      * 按 ID 获取单条历史记录。
      */
+    suspend fun getPageCachesByHistoryIds(ids: List<Long>): List<PageCacheEntity> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        dao.getPageCachesByHistoryIds(ids)
+    }
+
     suspend fun getHistoryById(id: Long): HistoryEntry? = withContext(Dispatchers.IO) {
         dao.getHistoryById(id)?.toHistoryEntry()
     }

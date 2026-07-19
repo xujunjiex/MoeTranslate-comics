@@ -72,6 +72,9 @@ interface TranslationHistoryDao {
     @Query("SELECT * FROM page_cache WHERE historyId = :historyId LIMIT 1")
     suspend fun findCacheByHistoryId(historyId: Long): PageCacheEntity?
 
+    @Query("SELECT * FROM page_cache WHERE historyId IN (:ids)")
+    suspend fun getPageCachesByHistoryIds(ids: List<Long>): List<PageCacheEntity>
+
     @Query("SELECT COUNT(*) FROM page_cache WHERE mode = :mode")
     suspend fun getCacheCount(mode: Int): Int
 
