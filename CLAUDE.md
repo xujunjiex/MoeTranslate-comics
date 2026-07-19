@@ -132,6 +132,35 @@ private suspend fun processMangaScreenshot(
 )
 ```
 
+**实时渲染共享层（2026-07 重构）：** 数据库不再存储渲染后的译文 overlay 图片（`imagePath` 停止写入），只存原始截图（`originalImagePath`）+ 气泡元数据（`bubbleRects` JSON）。所有 overlay 显示通过 `TranslationCacheManager.renderOverlay()` 实时渲染。
+
+```kotlin
+suspend fun renderOverlay(
+    history: HistoryEntry,
+    pageCache: PageCacheEntity,
+    mode: OverlayMode,                 // TRANSLATED / ORIGINAL / PLAIN
+    forFullImage: Boolean              // true=全屏（MangaViewerActivity），false=裁剪（overlay/下载）
+): Bitmap?
+```
+
+| 调用方 | forFullImage | mode |
+|--------|--------------|------|
+| MangaFloatingService 缓存命中 | false | TRANSLATED |
+| MangaFloatingService 复制模式切换 | false | TRANSLATED/ORIGINAL（**二态**，不加 PLAIN） |
+| MangaViewerActivity 首次加载 | true | TRANSLATED（默认） |
+| MangaViewerActivity 三态切换 | true | TRANSLATED→ORIGINAL→PLAIN |
+| HistoryFragment 下载 | false | TRANSLATED |
+
+**坐标映射规则：**
+- `forFullImage=false`：从 `originalImagePath` 全屏原图按 `pageCache.cropLeft/Top/Right/Bottom` 裁剪，气泡坐标已在裁剪空间，**无需映射**
+- `forFullImage=true`：渲染到全屏原图，气泡坐标需 +`(cropLeft, cropTop)` 映射
+
+**`OverlayMode` 枚举：** `TRANSLATED`（译文）/ `ORIGINAL`（原文）/ `PLAIN`（纯原图，无 overlay）
+
+**变体独立存储：** 每个变体各自保存 `bubbleRects` + crop 坐标，不同框选尺寸互不干扰。`groupMangaEntriesByPHash()` 把所有变体都加入 groups（之前只返回代表 entry，导致下载漏图）。
+
+**三态循环：** MangaViewerActivity 切换按钮（btnToggleImage）三态循环：译文→原文→纯原图→译文。`OverlayMode.PLAIN` 仅在此处使用。翻页自动重置为译文。
+
 **自动翻译干净截图流程：**
 
 状态机 STABLE 后重截干净图用于翻译和缓存。
@@ -495,9 +524,12 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 - `getHistoryGrouped(sortByUpdated=true)`：日期组 = `updatedAt`，进程组 = `lastSessionId`
 - `getHistoryGrouped(sortByUpdated=false)`：日期组 = `createdAt`，进程组 = `sessionId`
 
-**缓存标识：**
-- 游戏翻译：`FloatingBallService` 缓存命中时，翻译文本前显示"⚡"标识（紧凑前缀，不换行）
-- 漫画翻译：`MangaFloatingService` 缓存命中时，`showCacheOverlay()` 显示左上角橙色"⚡ 缓存"标签 + 刷新按钮
+**缓存标识（⚡ 严格区分来源）：**
+- 游戏翻译：`FloatingBallService` **仅内存 LRU 命中**显示"⚡"前缀（`setText(it, fromCache = true)`）
+- 游戏翻译：**数据库命中**不显示"⚡"（`setText(it)`，不带 fromCache）
+- 漫画翻译：仅 `TranslatedBubble.isInMemoryCache = true` 时在 overlay 显示"⚡"
+- 漫画翻译：**数据库反序列化的 bubbles 永远不显示"⚡"**（`fromCache=true` 但 `isInMemoryCache=false`）
+- 底层规则：`OverlayRenderer.renderOverlay` 只检查 `region.isInMemoryCache`，不检查 `fromCache`。数据库反序列化走 `rebuildBubblesFromCache` 默认 `isInMemoryCache=false`
 
 ## 日志规范
 
@@ -581,6 +613,22 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 - 双模式截图：MediaProjection（默认）/ AccessibilityService
 - `FloatingBallService` 使用 `foregroundServiceType="mediaProjection"`
 - 许可证：LGPL（原项目）
+
+## 高频踩坑（gotchas）
+
+- **`Bitmap.createBitmap(src, x, y, w, h)` 是子 bitmap**，共享原图底层数据。原图 `recycle()` 后子 bitmap 失效，再调用 `.copy()` 抛 `Can't copy a recycled bitmap`。**正确顺序：先渲染（产生独立副本），再 try/finally 中 recycle 源 bitmap。**（cache 实时渲染 + 下载修复踩过）
+
+- **Android 11+ Scoped Storage**：直接 `File` 写 `/storage/emulated/0/Download/...` 会 EACCES 被拒。下载等需要写入公共目录的场景，用 `MediaStore.Downloads.EXTERNAL_CONTENT_URI` 写入。**SAF `openOutputStream(uri).use { ... .copyTo(out) }` 在某些 Android 版本上会丢数据（zip 显示 0B）**，优先 MediaStore，失败 fallback SAF。
+
+- **`groupMangaEntriesByPHash()` 必须返回所有变体**（不能只返回代表 entry）。否则下载/历史浏览只下载/看到代表那张，多尺寸变体丢失。
+
+- **Manifest 没存声明过的权限，运行时 API 也会失败。** Android 13+ `WRITE_EXTERNAL_STORAGE` 是 legacy 权限，但 `MediaStore.Downloads` 不需要任何运行时权限就能写入。
+
+- **`OverlayRenderer.renderOverlay` 第一个参数是源 bitmap**，函数内部会 `.copy()` 创建独立副本。如果传入的是子 bitmap（来自 `Bitmap.createBitmap(src, ...)`）且原图已 recycle，会崩溃。
+
+- **复制模式按钮在独立 WindowManager 窗口**，没有 Window 系统焦点反馈。需要手动加 `setOnTouchListener` 实现 scale 0.92→1.0 动画（80ms down + 120ms up）。
+
+- **`spinnerVariant` 显示"?"**：新条目 `imagePath=null`，但 `pageCacheMap[entry.id]?.cropRect` 有框选尺寸。**用 cropRect 宽高当 spinner 显示文本**，不要 fallback 到文件头尺寸（那是原图尺寸，不是用户框选的）。
 
 ## UI 规范
 
