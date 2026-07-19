@@ -157,6 +157,38 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             getString(R.string.show_source_text_summary, showSource.entry)
         }
 
+        // 文字阴影
+        findPreference<SwitchPreference>("text_shadow_enabled")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                prefs.setBoolean("text_shadow_enabled", newValue as Boolean)
+                true
+            }
+        }
+
+        // 字体颜色恢复按钮
+        findPreference<Preference>("reset_result_font_color")?.apply {
+            setOnPreferenceClickListener {
+                prefs.setInt("Custom_Result_Font_Color", -1516335)
+                findPreference<ColorPreferenceCompat>("result_view_font_color")?.let { cp ->
+                    cp.summary = getString(R.string.font_color_summary)
+                }
+                UiUtils.showToast(requireContext(), getString(R.string.function_restored_default), isShort = true)
+                true
+            }
+        }
+
+        // 背景颜色恢复按钮
+        findPreference<Preference>("reset_result_bg_color")?.apply {
+            setOnPreferenceClickListener {
+                prefs.setInt("Custom_Result_Background_Color", -649384925)
+                findPreference<ColorPreferenceCompat>("result_view_background_color")?.let { cp ->
+                    cp.summary = getString(R.string.result_background_color_summary)
+                }
+                UiUtils.showToast(requireContext(), getString(R.string.function_restored_default), isShort = true)
+                true
+            }
+        }
+
         // 翻页稳定性检测
         pixelStabilityCheck.setOnPreferenceChangeListener { _, newValue ->
             prefs.setBoolean("pixel_stability_check", newValue as Boolean)
