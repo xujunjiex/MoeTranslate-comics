@@ -713,7 +713,6 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="ppocrv6_medium_det_title">PP-OCRv6 detection</string>
     <string name="ppocrv6_medium_det_desc">PP-OCRv6 detection medium model, optional download (~60MB)</string>
     <string name="ppocrv6_medium_rec_title">PP-OCRv6 recognition</string>
-    <string name="ppocrv6_medium_rec_desc">PP-OCRv6 recognition medium model, optional download (~74MB)</string>
 
     <!-- PP-OCRv5 models -->
     <string name="ppocr_det_desc">det text detection, built-in</string>
@@ -783,7 +782,7 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="model_v5_rec_ko_desc">Korean recognition</string>
     <string name="model_v5_rec_ru_desc">Cyrillic recognition</string>
     <string name="model_group_ppocrv6">PP-OCRv6</string>
-    <string name="model_group_ppocrv6_desc">Next-gen OCR engine, accuracy and speed</string>
+    <string name="model_group_ppocrv6_desc">PaddleOCR PP-OCRv6 series ONNX recognition and detection engine, accuracy and speed</string>
     <string name="model_hint_need_both">Each engine group requires at least one detector and one recognizer</string>
     <string name="model_browser_onnx">Model</string>
     <string name="model_browser_dict">Dict</string>
@@ -796,10 +795,6 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="model_role_recognizer">Recognizer</string>
     <string name="model_role_recognizer_ja_vertical">Recognizer (JP vertical)</string>
     <string name="model_built_in_label">Built-in</string>
-    <string name="model_section_rec_title">Recognition</string>
-    <string name="model_section_rec_desc">Multilingual text recognition</string>
-    <string name="model_section_det_title">Detection</string>
-    <string name="model_section_det_desc">Text region detection</string>
     <string name="model_browser_emoji_model">🔗 Model</string>
     <string name="model_browser_emoji_dict">🔗 Dict</string>
     <string name="model_browser_emoji_browser">🔗 Browser</string>

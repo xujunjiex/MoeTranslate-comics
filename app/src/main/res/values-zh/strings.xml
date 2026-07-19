@@ -608,7 +608,6 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="ppocrv6_medium_det_title">PP-OCRv6 检测</string>
     <string name="ppocrv6_medium_det_desc">PP-OCRv6 检测 medium 模型，可选下载 (~60MB)</string>
     <string name="ppocrv6_medium_rec_title">PP-OCRv6 识别</string>
-    <string name="ppocrv6_medium_rec_desc">PP-OCRv6 识别 medium 模型，可选下载 (~74MB)</string>
 
     <!-- PP-OCRv5 模型 -->
     <string name="ppocr_det_desc">det 文字区域检测，内置</string>
@@ -781,7 +780,7 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="model_v5_rec_ko_desc">韩文专用识别</string>
     <string name="model_v5_rec_ru_desc">西里尔字母识别</string>
     <string name="model_group_ppocrv6">PP-OCRv6</string>
-    <string name="model_group_ppocrv6_desc">新一代识别引擎，精度与速度兼优</string>
+    <string name="model_group_ppocrv6_desc">PaddleOCR PP-OCRv6 系列的ONNX 识别检测引擎，精度速度兼优</string>
     <string name="model_hint_need_both">每组引擎需要检测器和识别器各至少一个才能正常使用</string>
     <string name="model_browser_onnx">模型</string>
     <string name="model_browser_dict">字典</string>
@@ -794,10 +793,6 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="model_role_recognizer">识别器</string>
     <string name="model_role_recognizer_ja_vertical">识别器（日文竖排）</string>
     <string name="model_built_in_label">内置</string>
-    <string name="model_section_rec_title">识别模型</string>
-    <string name="model_section_rec_desc">多语言文本识别</string>
-    <string name="model_section_det_title">检测模型</string>
-    <string name="model_section_det_desc">文字区域检测</string>
     <string name="model_browser_emoji_model">🔗 模型</string>
     <string name="model_browser_emoji_dict">🔗 字典</string>
     <string name="model_browser_emoji_browser">🔗 浏览器</string>
