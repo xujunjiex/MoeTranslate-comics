@@ -396,7 +396,13 @@ class TranslationCacheManager(private val context: Context) {
         if (entry.type == MODE_MANGA && entry.resultBitmap != null) {
             val timestamp = System.currentTimeMillis()
             imagePath = saveBitmap(entry.resultBitmap, "manga_${timestamp}.jpg")
-            thumbnailPath = saveThumbnail(entry.resultBitmap, "manga_${timestamp}_thumb.jpg")
+            // 缩略图优先用原图，没有原图则用 resultBitmap（兼容旧调用）
+            val thumbSource = originalBitmap ?: entry.resultBitmap
+            thumbnailPath = saveThumbnail(thumbSource!!, "manga_${timestamp}_thumb.jpg")
+        } else if (entry.type == MODE_MANGA && originalBitmap != null) {
+            // resultBitmap 为 null（新逻辑），缩略图用原图
+            val timestamp = System.currentTimeMillis()
+            thumbnailPath = saveThumbnail(originalBitmap, "manga_${timestamp}_thumb.jpg")
         }
 
         // Save original image (if provided — manga mode only)
@@ -745,7 +751,13 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     private fun buildCacheResult(history: HistoryEntity, cropWidth: Int = 0, cropHeight: Int = 0, pageCache: PageCacheEntity? = null): CacheResult {
-        val bitmap = history.imagePath?.let { path ->
+        // 漫画模式：优先加载原图（originalImagePath），回退到渲染图（imagePath）兼容旧数据
+        val bitmapPath = if (history.type == MODE_MANGA) {
+            history.originalImagePath ?: history.imagePath
+        } else {
+            history.imagePath
+        }
+        val bitmap = bitmapPath?.let { path ->
             try {
                 BitmapFactory.decodeFile(path)
             } catch (e: Exception) {
