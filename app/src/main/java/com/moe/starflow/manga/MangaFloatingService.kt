@@ -3730,8 +3730,8 @@ class MangaFloatingService : LifecycleService() {
         // 滑块范围映射
         fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).roundToInt().coerceIn(0, 100)
         fun seekToBox(v: Int) = 0.01f + v / 100f * 0.49f
-        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).roundToInt().coerceIn(0, 100)
-        fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
+        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).roundToInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).roundToInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
         fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).roundToInt().coerceIn(0, 100)
@@ -4013,8 +4013,8 @@ class MangaFloatingService : LifecycleService() {
         fun seekToDetThresh(v: Int) = 0.1f + v / 100f * 0.4f
         fun boxToSeek(v: Float) = (v * 100).roundToInt().coerceIn(0, 100)
         fun seekToBox(v: Int) = v / 100f
-        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).roundToInt().coerceIn(0, 100)
-        fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
+        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).roundToInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).roundToInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
         fun batchToSeek(v: Int) = ((v - 1) * 100 / 11).coerceIn(0, 100)
