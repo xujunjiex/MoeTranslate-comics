@@ -65,7 +65,7 @@ adb devices
 **包结构** (`app/src/main/java/com/moe/starflow/`):
 
 - `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`BallStateManager`（悬浮球状态图标管理器）
-- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）
+- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线，默认）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）、`MangaModeConfig`（漫画模式配置 + 引擎组合定义）
 - `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，10 条 FAQ）
 - `launch/` — 首次启动引导
@@ -224,20 +224,21 @@ private suspend fun processMangaScreenshot(
 
 | 模型 | 用途 | 大小 | 来源 | 存储位置 |
 |------|------|------|------|----------|
-| **PP-OCRv5 det** | 文字区域检测 | ~4.6MB | RapidAI/RapidOCR | **assets/ 内置** |
-| **PP-OCRv5 cls** | 方向分类 | ~1MB | RapidAI/RapidOCR | **assets/ 内置** |
-| **PP-OCRv5 rec zh** | 中日英混合识别 | ~16MB | RapidAI/RapidOCR | **assets/ 内置** |
-| **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | getExternalFilesDir/ 可选下载 |
-| **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | getExternalFilesDir/ 可选下载 |
-| **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **PP-OCRv5 det** | 文字区域检测 | ~4.6MB | RapidAI/RapidOCR | filesDir/ppocrv5/ 需下载 |
+| **PP-OCRv5 rec zh** | 中日英混合识别 | ~16MB | RapidAI/RapidOCR | filesDir/ppocrv5/ 需下载 |
+| **PP-OCRv5 rec en** | 英文专用识别 | ~7.5MB | ModelScope | filesDir/ppocrv5/ 需下载 |
+| **PP-OCRv5 rec ko** | 韩文专用识别 | ~12.9MB | ModelScope | filesDir/ppocrv5/ 需下载 |
+| **PP-OCRv5 rec ru** | 俄文/西里尔文字识别 | ~7.7MB | ModelScope | filesDir/ppocrv5/ 需下载 |
 | **PP-OCRv6 det small** | 文字区域检测 | ~9.9MB | RapidAI/RapidOCR | **assets/ 内置** |
 | **PP-OCRv6 rec small** | 多语言混合识别 | ~21MB | RapidAI/RapidOCR | **assets/ 内置** |
-| **PP-OCRv6 det medium** | 文字区域检测（高精度） | ~60MB | ModelScope | getExternalFilesDir/ 可选下载 |
-| **PP-OCRv6 rec medium** | 多语言混合识别（高精度） | ~74MB | ModelScope | getExternalFilesDir/ 可选下载 |
+| **PP-OCRv6 det medium** | 文字区域检测（高精度） | ~60MB | ModelScope | filesDir/ppocrv6/ 需下载 |
+| **PP-OCRv6 rec medium** | 多语言混合识别（高精度） | ~74MB | ModelScope | filesDir/ppocrv6/ 需下载 |
 | **RT-DETR-V2** | 文字/气泡检测 | ~11MB | HuggingFace | getExternalFilesDir/ 下载 |
 | **manga-ocr** | 竖排日文识别 | ~135MB | HuggingFace | getExternalFilesDir/ 下载 |
 
-PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中，约 22MB。可选 rec 模型（en/ko/ru）需用户从模型管理页面下载。
+**PP-OCRv5/v6 cls（方向分类）已删除** — v5 和 v6 的 cls 模型、代码、`runOCR(useCls)` 参数全部移除（commit 5d6e235 / 5a1e83e）。
+
+PP-OCRv5 全部模型（det + rec_zh + 字典 + 可选 rec en/ko/ru）改为下载，**assets 中已无 v5 模型文件**。PP-OCRv6 small 仍内置，medium 必须从 ModelScope 下载。PPOcrModelManager 提供所有 v5/v6 模型的 URL、下载、删除接口。
 
 **注意：** ML Kit OCR 是 Google Play Services 内置识别引擎，无需下载模型。需要下载的是 **ML Kit 翻译**（~100MB），属于本地离线翻译，不是 OCR 模型。
 
@@ -251,7 +252,7 @@ PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中
 | rec_ko.onnx | `korean_PP-OCRv5_rec_mobile.onnx` | ~12.9MB |
 | rec_ru.onnx | `cyrillic_PP-OCRv5_rec_mobile.onnx` | ~7.7MB |
 
-字典文件（rec_en_dict.txt / rec_ko_dict.txt / rec_ru_dict.txt）内置在 assets 中，无需下载。
+字典文件（rec_en_dict.txt / rec_ko_dict.txt / rec_ru_dict.txt）随 rec 模型一起从 ModelScope 下载（app 内串行下载 ONNX + 字典两个文件），不再从 assets 读取。`PPOcrV5Engine.loadDictionary()` 仅从 `filesDir/ppocrv5/` 读取，不 fallback assets。
 
 ### PP-OCRv5 语言 fallback 逻辑
 
@@ -267,8 +268,27 @@ PP-OCRv5 核心模型（det + cls + rec_zh + 所有字典）内置在 assets 中
 ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、进度回调）
 ├── RTDetrModelManager        # RT-DETR-V2 模型（单文件下载，~11MB）
 ├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载，~135MB）
-└── PPOcrModelManager         # PP-OCRv5 可选模型管理（en~7.5MB/ko~13MB/ru~7.7MB）
+└── PPOcrModelManager         # PP-OCRv5/v6 全部模型管理（v5 det/rec_zh/rec en/ko/ru + v6 medium det/rec）
 ```
+
+### 模型管理 UI 架构（v4 起）
+
+`ModelManagementFragment` + `fragment_model_management.xml` 按「引擎组合」分组，不再按「检测器/识别器」分两大块。页面顺序固定（不要随意调整）：
+
+| # | 组 | 类型 | 说明 |
+|---|----|----|------|
+| 1 | ML Kit | 内置 | Google 设备端 |
+| 2 | PP-OCRv6 | small 内置 / medium 可选下载 | 两个内置相邻，v6 small 右侧绿色「内置」文本 |
+| 3 | PP-OCRv5 | 全部下载 | 内部顺序：检测器（det）→ 识别器（多语言 → 4 个语言） |
+| 4 | RT-DETR-V2 + manga-ocr | 全部下载 | 漫画组合，RT-DETR-V2 是检测器、manga-ocr 是识别器 |
+
+每组条目统一 4 段 UI（**v4 起不再有「· 检测器」「· 识别器」灰色角标**——与标题同义重复，已删除）：
+1. **标题**（粗体 13-14sp）
+2. **状态文本**（12sp，含实际或预估文件大小，weight=1 占满剩余空间）
+3. **🔗 浏览器按钮**（11sp 灰色，链接图标 + 文件名/类型：模型/字典/encoder/decoder/vocab/浏览器）
+4. **下载/删除按钮**（绿色 btn_download 或红色 btn_delete，weight=0 固定宽度）
+
+v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium RadioButton），RadioButton 与「medium」标题同行右侧，与 small RadioButton 互斥。删除任一 medium 文件 → 自动切回 small + Toast 提示。
 
 **关键规则：**
 - **所有日志用 `LogCollector`**，不用 `Log.d/i/e`
