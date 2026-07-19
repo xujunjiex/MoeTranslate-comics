@@ -4617,18 +4617,7 @@ class MangaFloatingService : LifecycleService() {
         row5.addView(resetBtn)
         outerPanel.addView(row5)
 
-        // 包裹 ScrollView：参数过多时避免遮挡全屏
-        val scrollView = android.widget.ScrollView(this).apply {
-            addView(outerPanel)
-            // 最大高度限制为屏幕高度的 60%
-            val screenHeight = getScreenSize().height
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                (screenHeight * 0.6).toInt()
-            )
-            setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
-        }
-        return scrollView
+        return outerPanel
     }
 
     /**
@@ -5585,8 +5574,10 @@ class MangaFloatingService : LifecycleService() {
         val infoPanel = createInfoPanelView(infoLines, scrollable = true)
 
         // 创建可折叠内容容器：参数滑块 + 调试信息
+        // 外层 ScrollView：内容过多时滚动，不遮挡全屏
         val foldableContent = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(android.graphics.Color.argb(200, 30, 30, 30))
         }
         // 参数滑块（带恢复默认按钮）— v6 使用独立参数
         val slidersView = createPPOcrV6ParamSlidersView()
@@ -5600,14 +5591,19 @@ class MangaFloatingService : LifecycleService() {
             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
+        val scrollWrapper = android.widget.ScrollView(this).apply {
+            addView(foldableContent)
+            isVerticalScrollBarEnabled = true
+        }
+        val maxH = (resources.displayMetrics.heightPixels * 0.55).toInt()
         val foldableParams = android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            maxH
         ).apply {
             gravity = android.view.Gravity.BOTTOM
         }
-        container.addView(foldableContent, foldableParams)
-        debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
+        container.addView(scrollWrapper, foldableParams)
+        debugInfoPanelContentView = scrollWrapper  // 折叠时隐藏整个内容区
 
         // 添加右下角展开/折叠按钮
         val toggleButton = createToggleButton()
