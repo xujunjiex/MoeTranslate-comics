@@ -3840,7 +3840,7 @@ class MangaFloatingService : LifecycleService() {
 
         // 唯一可调参数：距离门控（manga hardcoded 2.0）
         val mergeSliders = listOf(
-            Triple("距离门控", mGapToSeek(prefs.getFloat("merge_discard_gap", DEF_GAP)), { v: Int -> String.format("%.1f", mSeekToGap(v)) })
+            Triple("merge_gap", mGapToSeek(prefs.getFloat("merge_discard_gap", DEF_GAP)), { v: Int -> String.format("%.1f", mSeekToGap(v)) })
         )
         val mergeSaveFns: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextRegionMerger.refreshParams(this) }
@@ -3898,7 +3898,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val toggleLabel = android.widget.TextView(this).apply {
-            text = "大框过滤"
+            text = "large_box"
             setTextColor(android.graphics.Color.WHITE)
             textSize = 11f
             setPadding(0, 0, (4 * dp).toInt(), 0)
@@ -3917,7 +3917,7 @@ class MangaFloatingService : LifecycleService() {
 
         val ratioLabel = android.widget.TextView(this).apply {
             val cur = prefs.getFloat("ppocr_large_box_ratio", DEF_LARGE_RATIO)
-            text = "丢弃比例 ${String.format("%.0f%%", cur * 100)}"
+            text = "ratio ${String.format("%.0f%%", cur * 100)}"
             setTextColor(android.graphics.Color.WHITE)
             textSize = 11f
             gravity = android.view.Gravity.CENTER
@@ -3931,7 +3931,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val ratio = seekToRatio(progress)
-                        ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", ratio * 100)}"
+                        ratioLabel.text = "ratio ${String.format("%.0f%%", ratio * 100)}"
                         prefs.setFloat("ppocr_large_box_ratio", ratio)
                         PPOcrV5Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -3976,7 +3976,7 @@ class MangaFloatingService : LifecycleService() {
                 sliderRefs[2].apply { seekBar.progress = textToSeek(DEF_TEXT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
-                ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+                ratioLabel.text = "ratio ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
 
                 // 重置合并参数（仅距离门控 1 个滑块）
                 TextRegionMerger.resetParams(this@MangaFloatingService)
@@ -4062,9 +4062,9 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sliders1 = listOf(
-            Triple("thresh\n二值化", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
-            Triple("box_thresh\n检测置信度", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
-            Triple("unclip_ratio\n扩展比例", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
+            Triple("thresh", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
+            Triple("box_thresh", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
+            Triple("unclip_ratio", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
         )
         val saveFns1: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_det_thresh", seekToDetThresh(v)) },
@@ -4124,8 +4124,8 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sliders2 = listOf(
-            Triple("text_score\n识别置信度", textToSeek(prefs.getFloat("ppocrv6_text_score", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) }),
-            Triple("rec_batch_num\n批处理数", batchToSeek(prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH)), { v: Int -> "${seekToBatch(v)}" })
+            Triple("text_score", textToSeek(prefs.getFloat("ppocrv6_text_score", DEF_TEXT)), { v: Int -> String.format("%.2f", seekToText(v)) }),
+            Triple("rec_batch_num", batchToSeek(prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH)), { v: Int -> "${seekToBatch(v)}" })
         )
         val saveFns2: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_text_score", seekToText(v)) },
@@ -4486,7 +4486,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
             })
         }
-        mergeSliderRefs.add(MergeSliderRef(mergeLabel, mergeSeek, "距离门控",
+        mergeSliderRefs.add(MergeSliderRef(mergeLabel, mergeSeek, "merge_gap",
             { v: Int -> String.format("%.1f", mSeekToGap(v)) },
             { v -> prefs.setFloat("merge_discard_gap", mSeekToGap(v)); TextRegionMerger.refreshParams(this) }))
         mergeGroup.addView(mergeLabel); mergeGroup.addView(mergeSeek); row7.addView(mergeGroup)
@@ -4503,7 +4503,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val largeBoxLabel = android.widget.TextView(this).apply {
-            text = "大框过滤"
+            text = "large_box"
             setTextColor(android.graphics.Color.WHITE)
             textSize = 11f
             setPadding(0, 0, (2 * dp).toInt(), 0)
@@ -4534,7 +4534,7 @@ class MangaFloatingService : LifecycleService() {
 
         val ratioLabel = android.widget.TextView(this).apply {
             val cur = prefs.getFloat("ppocrv6_large_box_ratio", DEF_LARGE_RATIO)
-            text = "丢弃比例 ${String.format("%.0f%%", cur * 100)}"
+            text = "ratio ${String.format("%.0f%%", cur * 100)}"
             setTextColor(android.graphics.Color.WHITE)
             textSize = 11f
             gravity = android.view.Gravity.CENTER
@@ -4548,7 +4548,7 @@ class MangaFloatingService : LifecycleService() {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
                         val ratio = seekToRatio(progress)
-                        ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", ratio * 100)}"
+                        ratioLabel.text = "ratio ${String.format("%.0f%%", ratio * 100)}"
                         prefs.setFloat("ppocrv6_large_box_ratio", ratio)
                         PPOcrV6Engine.refreshParams(this@MangaFloatingService)
                     }
@@ -4607,7 +4607,7 @@ class MangaFloatingService : LifecycleService() {
                 sliderRefs[4].apply { seekBar.progress = batchToSeek(DEF_BATCH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
-                ratioLabel.text = "丢弃比例 ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+                ratioLabel.text = "ratio ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
 
                 // 重置合并参数
                 TextRegionMerger.resetParams(this@MangaFloatingService)
@@ -5611,45 +5611,56 @@ class MangaFloatingService : LifecycleService() {
         debugInfoPanelContentView = infoPanel  // 折叠时隐藏 info 面板
 
         // ============================================================
-        // 两个折叠按钮：⚙ 参数 / 📊 信息
+        // 两个折叠按钮：⚙参数 / 📊信息（右下角，左右排列，无背景）
         // ============================================================
-        val btnSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 40f, resources.displayMetrics).toInt()
-        val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+        val btnSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 36f, resources.displayMetrics).toInt()
+        val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 12f, resources.displayMetrics).toInt()
 
-        // 参数面板折叠按钮
-        val paramsToggle = android.widget.TextView(this).apply {
-            text = "⚙"
-            textSize = 20f
+        // 信息面板折叠按钮（右侧）
+        val toggleButton = android.widget.TextView(this).apply {
+            text = "📊"
+            textSize = 18f
             gravity = android.view.Gravity.CENTER
-            setTextColor(android.graphics.Color.WHITE)
-            setBackgroundColor(android.graphics.Color.argb(180, 60, 60, 60))
-            setPadding(margin / 2, 4, margin / 2, 4)
+            setTextColor(android.graphics.Color.argb(220, 255, 255, 255))
             isClickable = true; isFocusable = true
             setOnClickListener {
-                if (slidersView.visibility == android.view.View.GONE) {
-                    slidersView.visibility = android.view.View.VISIBLE
-                    text = "⚙"
+                if (infoPanel.visibility == android.view.View.GONE) {
+                    infoPanel.visibility = android.view.View.VISIBLE
+                    text = "📊"
                 } else {
-                    slidersView.visibility = android.view.View.GONE
-                    text = "⚙"
+                    infoPanel.visibility = android.view.View.GONE
+                    text = "📊"
                 }
             }
         }
-        val paramsToggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            marginEnd = margin
-            bottomMargin = margin + btnSize + 4
-        }
-        container.addView(paramsToggle, paramsToggleParams)
-
-        // 调试信息展开/折叠按钮（复用原有逻辑）
-        val toggleButton = createToggleButton()
         val toggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
             marginEnd = margin
             bottomMargin = margin
         }
         container.addView(toggleButton, toggleParams)
+
+        // 参数面板折叠按钮（左侧，紧挨信息按钮）
+        val paramsToggle = android.widget.TextView(this).apply {
+            text = "⚙"
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.argb(220, 255, 255, 255))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                if (slidersView.visibility == android.view.View.GONE) {
+                    slidersView.visibility = android.view.View.VISIBLE
+                } else {
+                    slidersView.visibility = android.view.View.GONE
+                }
+            }
+        }
+        val paramsToggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            marginEnd = margin + btnSize + 2
+            bottomMargin = margin
+        }
+        container.addView(paramsToggle, paramsToggleParams)
 
         // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
         imageView.isClickable = true
