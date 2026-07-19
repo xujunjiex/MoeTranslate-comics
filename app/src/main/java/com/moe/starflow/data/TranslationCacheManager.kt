@@ -733,10 +733,14 @@ class TranslationCacheManager(private val context: Context) {
 
             val sorted = variants.sortedByDescending { it.updatedAt }
             val representative = sorted.first()
-            groups.add(representative.copy(
-                variantCount = sorted.size,
-                variantIds = sorted.map { it.id }
-            ))
+            // 把所有变体都加进 groups（不只是代表），让下载能拿到全部图片
+            // 代表条目携带 variantCount 和 variantIds 用于 UI 显示
+            sorted.forEachIndexed { idx, v ->
+                groups.add(v.copy(
+                    variantCount = sorted.size,
+                    variantIds = sorted.map { it.id }
+                ))
+            }
         }
         return groups
     }
