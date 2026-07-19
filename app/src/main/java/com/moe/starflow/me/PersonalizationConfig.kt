@@ -602,8 +602,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     }
 
     /**
-     * 颜色选择器点击 → 弹出选项：「选择颜色」或「恢复默认」。
-     * 选择颜色时清除拦截器 → 手动 performClick → 恢复拦截器。
+     * 显示自定义颜色选择面板：ColorPickerView + 底部「恢复默认」按钮。
+     * 替代默认的 ColorPreferenceCompat 弹窗，把恢复按钮放进面板内部。
      */
     private fun showColorPickerDialog(
         pref: ColorPreferenceCompat,
@@ -612,28 +612,42 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         title: String,
         summaryText: String
     ) {
-        // 保存当前拦截器引用
-        val savedListener = pref.onPreferenceClickListener
-        val options = arrayOf(getString(R.string.function_restored_default), getString(R.string.font_color))
-        AlertDialog.Builder(requireContext())
-            .setTitle(title)
-            .setItems(options) { _, which ->
-                when (which) {
-                    1 -> {
-                        // 选择颜色：清除拦截 → 触发原生颜色选择器 → 恢复拦截
-                        pref.onPreferenceClickListener = null
-                        pref.performClick()
-                        pref.onPreferenceClickListener = savedListener
-                    }
-                    0 -> {
-                        prefs.setInt(prefKey, defaultColor)
-                        pref.summary = summaryText
-                        UiUtils.showToast(requireContext(), getString(R.string.function_restored_default), isShort = true)
-                    }
-                }
+        val currentColor = prefs.getInt(prefKey, defaultColor)
+        val container = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(0, 0, 0, 0)
+        }
+
+        // 颜色选择器本体
+        val picker = com.jaredrummler.android.colorpicker.ColorPickerView(requireContext()).apply {
+            setColor(currentColor)
+        }
+        container.addView(picker, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            0, 1f  // 占满剩余空间
+        ))
+
+        // 恢复默认按钮
+        val btnReset = android.widget.Button(requireContext()).apply {
+            text = getString(R.string.reset_default_color)
+            setOnClickListener {
+                picker.setColor(defaultColor)
             }
-            .show()
-            .window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        }
+        container.addView(btnReset)
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(title)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val newColor = picker.color
+                prefs.setInt(prefKey, newColor)
+                pref.summary = summaryText
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun isAnyTranslationServiceRunning(): Boolean {
