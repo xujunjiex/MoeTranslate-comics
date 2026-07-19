@@ -3729,8 +3729,8 @@ class MangaFloatingService : LifecycleService() {
         // 滑块范围映射
         fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).toInt().coerceIn(0, 100)
         fun seekToBox(v: Int) = 0.01f + v / 100f * 0.49f
-        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).toInt().coerceIn(0, 100)
-        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
+        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
         fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
@@ -4012,8 +4012,8 @@ class MangaFloatingService : LifecycleService() {
         fun seekToDetThresh(v: Int) = 0.1f + v / 100f * 0.4f
         fun boxToSeek(v: Float) = ((v - 0.01f) / 0.69f * 100).toInt().coerceIn(0, 100)
         fun seekToBox(v: Int) = 0.01f + v / 100f * 0.69f
-        fun unclipToSeek(v: Float) = ((v - 1.0f) / 2.0f * 100).toInt().coerceIn(0, 100)
-        fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
+        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
         fun batchToSeek(v: Int) = ((v - 1) * 100 / 11).coerceIn(0, 100)
@@ -4073,9 +4073,9 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sliders1 = listOf(
-            Triple("det_thresh", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
-            Triple("det_box_thresh", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
-            Triple("det_unclip_ratio", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
+            Triple("thresh", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
+            Triple("box_thresh", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
+            Triple("unclip_ratio", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
         )
         val saveFns1: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_det_thresh", seekToDetThresh(v)) },
@@ -4594,9 +4594,10 @@ class MangaFloatingService : LifecycleService() {
             textSize = 12f
             setPadding((16 * dp).toInt(), (4 * dp).toInt(), (16 * dp).toInt(), (4 * dp).toInt())
             setBackgroundColor(android.graphics.Color.argb(150, 100, 100, 100))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
+            isClickable = true; isFocusable = true
+            setOnTouchListener { _, event ->
+                if (event.action != android.view.MotionEvent.ACTION_UP) return@setOnTouchListener false
+                performClick()
                 // 重置 SharedPreferences
                 prefs.setFloat("ppocrv6_det_thresh", DEF_DET_THRESH)
                 prefs.setFloat("ppocrv6_det_box_thresh", DEF_BOX)
@@ -4629,6 +4630,7 @@ class MangaFloatingService : LifecycleService() {
                 // 重置合并参数
                 TextRegionMerger.resetParams(this@MangaFloatingService)
                 mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                true
             }
         }
         row5.addView(resetBtn)
