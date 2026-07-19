@@ -4597,24 +4597,22 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setInt("ppocrv6_min_height", DEF_MIN_HEIGHT)
                 PPOcrV6Engine.refreshParams(this@MangaFloatingService)
 
-                // 更新 UI
-                sliderRefs[0].apply { seekBar.progress = detThreshToSeek(DEF_DET_THRESH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[1].apply { seekBar.progress = boxToSeek(DEF_BOX); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[2].apply { seekBar.progress = unclipToSeek(DEF_UNCLIP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[3].apply { seekBar.progress = textToSeek(DEF_TEXT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[4].apply { seekBar.progress = batchToSeek(DEF_BATCH); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[5].apply { seekBar.progress = limitSideToSeek(DEF_LIMIT_SIDE); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[6].apply { seekBar.progress = maxSideToSeek(DEF_MAX_SIDE); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[7].apply { seekBar.progress = minSideToSeek(DEF_MIN_SIDE); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[8].apply { seekBar.progress = minHToSeek(DEF_MIN_HEIGHT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
-                sliderRefs[9].apply { seekBar.progress = maxCandToSeek(DEF_MAX_CANDIDATES); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                // 更新 UI：逐个读 prefs 原始值 → 设滑块位置 → 设标签
+                val rThresh = prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH); sliderRefs[0].apply { seekBar.progress = detThreshToSeek(rThresh); label.text = "thresh\n${String.format("%.2f", rThresh)}" }
+                val rBox = prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX); sliderRefs[1].apply { seekBar.progress = boxToSeek(rBox); label.text = "box_thresh\n${String.format("%.2f", rBox)}" }
+                val rUnclip = prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP); sliderRefs[2].apply { seekBar.progress = unclipToSeek(rUnclip); label.text = "unclip_ratio\n${String.format("%.1f", rUnclip)}" }
+                val rText = prefs.getFloat("ppocrv6_text_score", DEF_TEXT); sliderRefs[3].apply { seekBar.progress = textToSeek(rText); label.text = "text_score\n${String.format("%.2f", rText)}" }
+                val rBatch = prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH); sliderRefs[4].apply { seekBar.progress = batchToSeek(rBatch); label.text = "rec_batch_num\n${rBatch}" }
+                val rLim = prefs.getInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE); sliderRefs[5].apply { seekBar.progress = limitSideToSeek(rLim); label.text = "limit_side_len\n${rLim}" }
+                val rMax = prefs.getInt("ppocrv6_max_side_len", DEF_MAX_SIDE); sliderRefs[6].apply { seekBar.progress = maxSideToSeek(rMax); label.text = "max_side_len\n${rMax}" }
+                val rMin = prefs.getInt("ppocrv6_min_side_len", DEF_MIN_SIDE); sliderRefs[7].apply { seekBar.progress = minSideToSeek(rMin); label.text = "min_side_len\n${rMin}" }
+                val rH = prefs.getInt("ppocrv6_min_height", DEF_MIN_HEIGHT); sliderRefs[8].apply { seekBar.progress = minHToSeek(rH); label.text = "min_height\n${rH}" }
+                val rCand = prefs.getInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES); sliderRefs[9].apply { seekBar.progress = maxCandToSeek(rCand); label.text = "max_candidates\n${rCand}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
                 ratioLabel.text = "ratio ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
-
-                // 重置合并参数
                 TextRegionMerger.resetParams(this@MangaFloatingService)
-                mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "merge_gap ${String.format("%.1f", DEF_GAP)}" }
                 true
             }
         }
