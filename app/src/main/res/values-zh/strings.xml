@@ -789,4 +789,25 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="model_browser_decoder">decoder</string>
     <string name="model_browser_vocab">vocab</string>
 
+    <!-- 模型管理 UI 润色 v2 -->
+    <string name="model_role_detector">检测器</string>
+    <string name="model_role_recognizer">识别器</string>
+    <string name="model_role_recognizer_ja_vertical">识别器（日文竖排）</string>
+    <string name="model_built_in_label">内置</string>
+    <string name="model_section_rec_title">识别模型</string>
+    <string name="model_section_rec_desc">多语言文本识别</string>
+    <string name="model_section_det_title">检测模型</string>
+    <string name="model_section_det_desc">文字区域检测</string>
+    <string name="model_browser_emoji_model">🔗 模型</string>
+    <string name="model_browser_emoji_dict">🔗 字典</string>
+    <string name="model_browser_emoji_browser">🔗 浏览器</string>
+    <string name="model_browser_emoji_encoder">🔗 encoder</string>
+    <string name="model_browser_emoji_decoder">🔗 decoder</string>
+    <string name="model_browser_emoji_vocab">🔗 vocab</string>
+    <string name="model_status_with_size_format">已下载 %1$s</string>
+    <string name="model_status_undownloaded_format">未下载 %1$s</string>
+    <string name="model_status_v6_small_builtin">已内置</string>
+    <string name="model_v6_small_inline_desc">轻量模型（det 9.9MB + rec 21MB）</string>
+    <string name="model_v6_medium_inline_desc">标准模型，更高精度（det+rec 全部下载后可选）</string>
+
 </resources>

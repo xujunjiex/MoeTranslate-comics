@@ -152,6 +152,18 @@ class ModelManagementFragment : Fragment() {
         btn.setBackgroundResource(if (isDelete) R.drawable.btn_delete else R.drawable.btn_download)
     }
 
+    /**
+     * 已下载状态：实际文件大小（来自 SizeString 函数）
+     * 未下载状态：~预估值
+     */
+    private fun formatModelStatus(isDownloaded: Boolean, actualSize: String, expectedSize: String): String {
+        return if (isDownloaded) {
+            getString(R.string.model_status_with_size_format, actualSize)
+        } else {
+            getString(R.string.model_status_undownloaded_format, expectedSize)
+        }
+    }
+
     // ========== RT-DETR-V2 下载相关 ==========
 
     private fun updateRTDetrStatus() {
@@ -170,13 +182,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = RTDetrModelManager.getModelSizeString(requireContext())
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~11MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showRTDetrDeleteConfirmDialog() }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~11MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startRTDetrDownload() }
@@ -279,13 +291,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = MangaOcrDownloadManager.getModelSizeString(requireContext())
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~135MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showMangaOcrDeleteConfirmDialog() }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~135MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startMangaOcrDownload() }
@@ -416,13 +428,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getV5DetSizeString(requireContext())
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, PPOcrModelManager.getV5DetSize())
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showV5DetDeleteConfirmDialog() }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", PPOcrModelManager.getV5DetSize())
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startV5DetDownload() }
@@ -450,13 +462,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getV5RecZhSizeString(requireContext())
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, PPOcrModelManager.getV5RecZhSize())
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showV5RecZhDeleteConfirmDialog() }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", PPOcrModelManager.getV5RecZhSize())
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startV5RecZhDownload() }
@@ -531,13 +543,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "en")
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~7.5MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showPPOcrDeleteConfirmDialog("en") }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~7.5MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startPPOcrDownload("en") }
@@ -567,13 +579,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "ko")
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~12.9MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showPPOcrDeleteConfirmDialog("ko") }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~12.9MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startPPOcrDownload("ko") }
@@ -603,13 +615,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getRecModelSizeString(requireContext(), "ru")
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~7.7MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showPPOcrDeleteConfirmDialog("ru") }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~7.7MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startPPOcrDownload("ru") }
@@ -860,13 +872,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getV6MediumSize("det")
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~60MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showV6DeleteConfirmDialog("det") }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~60MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startV6Download("det") }
@@ -889,13 +901,13 @@ class ModelManagementFragment : Fragment() {
             }
             isDownloaded -> {
                 val size = PPOcrModelManager.getV6MediumSize("rec")
-                statusText.text = "${getString(R.string.model_downloaded)} ($size)"
+                statusText.text = formatModelStatus(true, size, "~74MB")
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener { showV6DeleteConfirmDialog("rec") }
             }
             else -> {
-                statusText.text = getString(R.string.model_not_downloaded)
+                statusText.text = formatModelStatus(false, "", "~74MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener { startV6Download("rec") }
