@@ -90,12 +90,6 @@
             android:summary="@string/font_color_summary"
             app:cpv_showAlphaSlider="true" />
 
-        <Preference
-            android:key="reset_result_font_color"
-            app:iconSpaceReserved="false"
-            android:title="@string/reset_default_color"
-            android:summary="@string/font_color" />
-
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             android:key="result_view_background_color"
             app:iconSpaceReserved="false"
@@ -104,12 +98,6 @@
             android:title="@string/result_background_color"
             android:summary="@string/result_background_color_summary"
             app:cpv_showAlphaSlider="true" />
-
-        <Preference
-            android:key="reset_result_bg_color"
-            app:iconSpaceReserved="false"
-            android:title="@string/reset_default_color"
-            android:summary="@string/result_background_color" />
 
         <ListPreference
             android:key="show_source_text"

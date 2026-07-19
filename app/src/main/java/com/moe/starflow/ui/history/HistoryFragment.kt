@@ -321,10 +321,11 @@ class HistoryFragment : Fragment() {
 
                 when (currentTab) {
                     TranslationCacheManager.MODE_GAME -> {
-                        val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = sortByUpdated)
+                        // 游戏历史始终按进程（sessionId）分组，不按日期合并
+                        val groups = cacheManager.getHistoryGrouped(currentTab, sortByUpdated = false)
                         gameGroupAdapter.submitList(groups)
                         updateEmptyState(groups.isEmpty())
-                        LogCollector.d(TAG, "loadHistory: game groups=${groups.size}, sort=${if (sortByUpdated) "default" else "manage"}")
+                        LogCollector.d(TAG, "loadHistory: game groups=${groups.size}, session-based")
                     }
                     TranslationCacheManager.MODE_MANGA -> {
                         mangaGroupAdapter.isManageView = (viewMode == "manage")
@@ -563,12 +564,22 @@ class HistoryFragment : Fragment() {
                     val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
                     txtFile.bufferedWriter().use { writer ->
-                        for (entry in session.entries) {
-                            val time = dateFormat.format(Date(entry.updatedAt))
-                            writer.write("[$time]\n")
-                            entry.sourceText?.let { writer.write("原文: $it\n") }
-                            entry.translatedText?.let { writer.write("译文: $it\n") }
-                            writer.write("---\n")
+                        if (session.entries.isEmpty()) {
+                            writer.write("(无翻译记录)\n")
+                        } else {
+                            for (entry in session.entries) {
+                                val time = dateFormat.format(Date(entry.updatedAt))
+                                writer.write("[$time]\n")
+                                val src = entry.sourceText
+                                val trans = entry.translatedText
+                                if (src.isNullOrEmpty() && trans.isNullOrEmpty()) {
+                                    writer.write("(空记录)\n")
+                                } else {
+                                    if (!src.isNullOrEmpty()) writer.write("原文: $src\n")
+                                    if (!trans.isNullOrEmpty()) writer.write("译文: $trans\n")
+                                }
+                                writer.write("---\n")
+                            }
                         }
                     }
 

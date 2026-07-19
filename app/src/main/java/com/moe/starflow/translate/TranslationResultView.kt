@@ -145,10 +145,10 @@ class TranslationResultView(
             topMargin = btnMargin
         })
 
-        // 复制按钮（左下角，替代旧的 cacheIndicator 位置）
+        // 复制按钮（左下角）
         addView(copyButton, LayoutParams(copySize, copySize).apply {
             gravity = Gravity.START or Gravity.BOTTOM
-            marginStart = btnSpace
+            marginStart = btnMargin
             bottomMargin = btnMargin
         })
 

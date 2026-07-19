@@ -129,6 +129,16 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
         // 字体颜色（同上）
         findPreference<ColorPreferenceCompat>("result_view_font_color")?.apply {
+            setOnPreferenceClickListener {
+                showColorPickerDialog(
+                    pref = it as ColorPreferenceCompat,
+                    prefKey = "Custom_Result_Font_Color",
+                    defaultColor = -1516335,
+                    title = getString(R.string.font_color),
+                    summaryText = getString(R.string.font_color_summary)
+                )
+                true
+            }
             setOnPreferenceChangeListener { _, newValue ->
                 prefs.setInt("Custom_Result_Font_Color", newValue as Int)
                 true
@@ -138,6 +148,16 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
 
         // 背景颜色（同上）
         findPreference<ColorPreferenceCompat>("result_view_background_color")?.apply {
+            setOnPreferenceClickListener {
+                showColorPickerDialog(
+                    pref = it as ColorPreferenceCompat,
+                    prefKey = "Custom_Result_Background_Color",
+                    defaultColor = -649384925,
+                    title = getString(R.string.result_background_color),
+                    summaryText = getString(R.string.result_background_color_summary)
+                )
+                true
+            }
             setOnPreferenceChangeListener { _, newValue ->
                 prefs.setInt("Custom_Result_Background_Color", newValue as Int)
                 true
@@ -161,30 +181,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
         findPreference<SwitchPreference>("text_shadow_enabled")?.apply {
             setOnPreferenceChangeListener { _, newValue ->
                 prefs.setBoolean("text_shadow_enabled", newValue as Boolean)
-                true
-            }
-        }
-
-        // 字体颜色恢复按钮
-        findPreference<Preference>("reset_result_font_color")?.apply {
-            setOnPreferenceClickListener {
-                prefs.setInt("Custom_Result_Font_Color", -1516335)
-                findPreference<ColorPreferenceCompat>("result_view_font_color")?.let { cp ->
-                    cp.summary = getString(R.string.font_color_summary)
-                }
-                UiUtils.showToast(requireContext(), getString(R.string.function_restored_default), isShort = true)
-                true
-            }
-        }
-
-        // 背景颜色恢复按钮
-        findPreference<Preference>("reset_result_bg_color")?.apply {
-            setOnPreferenceClickListener {
-                prefs.setInt("Custom_Result_Background_Color", -649384925)
-                findPreference<ColorPreferenceCompat>("result_view_background_color")?.let { cp ->
-                    cp.summary = getString(R.string.result_background_color_summary)
-                }
-                UiUtils.showToast(requireContext(), getString(R.string.function_restored_default), isShort = true)
                 true
             }
         }
@@ -603,6 +599,41 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
                 input.copyTo(output)
             }
         } ?: throw IOException("open file error")
+    }
+
+    /**
+     * 颜色选择器点击 → 弹出选项：「选择颜色」或「恢复默认」。
+     * 选择颜色时清除拦截器 → 手动 performClick → 恢复拦截器。
+     */
+    private fun showColorPickerDialog(
+        pref: ColorPreferenceCompat,
+        prefKey: String,
+        defaultColor: Int,
+        title: String,
+        summaryText: String
+    ) {
+        // 保存当前拦截器引用
+        val savedListener = pref.onPreferenceClickListener
+        val options = arrayOf(getString(R.string.function_restored_default), getString(R.string.font_color))
+        AlertDialog.Builder(requireContext())
+            .setTitle(title)
+            .setItems(options) { _, which ->
+                when (which) {
+                    1 -> {
+                        // 选择颜色：清除拦截 → 触发原生颜色选择器 → 恢复拦截
+                        pref.onPreferenceClickListener = null
+                        pref.performClick()
+                        pref.onPreferenceClickListener = savedListener
+                    }
+                    0 -> {
+                        prefs.setInt(prefKey, defaultColor)
+                        pref.summary = summaryText
+                        UiUtils.showToast(requireContext(), getString(R.string.function_restored_default), isShort = true)
+                    }
+                }
+            }
+            .show()
+            .window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun isAnyTranslationServiceRunning(): Boolean {
