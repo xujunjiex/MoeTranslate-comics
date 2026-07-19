@@ -132,6 +132,10 @@ object PPOcrV6Engine {
     var isInitialized = false
         private set
 
+    /** 最近一次 det 的输入尺寸（原图→预处理后），用于调试面板显示 */
+    @Volatile var lastDetSize: String = ""
+        private set
+
     // rec 会话加载锁
     private val recLock = Any()
 
@@ -1415,7 +1419,8 @@ object PPOcrV6Engine {
      */
     private fun runDet(bitmap: Bitmap): List<FloatArray> = synchronized(lock) {
         val (input, detH, detW) = preprocessDet(bitmap)
-        LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH}")
+        LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH} (limit_side_len=$limitSideLen, $limitType)")
+        lastDetSize = "${bitmap.width}×${bitmap.height} → ${detW}×${detH}"
 
         val buffer = FloatBuffer.wrap(input)
         val inputTensor = OnnxTensor.createTensor(
