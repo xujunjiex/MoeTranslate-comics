@@ -528,13 +528,21 @@ class HistoryFragment : Fragment() {
     }
 
     private suspend fun doDownloadSession(session: com.moe.starflow.data.HistorySession) {
+        // 展开所有变体（session.entries 只含代表，通过 variantIds 获取全部）
+        val allEntryIds = session.entries.flatMap { e -> e.variantIds.ifEmpty { listOf(e.id) } }.distinct()
+        val allEntries = if (allEntryIds.size > session.entries.size) {
+            cacheManager.getHistoryByIds(allEntryIds)
+        } else {
+            session.entries
+        }
+
         // 进度提示
         val progressDialog = withContext(Dispatchers.Main) {
             android.app.ProgressDialog(requireContext()).apply {
                 setMessage("正在准备下载...")
                 setCancelable(false)
                 setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL)
-                setMax(session.entries.size)
+                setMax(allEntries.size)
                 show()
             }
         }
@@ -546,45 +554,45 @@ class HistoryFragment : Fragment() {
         var variantIdx = 0
 
         try {
-            LogCollector.d("HistoryFragment", "doDownloadSession: ${session.entries.size} entries")
+            LogCollector.d("HistoryFragment", "doDownloadSession: ${session.entries.size} page groups")
             withContext(Dispatchers.IO) {
-            for ((idx, entry) in session.entries.withIndex()) {
-                LogCollector.d("HistoryFragment", "download entry[$idx] id=${entry.id} bubbleRects=${if (entry.bubbleRects.isNullOrBlank()) "EMPTY" else "${entry.bubbleRects.length} chars"} imagePath=${entry.imagePath}")
-                val bitmap: Bitmap? = if (entry.bubbleRects.isNullOrBlank()) {
-                    // 旧数据兼容：直接读 imagePath
-                    entry.imagePath?.let { BitmapFactory.decodeFile(it) }
+            for ((pageIdx, groupEntry) in session.entries.withIndex()) {
+                val pageNum = pageIdx + 1
+                // 按 variantIds 顺序获取每个变体并渲染
+                val variantIds = groupEntry.variantIds.ifEmpty { listOf(groupEntry.id) }
+                val variants = if (variantIds.size > 1) {
+                    cacheManager.getHistoryByIds(variantIds)
                 } else {
-                    val pageCache = cacheManager.getPageCacheByHistoryId(entry.id)
-                    if (pageCache != null) {
-                        cacheManager.renderOverlay(entry, pageCache, TranslationCacheManager.OverlayMode.TRANSLATED, forFullImage = false, config = config)
-                    } else entry.imagePath?.let { BitmapFactory.decodeFile(it) }
+                    listOf(groupEntry)
                 }
-
-                if (bitmap != null) {
-                    LogCollector.d("HistoryFragment", "rendered entry[${idx}] bitmap=${bitmap.width}x${bitmap.height}")
-                    val isMultiVariant = entry.variantCount > 1
-                    val fileName = if (isMultiVariant) {
-                        if (variantIdx == 0) "page_%02d.jpg".format(pageIdx)
-                        else "page_%02d_v%d.jpg".format(pageIdx, variantIdx + 1)
+                for ((vi, entry) in variants.withIndex()) {
+                    LogCollector.d("HistoryFragment", "download page[$pageNum] variant[$vi] id=${entry.id} bubbleRects=${if (entry.bubbleRects.isNullOrBlank()) "EMPTY" else "${entry.bubbleRects.length} chars"}")
+                    val bitmap: Bitmap? = if (entry.bubbleRects.isNullOrBlank()) {
+                        entry.imagePath?.let { BitmapFactory.decodeFile(it) }
                     } else {
-                        "page_%02d.jpg".format(pageIdx)
+                        val pageCache = cacheManager.getPageCacheByHistoryId(entry.id)
+                        if (pageCache != null) {
+                            cacheManager.renderOverlay(entry, pageCache, TranslationCacheManager.OverlayMode.TRANSLATED, forFullImage = false, config = config)
+                        } else entry.imagePath?.let { BitmapFactory.decodeFile(it) }
                     }
 
-                    val file = File(tempDir, fileName)
-                    FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out) }
-                    tempFiles.add(file)
-                    LogCollector.d("HistoryFragment", "saved file[${idx}] path=${file.absolutePath} size=${file.length()}B")
-                    bitmap.recycle()
-
-                    if (isMultiVariant) {
-                        variantIdx++
-                        if (variantIdx >= entry.variantCount) { pageIdx++; variantIdx = 0 }
-                    } else {
-                        pageIdx++
+                    if (bitmap != null) {
+                        val isMultiVariant = variants.size > 1
+                        val fileName = if (isMultiVariant) {
+                            if (vi == 0) "page_%02d.jpg".format(pageNum)
+                            else "page_%02d_v%d.jpg".format(pageNum, vi + 1)
+                        } else {
+                            "page_%02d.jpg".format(pageNum)
+                        }
+                        val file = File(tempDir, fileName)
+                        FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out) }
+                        tempFiles.add(file)
+                        LogCollector.d("HistoryFragment", "saved ${fileName} size=${file.length()}B")
+                        bitmap.recycle()
                     }
-                }
 
-                withContext(Dispatchers.Main) { progressDialog.progress = tempFiles.size }
+                    withContext(Dispatchers.Main) { progressDialog.progress = tempFiles.size }
+                }
             }
             } // end withContext(IO) for render loop
 

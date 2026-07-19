@@ -3358,6 +3358,7 @@ class MangaFloatingService : LifecycleService() {
                 forceRefresh = true
                 lastTranslatedHash = 0L
         lastTranslatedTime = 0L
+                translatedRegions.clear()  // 清空内存缓存，避免 ⚡ 标志
                 triggerTranslation()
             }
         }
