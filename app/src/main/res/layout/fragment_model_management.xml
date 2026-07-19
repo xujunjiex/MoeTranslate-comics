@@ -169,36 +169,14 @@
             </LinearLayout>
 
             <!-- medium 检测器 -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:layout_marginTop="6dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="检测器"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_detector"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_v5_det_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="检测器"
+    android:textSize="13sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -242,27 +220,12 @@
             </LinearLayout>
 
             <!-- medium 识别器 -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="识别器"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
+            <TextView
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="识别器"
+    android:textSize="13sp"
+    android:textStyle="bold"/>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -334,35 +297,14 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- 检测器 -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="检测器"
-                    android:textSize="14sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_detector"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_v5_det_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="检测器"
+    android:textSize="14sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -416,58 +358,22 @@
                 android:layout_marginBottom="10dp"/>
 
             <!-- 识别器（多语言） -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="识别器（多语言）"
-                    android:textSize="14sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
+            <TextView
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="识别器（多语言）"
+    android:textSize="14sp"
+    android:textStyle="bold"/>
 
             <!-- 中日英 rec -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:layout_marginTop="6dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="中日英"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_v5_rec_zh_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="中日英"
+    android:textSize="13sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -534,35 +440,14 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- 英文 rec -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="英文"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_v5_rec_en_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="英文"
+    android:textSize="13sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -629,35 +514,14 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- 韩文 rec -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="韩文"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_v5_rec_ko_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="韩文"
+    android:textSize="13sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -724,35 +588,14 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- 俄文 rec -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="俄文"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_v5_rec_ru_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="俄文"
+    android:textSize="13sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -837,35 +680,14 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- RT-DETR-V2 -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="RT-DETR-V2"
-                    android:textSize="14sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_detector"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_rtdetr_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="RT-DETR-V2"
+    android:textSize="14sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -919,35 +741,14 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- manga-ocr -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="4dp"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="manga-ocr"
-                    android:textSize="14sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/model_role_recognizer_ja_vertical"
-                    android:textSize="11sp"
-                    android:textColor="#888"
-                    android:layout_marginStart="6dp"/>
-            </LinearLayout>
-
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/model_mangaocr_desc"
-                android:textSize="11sp"
-                android:textColor="#888"
-                android:paddingStart="4dp"
-                android:layout_marginTop="2dp"/>
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="manga-ocr"
+    android:textSize="14sp"
+    android:textStyle="bold"/>
+
+            
 
             <LinearLayout
                 android:layout_width="match_parent"

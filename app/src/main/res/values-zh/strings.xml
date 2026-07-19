@@ -770,17 +770,10 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="model_group_mlkit_desc">Google 设备端机器学习，文字检测与识别一体</string>
     <string name="model_group_rt_manga">RT-DETR-V2 + manga-ocr</string>
     <string name="model_group_rt_manga_desc">漫画气泡检测与日文竖排识别组合</string>
-    <string name="model_rtdetr_desc">实时端到端目标检测，识别文字区域与气泡边界</string>
-    <string name="model_mangaocr_desc">专注日文竖排文字识别，支持复杂排版与异体字</string>
     <string name="model_group_ppocrv5">PP-OCRv5</string>
     <string name="model_group_ppocrv5_desc">源自 PaddleOCR，ONNX 格式离线识别</string>
-    <string name="model_v5_det_desc">文字区域检测</string>
-    <string name="model_v5_rec_zh_desc">中日英混合文本识别</string>
-    <string name="model_v5_rec_en_desc">英文专用识别</string>
-    <string name="model_v5_rec_ko_desc">韩文专用识别</string>
-    <string name="model_v5_rec_ru_desc">西里尔字母识别</string>
     <string name="model_group_ppocrv6">PP-OCRv6</string>
-    <string name="model_group_ppocrv6_desc">PaddleOCR PP-OCRv6 系列的ONNX 识别检测引擎，精度速度兼优</string>
+    <string name="model_group_ppocrv6_desc">PaddleOCR PP-OCRv6 ONNX 引擎</string>
     <string name="model_hint_need_both">每组引擎需要检测器和识别器各至少一个才能正常使用</string>
     <string name="model_browser_onnx">模型</string>
     <string name="model_browser_dict">字典</string>
@@ -789,9 +782,6 @@ v5 默认: 60% | 范围: 30% ~ 80%
     <string name="model_browser_vocab">vocab</string>
 
     <!-- 模型管理 UI 润色 v2 -->
-    <string name="model_role_detector">检测器</string>
-    <string name="model_role_recognizer">识别器</string>
-    <string name="model_role_recognizer_ja_vertical">识别器（日文竖排）</string>
     <string name="model_built_in_label">内置</string>
     <string name="model_browser_emoji_model">🔗 模型</string>
     <string name="model_browser_emoji_dict">🔗 字典</string>
