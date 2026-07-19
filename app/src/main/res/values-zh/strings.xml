@@ -717,4 +717,18 @@
     <string name="model_v6_small_inline_desc">轻量模型（det 9.9MB + rec 21MB）</string>
     <string name="model_v6_medium_inline_desc">标准模型，更高精度（det+rec 全部下载后可选）</string>
 
+    <!-- Copy & Shadow -->
+    <string name="text_shadow_title">文字阴影</string>
+    <string name="text_shadow_summary">为翻译结果文字添加阴影效果</string>
+    <string name="reset_default_color">恢复默认</string>
+    <string name="copy_text">复制文本</string>
+    <string name="copy_all">复制全部</string>
+    <string name="copy_original">复制原文</string>
+    <string name="copy_translation">复制译文</string>
+    <string name="text_copied">已复制</string>
+    <string name="copy_original_translation">原文 + 译文</string>
+    <string name="download_txt">下载 TXT</string>
+    <string name="download_txt_description">下载翻译文本文件</string>
+    <string name="function_restored_default">已恢复默认</string>
+
 </resources>

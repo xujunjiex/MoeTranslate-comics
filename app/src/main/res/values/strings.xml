@@ -719,4 +719,18 @@
     <string name="model_v6_small_inline_desc">Lightweight (det 9.9MB + rec 21MB)</string>
     <string name="model_v6_medium_inline_desc">Standard, higher accuracy (both det+rec required)</string>
 
+    <!-- Copy & Shadow -->
+    <string name="text_shadow_title">Text shadow</string>
+    <string name="text_shadow_summary">Add shadow effect to translation result text</string>
+    <string name="reset_default_color">Reset to default</string>
+    <string name="copy_text">Copy text</string>
+    <string name="copy_all">Copy all</string>
+    <string name="copy_original">Copy original</string>
+    <string name="copy_translation">Copy translation</string>
+    <string name="text_copied">Copied</string>
+    <string name="copy_original_translation">Original + Translation</string>
+    <string name="download_txt">Download TXT</string>
+    <string name="download_txt_description">Download translation as text file</string>
+    <string name="function_restored_default">Restored to default</string>
+
 </resources>

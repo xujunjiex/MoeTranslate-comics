@@ -615,4 +615,18 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="manga_ocr_non_ja_hint">manga-ocr model is optimized for Japanese, current source language may affect recognition, consider switching to PP-OCRv5</string>
     <string name="model_download_in_browser">🔗 Browser</string>
     <string name="model_storage_path_label">Model storage path:</string>
+    <!-- Copy & Shadow -->
+    <string name="text_shadow_title">Text shadow</string>
+    <string name="text_shadow_summary">Add shadow effect to translation result text</string>
+    <string name="reset_default_color">Reset to default</string>
+    <string name="copy_text">Copy text</string>
+    <string name="copy_all">Copy all</string>
+    <string name="copy_original">Copy original</string>
+    <string name="copy_translation">Copy translation</string>
+    <string name="text_copied">Copied</string>
+    <string name="copy_original_translation">Original + Translation</string>
+    <string name="download_txt">Download TXT</string>
+    <string name="download_txt_description">Download translation as text file</string>
+    <string name="function_restored_default">Restored to default</string>
+
 </resources>
