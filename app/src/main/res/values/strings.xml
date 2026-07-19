@@ -318,85 +318,95 @@
     <string name="faq_q6">Manga translation results are missing, inaccurate, or slow?</string>
     <string name="faq_a6">You can try the following optimizations:\n\n1. <b><u>Frame the area that needs translation</u></b>: Precisely selecting the text area improves OCR accuracy and avoids recognizing irrelevant content.\n\n2. <b><u>Reduce UI interference</u></b>: Avoid selecting blank areas, game UI buttons, and other non-text content. Reducing unnecessary recognition improves speed.\n\n3. <b><u>Choose the right translation model</u></b>: Models with mini, lit, or flash labels have faster response times.</string>
     <string name="faq_q7">PP-OCRv Debug Panel Parameter Guide</string>
-    <string name="faq_a7">In the manga translation debug mode, you can adjust the following parameters in real time via sliders. Changes take effect immediately and automatically apply to the normal translation flow. Parameters marked "v5 only" apply only to PP-OCRv5; "v6 only" applies only to PP-OCRv6; shared parameters are stored independently per engine.
+    <string name="faq_a7">In the manga translation debug mode, you can adjust the following PP-OCRv6 engine parameters in real time via sliders/switches. Changes take effect immediately and automatically apply to the normal translation flow. Parameter names and descriptions reference the RapidOCR official documentation.
 
 <b><u>[Detection Parameters (Det)]</u></b>
 
-<b>1. det_thresh — Binarization Threshold (v6 only)</b>
-v6 default: 0.3 | Range: 0.05 ~ 0.5
+<b>det_thresh — Text/Background Segmentation Threshold</b>
+RapidOCR Det.thresh. Default 0.3, range 0.1 ~ 0.5.
+Text/background binarization threshold. Higher values → smaller text regions, fewer boxes.
+• Text missed → lower
+• Too many noise boxes → raise
 
-Text/background binarization threshold (DB internal segmentation map). Higher values → only keep high-confidence pixels (fewer boxes); lower values → more pixels classified as text (more boxes).
+<b>det_box_thresh — Detection Box Retention Threshold</b>
+RapidOCR Det.box_thresh. Default 0.5, range 0.01 ~ 0.7.
+Detection box retention threshold. Higher values → lower recall, fewer boxes kept.
+• Text missed → lower
+• Too many noise boxes → raise
 
-<b>2. det_box_thresh — Detection Box Threshold</b>
-v5 default: 0.3 | v6 default: 0.5 | Range: 0.1 ~ 0.9
+<b>det_unclip_ratio — Detection Box Expansion Ratio</b>
+RapidOCR Det.unclip_ratio. Default 1.6, range 1.0 ~ 3.0.
+Controls the overall size of detection boxes. Larger values → larger, looser boxes.
+• Characters truncated → increase
+• Boxes too large/overlapping → decrease
 
-Detection box retention threshold (bounding box score threshold). After synthesizing rectangles from the segmentation map, only boxes with scores above this value are kept. Higher → more precise boxes but possible missed detections; lower → higher recall but possible noise.
+<b>limit_side_len — Image Side Length Limit</b>
+RapidOCR Det.limit_side_len. Default 736, range 64 ~ 2048 (pixels).
+Limits the image side length in pixels. Used together with limit_type.
 
-• Text frequently missed → lower (e.g. v5: 0.2, v6: 0.3)
-• Too many noise boxes → raise (e.g. v5: 0.4, v6: 0.7)
+<b>limit_type — Side Length Limit Strategy</b>
+RapidOCR Det.limit_type. Default min, options min / max.
+min = scale up if the shortest side is below threshold (preserve detail); max = scale down if the longest side exceeds threshold (prioritize speed).
 
-<b>3. det_unclip_ratio — Box Expansion Ratio</b>
-v5 default: 1.6 | v6 default: 1.6 | Range: 1.0 ~ 3.0
+<b>max_side_len — Input Image Maximum Side Limit</b>
+RapidOCR Global.max_side_len. Default 2000, range 400 ~ 4000 (pixels).
+If the longest side of the input image exceeds this value, scale it down proportionally.
 
-Detection box outward expansion factor. When synthesizing rectangles from the segmentation region, boxes are expanded by this factor to avoid hugging the text edges too tightly. Higher → looser boxes (good for tightly packed characters); lower → more compact boxes.
+<b>min_side_len — Input Image Minimum Side Limit</b>
+RapidOCR Global.min_side_len. Default 30, range 10 ~ 400 (pixels).
+If the shortest side of the input image is below this value, scale it up proportionally.
 
-• Recognition results have missing/truncated characters → increase (e.g. 2.0)
-• Boxes too large, causing overlaps → decrease (e.g. 1.2)
+<b>max_candidates — Maximum Candidate Box Count</b>
+RapidOCR Det.max_candidates. Default 1000, range 50 ~ 2000.
+Maximum number of candidate boxes retained during detection. Low-score boxes exceeding this count are discarded.
 
-<b>4. use_dilation — Segmentation Dilation (v6 only)</b>
-v6 default: On
+<b>use_dilation — Morphological Dilation</b>
+RapidOCR Det.use_dilation. Default On (true).
+Whether to apply morphological dilation to detected text regions. Recommended for dense text (e.g. vertical manga text) to merge adjacent regions.
 
-Whether to apply dilation processing to the detection segmentation map. Dilation merges adjacent text into a single region (good for dense text); disable to keep the original segmentation. Recommended to keep enabled for vertical manga text.
-
-<b>5. limit_side_len — Detection Side Length Limit (v6 only)</b>
-v6 default: 736 | Range: 64 ~ 2048 (pixels)
-
-Image side length limit during detection. The input image is scaled if its side exceeds this value. Higher → more accurate detection but slower; lower → faster but may lose detail.
-
-<b>6. limit_type — Side Limit Strategy (v6 only)</b>
-v6 default: min (limit shortest side)
-
-Whether limit_side_len applies to the minimum or maximum side. min = limit the shortest side (preserve detail); max = limit the longest side (prioritize speed).
+<b>score_mode — Text Box Scoring Method</b>
+RapidOCR Det.score_mode. Default fast, options fast / slow.
+fast is faster (recommended default); slow provides higher precision but is slower.
 
 <b><u>[Recognition Parameters (Rec)]</u></b>
 
-<b>7. text_score — Recognition Confidence Threshold</b>
-v5 default: 0.5 | v6 default: 0.5 | Range: 0.1 ~ 0.9
+<b>text_score — Text Recognition Confidence</b>
+RapidOCR Global.text_score. Default 0.5, range 0.1 ~ 0.9.
+Text recognition confidence threshold. Higher values mean greater confidence. Results below this are discarded.
+• Translation missing → lower
+• Translation garbled/wrong → raise
 
-Text recognition result confidence threshold. Results below this score are discarded. Higher → only keep high-confidence results (fewer but more accurate); lower → keep more results (more but possibly incorrect).
+<b>rec_batch_num — Recognition Batch Inference Size</b>
+RapidOCR Rec.rec_batch_num. Default 6, range 1 ~ 12.
+Batch inference size. The default value is fine; too large has no significant speedup and may reduce quality.
 
-• Translation frequently missing → lower (e.g. 0.3)
-• Translation has garbled/wrong text → raise (e.g. 0.6)
+<b><u>[Global Filter Parameters]</u></b>
 
-<b>8. rec_batch_num — Recognition Batch Size (v6 only)</b>
-v6 default: 6 | Range: 1 ~ 32
+<b>min_height — Minimum Image Height Threshold</b>
+RapidOCR Global.min_height. Default 30, range 10 ~ 200 (pixels).
+Skip text detection if the image height is below this value. Used to filter single-line text images.
 
-Text recognition batch inference size. Each batch processes N text lines simultaneously. Higher values improve throughput but use more memory; lower values use less memory but are slower.
+<b>width_height_ratio — Width-Height Ratio Limit</b>
+RapidOCR Global.width_height_ratio. Default 8, range 2 ~ 32. Value -1 disables.
+Skip text detection if the image aspect ratio exceeds this value. Suitable for long-strip single-line text images.
 
-<b><u>[Classification Parameters (Cls)]</u></b>
+<b>large_box_enabled — Large Box Filter</b>
+Default Off.
+Filters detection boxes that occupy too much of the image width/height/area. Enable when the detector incorrectly identifies large background areas as text.
+• Large false-positive boxes → enable
+• Normal use → keep disabled
 
-<b>9. cls_thresh — Orientation Classification Threshold (v6 only)</b>
-v6 default: 0.9 | Range: 0.5 ~ 1.0
+<b>large_box_ratio — Large Box Discard Ratio</b>
+Default 60%, range 30% ~ 80%.
+Only effective when large box filter is enabled. Boxes whose width, height, or area exceeds this ratio are discarded.
+• Filtering too aggressive → increase
+• Not filtering enough → decrease
 
-Text orientation classification confidence threshold. Text lines with classification scores below this value are not flipped (keep original orientation). Higher → only flip high-confidence upside-down text; lower → more lines may be flipped. Relevant for vertical or rotated text scenarios.
+<b><u>[Merge Parameters]</u></b>
 
-<b><u>[v5-Only Parameters]</u></b>
-
-<b>10. large_box_enabled — Large Box Filter (v5 only)</b>
-v5 default: Off
-
-Filters detection boxes that occupy too much of the image. In some scenarios (manga backgrounds, decorative patterns), the detector may mistakenly identify large areas as text. When enabled, boxes whose width, height, or area exceeds a certain ratio of the image are discarded.
-
-• Large false-positive boxes appearing → enable
-• Normal use: keep disabled
-
-<b>11. large_box_ratio — Large Box Filter Threshold (v5 only)</b>
-v5 default: 60% | Range: 30% ~ 80%
-
-Threshold for the large box filter. Detection boxes whose width, height, or area exceed this ratio of the image are discarded. Only effective when large box filter is enabled.
-
-• Filtering too aggressive (normal boxes discarded) → increase ratio
-• Not filtering enough (large boxes still appear) → decrease ratio</string>
+<b>merge_discard_gap — Distance Gate</b>
+Default 1.5, range 0.5 ~ 5.0.
+Line merge distance threshold. Text lines beyond this distance are not merged into the same bubble.</string>
     <string name="faq_q8">What is the purpose of downloading dedicated OCR recognition models?</string>
     <string name="faq_a8">PP-OCRv5\'s Chinese recognition model (rec_zh) is a Chinese-Japanese-English general model that can recognize Chinese, Japanese, and English. When no dedicated model is downloaded, English recognition uses this general model by default.\n\n<b><u>After downloading a dedicated model, the system automatically switches</u></b> for better results:\n\n• <b><u>English model (rec_en)</u></b>: Optimized for English, higher accuracy especially for uppercase/lowercase, numbers, and punctuation.\n• <b><u>Korean model (rec_ko)</u></b>: Dedicated to Korean. Without it, Korean text cannot be recognized.\n• <b><u>Russian model (rec_ru)</u></b>: Dedicated to Russian/Cyrillic script. Without it, Russian text cannot be recognized.\n\n<b><u>How to download</u></b>: Go to Settings → Model Management → PP-OCRv5 Recognition Models, tap download. Models are small (7~13MB) and take effect immediately without restarting.\n\n<b><u>How to verify</u></b>: When translating manga in a non-default language (e.g. English), a toast notification \"使用专用识别模型: rec_en\" will appear at the bottom of the screen, confirming the dedicated model is active. If no notification appears, the general Chinese model is still being used.</string>
 
