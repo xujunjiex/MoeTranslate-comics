@@ -39,5 +39,8 @@ data class HistoryEntity(
     val isRetranslated: Boolean = false,
 
     @ColumnInfo(name = "updated_at", defaultValue = "0")
-    val updatedAt: Long = 0     // 最后修改时间戳（翻译/缓存命中时更新）
+    val updatedAt: Long = 0,     // 最后修改时间戳（翻译/缓存命中时更新）
+
+    @ColumnInfo(name = "bubble_rects")
+    val bubbleRects: String? = null  // JSON: [{"l":10,"t":20,"r":100,"b":60}, ...] 气泡位置数据，旧数据为 NULL
 )

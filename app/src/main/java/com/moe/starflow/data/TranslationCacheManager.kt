@@ -345,6 +345,7 @@ class TranslationCacheManager(private val context: Context) {
             lastSessionId = entry.lastSessionId,
             originalImagePath = originalImagePath,
             isRetranslated = entry.isRetranslated,
+            bubbleRects = entry.bubbleRects,
             updatedAt = now
         )
         val historyId = dao.insertHistory(historyEntity)
@@ -738,6 +739,7 @@ data class CacheEntry(
     val cropRight: Int = 0,     // 裁剪区域右边界
     val cropBottom: Int = 0,    // 裁剪区域下边界
     val isRetranslated: Boolean = false,
+    val bubbleRects: String? = null,  // JSON: [{"l":10,"t":20,"r":100,"b":60}, ...] 气泡位置数据
 )
 
 data class HistoryEntry(
@@ -762,6 +764,7 @@ data class HistoryEntry(
     val variantIds: List<Long> = emptyList(),  // 同 pHash 的所有变体 ID
     val originalImagePath: String? = null,
     val isRetranslated: Boolean = false,
+    val bubbleRects: String? = null,  // JSON: [{"l":10,"t":20,"r":100,"b":60}, ...]
 )
 
 data class HistoryGroup(
@@ -797,5 +800,6 @@ fun HistoryEntity.toHistoryEntry() = HistoryEntry(
     pHash4 = pHash4,
     updatedAt = updatedAt,
     originalImagePath = originalImagePath,
-    isRetranslated = isRetranslated
+    isRetranslated = isRetranslated,
+    bubbleRects = bubbleRects
 )
