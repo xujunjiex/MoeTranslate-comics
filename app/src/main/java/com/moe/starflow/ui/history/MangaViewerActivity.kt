@@ -595,9 +595,29 @@ class MangaViewerActivity : AppCompatActivity() {
         val detailList = buildDetailList(entry)
         LogCollector.d(TAG, "expandPanel: detailList size=${detailList.size}")
 
-        val adapter = TranslationDetailAdapter(detailList)
-        binding.rvTranslationDetail.layoutManager = LinearLayoutManager(this)
-        binding.rvTranslationDetail.adapter = adapter
+        // 构建单个可选中文本块（ScrollView + TextView，支持跨条目选择）
+        val text = android.text.SpannableStringBuilder()
+        for (item in detailList) {
+            val start = text.length
+            if (start > 0) text.append("\n")
+            // 原文（淡色，小号）
+            if (item.ocrText.isNotEmpty() && item.ocrText != "-") {
+                val s = text.length
+                text.append(item.ocrText)
+                text.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.argb(153, 255, 255, 255)), s, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.setSpan(android.text.style.AbsoluteSizeSpan(11, true), s, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.append("\n")
+            }
+
+            // 译文（白色，正文大小）
+            if (item.translatedText.isNotEmpty()) {
+                val s = text.length
+                text.append(item.translatedText)
+                text.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.WHITE), s, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.setSpan(android.text.style.AbsoluteSizeSpan(12, true), s, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        binding.tvTranslationDetail.text = text
 
         // 等布局完成后获取实际高度
         binding.bottomSheetPanel.post {
@@ -757,39 +777,11 @@ class MangaViewerActivity : AppCompatActivity() {
     }
 }
 
-// ========== 数据类和适配器 ==========
-
 data class TranslationDetailItem(
     val index: Int,
     val ocrText: String,
     val translatedText: String
 )
-
-class TranslationDetailAdapter(
-    private val items: List<TranslationDetailItem>
-) : RecyclerView.Adapter<TranslationDetailAdapter.ViewHolder>() {
-
-    inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val tvIndex: TextView = view.findViewById(R.id.tvIndex)
-        val tvOcrText: TextView = view.findViewById(R.id.tvOcrText)
-        val tvTranslatedText: TextView = view.findViewById(R.id.tvTranslatedText)
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_translation_detail, parent, false)
-        return ViewHolder(view)
-    }
-
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val item = items[position]
-        holder.tvIndex.text = "[${item.index}]"
-        holder.tvOcrText.text = if (item.ocrText.isNotEmpty()) item.ocrText else "-"
-        holder.tvTranslatedText.text = item.translatedText
-    }
-
-    override fun getItemCount() = items.size
-}
 
 /**
  * 每页显示一个 pHash 组的代表图片。

@@ -52,7 +52,7 @@ class HistoryFragment : Fragment() {
     // SAF 下载
     private var pendingDownloadZip: File? = null
     private val REQUEST_DOWNLOAD_ZIP = 1001
-    private var pendingDownloadTxt: File? = null
+    private var pendingGameContent: String? = null
     private val REQUEST_DOWNLOAD_TXT = 1002
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -564,54 +564,53 @@ class HistoryFragment : Fragment() {
     private fun downloadGameSession(session: com.moe.starflow.data.HistorySession) {
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    val txtFile = File(requireContext().cacheDir, "session_${session.sessionId.take(8)}.txt")
-                    val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-
-                    // 如果会话条目为空，尝试直接从 DB 获取（兜底）
-                    val entriesToDownload = if (session.entries.isEmpty()) {
+                // 如果会话条目为空，尝试直接从 DB 获取（兜底）
+                val entriesToDownload = if (session.entries.isEmpty()) {
+                    withContext(Dispatchers.IO) {
                         LogCollector.w(TAG, "downloadGameSession: session entries empty, fetching from DB directly")
                         cacheManager.getHistory(TranslationCacheManager.MODE_GAME, limit = 500)
                             .filter { it.sessionId == session.sessionId || it.lastSessionId == session.sessionId }
+                    }
+                } else {
+                    session.entries
+                }
+
+                LogCollector.d(TAG, "downloadGameSession: sessionId=${session.sessionId.take(8)}, entries=${entriesToDownload.size}")
+                for ((i, e) in entriesToDownload.withIndex()) {
+                    LogCollector.d(TAG, "  entry[$i]: src=${e.sourceText?.take(20) ?: "null"}, trans=${e.translatedText?.take(20) ?: "null"}")
+                }
+
+                val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                val content = buildString {
+                    if (entriesToDownload.isEmpty()) {
+                        append("(无翻译记录)\n")
                     } else {
-                        session.entries
-                    }
-
-                    LogCollector.d(TAG, "downloadGameSession: sessionId=${session.sessionId.take(8)}, entries=${entriesToDownload.size}")
-                    for ((i, e) in entriesToDownload.withIndex()) {
-                        LogCollector.d(TAG, "  entry[$i]: src=${e.sourceText?.take(20) ?: "null"}, trans=${e.translatedText?.take(20) ?: "null"}")
-                    }
-
-                    txtFile.bufferedWriter().use { writer ->
-                        if (entriesToDownload.isEmpty()) {
-                            writer.write("(无翻译记录)\n")
-                        } else {
-                            for (entry in entriesToDownload) {
-                                val time = dateFormat.format(Date(entry.updatedAt))
-                                writer.write("[$time]\n")
-                                val src = entry.sourceText
-                                val trans = entry.translatedText
-                                if (src.isNullOrEmpty() && trans.isNullOrEmpty()) {
-                                    writer.write("(空记录)\n")
-                                } else {
-                                    if (!src.isNullOrEmpty()) writer.write("原文: $src\n")
-                                    if (!trans.isNullOrEmpty()) writer.write("译文: $trans\n")
-                                }
-                                writer.write("---\n")
+                        for (entry in entriesToDownload) {
+                            val time = dateFormat.format(Date(entry.updatedAt))
+                            append("[$time]\n")
+                            val src = entry.sourceText
+                            val trans = entry.translatedText
+                            if (src.isNullOrEmpty() && trans.isNullOrEmpty()) {
+                                append("(空记录)\n")
+                            } else {
+                                if (!src.isNullOrEmpty()) append("原文: $src\n")
+                                if (!trans.isNullOrEmpty()) append("译文: $trans\n")
                             }
+                            append("---\n")
                         }
                     }
+                }
 
-                    withContext(Dispatchers.Main) {
-                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.txt")
-                        }
-                        pendingDownloadTxt = txtFile
-                        @Suppress("DEPRECATION")
-                        startActivityForResult(intent, REQUEST_DOWNLOAD_TXT)
+                // 直接通过 SAF 写入，不用临时文件
+                withContext(Dispatchers.Main) {
+                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.txt")
                     }
+                    pendingGameContent = content
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(intent, REQUEST_DOWNLOAD_TXT)
                 }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Download game session failed", e)
@@ -647,24 +646,24 @@ class HistoryFragment : Fragment() {
         }
         if (requestCode == REQUEST_DOWNLOAD_TXT && resultCode == Activity.RESULT_OK) {
             data?.data?.let { uri ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            pendingDownloadTxt?.let { txt ->
+                val content = pendingGameContent
+                pendingGameContent = null
+                if (content != null) {
+                    lifecycleScope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
                                 requireContext().contentResolver.openOutputStream(uri)?.use { out ->
-                                    txt.inputStream().use { it.copyTo(out) }
+                                    out.write(content.toByteArray(Charsets.UTF_8))
                                 }
-                                txt.delete()
                             }
+                            com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载完成")
+                        } catch (e: Exception) {
+                            LogCollector.e(TAG, "Download txt save failed", e)
+                            com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载失败")
                         }
-                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载完成")
-                    } catch (e: Exception) {
-                        LogCollector.e(TAG, "Download txt save failed", e)
-                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载失败")
                     }
                 }
             }
-            pendingDownloadTxt = null
         }
         super.onActivityResult(requestCode, resultCode, data)
     }

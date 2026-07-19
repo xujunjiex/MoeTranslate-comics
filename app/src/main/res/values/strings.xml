@@ -723,10 +723,11 @@
     <string name="text_shadow_title">Text shadow</string>
     <string name="text_shadow_summary">Add shadow effect to translation result text</string>
     <string name="reset_default_color">Reset to default</string>
-    <string name="copy_text">Copy text</string>
+    <string name="copy_text">Copy</string>
+    <string name="copy_exit">Exit</string>
     <string name="copy_all">Copy all</string>
-    <string name="copy_original">Copy original</string>
-    <string name="copy_translation">Copy translation</string>
+    <string name="copy_original">Original</string>
+    <string name="copy_translation">Translation</string>
     <string name="text_copied">Copied</string>
     <string name="copy_original_translation">Original + Translation</string>
     <string name="download_txt">Download TXT</string>

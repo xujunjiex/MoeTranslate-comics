@@ -169,13 +169,24 @@
             android:textSize="10sp"
             android:lineSpacingExtra="2dp" />
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvTranslationDetail"
+        <ScrollView
+            android:id="@+id/scrollTranslationDetail"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:paddingHorizontal="16dp"
-            android:clipToPadding="false" />
+            android:paddingHorizontal="16dp">
+
+            <TextView
+                android:id="@+id/tvTranslationDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:lineSpacingExtra="4dp"
+                android:textColor="#CCFFFFFF"
+                android:textIsSelectable="true"
+                android:paddingBottom="48dp" />
+
+        </ScrollView>
 
     </LinearLayout>
 

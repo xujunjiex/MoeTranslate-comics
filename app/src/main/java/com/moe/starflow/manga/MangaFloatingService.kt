@@ -276,6 +276,8 @@ class MangaFloatingService : LifecycleService() {
     private var copyBubbleViews: MutableList<View> = mutableListOf()
     private var copyButtonsContainer: android.widget.LinearLayout? = null
     private var currentShowBubbles: List<TranslatedBubble> = emptyList()  // 当前显示的翻译气泡（非缓存）
+    private var currentOverlayBitmapW: Int = 0  // 当前 overlay 对应的 bitmap 宽度（用于坐标映射）
+    private var currentOverlayBitmapH: Int = 0  // 当前 overlay 对应的 bitmap 高度（用于坐标映射）
     private var lastCacheBubbleRects: String? = null  // 缓存命中的气泡 rect JSON
     private var cachedOriginalTextList: List<String> = emptyList()  // 缓存结果解析后的原文列表
     private var cachedTranslatedTextList: List<String> = emptyList()  // 缓存结果解析后的译文列表
@@ -3170,6 +3172,8 @@ class MangaFloatingService : LifecycleService() {
             return
         }
 
+        currentOverlayBitmapW = bitmap.width
+        currentOverlayBitmapH = bitmap.height
         resultOverlayView.setImageBitmap(bitmap)
         resultOverlayView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
@@ -3262,6 +3266,9 @@ class MangaFloatingService : LifecycleService() {
     @SuppressLint("ClickableViewAccessibility")
     private fun showCacheOverlay(bitmap: Bitmap) {
         dismissProgressOverlay()
+
+        currentOverlayBitmapW = bitmap.width
+        currentOverlayBitmapH = bitmap.height
 
         val screenSize = getScreenSize()
         val screenW = screenSize.width
@@ -3462,23 +3469,180 @@ class MangaFloatingService : LifecycleService() {
         }
     }
 
+    // ---------- 按钮工具方法 ----------
+
+    /** 分段切换控件的两个 TextView，用于更新激活状态 */
+    private var toggleSegOriginal: android.widget.TextView? = null
+    private var toggleSegTranslation: android.widget.TextView? = null
+
+    /**
+     * 创建操作按钮（全部复制、退出等执行动作的按钮）
+     */
+    private fun createCopyActionBtn(text: String, textSize: Float = 12f): android.widget.TextView {
+        val bg = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.argb(160, 30, 30, 30))
+            cornerRadius = dpToPx(6).toFloat()
+            setStroke(dpToPx(1), Color.argb(80, 255, 255, 255))
+        }
+        return android.widget.TextView(this).apply {
+            this.text = text
+            this.textSize = textSize
+            setTextColor(Color.argb(220, 255, 255, 255))
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6))
+            background = bg
+        }
+    }
+
+    /**
+     * 创建分段切换控件 [ 原文 | 译文 ]
+     * 激活段白底带圆角，与外层容器边缘对齐
+     */
+    private fun createSegmentedToggle(): android.widget.LinearLayout {
+        val r = dpToPx(6).toFloat()
+        val padH = dpToPx(12)
+        val padV = dpToPx(6)
+
+        // 左段激活背景：左侧圆角
+        val activeBgLeft = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.argb(160, 255, 255, 255))
+            cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+        }
+        // 右段激活背景：右侧圆角
+        val activeBgRight = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.argb(160, 255, 255, 255))
+            cornerRadii = floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+        }
+
+        toggleSegOriginal = android.widget.TextView(this).apply {
+            text = getString(R.string.copy_original)
+            textSize = 11f
+            setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+            gravity = Gravity.CENTER
+            setPadding(padH, padV, padH, padV)
+            background = if (!copyOriginalMode) activeBgLeft else null
+            setOnClickListener {
+                if (copyOriginalMode) {
+                    copyOriginalMode = false
+                    updateToggleSegments()
+                }
+            }
+        }
+
+        toggleSegTranslation = android.widget.TextView(this).apply {
+            text = getString(R.string.copy_translation)
+            textSize = 11f
+            setTextColor(if (copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+            gravity = Gravity.CENTER
+            setPadding(padH, padV, padH, padV)
+            background = if (copyOriginalMode) activeBgRight else null
+            setOnClickListener {
+                if (!copyOriginalMode) {
+                    copyOriginalMode = true
+                    updateToggleSegments()
+                }
+            }
+        }
+
+        val outerBg = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.argb(160, 30, 30, 30))
+            cornerRadius = r
+            setStroke(dpToPx(1), Color.argb(80, 255, 255, 255))
+        }
+
+        return android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            background = outerBg
+            addView(toggleSegOriginal)
+            addView(toggleSegTranslation)
+        }
+    }
+
+    /** 更新分段切换的激活状态 */
+    private fun updateToggleSegments() {
+        val r = dpToPx(6).toFloat()
+        val activeBgLeft = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.argb(160, 255, 255, 255))
+            cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+        }
+        val activeBgRight = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.argb(160, 255, 255, 255))
+            cornerRadii = floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+        }
+        toggleSegOriginal?.apply {
+            background = if (!copyOriginalMode) activeBgLeft else null
+            setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+        }
+        toggleSegTranslation?.apply {
+            background = if (copyOriginalMode) activeBgRight else null
+            setTextColor(if (copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
+        }
+    }
+
     private fun showCopyButtons() {
         if (copyButtonsContainer != null) return
+        buildCopyButtonsLayout()
+    }
 
-        copyButtonsContainer = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
+    /**
+     * 重建按钮面板。容器为 VERTICAL LinearLayout，
+     * 每个子视图用自己的 layout_gravity=END 右对齐，容器不设 gravity，
+     * 保证每个子视图按自身内容独立测量，互不压缩。
+     */
+    private fun buildCopyButtonsLayout() {
+        val oldContainer = copyButtonsContainer
+        copyButtonsContainer = null
+        toggleSegOriginal = null
+        toggleSegTranslation = null
+
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
         }
 
-        // 复制模式按钮
-        val btnCopy = android.widget.TextView(this).apply {
-            text = "📋"
-            textSize = 18f
-            setTextColor(android.graphics.Color.argb(200, 255, 255, 255))
-            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
-            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
-            setOnClickListener { toggleCopyMode() }
+        if (isCopyMode) {
+            val gap = dpToPx(4)
+
+            // 切换控件 — layout_gravity=END，自身 WRAP_CONTENT，不受其他子视图宽度影响
+            container.addView(createSegmentedToggle(), android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.END
+                bottomMargin = gap
+            })
+
+            // 操作按钮行 — 独立的 HORIZONTAL LinearLayout，同样 layout_gravity=END
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+            }
+            row.addView(createCopyActionBtn(getString(R.string.copy_all), 11f).apply {
+                setOnClickListener { copyAllBubbles() }
+            })
+            row.addView(createCopyActionBtn(getString(R.string.copy_exit), 12f).apply {
+                setOnClickListener { toggleCopyMode() }
+            })
+            container.addView(row, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.END
+            })
+        } else {
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+            }
+            row.addView(createCopyActionBtn(getString(R.string.copy_text), 12f).apply {
+                setOnClickListener { toggleCopyMode() }
+            })
+            container.addView(row, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.END
+            })
         }
-        copyButtonsContainer!!.addView(btnCopy)
+
+        copyButtonsContainer = container
 
         val params = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -3491,15 +3655,20 @@ class MangaFloatingService : LifecycleService() {
             x = dpToPx(8)
             y = dpToPx(8)
         }
-        windowManager.addView(copyButtonsContainer, params)
+
+        windowManager.addView(container, params)
+
+        oldContainer?.let {
+            try { if (it.isAttachedToWindow) windowManager.removeView(it) } catch (_: Exception) {}
+        }
     }
 
     private fun removeCopyButtons() {
+        toggleSegOriginal = null
+        toggleSegTranslation = null
         if (copyButtonsContainer != null) {
             try {
-                if (copyButtonsContainer!!.isAttachedToWindow) {
-                    windowManager.removeView(copyButtonsContainer)
-                }
+                if (copyButtonsContainer!!.isAttachedToWindow) windowManager.removeView(copyButtonsContainer)
             } catch (_: Exception) {}
             copyButtonsContainer = null
         }
@@ -3515,45 +3684,23 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun enterCopyMode() {
-        // 1. 展开额外按钮
-        if (copyButtonsContainer != null && copyButtonsContainer!!.childCount < 3) {
-            val btnToggle = android.widget.TextView(this).apply {
-                text = if (copyOriginalMode) "原文" else "译文"
-                textSize = 14f
-                setTextColor(android.graphics.Color.argb(200, 255, 255, 255))
-                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
-                setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4))
-                setOnClickListener {
-                    copyOriginalMode = !copyOriginalMode
-                    text = if (copyOriginalMode) "原文" else "译文"
-                }
-            }
-            copyButtonsContainer!!.addView(btnToggle, 0)
-
-            val btnCopyAll = android.widget.TextView(this).apply {
-                text = "📄"
-                textSize = 18f
-                setTextColor(android.graphics.Color.argb(200, 255, 255, 255))
-                setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
-                setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
-                setOnClickListener { copyAllBubbles() }
-            }
-            copyButtonsContainer!!.addView(btnCopyAll, 0)
-        }
-
-        // 2. 创建可点击区域 + 气泡框
+        buildCopyButtonsLayout()
         createCopyClickLayer()
     }
 
     private fun exitCopyMode() {
-        // 移除额外按钮
-        if (copyButtonsContainer != null && copyButtonsContainer!!.childCount > 1) {
-            copyButtonsContainer!!.removeViews(0, 2)
-        }
-        // 移除可点击层
         removeCopyClickLayer()
+        buildCopyButtonsLayout()
     }
 
+    /**
+     * 创建复制模式的可点击气泡覆盖层。
+     *
+     * 使用与 showResultOverlay / showCacheOverlay 完全相同的坐标映射规则：
+     * - 全屏模式：bitmap == screen → 1:1 映射
+     * - 框选模式：overlay 窗口在 (cropOffset + cropRect.left, cropOffset + cropRect.top)，
+     *   气泡 rect 在裁剪后 bitmap 坐标系中 → 需加上窗口偏移量映射到屏幕坐标
+     */
     private fun createCopyClickLayer() {
         removeCopyClickLayer()
 
@@ -3572,21 +3719,62 @@ class MangaFloatingService : LifecycleService() {
             return
         }
 
+        // 计算坐标映射参数：与 showResultOverlay / showCacheOverlay 一致
+        val screenSize = getScreenSize()
+        val screenW = screenSize.width
+        val screenH = screenSize.height
+        val bitmapW = if (currentOverlayBitmapW > 0) currentOverlayBitmapW else screenW
+        val bitmapH = if (currentOverlayBitmapH > 0) currentOverlayBitmapH else screenH
+
+        // overlay 窗口的屏幕坐标偏移和尺寸
+        val overlayScreenX: Int
+        val overlayScreenY: Int
+        val overlayWidth: Int
+        val overlayHeight: Int
+
+        if (cropRect != null) {
+            val crop = cropRect!!
+            val offset = cropView.absolutePointOffset
+            overlayScreenX = offset.x + crop.left.toInt()
+            overlayScreenY = offset.y + crop.top.toInt()
+            overlayWidth = crop.width().toInt()
+            overlayHeight = crop.height().toInt()
+        } else {
+            overlayScreenX = 0
+            overlayScreenY = 0
+            overlayWidth = screenW
+            overlayHeight = screenH
+        }
+
+        // bitmap → overlay 缩放比例（通常为 1.0，bitmap 和 overlay 尺寸一致）
+        val scaleX = if (bitmapW > 0) overlayWidth.toFloat() / bitmapW else 1f
+        val scaleY = if (bitmapH > 0) overlayHeight.toFloat() / bitmapH else 1f
+
+        LogCollector.d(TAG, "createCopyClickLayer: ${bubbles.size} bubbles, " +
+            "bitmap=${bitmapW}x${bitmapH}, overlay=${overlayWidth}x${overlayHeight}@($overlayScreenX,$overlayScreenY), " +
+            "cropRect=${cropRect != null}, scale=(${scaleX},${scaleY})")
+
         for ((idx, rect) in bubbles.withIndex()) {
+            // bitmap 坐标 → 屏幕坐标
+            val screenLeft = (rect.left * scaleX + overlayScreenX).toInt()
+            val screenTop = (rect.top * scaleY + overlayScreenY).toInt()
+            val bubbleW = (rect.width() * scaleX).toInt()
+            val bubbleH = (rect.height() * scaleY).toInt()
+
             val overlay = View(this).apply {
-                setBackgroundColor(android.graphics.Color.argb(40, 100, 200, 255))
+                setBackgroundColor(Color.argb(40, 100, 200, 255))
                 setOnClickListener {
                     copyBubbleText(idx)
-                    // 高亮反馈
-                    setBackgroundColor(android.graphics.Color.argb(120, 100, 200, 255))
+                    // 高亮反馈 200ms
+                    setBackgroundColor(Color.argb(120, 100, 200, 255))
                     postDelayed({
-                        setBackgroundColor(android.graphics.Color.argb(40, 100, 200, 255))
+                        setBackgroundColor(Color.argb(40, 100, 200, 255))
                     }, 200)
                 }
             }
-            val lp = android.widget.FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
-                leftMargin = rect.left
-                topMargin = rect.top
+            val lp = android.widget.FrameLayout.LayoutParams(bubbleW, bubbleH).apply {
+                leftMargin = screenLeft
+                topMargin = screenTop
             }
             container.addView(overlay, lp)
             copyBubbleViews.add(overlay)
