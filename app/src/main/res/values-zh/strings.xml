@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">星译</string>
     <string name="floating_ball_menu_1">哎呀，摸鱼被发现啦～</string>
@@ -318,95 +318,7 @@
     <string name="faq_q6">漫画模式翻译结果缺失、翻译不理想、翻译速度慢？</string>
     <string name="faq_a6">可以尝试以下优化方法：\n\n1. <b><u>框选需要翻译的区域</u></b>：精确框选文字区域可以提高 OCR 识别精度，避免识别无关内容。\n\n2. <b><u>减少 UI 干扰</u></b>：避免框选空白区域、游戏 UI 按钮等非文字内容，减少不必要的识别可以提高速度。\n\n3. <b><u>选择合适的翻译模型</u></b>：带有 mini、lit、flash 标记的模型响应速度更快。</string>
     <string name="faq_q7">PP-OCRv 调试面板参数详解</string>
-    <string name="faq_a7">在漫画翻译调试模式中，可通过滑块/开关实时调整以下 PP-OCRv6 引擎参数。修改立即生效，并自动应用到正常翻译流程。参数名称和描述参考 RapidOCR 官方文档。
-
-<b><u>【检测参数（Det）】</u></b>
-
-<b>det_thresh — 文字/背景分割阈值</b>
-对应 RapidOCR Det.thresh。默认 0.3，范围 0.1 ~ 0.5。
-文字/背景二值化分割阈值，值越大文字区域越小。
-• 文字漏检 → 降低
-• 噪声框多 → 提高
-
-<b>det_box_thresh — 文本检测框保留阈值</b>
-对应 RapidOCR Det.box_thresh。默认 0.5，范围 0.01 ~ 0.7。
-文本检测框保留阈值，值越大召回率越低。
-• 文字漏检 → 降低
-• 噪声框多 → 提高
-
-<b>det_unclip_ratio — 文本检测框膨胀程度</b>
-对应 RapidOCR Det.unclip_ratio。默认 1.6，范围 1.0 ~ 3.0。
-控制文本检测框整体大小，值越大检测框越大、越宽松。
-• 识别缺字/截断 → 增大
-• 框过大重叠 → 减小
-
-<b>limit_side_len — 限制图像边长度</b>
-对应 RapidOCR Det.limit_side_len。默认 736，范围 64 ~ 2048（像素）。
-限制图像边长度的像素值。配合 limit_type 使用。
-
-<b>limit_type — 边长限制策略</b>
-对应 RapidOCR Det.limit_type。默认 min，选项 min / max。
-min = 最小边小于阈值时等比拉伸（保证细节）；max = 最大边大于阈值时等比缩放（保证速度）。
-
-<b>max_side_len — 输入图像最大边限制</b>
-对应 RapidOCR Global.max_side_len。默认 2000，范围 400 ~ 4000（像素）。
-输入图像最大边超过此值时，按宽高比等比缩放至该值。
-
-<b>min_side_len — 输入图像最小边限制</b>
-对应 RapidOCR Global.min_side_len。默认 30，范围 10 ~ 400（像素）。
-输入图像最小边小于此值时，按宽高比等比缩放至该值。
-
-<b>max_candidates — 最大候选框数目</b>
-对应 RapidOCR Det.max_candidates。默认 1000，范围 50 ~ 2000。
-检测阶段保留的最大候选框数目，超过此值的低分框被丢弃。
-
-<b>use_dilation — 形态学膨胀处理</b>
-对应 RapidOCR Det.use_dilation。默认 开启（true）。
-是否对检测到的文本区域做形态学膨胀处理。密集文字（如漫画竖排）建议开启，让相邻文字合并成区域。
-
-<b>score_mode — 文本框得分计算方式</b>
-对应 RapidOCR Det.score_mode。默认 fast，选项 fast / slow。
-fast 速度更快（推荐默认），slow 精度更高但速度更慢。
-
-<b><u>【识别参数（Rec）】</u></b>
-
-<b>text_score — 文本识别结果置信度</b>
-对应 RapidOCR Global.text_score。默认 0.5，范围 0.1 ~ 0.9。
-文本识别结果置信度阈值，值越大表示把握越大，低于此值的结果被丢弃。
-• 翻译缺失 → 降低
-• 翻译乱码/错误 → 提高
-
-<b>rec_batch_num — 识别批次推理大小</b>
-对应 RapidOCR Rec.rec_batch_num。默认 6，范围 1 ~ 12。
-批次推理 batch 大小。默认值即可，太大无明显提速，效果可能变差。
-
-<b><u>【全局过滤参数】</u></b>
-
-<b>min_height — 图像最小高度阈值</b>
-对应 RapidOCR Global.min_height。默认 30，范围 10 ~ 200（像素）。
-图像高度低于此值时跳过文本检测阶段，直接进行后续识别。用于过滤只有一行文本的图像。
-
-<b>width_height_ratio — 宽高比限制</b>
-对应 RapidOCR Global.width_height_ratio。默认 8，范围 2 ~ 32。值为 -1 时不启用。
-输入图像宽高比大于此值时跳过文本检测，直接识别。适用于长条形单行文本图像。
-
-<b>large_box_enabled — 大框过滤开关</b>
-默认 关闭。
-过滤占图片比例过大的检测框（宽/高/面积超过阈值丢弃）。检测器错误识别大面积背景时开启。
-• 检测到巨大错误框 → 开启
-• 正常使用 → 保持关闭
-
-<b>large_box_ratio — 大框丢弃比例</b>
-默认 60%，范围 30% ~ 80%。
-仅在大框过滤开启时生效。框的宽、高或面积占图片比例超过此值时丢弃。
-• 过滤太激进 → 增大
-• 过滤不够 → 减小
-
-<b><u>【合并参数】</u></b>
-
-<b>merge_discard_gap — 距离门控</b>
-默认 1.5，范围 0.5 ~ 5.0。
-行间合并距离阈值。超过此距离的文字行不合并为同一气泡。</string>
+    <string name="faq_a7">在漫画翻译调试模式中，可通过滑块/开关实时调整以下 PP-OCRv6 引擎参数。修改立即生效，并自动应用到正常翻译流程。参数名称和描述参考 RapidOCR 官方文档。\n\n<b><u>【检测参数（Det）】</u></b>\n\n<b>thresh — 文字/背景分割阈值</b>\n对应 Det.thresh。默认 0.3，范围 0.1 ~ 0.5。\n文字/背景二值化分割阈值，值越大文字区域越小。\n• 文字漏检 → 降低\n• 噪声框多 → 提高\n\n<b>box_thresh — 文本检测框保留阈值</b>\n对应 Det.box_thresh。默认 0.5，范围 0.01 ~ 0.7。\n文本检测框保留阈值，值越大召回率越低。\n• 文字漏检 → 降低\n• 噪声框多 → 提高\n\n<b>unclip_ratio — 文本检测框膨胀程度</b>\n对应 Det.unclip_ratio。默认 1.6，范围 1.0 ~ 3.0。\n控制文本检测框整体大小，值越大检测框越大、越宽松。\n• 识别缺字/截断 → 增大\n• 框过大重叠 → 减小\n\n<b>limit_side_len — 限制图像边长度</b>\n对应 Det.limit_side_len。默认 736，范围 64 ~ 2048（像素）。\n限制图像边长度的像素值。配合 limit_type 使用。\n\n<b>limit_type — 边长限制策略</b>\n对应 Det.limit_type。默认 min，选项 min / max。\nmin = 最小边小于阈值时等比拉伸（保证细节）；max = 最大边大于阈值时等比缩放（保证速度）。\n\n<b>max_side_len — 输入图像最大边限制</b>\n对应 Global.max_side_len。默认 2000，范围 400 ~ 4000（像素）。\n输入图像最大边超过此值时，按宽高比等比缩放至该值。\n\n<b>min_side_len — 输入图像最小边限制</b>\n对应 Global.min_side_len。默认 30，范围 10 ~ 400（像素）。\n输入图像最小边小于此值时，按宽高比等比缩放至该值。\n\n<b>max_candidates — 最大候选框数目</b>\n对应 Det.max_candidates。默认 1000，范围 50 ~ 2000。\n检测阶段保留的最大候选框数目，超过此值的低分框被丢弃。\n\n<b>use_dilation — 形态学膨胀处理</b>\n对应 Det.use_dilation。默认 开启（true）。\n是否对检测到的文本区域做形态学膨胀处理。密集文字（如漫画竖排）建议开启，让相邻文字合并成区域。\n\n<b>score_mode — 文本框得分计算方式</b>\n对应 Det.score_mode。默认 fast，选项 fast / slow。\nfast 速度更快（推荐默认），slow 精度更高但速度更慢。\n\n<b><u>【识别参数（Rec）】</u></b>\n\n<b>text_score — 文本识别结果置信度</b>\n对应 Global.text_score。默认 0.5，范围 0.1 ~ 0.9。\n文本识别结果置信度，值越大表示把握越大，低于此值的结果被丢弃。\n• 翻译缺失 → 降低\n• 翻译乱码/错误 → 提高\n\n<b>rec_batch_num — 识别批次推理大小</b>\n对应 Rec.rec_batch_num。默认 6，范围 1 ~ 12。\n批次推理 batch 大小。默认值即可，太大无明显提速，效果可能变差。\n\n<b><u>【全局过滤参数】</u></b>\n\n<b>min_height — 图像最小高度阈值</b>\n对应 Global.min_height。默认 30，范围 10 ~ 200（像素）。\n图像低于此高度时跳过文本检测阶段，直接进行后续识别。用于过滤只有一行文本的图像。\n\n<b>width_height_ratio — 宽高比限制</b>\n对应 Global.width_height_ratio。默认 8，范围 2 ~ 32（-1 不启用）。\n输入图像宽高比大于此值时跳过文本检测，直接识别。适用于长条形单行文本图像。\n\n<b>large_box_enabled — 大框过滤开关</b>\n默认 关闭。\n过滤占图片比例过大的检测框（宽/高/面积超过阈值丢弃）。\n• 检测到巨大错误框 → 开启\n• 正常使用 → 保持关闭\n\n<b>large_box_ratio — 大框丢弃比例</b>\n默认 60%，范围 30% ~ 80%。\n仅在大框过滤开启时生效。框的宽、高或面积占图片比例超过此值时丢弃。\n• 过滤太激进 → 增大\n• 过滤不够 → 减小\n\n<b><u>【合并参数】</u></b>\n\n<b>merge_discard_gap — 距离门控</b>\n默认 1.5，范围 0.5 ~ 5.0。\n行间合并距离阈值。超过此距离的文字行不合并为同一气泡。</string>
     <string name="faq_q8">下载专用 OCR 识别模型有什么作用？</string>
     <string name="faq_a8">PP-OCRv5 的中文识别模型（rec_zh）是一个中日英混合通用模型，可以识别中文、日文和英文。在未下载专用模型时，英文识别默认使用这个通用模型。\n\n<b><u>下载专用模型后，系统会自动切换</u></b>，效果更好：\n\n• <b><u>英文模型（rec_en）</u></b>：专为英文优化，识别准确率更高，特别是大小写、数字、标点的识别更精确。\n• <b><u>韩文模型（rec_ko）</u></b>：韩文专用，未下载时韩文无法识别。\n• <b><u>俄文模型（rec_ru）</u></b>：俄文/西里尔文字专用，未下载时俄文无法识别。\n\n<b><u>如何下载</u></b>：进入 设置 → 模型管理 → PP-OCRv5 识别模型，点击下载即可。模型体积小（7~13MB），下载后立即生效，无需重启。\n\n<b><u>如何确认是否生效</u></b>：使用非默认语言（如英文）进行漫画翻译时，屏幕底部会弹出提示\"使用专用识别模型: rec_en\"，表示专用模型已生效。如果没有弹出提示，说明仍在使用通用中文模型。</string>
 
