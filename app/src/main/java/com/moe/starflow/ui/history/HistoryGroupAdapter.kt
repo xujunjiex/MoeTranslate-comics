@@ -22,7 +22,8 @@ import java.util.Locale
  */
 class HistoryGroupAdapter(
     private val onItemClick: (HistoryEntry) -> Unit,
-    private val onItemLongClick: (HistoryEntry) -> Unit
+    private val onItemLongClick: (HistoryEntry) -> Unit,
+    private val onDownloadSessionClick: ((HistorySession) -> Unit)? = null
 ) : ListAdapter<HistoryGroup, HistoryGroupAdapter.GroupViewHolder>(GroupDiffCallback()) {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -44,7 +45,7 @@ class HistoryGroupAdapter(
         fun bind(group: HistoryGroup) {
             tvDateHeader.text = group.dateLabel
 
-            val sessionAdapter = SessionAdapter(onItemClick, onItemLongClick)
+            val sessionAdapter = SessionAdapter(onItemClick, onItemLongClick, onDownloadSessionClick)
             rvSessions.layoutManager = LinearLayoutManager(itemView.context)
             rvSessions.adapter = sessionAdapter
             sessionAdapter.submitList(group.sessions)
@@ -53,7 +54,8 @@ class HistoryGroupAdapter(
 
     private inner class SessionAdapter(
         private val onItemClick: (HistoryEntry) -> Unit,
-        private val onItemLongClick: (HistoryEntry) -> Unit
+        private val onItemLongClick: (HistoryEntry) -> Unit,
+        private val onDownloadSessionClick: ((HistorySession) -> Unit)?
     ) : ListAdapter<HistorySession, SessionAdapter.SessionViewHolder>(SessionDiffCallback()) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SessionViewHolder {
@@ -68,15 +70,17 @@ class HistoryGroupAdapter(
 
         inner class SessionViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             private val tvSessionHeader: TextView = view.findViewById(R.id.tvSessionHeader)
+            private val btnDownload: TextView = view.findViewById(R.id.btnDownloadSession)
             private val rvEntries: RecyclerView = view.findViewById(R.id.rvSessionEntries)
 
             fun bind(session: HistorySession) {
-                // 会话时间段
                 val startTime = timeFormat.format(Date(session.startTime))
                 val endTime = timeFormat.format(Date(session.endTime))
                 tvSessionHeader.text = "$startTime - $endTime (${session.entries.size})"
 
-                // 历史记录列表
+                btnDownload.visibility = if (onDownloadSessionClick != null) View.VISIBLE else View.GONE
+                btnDownload.setOnClickListener { onDownloadSessionClick?.invoke(session) }
+
                 val entryAdapter = HistoryGameAdapter(onItemClick, onItemLongClick)
                 rvEntries.layoutManager = LinearLayoutManager(itemView.context)
                 rvEntries.adapter = entryAdapter

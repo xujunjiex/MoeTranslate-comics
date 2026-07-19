@@ -5,15 +5,38 @@
     android:orientation="vertical"
     android:layout_marginTop="4dp">
 
-    <!-- 会话时间段标题 -->
-    <TextView
-        android:id="@+id/tvSessionHeader"
+    <!-- 会话标题栏（时间 + 下载按钮） -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:paddingHorizontal="24dp"
-        android:paddingVertical="6dp"
-        android:textColor="#FF999999"
-        android:textSize="12sp" />
+        android:paddingVertical="6dp">
+
+        <TextView
+            android:id="@+id/tvSessionHeader"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FF999999"
+            android:textSize="12sp" />
+
+        <!-- 下载按钮 -->
+        <TextView
+            android:id="@+id/btnDownloadSession"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⬇"
+            android:textColor="#FF999999"
+            android:textSize="14sp"
+            android:paddingStart="12dp"
+            android:paddingEnd="4dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <!-- 会话内的历史记录 -->
     <androidx.recyclerview.widget.RecyclerView

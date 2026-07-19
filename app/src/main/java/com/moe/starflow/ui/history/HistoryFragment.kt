@@ -29,6 +29,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class HistoryFragment : Fragment() {
 
@@ -49,6 +52,8 @@ class HistoryFragment : Fragment() {
     // SAF 下载
     private var pendingDownloadZip: File? = null
     private val REQUEST_DOWNLOAD_ZIP = 1001
+    private var pendingDownloadTxt: File? = null
+    private val REQUEST_DOWNLOAD_TXT = 1002
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,7 +106,8 @@ class HistoryFragment : Fragment() {
         // 游戏历史：分组适配器
         gameGroupAdapter = HistoryGroupAdapter(
             onItemClick = { entry -> copyTranslatedText(entry) },
-            onItemLongClick = { entry -> showDeleteDialog(entry) }
+            onItemLongClick = { entry -> showDeleteDialog(entry) },
+            onDownloadSessionClick = { session -> downloadGameSession(session) }
         )
         binding.rvGameHistory.layoutManager = LinearLayoutManager(requireContext())
         binding.rvGameHistory.adapter = gameGroupAdapter
@@ -342,12 +348,25 @@ class HistoryFragment : Fragment() {
     }
 
     private fun copyTranslatedText(entry: HistoryEntry) {
-        val text = entry.translatedText
-        if (text.isNullOrEmpty()) return
+        val sourceText = entry.sourceText ?: ""
+        val translatedText = entry.translatedText ?: ""
+        if (sourceText.isEmpty() && translatedText.isEmpty()) return
+
+        val text = buildString {
+            if (sourceText.isNotEmpty()) {
+                append("原文: ")
+                append(sourceText)
+            }
+            if (translatedText.isNotEmpty()) {
+                if (sourceText.isNotEmpty()) append("\n")
+                append("译文: ")
+                append(translatedText)
+            }
+        }
 
         val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("translated_text", text))
-        Toast.makeText(requireContext(), R.string.history_copied, Toast.LENGTH_SHORT).show()
+        Toast.makeText(requireContext(), R.string.text_copied, Toast.LENGTH_SHORT).show()
     }
 
     private fun showDarkDialog(
@@ -533,6 +552,46 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 下载游戏进程组翻译为 TXT 文件
+     */
+    private fun downloadGameSession(session: com.moe.starflow.data.HistorySession) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val txtFile = File(requireContext().cacheDir, "session_${session.sessionId.take(8)}.txt")
+                    val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+
+                    txtFile.bufferedWriter().use { writer ->
+                        for (entry in session.entries) {
+                            val time = dateFormat.format(Date(entry.updatedAt))
+                            writer.write("[$time]\n")
+                            entry.sourceText?.let { writer.write("原文: $it\n") }
+                            entry.translatedText?.let { writer.write("译文: $it\n") }
+                            writer.write("---\n")
+                        }
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TITLE, "session_${session.sessionId.take(8)}.txt")
+                        }
+                        pendingDownloadTxt = txtFile
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQUEST_DOWNLOAD_TXT)
+                    }
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Download game session failed", e)
+                withContext(Dispatchers.Main) {
+                    com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载失败")
+                }
+            }
+        }
+    }
+
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_DOWNLOAD_ZIP && resultCode == Activity.RESULT_OK) {
@@ -555,6 +614,27 @@ class HistoryFragment : Fragment() {
                 }
             }
             pendingDownloadZip = null
+        }
+        if (requestCode == REQUEST_DOWNLOAD_TXT && resultCode == Activity.RESULT_OK) {
+            data?.data?.let { uri ->
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            pendingDownloadTxt?.let { txt ->
+                                requireContext().contentResolver.openOutputStream(uri)?.use { out ->
+                                    txt.inputStream().use { it.copyTo(out) }
+                                }
+                                txt.delete()
+                            }
+                        }
+                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载完成")
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "Download txt save failed", e)
+                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载失败")
+                    }
+                }
+            }
+            pendingDownloadTxt = null
         }
         super.onActivityResult(requestCode, resultCode, data)
     }

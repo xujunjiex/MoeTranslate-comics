@@ -23,7 +23,8 @@
         android:layout_marginTop="1dp"
         android:textColor="#99FFFFFF"
         android:textSize="11sp"
-        android:lineSpacingExtra="1dp" />
+        android:lineSpacingExtra="1dp"
+        android:textIsSelectable="true" />
 
     <!-- AI 译文 -->
     <TextView
@@ -33,7 +34,8 @@
         android:layout_marginTop="2dp"
         android:textColor="#FFFFFF"
         android:textSize="12sp"
-        android:lineSpacingExtra="2dp" />
+        android:lineSpacingExtra="2dp"
+        android:textIsSelectable="true" />
 
     <!-- 分隔线 -->
     <View
