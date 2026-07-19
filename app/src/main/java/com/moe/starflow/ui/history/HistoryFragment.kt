@@ -610,22 +610,40 @@ class HistoryFragment : Fragment() {
                 tempDir.deleteRecursively()
 
                 withContext(Dispatchers.Main) {
-                    // 直接复制到 Download 公共目录，绕过 SAF（SAF 写入时似乎丢数据）
+                    // 用 MediaStore API 写入 Downloads 公共目录（Android 11+ Scoped Storage 兼容）
                     try {
-                        val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(
-                            android.os.Environment.DIRECTORY_DOWNLOADS
-                        )
-                        val targetFile = File(downloadDir, "session_${session.sessionId.take(8)}.zip")
-                        zipFile.inputStream().use { input ->
-                            targetFile.outputStream().use { output ->
-                                input.copyTo(output)
+                        val resolver = requireContext().contentResolver
+                        val collection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                        } else null
+                        val fileName = "session_${session.sessionId.take(8)}.zip"
+                        val values = android.content.ContentValues().apply {
+                            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                             }
                         }
-                        LogCollector.d(TAG, "zip copied to ${targetFile.absolutePath} size=${targetFile.length()}B")
-                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "已保存到 Download/${targetFile.name}")
+                        val targetUri = if (collection != null) {
+                            resolver.insert(collection, values)
+                        } else {
+                            // Android 10 fallback
+                            val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(
+                                android.os.Environment.DIRECTORY_DOWNLOADS
+                            )
+                            val targetFile = File(downloadDir, fileName)
+                            android.net.Uri.fromFile(targetFile)
+                        }
+                        if (targetUri == null) throw Exception("insert returned null")
+
+                        resolver.openOutputStream(targetUri)?.use { out ->
+                            zipFile.inputStream().use { it.copyTo(out) }
+                        }
+                        LogCollector.d(TAG, "zip saved to MediaStore uri=$targetUri")
+                        com.moe.starflow.utils.UiUtils.showToast(requireContext(), "已保存到 Download/$fileName")
                         zipFile.delete()
                     } catch (e: Exception) {
-                        LogCollector.e(TAG, "Download to public failed, fallback to SAF", e)
+                        LogCollector.e(TAG, "MediaStore save failed, fallback to SAF", e)
                         // fallback: SAF
                         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
