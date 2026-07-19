@@ -144,6 +144,7 @@ class TranslationCacheManager(private val context: Context) {
         forFullImage: Boolean,
         config: OverlayConfig = OverlayConfig()
     ): Bitmap? = withContext(Dispatchers.IO) {
+        LogCollector.d(TAG, "renderOverlay start: historyId=${history.id} originalPath=${history.originalImagePath} crop=${pageCache.cropLeft},${pageCache.cropTop}-${pageCache.cropRight},${pageCache.cropBottom} mode=$mode forFull=$forFullImage")
         // 1. 加载全屏原图
         val originalPath = history.originalImagePath
         if (originalPath == null) {
@@ -155,7 +156,11 @@ class TranslationCacheManager(private val context: Context) {
         } catch (e: Exception) {
             LogCollector.e(TAG, "renderOverlay: failed to decode $originalPath", e)
             return@withContext null
-        } ?: return@withContext null
+        } ?: run {
+            LogCollector.e(TAG, "renderOverlay: decodeFile returned null for $originalPath")
+            return@withContext null
+        }
+        LogCollector.d(TAG, "renderOverlay: decoded fullBitmap=${fullBitmap.width}x${fullBitmap.height}")
 
         // 2. 解析气泡数据
         val originals = parseIndexedTextList(history.sourceText)

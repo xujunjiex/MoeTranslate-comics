@@ -561,6 +561,7 @@ class HistoryFragment : Fragment() {
                 }
 
                 if (bitmap != null) {
+                    LogCollector.d("HistoryFragment", "rendered entry[${idx}] bitmap=${bitmap.width}x${bitmap.height}")
                     val isMultiVariant = entry.variantCount > 1
                     val fileName = if (isMultiVariant) {
                         if (variantIdx == 0) "page_%02d.jpg".format(pageIdx)
@@ -572,6 +573,7 @@ class HistoryFragment : Fragment() {
                     val file = File(tempDir, fileName)
                     FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out) }
                     tempFiles.add(file)
+                    LogCollector.d("HistoryFragment", "saved file[${idx}] path=${file.absolutePath} size=${file.length()}B")
                     bitmap.recycle()
 
                     if (isMultiVariant) {

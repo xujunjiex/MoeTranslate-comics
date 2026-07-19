@@ -386,7 +386,9 @@ class MangaViewerActivity : AppCompatActivity() {
         }
         binding.spinnerVariant.visibility = android.view.View.VISIBLE
         val items = group.variants.map { v ->
-            v.imagePath?.let { getImageDimensions(it) } ?: "?"
+            // 优先读 originalImagePath（旧数据 fallback imagePath）
+            val path = v.originalImagePath ?: v.imagePath ?: v.thumbnailPath
+            path?.let { getImageDimensions(it) } ?: "?"
         }
         val adapter = android.widget.ArrayAdapter(this, R.layout.spinner_item_dark, items)
         adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_dark)
