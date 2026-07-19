@@ -151,4 +151,54 @@ object GeometryUtils {
 
         return if (count > 0) sum / count else 0f
     }
+
+    /**
+     * 计算轮廓内的平均概率值（慢速版）。
+     * 遍历 AABB 内每个像素，用射线法判断是否在 polygon 内求平均。
+     * 使用 Double 累加提高精度，对应 Python box_score_slow。
+     * 对应 RapidOCR Det.score_mode = "slow"。
+     *
+     * @param probMap 概率图（一维数组，行优先）
+     * @param width 概率图宽度
+     * @param height 概率图高度
+     * @param contour 轮廓点集
+     * @return 轮廓内的平均概率值
+     */
+    fun boxScoreSlow(
+        probMap: FloatArray,
+        width: Int,
+        height: Int,
+        contour: List<Coordinate>
+    ): Float {
+        // 获取轮廓的轴对齐外接矩形
+        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE
+        var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE
+        for (p in contour) {
+            val px = p.x.toInt(); val py = p.y.toInt()
+            if (px < minX) minX = px
+            if (py < minY) minY = py
+            if (px > maxX) maxX = px
+            if (py > maxY) maxY = py
+        }
+
+        // 裁剪到图像范围
+        minX = maxOf(0, minX); minY = maxOf(0, minY)
+        maxX = minOf(width - 1, maxX); maxY = minOf(height - 1, maxY)
+
+        if (minX > maxX || minY > maxY) return 0f
+
+        // 对 bbox 内每个像素，判断是否在轮廓内（射线法，Double 版本）
+        var sum = 0.0  // 使用 Double 累加提高精度
+        var count = 0
+        for (y in minY..maxY) {
+            for (x in minX..maxX) {
+                if (pointInPolygon(x.toDouble(), y.toDouble(), contour)) {
+                    sum += probMap[y * width + x]
+                    count++
+                }
+            }
+        }
+
+        return if (count > 0) (sum / count).toFloat() else 0f
+    }
 }
