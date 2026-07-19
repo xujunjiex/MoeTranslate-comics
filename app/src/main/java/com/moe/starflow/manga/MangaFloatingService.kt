@@ -4073,9 +4073,9 @@ class MangaFloatingService : LifecycleService() {
         }
 
         val sliders1 = listOf(
-            Triple("thresh", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
-            Triple("box_thresh", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
-            Triple("unclip_ratio", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
+            Triple("det_thresh", detThreshToSeek(prefs.getFloat("ppocrv6_det_thresh", DEF_DET_THRESH)), { v: Int -> String.format("%.2f", seekToDetThresh(v)) }),
+            Triple("det_box_thresh", boxToSeek(prefs.getFloat("ppocrv6_det_box_thresh", DEF_BOX)), { v: Int -> String.format("%.2f", seekToBox(v)) }),
+            Triple("det_unclip_ratio", unclipToSeek(prefs.getFloat("ppocrv6_det_unclip_ratio", DEF_UNCLIP)), { v: Int -> String.format("%.1f", seekToUnclip(v)) })
         )
         val saveFns1: List<(Int) -> Unit> = listOf(
             { v -> prefs.setFloat("ppocrv6_det_thresh", seekToDetThresh(v)) },
