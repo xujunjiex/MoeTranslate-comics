@@ -84,6 +84,7 @@ import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.utils.PerceptualHash
 import java.util.LinkedList
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class MangaFloatingService : LifecycleService() {
 
@@ -3727,13 +3728,13 @@ class MangaFloatingService : LifecycleService() {
         val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
 
         // 滑块范围映射
-        fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).toInt().coerceIn(0, 100)
+        fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).roundToInt().coerceIn(0, 100)
         fun seekToBox(v: Int) = 0.01f + v / 100f * 0.49f
-        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).roundToInt().coerceIn(0, 100)
         fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
-        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
+        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).roundToInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
-        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
+        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).roundToInt().coerceIn(0, 100)
         fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
 
         // 外层垂直容器
@@ -4008,33 +4009,31 @@ class MangaFloatingService : LifecycleService() {
         val DEF_MIN_HEIGHT = 30
 
         // 滑块范围映射
-        fun detThreshToSeek(v: Float) = ((v - 0.1f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun detThreshToSeek(v: Float) = ((v - 0.1f) / 0.4f * 100).roundToInt().coerceIn(0, 100)
         fun seekToDetThresh(v: Int) = 0.1f + v / 100f * 0.4f
-        fun boxToSeek(v: Float) = (v * 100).toInt().coerceIn(0, 100)
+        fun boxToSeek(v: Float) = (v * 100).roundToInt().coerceIn(0, 100)
         fun seekToBox(v: Int) = v / 100f
-        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).toInt().coerceIn(0, 100)
+        fun unclipToSeek(v: Float) = ((v - 1.6f) / 0.4f * 100).roundToInt().coerceIn(0, 100)
         fun seekToUnclip(v: Int) = 1.6f + v / 100f * 0.4f
-        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).toInt().coerceIn(0, 100)
+        fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).roundToInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
         fun batchToSeek(v: Int) = ((v - 1) * 100 / 11).coerceIn(0, 100)
         fun seekToBatch(v: Int) = 1 + v * 11 / 100
-        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).toInt().coerceIn(0, 100)
+        fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).roundToInt().coerceIn(0, 100)
         fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
         fun mGapToSeek(v: Float) = ((v - 0.5f) / 4.5f * 100).toInt().coerceIn(0, 100)
         fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
         // v6 新增滑块范围映射
-        fun limitSideToSeek(v: Int) = ((v - 64) * 100 / (2048 - 64)).coerceIn(0, 100)
-        fun seekToLimitSide(v: Int) = 64 + v * (2048 - 64) / 100
-        fun maxSideToSeek(v: Int) = ((v - 400) * 100 / 3600).coerceIn(0, 100)
-        fun seekToMaxSide(v: Int) = 400 + v * 3600 / 100
-        fun minSideToSeek(v: Int) = ((v - 10) * 100 / 390).coerceIn(0, 100)
-        fun seekToMinSide(v: Int) = 10 + v * 390 / 100
-        fun minHToSeek(v: Int) = ((v - 10) * 100 / 190).coerceIn(0, 100)
-        fun seekToMinH(v: Int) = 10 + v * 190 / 100
-        fun whRatioToSeek(v: Float) = ((v - 2f) / 30f * 100).toInt().coerceIn(0, 100)
-        fun seekToWhRatio(v: Int) = 2f + v / 100f * 30f
-        fun maxCandToSeek(v: Int) = ((v - 50) * 100 / 1950).coerceIn(0, 100)
-        fun seekToMaxCand(v: Int) = 50 + v * 1950 / 100
+        fun limitSideToSeek(v: Int) = ((v - 64f) / (2048f - 64f) * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToLimitSide(v: Int) = (64.0 + v * (2048.0 - 64.0) / 100.0).roundToInt()
+        fun maxSideToSeek(v: Int) = ((v - 400f) / 3600f * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToMaxSide(v: Int) = (400.0 + v * 3600.0 / 100.0).roundToInt()
+        fun minSideToSeek(v: Int) = ((v - 10f) / 390f * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToMinSide(v: Int) = (10.0 + v * 390.0 / 100.0).roundToInt()
+        fun minHToSeek(v: Int) = ((v - 10f) / 190f * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToMinH(v: Int) = (10.0 + v * 190.0 / 100.0).roundToInt()
+        fun maxCandToSeek(v: Int) = ((v - 50f) / 1950f * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToMaxCand(v: Int) = (50.0 + v * 1950.0 / 100.0).roundToInt()
 
         // 外层垂直容器
         val outerPanel = android.widget.LinearLayout(this).apply {
