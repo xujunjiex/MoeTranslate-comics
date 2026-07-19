@@ -5583,39 +5583,69 @@ class MangaFloatingService : LifecycleService() {
         }
         val infoPanel = createInfoPanelView(infoLines, scrollable = true)
 
-        // 创建可折叠内容容器：参数滑块 + 调试信息（外层 ScrollView，限制高度）
-        val foldableContent = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        // 参数滑块（带恢复默认按钮）— v6 使用独立参数
+        // ============================================================
+        // 参数面板（可折叠，初始隐藏）
+        // ============================================================
         val slidersView = createPPOcrV6ParamSlidersView()
-        foldableContent.addView(slidersView, android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-        // 调试信息
-        foldableContent.addView(infoPanel, android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
+        slidersView.visibility = android.view.View.GONE  // 默认隐藏
+        val sliderParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+            // 给 info 面板留空间
+            bottomMargin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 80f, resources.displayMetrics).toInt()
+        }
+        container.addView(slidersView, sliderParams)
 
-        val foldableParams = android.widget.FrameLayout.LayoutParams(
+        // ============================================================
+        // 调试信息面板（可折叠，初始可见）
+        // ============================================================
+        val infoParams = android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = android.view.Gravity.BOTTOM
         }
-        container.addView(foldableContent, foldableParams)
-        debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
+        container.addView(infoPanel, infoParams)
+        debugInfoPanelContentView = infoPanel  // 折叠时隐藏 info 面板
 
-        // 添加右下角展开/折叠按钮
-        val toggleButton = createToggleButton()
-        val toggleParams = android.widget.FrameLayout.LayoutParams(
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
-        ).apply {
+        // ============================================================
+        // 两个折叠按钮：⚙ 参数 / 📊 信息
+        // ============================================================
+        val btnSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 40f, resources.displayMetrics).toInt()
+        val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+
+        // 参数面板折叠按钮
+        val paramsToggle = android.widget.TextView(this).apply {
+            text = "⚙"
+            textSize = 20f
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundColor(android.graphics.Color.argb(180, 60, 60, 60))
+            setPadding(margin / 2, 4, margin / 2, 4)
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                if (slidersView.visibility == android.view.View.GONE) {
+                    slidersView.visibility = android.view.View.VISIBLE
+                    text = "⚙"
+                } else {
+                    slidersView.visibility = android.view.View.GONE
+                    text = "⚙"
+                }
+            }
+        }
+        val paramsToggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
+            marginEnd = margin
+            bottomMargin = margin + btnSize + 4
+        }
+        container.addView(paramsToggle, paramsToggleParams)
+
+        // 调试信息展开/折叠按钮（复用原有逻辑）
+        val toggleButton = createToggleButton()
+        val toggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
             marginEnd = margin
             bottomMargin = margin
         }
@@ -5651,9 +5681,8 @@ class MangaFloatingService : LifecycleService() {
             debugToggleButton = toggleButton
             debugToggleButtonAdded = true
             isResultShowing = true
-            // 初始折叠状态：隐藏内容，按钮显示展开箭头
-            foldableContent.visibility = android.view.View.GONE
-            toggleButton.text = "▲"
+            // info 面板初始可见，参数面板初始隐藏
+            toggleButton.text = "▼"
         } catch (e: Exception) {
             LogCollector.e(TAG, "PP-OCRv6 Debug: 显示失败", e)
         }
