@@ -64,7 +64,7 @@ adb devices
 
 **包结构** (`app/src/main/java/com/moe/starflow/`):
 
-- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`BallStateManager`（悬浮球状态图标管理器）
+- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`MenuDialogAdapter`（菜单列表项适配器）、`BallStateManager`（悬浮球状态图标管理器）
 - `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线，默认）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）、`MangaModeConfig`（漫画模式配置 + 引擎组合定义）
 - `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，10 条 FAQ）
@@ -656,6 +656,8 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 - **BitmapLruCache 替代 ConcurrentHashMap 做 renderCache**：`MangaViewerActivity` 的 `renderCache` 使用 `utils/BitmapLruCache`（`LinkedHashMap` access-order），淘汰时自动 `recycle()` native buffer。**不要用 `ConcurrentHashMap`** — 迭代顺序 ≠ 插入顺序 → 伪 LRU → 可能淘汰热数据。"最久未访问"而非"detach"作淘汰条件，避免 `RecyclerView` 复用 `ViewHolder` 时 recycle 正在显示的 bitmap → `Canvas: trying to use a recycled bitmap` 崩溃。
 
 - **DialogPreference（ColorPreferenceCompat 等）不能用 `setOnPreferenceClickListener` 拦截点击**：`DialogPreference` 通过 `PreferenceFragmentCompat.onDisplayPreferenceDialog()` 展示弹窗，普通 click listener 返回 `true` 也无法阻止弹窗。**正确方式**：重写 `onDisplayPreferenceDialog(pref)`，匹配 `pref.key` 后显示自定义弹窗，其余走 `super`。
+
+- **AlertDialog 自定义布局 View 不用 `dialog.findViewById`**：`AlertDialog.Builder.setView(view)` 传入自定义布局后，通过 `dialog.findViewById(R.id.xxx)` 查找子 View 不可靠（可能返回 null，尤其是 dialog 未 show 时）。**正确做法**：inflate 布局后从 `view.findViewById(...)` 直接持有 View 引用，在 `create()` 前后操作该引用。
 
 ## UI 规范
 
