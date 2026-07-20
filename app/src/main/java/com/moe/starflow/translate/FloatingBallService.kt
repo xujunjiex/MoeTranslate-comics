@@ -324,6 +324,18 @@ class FloatingBallService : LifecycleService() {
     }
 
     /**
+     * 根据屏幕宽度 dp 计算浮动菜单缩放因子。
+     * 360dp 屏幕 → ~0.90，480dp+ → 1.0（不缩放）。
+     * 公式：0.6 + 0.4 × (screenWidthDp / 480)，下限 0.75。
+     */
+    private fun getMenuScale(): Float {
+        val screenSize = getScreenSize()
+        val screenWidthDp = screenSize.width / resources.displayMetrics.density
+        val scale = 0.6f + 0.4f * (screenWidthDp / 480f)
+        return scale.coerceIn(0.75f, 1.0f)
+    }
+
+    /**
      * 屏幕旋转时：旧框选坐标（属于旋转前的坐标系）几何上已失效，
      * 强制置空 mRectF 要求重新框选；若正在自动翻译则停止，避免用错误坐标继续翻译。
      */
@@ -937,14 +949,27 @@ class FloatingBallService : LifecycleService() {
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        // 横屏时缩小菜单，竖屏保持原样
+        // 根据屏幕尺寸缩放菜单（图标 + 字号 + 宽度）
+        val screenSize = getScreenSize()
+        val scale = getMenuScale()
+        // 缩放标题图标（55dp × scale，转 px）
+        dialog.findViewById<android.widget.ImageView>(R.id.TitleIcon)?.let { icon ->
+            val iconSizePx = (55 * scale * resources.displayMetrics.density).toInt()
+            val lp = icon.layoutParams
+            lp.width = iconSizePx
+            lp.height = iconSizePx
+            icon.layoutParams = lp
+        }
+        // 缩放标题字号
+        dialog.findViewById<android.widget.TextView>(R.id.welcome)?.textSize = 22f * scale
+        // 竖屏宽度限制，横屏保持原有比例
         if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            val screenSize = getScreenSize()
             val maxW = (screenSize.width * 0.4).toInt()
             val maxH = (screenSize.height * 0.7).toInt()
             dialog.window?.setLayout(maxW, maxH)
         } else {
-            dialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            val maxW = (screenSize.width * 0.80f).toInt()
+            dialog.window?.setLayout(maxW, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         isMenuShowing = true
         dialog.setOnDismissListener { isMenuShowing = false }
