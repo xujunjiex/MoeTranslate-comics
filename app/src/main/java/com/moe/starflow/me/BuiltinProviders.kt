@@ -57,8 +57,7 @@ object BuiltinProviders {
             models = listOf(
                 "doubao-seed-2-0-pro-260215",
                 "doubao-seed-2-0-lite-260428",
-                "doubao-seed-2-0-mini-260428",
-                "doubao-seed-2-0-code-preview-260215"
+                "doubao-seed-2-0-mini-260428"
             ),
             defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT,
             defaultUserPrompt = DEFAULT_USER_PROMPT,

@@ -547,7 +547,7 @@ class HistoryFragment : Fragment() {
             }
         }
 
-        val config = TranslationCacheManager.OverlayConfig()
+        val config = cacheManager.getOverlayConfig(CustomPreference.getInstance(requireContext()).getSharedPreferences())
         val tempFiles = mutableListOf<File>()
         val tempDir = File(requireContext().cacheDir, "download_${System.currentTimeMillis()}").also { it.mkdirs() }
         var pageIdx = 1
@@ -555,6 +555,7 @@ class HistoryFragment : Fragment() {
 
         try {
             LogCollector.d("HistoryFragment", "doDownloadSession: ${session.entries.size} page groups")
+            var skippedCount = 0
             withContext(Dispatchers.IO) {
             for ((pageIdx, groupEntry) in session.entries.withIndex()) {
                 val pageNum = pageIdx + 1
@@ -589,6 +590,8 @@ class HistoryFragment : Fragment() {
                         tempFiles.add(file)
                         LogCollector.d("HistoryFragment", "saved ${fileName} size=${file.length()}B")
                         bitmap.recycle()
+                    } else {
+                        skippedCount++
                     }
 
                     withContext(Dispatchers.Main) { progressDialog.progress = tempFiles.size }
@@ -598,6 +601,11 @@ class HistoryFragment : Fragment() {
 
             withContext(Dispatchers.Main) { progressDialog.dismiss() }
 
+            if (skippedCount > 0) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(requireContext(), "跳过 $skippedCount 张无法解析的页面", Toast.LENGTH_SHORT).show()
+                }
+            }
             if (tempFiles.isEmpty()) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(requireContext(), "没有可下载的图片", Toast.LENGTH_SHORT).show()

@@ -278,7 +278,8 @@ class MangaFloatingService : LifecycleService() {
     private var copyBubbleViews: MutableList<View> = mutableListOf()
     private var copyButtonsContainer: android.widget.LinearLayout? = null
     private var currentShowBubbles: List<TranslatedBubble> = emptyList()  // 当前显示的翻译气泡（非缓存）
-    private var currentOriginalBitmap: Bitmap? = null  // 原始截图（用于原文模式重新渲染）
+    private var renderToggleJob: kotlinx.coroutines.Job? = null  // toggle 渲染协程，避免重复渲染
+    @Volatile private var currentOriginalBitmap: Bitmap? = null  // 原始截图（用于原文模式重新渲染）
     private var currentOverlayBitmapW: Int = 0  // 当前 overlay 对应的 bitmap 宽度（用于坐标映射）
     private var currentOverlayBitmapH: Int = 0  // 当前 overlay 对应的 bitmap 高度（用于坐标映射）
     private var lastCacheBubbleRects: String? = null  // 缓存命中的气泡 rect JSON
@@ -290,6 +291,7 @@ class MangaFloatingService : LifecycleService() {
     private var currentPHash = 0L
     private var currentExtHashes: LongArray? = null  // 256-bit 扩展哈希（用于缓存匹配和存储）
     private var cacheOverlayContainer: android.widget.FrameLayout? = null
+    private var cacheOverlayImage: ImageView? = null  // cache overlay 中的 ImageView 引用
 
     // 无障碍重截图：干净截图到达后拦截处理
     private var pendingCleanScreenshot = false
@@ -2032,23 +2034,12 @@ class MangaFloatingService : LifecycleService() {
      * 保存翻译缓存（不渲染 overlay）。
      * 用于分批渲染场景：用户关闭 overlay 后仍保存完整缓存。
      */
-    private suspend fun saveTranslationCache(original: Bitmap, allBubbles: List<TranslatedBubble>) {
+    private suspend fun saveCacheEntry(original: Bitmap, allBubbles: List<TranslatedBubble>) {
         try {
             val translatorName = buildTranslatorDisplayName()
             val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
             val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
-            LogCollector.d(TAG, "saveTranslationCache: ${allBubbles.size} 个气泡")
-            // 渲染完整 bitmap 用于缓存
-            val resultBitmap = withContext(Dispatchers.Default) {
-                OverlayRenderer.renderOverlay(
-                    original = original,
-                    regions = allBubbles,
-                    fontSize = config.fontSize,
-                    autoFit = config.autoFontSize,
-                    textColor = config.textColor,
-                    bgColor = config.bgColor
-                )
-            }
+            LogCollector.d(TAG, "saveCacheEntry: ${allBubbles.size} 个气泡")
             // 使用实际裁剪坐标（如果有 cropRect）或全屏尺寸
             val fullWidth = pendingFullBitmap?.width ?: original.width
             val fullHeight = pendingFullBitmap?.height ?: original.height
@@ -2086,7 +2077,7 @@ class MangaFloatingService : LifecycleService() {
                 cacheManager.saveToCache(entry, originalBitmap = pendingFullBitmap)
             }
         } catch (e: Exception) {
-            LogCollector.e(TAG, "saveTranslationCache 失败", e)
+            LogCollector.e(TAG, "saveCacheEntry 失败", e)
         }
     }
 
@@ -2443,7 +2434,7 @@ class MangaFloatingService : LifecycleService() {
             // 此处不再重复设置，避免图标在翻译完成后才短暂闪过。
             // 统一保存完整缓存
             LogCollector.d(TAG, "finalizeIncremental: 保存完整缓存，共 ${allTranslated.size} 个气泡")
-            saveTranslationCache(bitmap, allTranslated)
+            saveCacheEntry(bitmap, allTranslated)
             ballStateManager?.setState(BallStateManager.State.Completed)
         }
         statusOverlay.showImmediate("翻译完成")
@@ -2653,7 +2644,9 @@ class MangaFloatingService : LifecycleService() {
                     currentShowBubbles = TranslationCacheManager.rebuildBubblesFromCache(
                         cachedOriginalTextList, cachedTranslatedTextList, lastCacheBubbleRects, config.fontSize, config.bgColor)
                     // 通过共享层渲染裁剪区域的译文 overlay（替代加载预渲染 JPEG）
-                    val rendered = if (cached.historyEntity != null && cached.pageCache != null) {
+                    // 仅新数据（有 bubbleRects）走实时渲染；旧数据回退到 imagePath
+                    val rendered = if (cached.historyEntity != null && cached.pageCache != null
+                        && !cached.bubbleRects.isNullOrBlank()) {
                         cacheManager.renderOverlay(
                             history = cached.historyEntity,
                             pageCache = cached.pageCache,
@@ -2669,6 +2662,8 @@ class MangaFloatingService : LifecycleService() {
                     withContext(Dispatchers.Main) {
                         currentOriginalBitmap?.recycle()
                         currentOriginalBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                        // 若实时渲染成功，释放 buildCacheResult 加载的原图（不再需要）
+                        if (rendered != null) cached.resultBitmap?.recycle()
                         showResultOverlay(rendered ?: cached.resultBitmap, fromCache = true)
                     }
                     return
@@ -3272,6 +3267,7 @@ class MangaFloatingService : LifecycleService() {
         }
         if (isCopyMode) {
             isCopyMode = false
+            copyOriginalMode = false  // 退出复制模式时重置为译文，避免下次进入状态错乱
             removeCopyClickLayer()
         }
         removeCopyButtons()
@@ -3327,6 +3323,7 @@ class MangaFloatingService : LifecycleService() {
             setImageBitmap(bitmap)
             scaleType = ImageView.ScaleType.FIT_XY
         }
+        cacheOverlayImage = imageView
         container.addView(imageView, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT
@@ -3444,7 +3441,9 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.e(TAG, "dismissCacheOverlay: 错误", e)
             }
             cacheOverlayContainer = null
+            cacheOverlayImage = null
             isResultShowing = false
+            renderToggleJob?.cancel()  // 取消正在进行的渲染，避免 recycled bitmap 被使用
             currentShowBubbles = emptyList()
             currentOriginalBitmap?.recycle()
             currentOriginalBitmap = null
@@ -3455,6 +3454,7 @@ class MangaFloatingService : LifecycleService() {
             // 清理复制模式
             if (isCopyMode) {
                 isCopyMode = false
+                copyOriginalMode = false  // 退出时重置
                 removeCopyClickLayer()
             }
             removeCopyButtons()
@@ -3472,18 +3472,7 @@ class MangaFloatingService : LifecycleService() {
     // ---------- 复制模式 ----------
 
     private fun serializeBubbleRects(bubbles: List<TranslatedBubble>): String {
-        val jsonArray = JSONArray()
-        for (b in bubbles) {
-            val obj = JSONObject()
-            obj.put("l", b.rect.left)
-            obj.put("t", b.rect.top)
-            obj.put("r", b.rect.right)
-            obj.put("b", b.rect.bottom)
-            obj.put("fs", b.fontSize.toDouble())           // 保存每个气泡的精确字号
-            obj.put("dir", b.direction.name)               // 保存文字方向
-            jsonArray.put(obj)
-        }
-        return jsonArray.toString()
+        return TranslationCacheManager.serializeBubbleRects(bubbles)
     }
 
     private fun parseBubbleRectsJson(json: String?): List<android.graphics.Rect> {
@@ -3630,11 +3619,14 @@ class MangaFloatingService : LifecycleService() {
             setTextColor(if (!copyOriginalMode) Color.argb(220, 30, 30, 30) else Color.argb(200, 255, 255, 255))
         }
         // 切换 overlay 图片：原文/译文都实时渲染（不再依赖预渲染的 currentTranslatedOverlay）
-        lifecycleScope.launch {
+        renderToggleJob?.cancel()
+        renderToggleJob = lifecycleScope.launch {
             val original = currentOriginalBitmap ?: return@launch
             val bubbles = currentShowBubbles
             if (bubbles.isEmpty()) return@launch
             val overlay = withContext(Dispatchers.Default) {
+                // 防止竞态：用户可能在 suspension point 期间关闭 overlay 导致 bitmap 被回收
+                if (original.isRecycled) return@withContext null
                 OverlayRenderer.renderOverlay(
                     original = original,
                     regions = bubbles,
@@ -3646,8 +3638,8 @@ class MangaFloatingService : LifecycleService() {
                 )
             }
             withContext(Dispatchers.Main) {
-                if (!isResultShowing) return@withContext
-                val target = (cacheOverlayContainer?.getChildAt(0) as? ImageView) ?: resultOverlayImage
+                if (!isResultShowing || overlay == null) return@withContext
+                val target = cacheOverlayImage ?: resultOverlayImage
                 target.setImageBitmap(overlay)
             }
         }
@@ -4277,6 +4269,7 @@ class MangaFloatingService : LifecycleService() {
         // 默认值
         val DEF_BOX = 0.3f; val DEF_UNCLIP = 1.6f; val DEF_TEXT = 0.5f
         val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
+        val DEF_LIMIT_SIDE_V5 = 1080; val DEF_LIMIT_TYPE_V5 = "max"
 
         // 滑块范围映射
         fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).roundToInt().coerceIn(0, 100)
@@ -4285,6 +4278,14 @@ class MangaFloatingService : LifecycleService() {
         fun seekToUnclip(v: Int) = 1.0f + v / 100f * 2.0f
         fun textToSeek(v: Float) = ((v - 0.1f) / 0.8f * 100).roundToInt().coerceIn(0, 100)
         fun seekToText(v: Int) = 0.1f + v / 100f * 0.8f
+        fun limitSideToSeek(v: Int) = ((v - 64f) / (2048f - 64f) * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToLimitSide(v: Int): Int {
+            // 100 段滑块范围 64~2048 不能整除，原始公式会让 1080 round-trip 成 1076
+            // 强制 snap 到 20 像素倍数（64/80/100/.../1080/1100/.../2040/2048），保证默认值可往返
+            val raw = 64 + v * (2048.0 - 64.0) / 100.0
+            val snapped = (raw / 20.0).roundToInt() * 20
+            return snapped.coerceIn(64, 2048)
+        }
         fun ratioToSeek(v: Float) = ((v - 0.3f) / 0.5f * 100).roundToInt().coerceIn(0, 100)
         fun seekToRatio(v: Int) = 0.3f + v / 100f * 0.5f
 
@@ -4367,7 +4368,90 @@ class MangaFloatingService : LifecycleService() {
         }
         outerPanel.addView(row1)
 
-        // ── 第二行：合并参数滑块（4 个） ──
+        // ── 第二行：limit_side_len + limit_type（max 推荐，避免细长框选被强制放大）──
+        val rowLimitV5 = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (4 * dp).toInt() }
+        }
+        val lslV5Raw = prefs.getInt("ppocr_limit_side_len", DEF_LIMIT_SIDE_V5)
+        val lslV5SeekInit = limitSideToSeek(lslV5Raw)
+        val lslV5Group = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val lslV5Label = android.widget.TextView(this).apply {
+            text = "limit_side_len\n${lslV5Raw}"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
+        }
+        val lslV5Seek = android.widget.SeekBar(this).apply {
+            max = 100; progress = lslV5SeekInit
+            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        val v = seekToLimitSide(progress)
+                        lslV5Label.text = "limit_side_len\n${v}"
+                        prefs.setInt("ppocr_limit_side_len", v)
+                        PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+            })
+        }
+        sliderRefs.add(SliderRef(lslV5Label, lslV5Seek, "limit_side_len", { v: Int -> "${seekToLimitSide(v)}" }, { v -> prefs.setInt("ppocr_limit_side_len", seekToLimitSide(v)) }))
+        lslV5Group.addView(lslV5Label); lslV5Group.addView(lslV5Seek); rowLimitV5.addView(lslV5Group)
+        // limit_type：min / max 双按钮
+        val ltV5Group = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f)
+        }
+        val ltV5Label = android.widget.TextView(this).apply {
+            text = "limit_type"
+            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER
+        }
+        val ltV5BtnRow = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
+        val curLimitTypeV5 = prefs.getString("ppocr_limit_type", DEF_LIMIT_TYPE_V5) ?: DEF_LIMIT_TYPE_V5
+        var ltV5MaxBtn: android.widget.TextView? = null
+        val ltV5MinBtn = android.widget.TextView(this).apply {
+            text = "min"
+            textSize = 10f; gravity = android.view.Gravity.CENTER
+            setPadding((4 * dp).toInt(), 2, (4 * dp).toInt(), 2)
+            setTextColor(if (curLimitTypeV5 == "min") android.graphics.Color.argb(255, 76, 175, 80) else android.graphics.Color.argb(150, 200, 200, 200))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                prefs.setString("ppocr_limit_type", "min")
+                PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+                setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
+                ltV5MaxBtn?.setTextColor(android.graphics.Color.argb(150, 200, 200, 200))
+            }
+        }
+        ltV5MaxBtn = android.widget.TextView(this).apply {
+            text = "max"
+            textSize = 10f; gravity = android.view.Gravity.CENTER
+            setPadding((4 * dp).toInt(), 2, (4 * dp).toInt(), 2)
+            setTextColor(if (curLimitTypeV5 == "max") android.graphics.Color.argb(255, 76, 175, 80) else android.graphics.Color.argb(150, 200, 200, 200))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                prefs.setString("ppocr_limit_type", "max")
+                PPOcrV5Engine.refreshParams(this@MangaFloatingService)
+                setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
+                ltV5MinBtn.setTextColor(android.graphics.Color.argb(150, 200, 200, 200))
+            }
+        }
+        ltV5BtnRow.addView(ltV5MinBtn); ltV5BtnRow.addView(ltV5MaxBtn!!)
+        ltV5Group.addView(ltV5Label); ltV5Group.addView(ltV5BtnRow); rowLimitV5.addView(ltV5Group)
+        outerPanel.addView(rowLimitV5)
+
+        // ── 合并参数行：merge_discard_gap ──
         val rowMerge = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -4520,15 +4604,21 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setFloat("ppocr_text_score_thresh", DEF_TEXT)
                 prefs.setBoolean("ppocr_large_box_enabled", DEF_LARGE_ENABLED)
                 prefs.setFloat("ppocr_large_box_ratio", DEF_LARGE_RATIO)
+                prefs.setInt("ppocr_limit_side_len", DEF_LIMIT_SIDE_V5)
+                prefs.setString("ppocr_limit_type", DEF_LIMIT_TYPE_V5)
                 PPOcrV5Engine.refreshParams(this@MangaFloatingService)
 
                 // 更新 UI
                 sliderRefs[0].apply { seekBar.progress = boxToSeek(DEF_BOX); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 sliderRefs[1].apply { seekBar.progress = unclipToSeek(DEF_UNCLIP); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 sliderRefs[2].apply { seekBar.progress = textToSeek(DEF_TEXT); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
+                sliderRefs[3].apply { seekBar.progress = limitSideToSeek(DEF_LIMIT_SIDE_V5); label.text = "$labelText\n${formatValue(seekBar.progress)}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
                 ratioLabel.text = "ratio ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+                // 同步 v5 limit_type 按钮高亮状态（min 灰、max 绿）
+                ltV5MinBtn.setTextColor(android.graphics.Color.argb(150, 200, 200, 200))
+                ltV5MaxBtn!!.setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
 
                 // 重置合并参数（仅距离门控 1 个滑块）
                 TextRegionMerger.resetParams(this@MangaFloatingService)
@@ -4553,10 +4643,9 @@ class MangaFloatingService : LifecycleService() {
         val DEF_TEXT = 0.5f; val DEF_BATCH = 6
         val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
         val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
-        // v6 新增参数默认值（对齐 RapidOCR 官方）
-        val DEF_LIMIT_SIDE = 736; val DEF_LIMIT_TYPE = "min"
+        // v6 新增参数默认值（对齐 v5 但稍大）
+        val DEF_LIMIT_SIDE = 1080; val DEF_LIMIT_TYPE = "max"  // 比 v5 的 960 稍大，max 模式避免游戏细长框选被强制放大
         val DEF_USE_DILATION = true; val DEF_SCORE_MODE = "fast"; val DEF_MAX_CANDIDATES = 1000
-        val DEF_MAX_SIDE = 2000; val DEF_MIN_SIDE = 30
         val DEF_MIN_HEIGHT = 30
 
         // 滑块范围映射
@@ -4576,10 +4665,13 @@ class MangaFloatingService : LifecycleService() {
         fun mSeekToGap(v: Int) = 0.5f + v / 100f * 4.5f
         // v6 新增滑块范围映射
         fun limitSideToSeek(v: Int) = ((v - 64f) / (2048f - 64f) * 100f).roundToInt().coerceIn(0, 100)
-        fun seekToLimitSide(v: Int) = (64.0 + v * (2048.0 - 64.0) / 100.0).roundToInt()
-        fun maxSideToSeek(v: Int) = ((v - 400f) / 3600f * 100f).roundToInt().coerceIn(0, 100)
-        fun seekToMaxSide(v: Int) = (400.0 + v * 3600.0 / 100.0).roundToInt()
-        fun minSideToSeek(v: Int) = ((v - 10f) / 390f * 100f).roundToInt().coerceIn(0, 100)
+        fun seekToLimitSide(v: Int): Int {
+            // 100 段滑块范围 64~2048 不能整除，原始公式会让 1080 round-trip 成 1076
+            // 强制 snap 到 20 像素倍数（64/80/100/.../1080/1100/.../2040/2048），保证默认值可往返
+            val raw = 64 + v * (2048.0 - 64.0) / 100.0
+            val snapped = (raw / 20.0).roundToInt() * 20
+            return snapped.coerceIn(64, 2048)
+        }
         fun seekToMinSide(v: Int) = (10.0 + v * 390.0 / 100.0).roundToInt()
         fun minHToSeek(v: Int) = ((v - 10f) / 190f * 100f).roundToInt().coerceIn(0, 100)
         fun seekToMinH(v: Int) = (10.0 + v * 190.0 / 100.0).roundToInt()
@@ -4819,77 +4911,6 @@ class MangaFloatingService : LifecycleService() {
         ltBtnRow.addView(ltMinBtn); ltBtnRow.addView(ltMaxBtn!!)
         ltGroup.addView(ltLabel); ltGroup.addView(ltBtnRow); rowLimit.addView(ltGroup)
         outerPanel.addView(rowLimit)
-
-        addSection("── Global ──")
-        // ── 第四行：max_side_len + min_side_len ──
-        val rowGlobalSide = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (4 * dp).toInt() }
-        }
-        // max_side_len 滑块
-        val maxslRaw = prefs.getInt("ppocrv6_max_side_len", DEF_MAX_SIDE)
-        val maxslSeekInit = maxSideToSeek(maxslRaw)
-        val maxslGroup = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER_HORIZONTAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val maxslLabel = android.widget.TextView(this).apply {
-            text = "max_side_len\n${maxslRaw}"
-            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
-        }
-        val maxslSeek = android.widget.SeekBar(this).apply {
-            max = 100; progress = maxslSeekInit
-            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
-            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) {
-                        val v = seekToMaxSide(progress)
-                        maxslLabel.text = "max_side_len\n${v}"
-                        prefs.setInt("ppocrv6_max_side_len", v)
-                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
-                    }
-                }
-                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
-            })
-        }
-        sliderRefs.add(SliderRef(maxslLabel, maxslSeek, "max_side_len", { v: Int -> "${seekToMaxSide(v)}" }, { v -> prefs.setInt("ppocrv6_max_side_len", seekToMaxSide(v)) }))
-        maxslGroup.addView(maxslLabel); maxslGroup.addView(maxslSeek); rowGlobalSide.addView(maxslGroup)
-        // min_side_len 滑块
-        val minslRaw = prefs.getInt("ppocrv6_min_side_len", DEF_MIN_SIDE)
-        val minslSeekInit = minSideToSeek(minslRaw)
-        val minslGroup = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER_HORIZONTAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val minslLabel = android.widget.TextView(this).apply {
-            text = "min_side_len\n${minslRaw}"
-            setTextColor(android.graphics.Color.WHITE); textSize = 11f; gravity = android.view.Gravity.CENTER; maxLines = 2
-        }
-        val minslSeek = android.widget.SeekBar(this).apply {
-            max = 100; progress = minslSeekInit
-            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (24 * dp).toInt())
-            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) {
-                        val v = seekToMinSide(progress)
-                        minslLabel.text = "min_side_len\n${v}"
-                        prefs.setInt("ppocrv6_min_side_len", v)
-                        PPOcrV6Engine.refreshParams(this@MangaFloatingService)
-                    }
-                }
-                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
-            })
-        }
-        sliderRefs.add(SliderRef(minslLabel, minslSeek, "min_side_len", { v: Int -> "${seekToMinSide(v)}" }, { v -> prefs.setInt("ppocrv6_min_side_len", seekToMinSide(v)) }))
-        minslGroup.addView(minslLabel); minslGroup.addView(minslSeek); rowGlobalSide.addView(minslGroup)
-        outerPanel.addView(rowGlobalSide)
 
         // ── 第五行：min_height + width_height_ratio ──
         val rowFilter = android.widget.LinearLayout(this).apply {
@@ -5143,8 +5164,6 @@ class MangaFloatingService : LifecycleService() {
                 prefs.setString("ppocrv6_limit_type", DEF_LIMIT_TYPE)
                 prefs.setBoolean("ppocrv6_use_dilation", DEF_USE_DILATION)
                 prefs.setInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES)
-                prefs.setInt("ppocrv6_max_side_len", DEF_MAX_SIDE)
-                prefs.setInt("ppocrv6_min_side_len", DEF_MIN_SIDE)
                 prefs.setInt("ppocrv6_min_height", DEF_MIN_HEIGHT)
                 PPOcrV6Engine.refreshParams(this@MangaFloatingService)
 
@@ -5155,13 +5174,14 @@ class MangaFloatingService : LifecycleService() {
                 val rText = prefs.getFloat("ppocrv6_text_score", DEF_TEXT); sliderRefs[3].apply { seekBar.progress = textToSeek(rText); label.text = "text_score\n${String.format("%.2f", rText)}" }
                 val rBatch = prefs.getInt("ppocrv6_rec_batch_num", DEF_BATCH); sliderRefs[4].apply { seekBar.progress = batchToSeek(rBatch); label.text = "rec_batch_num\n${rBatch}" }
                 val rLim = prefs.getInt("ppocrv6_limit_side_len", DEF_LIMIT_SIDE); sliderRefs[5].apply { seekBar.progress = limitSideToSeek(rLim); label.text = "limit_side_len\n${rLim}" }
-                val rMax = prefs.getInt("ppocrv6_max_side_len", DEF_MAX_SIDE); sliderRefs[6].apply { seekBar.progress = maxSideToSeek(rMax); label.text = "max_side_len\n${rMax}" }
-                val rMin = prefs.getInt("ppocrv6_min_side_len", DEF_MIN_SIDE); sliderRefs[7].apply { seekBar.progress = minSideToSeek(rMin); label.text = "min_side_len\n${rMin}" }
-                val rH = prefs.getInt("ppocrv6_min_height", DEF_MIN_HEIGHT); sliderRefs[8].apply { seekBar.progress = minHToSeek(rH); label.text = "min_height\n${rH}" }
-                val rCand = prefs.getInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES); sliderRefs[9].apply { seekBar.progress = maxCandToSeek(rCand); label.text = "max_candidates\n${rCand}" }
+                val rH = prefs.getInt("ppocrv6_min_height", DEF_MIN_HEIGHT); sliderRefs[6].apply { seekBar.progress = minHToSeek(rH); label.text = "min_height\n${rH}" }
+                val rCand = prefs.getInt("ppocrv6_max_candidates", DEF_MAX_CANDIDATES); sliderRefs[7].apply { seekBar.progress = maxCandToSeek(rCand); label.text = "max_candidates\n${rCand}" }
                 largeBoxToggle.isChecked = DEF_LARGE_ENABLED
                 ratioSeekBar.progress = ratioToSeek(DEF_LARGE_RATIO)
                 ratioLabel.text = "ratio ${String.format("%.0f%%", DEF_LARGE_RATIO * 100)}"
+                // 同步 v6 limit_type 按钮高亮状态（min 灰、max 绿）
+                ltMinBtn.setTextColor(android.graphics.Color.argb(150, 200, 200, 200))
+                ltMaxBtn!!.setTextColor(android.graphics.Color.argb(255, 76, 175, 80))
                 TextRegionMerger.resetParams(this@MangaFloatingService)
                 mergeSliderRefs[0].apply { seekBar.progress = mGapToSeek(DEF_GAP); label.text = "merge_gap ${String.format("%.1f", DEF_GAP)}" }
                 true

@@ -31,24 +31,25 @@
         android:layout_height="48dp"
         android:layout_gravity="top|start"
         android:layout_margin="16dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
+        android:background="@drawable/bg_manga_toolbar_btn"
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="#FFFFFF" />
 
-    <!-- 右上角按钮组：原文/译文切换 + 删除 -->
+    <!-- 右上角按钮组：原文/译文切换 + 删除（共享背景） -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_margin="16dp"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:background="@drawable/bg_manga_toolbar_btn"
+        android:paddingHorizontal="4dp">
 
         <ImageButton
             android:id="@+id/btnToggleImage"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:src="@android:drawable/ic_menu_camera"
             android:tint="#FFFFFF"
             android:contentDescription="切换原图/译文" />
@@ -57,7 +58,7 @@
             android:id="@+id/btnDeleteEntry"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:src="@android:drawable/ic_menu_delete"
             android:tint="#FFFF6B6B"
             android:contentDescription="@string/delete" />
@@ -80,7 +81,7 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:layout_marginEnd="8dp"
-            android:background="#33FFFFFF"
+            android:background="@drawable/bg_manga_toolbar_btn"
             android:paddingHorizontal="8dp"
             android:visibility="gone"
             android:popupBackground="@drawable/popup_rounded_dark" />
@@ -108,7 +109,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_manga_toolbar_btn"
             android:src="@android:drawable/ic_menu_rotate"
             android:tint="#55AEEA"
             android:contentDescription="@string/history_retranslate" />

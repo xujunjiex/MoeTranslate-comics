@@ -27,6 +27,15 @@ class TranslationResultView(
     private val layoutParams: WindowManager.LayoutParams
 ) : FrameLayout(context) {
 
+    companion object {
+        /**
+         * 重新翻译按钮：缓存命中图标颜色。
+         * 选青色 #00BCD4 (Material Cyan 500) 而非橙色 ——
+         * 默认翻译结果背景是暖深棕 #D94B2C23，橙色和背景色温冲突；青色与暖色形成冷暖对比，醒目且不刺眼。
+         */
+        private val RETRANSLATE_ICON_COLOR = Color.parseColor("#00BCD4")  // Material Cyan 500
+    }
+
     private val textView: TextView
     private val closeButton: ImageButton
     private val lockButton: ImageButton
@@ -52,7 +61,7 @@ class TranslationResultView(
         textView = TextView(context).apply {
             val prefs = CustomPreference.getInstance(context)
             val shape = GradientDrawable().apply {
-                setColor(prefs.getInt("Custom_Result_Background_Color", -649384925))
+                setColor(prefs.getInt("Custom_Result_Background_Color", 0xD91E2C3A.toInt()))
                 cornerRadius = 15f
             }
             background = shape
@@ -102,8 +111,7 @@ class TranslationResultView(
             setOnClickListener { onClose?.invoke() }
         }
 
-        // 复制按钮（左下角，始终显示）
-        val copySize = dpToPx(16)
+        // 复制按钮（左下角，始终显示）—— 与锁/关闭/重翻大小一致（14dp）
         copyButton = ImageButton(context).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setImageResource(R.drawable.ic_copy)
@@ -118,13 +126,15 @@ class TranslationResultView(
             }
         }
 
-        // 重新翻译按钮（右下角）
+        // 重新翻译按钮（右下角）—— 大小与其他按钮一致（14dp），但图标用亮橙色区分
+        // 透明背景 + 橙色刷新图标 + 负 padding 让图标视觉上更大（溢出按钮边界 3dp）
+        // 触摸区仍 14dp 不变，只让图标更醒目
         retranslateButton = ImageButton(context).apply {
             setBackgroundColor(Color.TRANSPARENT)
-            setImageResource(android.R.drawable.ic_popup_sync)
-            setColorFilter(Color.argb(180, 80, 80, 80))
+            setImageResource(R.drawable.ic_refresh)
+            setColorFilter(RETRANSLATE_ICON_COLOR)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(0, 0, 0, 0)
+            setPadding(-3, -3, -3, -3)
             visibility = View.GONE
             setOnClickListener { onRetranslate?.invoke() }
         }
@@ -145,16 +155,15 @@ class TranslationResultView(
             topMargin = btnMargin
         })
 
-        // 复制按钮（左下角）
-        addView(copyButton, LayoutParams(copySize, copySize).apply {
+        // 复制按钮（左下角）—— 14dp，与其他按钮一致
+        addView(copyButton, LayoutParams(btnSize, btnSize).apply {
             gravity = Gravity.START or Gravity.BOTTOM
             marginStart = btnMargin
             bottomMargin = btnMargin
         })
 
-        // 重新翻译按钮（右下角）
-        val retranslateSize = dpToPx(16)
-        addView(retranslateButton, LayoutParams(retranslateSize, retranslateSize).apply {
+        // 重新翻译按钮（右下角）—— 14dp，与其他按钮一致
+        addView(retranslateButton, LayoutParams(btnSize, btnSize).apply {
             gravity = Gravity.END or Gravity.BOTTOM
             marginEnd = btnMargin
             bottomMargin = btnMargin
@@ -228,7 +237,7 @@ class TranslationResultView(
         textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, prefs.getFloat("Custom_Result_Font_Size", 16f))
         textView.setTextColor(prefs.getInt("Custom_Result_Font_Color", -1516335))
         (textView.background as? GradientDrawable)?.setColor(
-            prefs.getInt("Custom_Result_Background_Color", -649384925)
+            prefs.getInt("Custom_Result_Background_Color", 0xD91E2C3A.toInt())
         )
         val customFont = prefs.getString("Custom_Result_Font", "")
         if (customFont.isEmpty()) {

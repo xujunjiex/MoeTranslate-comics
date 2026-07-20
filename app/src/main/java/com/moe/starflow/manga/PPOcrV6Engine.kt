@@ -44,8 +44,9 @@ object PPOcrV6Engine {
     // -----------------------------------------------------------------------
     // Det 常量 (ch_ppocr_det/utils.py DetPreProcess + DBPostProcess)
     // -----------------------------------------------------------------------
-    private const val DET_LIMIT_SIDE_LEN = 736       // was 960
-    private const val DET_LIMIT_TYPE = "min"          // was "max"
+    private const val DET_LIMIT_SIDE_LEN = 1080      // 比 v5 的 960 稍大，保留更多细节
+    private const val DET_LIMIT_TYPE = "max"          // 对齐 v5：避免游戏模式细长框选被强制放大 6 倍 → det 输入 15548x736 → OOM/慢
+                                                     // 官方默认 min 是为通用场景设计（确保文字够大），但游戏框选局部图文字本来就够大，用 max 更合适
     private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)  // same
     private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)   // same
     private const val DET_THRESH = 0.3f               // was 0.1f
@@ -87,8 +88,8 @@ object PPOcrV6Engine {
     @Volatile private var useDilation = true           // Det.use_dilation
     @Volatile private var scoreMode = "fast"           // Det.score_mode: "fast" | "slow"
     @Volatile private var maxCandidates = DET_MAX_CANDIDATES_DEFAULT  // Det.max_candidates (默认 1000)
-    @Volatile private var maxSideLen = 2000            // Global.max_side_len (px)
-    @Volatile private var minSideLen = 30              // Global.min_side_len (px)
+    // 注：Global.max_side_len / Global.min_side_len 已删除——官方 RapidOCR 没有这两个参数，
+    // 之前 PPOcrV6Engine 凭空捏造导致极薄横屏框选级联放大 → OOM 闪退
     @Volatile private var minHeight = 30               // Global.min_height (px)
     @Volatile private var widthHeightRatio = -1f  // Global.width_height_ratio (-1 不启用，默认关闭)
 
@@ -112,8 +113,7 @@ object PPOcrV6Engine {
         useDilation = prefs.getBoolean("ppocrv6_use_dilation", true)
         scoreMode = prefs.getString("ppocrv6_score_mode", "fast") ?: "fast"
         maxCandidates = prefs.getInt("ppocrv6_max_candidates", DET_MAX_CANDIDATES_DEFAULT)
-        maxSideLen = prefs.getInt("ppocrv6_max_side_len", 2000)
-        minSideLen = prefs.getInt("ppocrv6_min_side_len", 30)
+        // max_side_len / min_side_len 已删除——官方 RapidOCR 没有这两个参数
         minHeight = prefs.getInt("ppocrv6_min_height", 30)
         widthHeightRatio = prefs.getFloat("ppocrv6_width_height_ratio", -1f)
     }
@@ -290,28 +290,12 @@ object PPOcrV6Engine {
         val srcH = bitmap.height
         val srcW = bitmap.width
 
-        // Step 0: 全局缩放（Global.max_side_len / Global.min_side_len）
-        // 在 Det.limit_side_len 之前独立应用，对齐 RapidOCR 行为
+        // 1. 计算缩放 — 对齐官方 RapidOCR DetPreProcess.resize()
+        // 官方只有 limit_side_len + limit_type，没有 Global.max_side_len / min_side_len
+        // 之前版本 PPOcrV6Engine 凭空捏造了这两步导致极薄横屏框选级联放大 → OOM 闪退
         var resizeH = srcH
         var resizeW = srcW
 
-        // max_side_len: 输入图像最大边超过此值时，按宽高比等比缩放至该值
-        val maxSide = max(resizeH, resizeW).toFloat()
-        if (maxSide > maxSideLen) {
-            val ratio = maxSideLen.toFloat() / maxSide
-            resizeH = (resizeH * ratio).roundToInt()
-            resizeW = (resizeW * ratio).roundToInt()
-        }
-
-        // min_side_len: 输入图像最小边小于此值时，按宽高比等比缩放至该值
-        val minSide = min(resizeH, resizeW).toFloat()
-        if (minSide < minSideLen) {
-            val ratio = minSideLen.toFloat() / minSide
-            resizeH = (resizeH * ratio).roundToInt()
-            resizeW = (resizeW * ratio).roundToInt()
-        }
-
-        // 1. 计算缩放 — 使用可调字段
         val sideLen = limitSideLen
 
         val ratio: Float
@@ -341,6 +325,21 @@ object PPOcrV6Engine {
         // 2. 对齐 32 的倍数
         resizeH = max(32, (resizeH / 32) * 32)
         resizeW = max(32, (resizeW / 32) * 32)
+
+        // 2a. 安全保护：防止极薄横屏框选（如 2400x20）触发 min_side 缩放产生极端尺寸
+        // 案例：min_side=20 → ratio=1.5 → resizeW=3529 → limit_side 阶段再 ratio=24.5 → 86,558x736
+        // FloatArray(3*736*86558) ≈ 190M floats ≈ 760 MB → OOM
+        // Bitmap 硬件上限约 16384px，留余量设上限 4000
+        val absoluteMax = 4000
+        if (resizeW > absoluteMax || resizeH > absoluteMax) {
+            val capRatio = absoluteMax.toFloat() / max(resizeW, resizeH)
+            resizeH = (resizeH * capRatio).roundToInt()
+            resizeW = (resizeW * capRatio).roundToInt()
+            // 重新对齐 32
+            resizeH = max(32, (resizeH / 32) * 32)
+            resizeW = max(32, (resizeW / 32) * 32)
+            LogCollector.w(TAG, "!!! det 尺寸超限已截断到 ${resizeW}x${resizeH}（原图 ${bitmap.width}x${bitmap.height}）")
+        }
 
         // 3. Resize
         val resized = Bitmap.createScaledBitmap(bitmap, resizeW, resizeH, true)

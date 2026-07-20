@@ -8,6 +8,7 @@ import android.graphics.Point
 import android.graphics.PointF
 import android.graphics.Rect
 import com.moe.starflow.R
+import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
@@ -98,8 +99,6 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // Det 常量 (ch_ppocr_det/utils.py DetPreProcess + DBPostProcess)
     // -----------------------------------------------------------------------
-    private const val DET_LIMIT_SIDE_LEN = 960
-    private const val DET_LIMIT_TYPE = "max"
     private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)
     private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
     private const val DET_THRESH = 0.1f
@@ -133,18 +132,22 @@ object PPOcrV5Engine {
     @Volatile private var textScoreThresh = TEXT_SCORE_THRESH_DEFAULT
     @Volatile private var largeBoxEnabled = false
     @Volatile private var largeBoxRatio = 0.6f  // 宽/高/面积占图片比例阈值
+    @Volatile private var limitSideLen = 1080        // Det.limit_side_len
+    @Volatile private var limitType = "max"          // Det.limit_type: "min" | "max"
 
     /**
      * 从 SharedPreferences 刷新可调参数。
      * 在每次 OCR 前调用，确保用户调整的滑块立即生效。
      */
     fun refreshParams(context: Context) {
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+        val prefs = CustomPreference.getInstance(context)
         detBoxThresh = prefs.getFloat("ppocr_det_box_thresh", DET_BOX_THRESH_DEFAULT)
         detUnclipRatio = prefs.getFloat("ppocr_det_unclip_ratio", DET_UNCLIP_RATIO_DEFAULT.toFloat()).toDouble()
         textScoreThresh = prefs.getFloat("ppocr_text_score_thresh", TEXT_SCORE_THRESH_DEFAULT)
         largeBoxEnabled = prefs.getBoolean("ppocr_large_box_enabled", false)
         largeBoxRatio = prefs.getFloat("ppocr_large_box_ratio", 0.6f)
+        limitSideLen = prefs.getInt("ppocr_limit_side_len", 1080)
+        limitType = prefs.getString("ppocr_limit_type", "max") ?: "max"
     }
 
     // -----------------------------------------------------------------------
@@ -436,10 +439,9 @@ object PPOcrV5Engine {
         // 1. 计算缩放
         var resizeH = srcH
         var resizeW = srcW
-        val limitSideLen = DET_LIMIT_SIDE_LEN
 
         val ratio: Float
-        if (DET_LIMIT_TYPE == "min") {
+        if (limitType == "min") {
             val minSide = min(resizeH, resizeW).toFloat()
             if (minSide < limitSideLen) {
                 ratio = limitSideLen / minSide
@@ -465,6 +467,17 @@ object PPOcrV5Engine {
         // 2. 对齐 32 的倍数
         resizeH = max(32, (resizeH / 32) * 32)
         resizeW = max(32, (resizeW / 32) * 32)
+
+        // 2a. 安全保护：防止极薄横屏框选 + 用户误调 limit_side_len 到很大值时爆 OOM
+        val absoluteMax = 4000
+        if (resizeW > absoluteMax || resizeH > absoluteMax) {
+            val capRatio = absoluteMax.toFloat() / max(resizeW, resizeH)
+            resizeH = (resizeH * capRatio).roundToInt()
+            resizeW = (resizeW * capRatio).roundToInt()
+            resizeH = max(32, (resizeH / 32) * 32)
+            resizeW = max(32, (resizeW / 32) * 32)
+            LogCollector.w(TAG, "!!! det 尺寸超限已截断到 ${resizeW}x${resizeH}（原图 ${bitmap.width}x${bitmap.height}）")
+        }
 
         // 3. Resize
         val resized = Bitmap.createScaledBitmap(bitmap, resizeW, resizeH, true)

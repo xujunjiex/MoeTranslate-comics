@@ -113,7 +113,10 @@ TEXT CACHE (translatedRegions + incrementalTranslateBubbles)
 
 **纯色/纯白页面检测：** `processMangaScreenshot` 入口处检查 `currentExtHashes.all { it == 0L }`（dHash 全零 = 中心区域无纹理结构）。检测到纯色页直接 `showImmediate("未检测到文字")` + toast → 跳过缓存+OCR+翻译 → IDLE。替换了不可靠的 `isUniform()` 方差检测（已删除）。
 
-**历史分组一致性：** `TranslationCacheManager.groupMangaEntriesByPHash()` — 统一的 256-bit 相似度分组方法（阈值 0.85），供 `getHistoryGrouped`（历史列表）和 `MangaViewerActivity.buildPageGroups`（图片浏览器）共同调用，保证两处分组数量一致。
+**历史分组一致性：** `TranslationCacheManager.groupMangaEntriesByPHash()` — 统一的 256-bit 相似度分组方法，供 `getHistoryGrouped`（历史列表）和 `MangaViewerActivity.buildPageGroups`（图片浏览器）共同调用，保证两处分组数量一致。
+
+- **相似度阈值：0.85**（256-bit Hamming 距离 / 256，约容差 38 bit）
+- **稀疏 hash 守卫：`MIN_INFO_BITS_HISTORY = 16`** — 当 4 段 hash 总 bits < 16（≈6.25%）时视为「无判别力 hash」（纯色/几乎纯色页面 dHash 4 段几乎全 0），**单独成组**，不参与正常相似度合并。**这是必要的**，否则稀疏 hash 间 Hamming distance 绝对值极小（2-3 bits 不同），会被 `1 - 2/256 = 0.992` 相似度误判为同一页面（曾导致 id=237/159/152 三张不同纯色页被错误合并成一组）。
 
 **缓存保存（`saveToCache`）** 写入 4 段 hash：
 ```kotlin
@@ -606,6 +609,14 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 - 字段被缓存了 → 是否加入 watcher？
 - 每次调用重新读 → 验证调用路径确实每次读
 
+## 偏好键名规范（防踩坑）
+
+漫画翻译的字号/颜色 prefs 键名统一使用 **PascalCase**：
+- `Manga_Font_Size`、`Manga_Auto_Font_Size`、`Manga_Text_Color`、`Manga_BG_Color`
+- **禁止混用 snake_case**（如 `manga_font_size`）— 键名不一致会导致 set 写到一个 key、get 读到另一个 key → 用户设置永远不生效（永远返回默认值）
+- `TranslationCacheManager.getOverlayConfig(prefs)` 已统一为 PascalCase，被 MangaFloatingService / MangaViewerActivity / HistoryFragment 三处调用
+- **所有跨文件共享的 prefs key 必须在共享位置定义为常量**，避免硬编码字符串
+
 ## 关键约束
 
 - **minSdk 29**（Android 10+），**targetSdk 35**
@@ -629,6 +640,18 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 - **复制模式按钮在独立 WindowManager 窗口**，没有 Window 系统焦点反馈。需要手动加 `setOnTouchListener` 实现 scale 0.92→1.0 动画（80ms down + 120ms up）。
 
 - **`spinnerVariant` 显示"?"**：新条目 `imagePath=null`，但 `pageCacheMap[entry.id]?.cropRect` 有框选尺寸。**用 cropRect 宽高当 spinner 显示文本**，不要 fallback 到文件头尺寸（那是原图尺寸，不是用户框选的）。
+
+- **`renderCache` bitmap 回收**：`MangaViewerActivity.renderCache` 是 `ConcurrentHashMap<String, Bitmap?>`（key = `"${entryId}_${mode}"`）。**绝对禁止**在切换/翻页时调用 `values.forEach { it?.recycle() }` + `clear()` —— ViewPager2 的 RecyclerView 同时持有当前页 + 左右相邻 page 的 ViewHolder，ImageView 上的 BitmapDrawable 仍在引用这些 bitmap，强制 recycle 必然触发 `java.lang.RuntimeException: Canvas: trying to use a recycled bitmap` 崩溃。**正确做法**：`PageGroupAdapter.onViewDetachedFromWindow` 触发 `recycleEntryCaches(holder.activeId)` —— 此时 ViewHolder 已离开 RecyclerView 窗口，ImageView 不再持有引用，可以安全 recycle 全 3 个 mode bitmap。翻回去时 `loadImage` 走 IO `renderOverlay` 重新渲染（~100ms 视觉延迟可接受）。`onDestroy` 全 recycle 是 OK 的（ViewHolder 也都被释放）。
+
+- **`updateToggleSegments` 协程必须 cancel**：每次 toggle 启动新协程前 `renderToggleJob?.cancel()`，避免用户快速点击产生并发渲染浪费 CPU。`dismissCacheOverlay` 回收 `currentOriginalBitmap` 前也要 cancel render job，否则协程回到 Main 时 bitmap 已回收 → `IllegalStateException`。
+
+- **缓存命中路径必须检查 bubbleRects**：新数据有 `bubbleRects` → 走实时渲染。旧数据无 `bubbleRects` → 回退加载 `imagePath`（预渲染译文 overlay）。`buildCacheResult` 需根据 `bubbleRects.isNullOrBlank()` 选择加载路径。漏检查会导致旧数据用户看到原图而非译文 overlay。
+
+- **MangaViewerActivity 重翻必须保存 bubbleRects**：`doRetranslate` 中 `refreshCache` 需传入 `bubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles)`，否则下次浏览时无法实时渲染。同时 `resultBitmap` 应设为 `null`（新设计不存译文图）。
+
+- **稀疏 hash 误判合并 bug**：`groupMangaEntriesByPHash` 用 256-bit Hamming 距离相似度（阈值 0.85）。**纯色 / 几乎纯色页面 dHash 4 段几乎全 0**（每段 1-3 bits），两张低纹理页间 distance=2~3 bits → `similarity = 1 - 2/256 = 0.992` 远超 0.85 → **错误合并**。**修复**：`MIN_INFO_BITS_HISTORY = 16`（~6.25%）守卫，infoBits < 16 的 entry 单独成组，不参与 normal 相似度判定。**应用范围**：`findCacheExt` 用 0.95 阈值独立判断（line 363），且有 `curBits=0/256` 早退保护，但 `groupMangaEntriesByPHash` 用 0.85 没早退 → 必须加守卫。新加 hash 相似度判定时也要加 infoBits 守卫。详见 [[manga-history-group-sparse-hash]]。
+
+- **pHash 显示格式必须用 `%016X`（完整 64 位）**：MangaViewerActivity 详情面板 `tvTranslationInfo` 显示 pHash 时**不要**用 `entry.pHash and 0xFFFFFFFFL` + `"%08X"`（只显示低 32 位）。曾经修复：`pHash = 0x800000000000`（高 51 位 bit）被显示成 `00000000`，用户看不到真实值。统一用 `String.format("%016X", entry.pHash)` 完整 64-bit hex，与 history 列表 `HistoryMangaAdapter` (`entry.pHash = "%016X"`) 保持一致。
 
 ## UI 规范
 

@@ -1,5 +1,6 @@
 package com.moe.starflow.ui.history
 
+import android.content.ComponentCallbacks2
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -37,6 +38,7 @@ import com.moe.starflow.manga.TranslateUtils
 import com.moe.starflow.translate.ScreenshotManager
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
+import com.moe.starflow.utils.BitmapLruCache
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.KeystoreManager
@@ -57,6 +59,12 @@ class MangaViewerActivity : AppCompatActivity() {
         const val EXTRA_ENTRY_ID = "entry_id"
         const val EXTRA_ENTRY_IDS = "entry_ids"  // 同 pHash 多尺寸条目
         const val EXTRA_IS_MANAGE_VIEW = "is_manage_view"
+
+        /**
+         * renderCache 上限。每个 entry × 3 mode ≈ 36MB，20 个 ≈ 720MB 上限。
+         * BitmapLruCache 基于 LinkedHashMap access-order，淘汰时自动 recycle。
+         */
+        const val MAX_RENDER_CACHE_ENTRIES = 20
     }
 
     private lateinit var binding: ActivityMangaViewerBinding
@@ -66,13 +74,17 @@ class MangaViewerActivity : AppCompatActivity() {
     data class PageGroup(
         var representative: HistoryEntry,
         val variants: MutableList<HistoryEntry> = mutableListOf(representative)
-    )
+    ) {
+        /** 当前活跃的 entry.id（默认代表条目） */
+        fun activeEntryId(activeVariantId: Long?): Long =
+            activeVariantId ?: representative.id
+    }
     private val pageGroups = mutableListOf<PageGroup>()
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private var isPanelExpanded = false
     private var groupEntryIds: List<Long> = emptyList()
     private var overlayState = TranslationCacheManager.OverlayMode.TRANSLATED  // 默认译文
-    private val renderCache = mutableMapOf<String, Bitmap?>()  // key="historyId_mode"
+    private val renderCache = BitmapLruCache(maxSize = MAX_RENDER_CACHE_ENTRIES)  // key="historyId_mode"
     private var pageCacheMap: Map<Long, PageCacheEntity> = emptyMap()
     private var savedClickedEntryId: Long = -1L
     private var savedEntryIds: LongArray? = null
@@ -135,11 +147,7 @@ class MangaViewerActivity : AppCompatActivity() {
                 TranslationCacheManager.OverlayMode.ORIGINAL -> android.R.drawable.ic_menu_gallery
                 TranslationCacheManager.OverlayMode.PLAIN -> android.R.drawable.ic_menu_view
             })
-            // 清除当前页渲染缓存，触发重新渲染
-            val entry = getCurrentVariant()
-            renderCache.remove("${entry.id}_TRANSLATED")
-            renderCache.remove("${entry.id}_ORIGINAL")
-            renderCache.remove("${entry.id}_PLAIN")
+            // BitmapLruCache 自动淘汰冷数据，三种 mode 的 bitmap 均独立缓存。
             val adapter = binding.viewPager.adapter as? PageGroupAdapter
             adapter?.notifyItemChanged(binding.viewPager.currentItem)
         }
@@ -149,14 +157,17 @@ class MangaViewerActivity : AppCompatActivity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val group = pageGroups.getOrNull(binding.viewPager.currentItem) ?: return
                 val variant = group.variants.getOrNull(position) ?: return
-                activeVariantIds[binding.viewPager.currentItem] = variant.id
+                val pagePosition = binding.viewPager.currentItem
+                activeVariantIds[pagePosition] = variant.id
                 // 切换尺寸时重置 overlay 状态为译文
                 overlayState = TranslationCacheManager.OverlayMode.TRANSLATED
                 binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
-                renderCache.clear()
+                // 排除当前 page 的 entry（切回去时能命中 cache），
+                // 同时排除相邻 page entry（ViewPager2 默认 offscreenPageLimit > 0，左右相邻 page 仍在 attach + draw）
+                recycleSafeRenderCache(currentEntryIds = collectLiveEntryIds(pagePosition))
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
-                adapter?.setActiveVariant(binding.viewPager.currentItem, variant.id)
-                adapter?.notifyItemChanged(binding.viewPager.currentItem)
+                adapter?.setActiveVariant(pagePosition, variant.id)
+                adapter?.notifyItemChanged(pagePosition)
                 if (isPanelExpanded) expandPanel()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
@@ -230,12 +241,13 @@ class MangaViewerActivity : AppCompatActivity() {
                         cacheManager.refreshCache(entry.id, CacheEntry(
                             type = TranslationCacheManager.MODE_MANGA,
                             sourceText = numberedText, translatedText = transText,
-                            resultBitmap = rendered, sourceLang = sourceLang, targetLang = targetLang,
+                            resultBitmap = null, sourceLang = sourceLang, targetLang = targetLang,
                             translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs),
                             pHash = entry.pHash, pHash2 = entry.pHash2, pHash3 = entry.pHash3, pHash4 = entry.pHash4,
                             sessionId = "", lastSessionId = "",
                             cropLeft = cache.cropLeft, cropTop = cache.cropTop,
                             cropRight = cache.cropRight, cropBottom = cache.cropBottom,
+                            bubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles),
                             isRetranslated = true,
                         ), originalBitmap = original)
                         // Recycle bitmaps after saving to disk
@@ -251,6 +263,8 @@ class MangaViewerActivity : AppCompatActivity() {
                         pageGroups.addAll(buildPageGroups(allEntries))
                         binding.viewPager.adapter?.notifyDataSetChanged()
                         updatePageIndicator(currentPos.coerceAtMost(pageGroups.size - 1))
+                        // 重翻译后新 entryId 与旧缓存 key 不匹配 → 清理孤儿 bitmap
+                        recycleSafeRenderCache(currentEntryIds = collectLiveEntryIds(currentPos))
                     }
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Retranslate failed", e)
@@ -274,7 +288,8 @@ class MangaViewerActivity : AppCompatActivity() {
                 // 翻页时重置为译文 overlay
                 overlayState = TranslationCacheManager.OverlayMode.TRANSLATED
                 binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
-                renderCache.clear()
+                // 翻页后当前 page 改变：保留当前页 + 左右相邻页 bitmap（它们仍被 RecyclerView 持有且正在 draw）
+                recycleSafeRenderCache(currentEntryIds = collectLiveEntryIds(position))
                 val adapter = binding.viewPager.adapter as? PageGroupAdapter
                 // 通知旧页面和新页面重新渲染
                 if (currentPagePosition != position) {
@@ -327,7 +342,8 @@ class MangaViewerActivity : AppCompatActivity() {
                     renderCache = renderCache,
                     cacheManager = cacheManager,
                     getOverlayState = { overlayState },
-                    lifecycleScope = lifecycleScope
+                    lifecycleScope = lifecycleScope,
+                    prefs = CustomPreference.getInstance(this@MangaViewerActivity).getSharedPreferences()
                 )
                 binding.viewPager.adapter = adapter
 
@@ -609,7 +625,8 @@ class MangaViewerActivity : AppCompatActivity() {
         val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val createdStr = fullDateFormat.format(Date(entry.createdAt))
         val updatedStr = fullDateFormat.format(Date(entry.updatedAt))
-        val phashStr = if (entry.pHash != 0L) "pHash:${String.format("%08X", entry.pHash and 0xFFFFFFFFL)}" else ""
+        // 64-bit 跟历史列表一致（pHash 段），高位不被截断
+        val phashStr = if (entry.pHash != 0L) "pHash:${String.format("%016X", entry.pHash)}" else ""
         binding.tvTranslationInfo.text = "$fullInfo\n尺寸: $dimStr  |  ${entry.sourceLang} → ${entry.targetLang}  |  $timeStr\n创建: $createdStr\n修改: $updatedStr\n$phashStr"
 
         val detailList = buildDetailList(entry)
@@ -793,7 +810,45 @@ class MangaViewerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // BitmapLruCache.clear() 内部 recycle 所有 bitmap，Activity 销毁时 ViewHolder 已释放 → 安全
+        renderCache.clear()
         binding.viewPager.adapter = null
+    }
+
+    /**
+     * 系统内存压力回调。低内存时主动清理非可见页面的 renderCache。
+     */
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            val currentIds = collectLiveEntryIds(binding.viewPager.currentItem)
+            renderCache.retainEntries(currentIds)
+            LogCollector.d(TAG, "onTrimMemory level=$level, retained=${currentIds.size}, cacheSize=${renderCache.size}")
+        }
+    }
+
+    /**
+     * 清理孤儿 renderCache 条目：保留与 [currentEntryIds] 匹配的条目，其余 recycle。
+     *
+     * 调用时机：
+     * - 翻页：保留当前页 ± 2 的活跃条目，recycle 远离页面的 bitmap
+     * - 切换尺寸：保留新 variant 的条目，recycle 旧 variant 的 bitmap
+     * - 重新翻译后：保留当前可见页的条目，recycle 旧 entryId 的 bitmap
+     */
+    private fun recycleSafeRenderCache(currentEntryIds: Set<Long>?) {
+        if (currentEntryIds.isNullOrEmpty()) return
+        renderCache.retainEntries(currentEntryIds)
+    }
+
+    private fun collectLiveEntryIds(currentPage: Int): Set<Long> {
+        val result = mutableSetOf<Long>()
+        for (offset in -2..2) {
+            val group = pageGroups.getOrNull(currentPage + offset) ?: continue
+            val activeId = activeVariantIds[currentPage + offset] ?: group.representative.id
+            result.add(activeId)
+        }
+        return result
     }
 }
 
@@ -809,10 +864,11 @@ data class TranslationDetailItem(
 class PageGroupAdapter(
     private val pageGroups: List<MangaViewerActivity.PageGroup>,
     private val pageCacheMap: Map<Long, PageCacheEntity>,
-    private val renderCache: MutableMap<String, Bitmap?>,
+    private val renderCache: BitmapLruCache,
     private val cacheManager: TranslationCacheManager,
     private val getOverlayState: () -> TranslationCacheManager.OverlayMode,
-    private val lifecycleScope: kotlinx.coroutines.CoroutineScope
+    private val lifecycleScope: kotlinx.coroutines.CoroutineScope,
+    private val prefs: android.content.SharedPreferences
 ) : RecyclerView.Adapter<PageGroupAdapter.ViewHolder>() {
 
     private val activeVariants = mutableMapOf<Int, Long>()
@@ -844,22 +900,36 @@ class PageGroupAdapter(
         activeVariants[position] = entryId
     }
 
+    /**
+     * ViewHolder 离开窗口时仅记录日志。Bitmap 回收由 BitmapLruCache 自动处理：
+     * - LRU 淘汰：eldest entry 被 put 触发 evict 时自动 recycle
+     * - 孤儿清理：recycleSafeRenderCache → retainEntries 主动移除并 recycle
+     */
+    override fun onViewDetachedFromWindow(holder: ViewHolder) {
+        super.onViewDetachedFromWindow(holder)
+        LogCollector.d("MangaViewer", "onViewDetachedFromWindow: position=${holder.adapterPosition}, cacheSize=${renderCache.size}")
+    }
+
     private fun loadImage(holder: ViewHolder, entry: HistoryEntry) {
         val mode = getOverlayState()
         val cacheKey = "${entry.id}_${mode.name}"
 
-        renderCache[cacheKey]?.let {
+        renderCache[cacheKey]?.let { bitmap ->
+            // DIAGNOSTIC #6: log bitmap 身份（address），用于追踪 recycle 来源
+            LogCollector.d("MangaViewer", "loadImage: cache HIT id=${entry.id} mode=$mode bitmapIdentity=${System.identityHashCode(bitmap)}")
             holder.imageView.resetZoom()
-            holder.imageView.setImageBitmap(it)
+            holder.imageView.setImageBitmap(bitmap)
             return
         }
 
+        LogCollector.d("MangaViewer", "loadImage: cache MISS id=${entry.id} mode=$mode, will renderOverlay")
         if (entry.bubbleRects.isNullOrBlank()) {
             val path = entry.imagePath ?: entry.thumbnailPath
             if (path != null && java.io.File(path).exists()) {
-                val bitmap = BitmapFactory.decodeFile(path)
+                val bmp = BitmapFactory.decodeFile(path)
+                LogCollector.d("MangaViewer", "loadImage: decoded from path id=${entry.id} bitmapIdentity=${System.identityHashCode(bmp)}")
                 holder.imageView.resetZoom()
-                holder.imageView.setImageBitmap(bitmap)
+                holder.imageView.setImageBitmap(bmp)
             }
             return
         }
@@ -870,18 +940,36 @@ class PageGroupAdapter(
         }
 
         lifecycleScope.launch {
-            val bitmap = cacheManager.renderOverlay(
-                history = entry,
-                pageCache = pageCache,
-                mode = mode,
-                forFullImage = true,
-                config = TranslationCacheManager.OverlayConfig()
-            )
-            if (bitmap != null) {
-                renderCache[cacheKey] = bitmap
-                withContext(Dispatchers.Main) {
-                    holder.imageView.resetZoom()
-                    holder.imageView.setImageBitmap(bitmap)
+            try {
+                val bitmap = cacheManager.renderOverlay(
+                    history = entry,
+                    pageCache = pageCache,
+                    mode = mode,
+                    forFullImage = true,
+                    config = cacheManager.getOverlayConfig(prefs)
+                )
+                if (bitmap != null) {
+                    LogCollector.d("MangaViewer", "loadImage: renderOverlay OK id=${entry.id} mode=$mode bitmapIdentity=${System.identityHashCode(bitmap)}")
+                    renderCache[cacheKey] = bitmap
+                    withContext(Dispatchers.Main) {
+                        holder.imageView.resetZoom()
+                        holder.imageView.setImageBitmap(bitmap)
+                    }
+                }
+            } catch (e: Exception) {
+                LogCollector.e("MangaViewer", "loadImage: renderOverlay 失败 entryId=${entry.id}", e)
+                // 回退到原图或缩略图
+                val fallbackPath = entry.originalImagePath ?: entry.imagePath ?: entry.thumbnailPath
+                if (fallbackPath != null) {
+                    try {
+                        val fallback = BitmapFactory.decodeFile(fallbackPath)
+                        if (fallback != null) {
+                            withContext(Dispatchers.Main) {
+                                holder.imageView.resetZoom()
+                                holder.imageView.setImageBitmap(fallback)
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
             }
         }

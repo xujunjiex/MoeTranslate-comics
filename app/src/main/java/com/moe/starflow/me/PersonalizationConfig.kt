@@ -127,18 +127,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
-        // 字体颜色（同上）
+        // 字体颜色
         findPreference<ColorPreferenceCompat>("result_view_font_color")?.apply {
-            setOnPreferenceClickListener {
-                showColorPickerDialog(
-                    pref = it as ColorPreferenceCompat,
-                    prefKey = "Custom_Result_Font_Color",
-                    defaultColor = -1516335,
-                    title = getString(R.string.font_color),
-                    summaryText = getString(R.string.font_color_summary)
-                )
-                true
-            }
             setOnPreferenceChangeListener { _, newValue ->
                 prefs.setInt("Custom_Result_Font_Color", newValue as Int)
                 true
@@ -146,27 +136,14 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             summary = getString(R.string.font_color_summary)
         }
 
-        // 背景颜色（同上）
+        // 背景颜色
         findPreference<ColorPreferenceCompat>("result_view_background_color")?.apply {
-            setOnPreferenceClickListener {
-                showColorPickerDialog(
-                    pref = it as ColorPreferenceCompat,
-                    prefKey = "Custom_Result_Background_Color",
-                    defaultColor = -649384925,
-                    title = getString(R.string.result_background_color),
-                    summaryText = getString(R.string.result_background_color_summary)
-                )
-                true
-            }
             setOnPreferenceChangeListener { _, newValue ->
                 prefs.setInt("Custom_Result_Background_Color", newValue as Int)
                 true
             }
             summary = getString(R.string.result_background_color_summary)
         }
-
-        // 翻译结果框整体透明度通过背景/字体颜色的 alpha 通道控制
-        // （背景颜色 + 字体颜色选择器自带 alpha 滑块）
 
         // 显示原文
         showSource.setOnPreferenceChangeListener { _, newValue ->
@@ -599,55 +576,6 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
                 input.copyTo(output)
             }
         } ?: throw IOException("open file error")
-    }
-
-    /**
-     * 显示自定义颜色选择面板：ColorPickerView + 底部「恢复默认」按钮。
-     * 替代默认的 ColorPreferenceCompat 弹窗，把恢复按钮放进面板内部。
-     */
-    private fun showColorPickerDialog(
-        pref: ColorPreferenceCompat,
-        prefKey: String,
-        defaultColor: Int,
-        title: String,
-        summaryText: String
-    ) {
-        val currentColor = prefs.getInt(prefKey, defaultColor)
-        val container = android.widget.LinearLayout(requireContext()).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(0, 0, 0, 0)
-        }
-
-        // 颜色选择器本体
-        val picker = com.jaredrummler.android.colorpicker.ColorPickerView(requireContext()).apply {
-            setColor(currentColor)
-        }
-        container.addView(picker, android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            0, 1f  // 占满剩余空间
-        ))
-
-        // 恢复默认按钮
-        val btnReset = android.widget.Button(requireContext()).apply {
-            text = getString(R.string.reset_default_color)
-            setOnClickListener {
-                picker.setColor(defaultColor)
-            }
-        }
-        container.addView(btnReset)
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(title)
-            .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val newColor = picker.color
-                prefs.setInt(prefKey, newColor)
-                pref.summary = summaryText
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .create()
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun isAnyTranslationServiceRunning(): Boolean {

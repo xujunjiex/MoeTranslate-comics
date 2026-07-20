@@ -74,6 +74,22 @@ class TranslationCacheManager(private val context: Context) {
             }
         }
 
+        /** 将 TranslatedBubble 列表序列化为 JSON（与 parseBubbleEntriesJson 配对） */
+        fun serializeBubbleRects(bubbles: List<TranslatedBubble>): String {
+            val jsonArray = org.json.JSONArray()
+            for (b in bubbles) {
+                val obj = org.json.JSONObject()
+                obj.put("l", b.rect.left)
+                obj.put("t", b.rect.top)
+                obj.put("r", b.rect.right)
+                obj.put("b", b.rect.bottom)
+                obj.put("fs", b.fontSize.toDouble())
+                obj.put("dir", b.direction.name)
+                jsonArray.put(obj)
+            }
+            return jsonArray.toString()
+        }
+
         /** 从缓存的 rect JSON + 文本列表重建 TranslatedBubble */
         fun rebuildBubblesFromCache(
             originals: List<String>,
@@ -198,11 +214,17 @@ class TranslationCacheManager(private val context: Context) {
             }
         } else {
             // overlay 窗口 / 下载：裁剪后渲染，气泡坐标直接对应
-            val cropW = (pageCache.cropRight - pageCache.cropLeft).coerceAtLeast(1)
-            val cropH = (pageCache.cropBottom - pageCache.cropTop).coerceAtLeast(1)
-            // 注意：Bitmap.createBitmap 共享底层数据，必须先渲染完再 recycle 原图
-            val croppedBitmap = Bitmap.createBitmap(fullBitmap, pageCache.cropLeft, pageCache.cropTop, cropW, cropH)
+            // 防止损坏的 crop 坐标越界导致 IllegalArgumentException
+            val safeCropLeft = pageCache.cropLeft.coerceIn(0, fullBitmap.width)
+            val safeCropTop = pageCache.cropTop.coerceIn(0, fullBitmap.height)
+            val safeCropRight = pageCache.cropRight.coerceIn(safeCropLeft, fullBitmap.width)
+            val safeCropBottom = pageCache.cropBottom.coerceIn(safeCropTop, fullBitmap.height)
+            val cropW = (safeCropRight - safeCropLeft).coerceAtLeast(1)
+            val cropH = (safeCropBottom - safeCropTop).coerceAtLeast(1)
+            var croppedBitmap: Bitmap? = null
             try {
+                // 注意：Bitmap.createBitmap 共享底层数据，必须先渲染完再 recycle 原图
+                croppedBitmap = Bitmap.createBitmap(fullBitmap, safeCropLeft, safeCropTop, cropW, cropH)
                 if (mode == OverlayMode.PLAIN) {
                     croppedBitmap
                 } else {
@@ -216,18 +238,21 @@ class TranslationCacheManager(private val context: Context) {
                         useOriginalText = (mode == OverlayMode.ORIGINAL)
                     )
                 }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "renderOverlay: 裁剪/渲染失败 historyId=${history.id}", e)
+                null
             } finally {
-                croppedBitmap.recycle()
+                croppedBitmap?.recycle()
                 fullBitmap.recycle()
             }
         }
     }
 
     fun getOverlayConfig(prefs: android.content.SharedPreferences): OverlayConfig {
-        val fontSize = (prefs.getString("manga_font_size", "16")?.toFloatOrNull() ?: 16f)
-        val autoFit = prefs.getBoolean("manga_auto_fit", true)
-        val textColor = prefs.getInt("manga_text_color", android.graphics.Color.BLACK)
-        val bgColor = prefs.getInt("manga_bg_color", android.graphics.Color.argb(200, 255, 255, 255))
+        val fontSize = prefs.getFloat("Manga_Font_Size", 16f)
+        val autoFit = prefs.getBoolean("Manga_Auto_Font_Size", true)
+        val textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK)
+        val bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
         return OverlayConfig(fontSize, autoFit, textColor, bgColor)
     }
 
@@ -499,17 +524,11 @@ class TranslationCacheManager(private val context: Context) {
 
         }
 
-        // 保存图片（漫画翻译）
+        // 漫画翻译：不再存渲染译文图（imagePath），只存原图 + 缩略图
+        // 所有 overlay 展示通过实时渲染完成
         var imagePath: String? = null
         var thumbnailPath: String? = null
-        if (entry.type == MODE_MANGA && entry.resultBitmap != null) {
-            val timestamp = System.currentTimeMillis()
-            imagePath = saveBitmap(entry.resultBitmap, "manga_${timestamp}.jpg")
-            // 缩略图优先用原图，没有原图则用 resultBitmap（兼容旧调用）
-            val thumbSource = originalBitmap ?: entry.resultBitmap
-            thumbnailPath = saveThumbnail(thumbSource!!, "manga_${timestamp}_thumb.jpg")
-        } else if (entry.type == MODE_MANGA && originalBitmap != null) {
-            // resultBitmap 为 null（新逻辑），缩略图用原图
+        if (entry.type == MODE_MANGA && originalBitmap != null) {
             val timestamp = System.currentTimeMillis()
             thumbnailPath = saveThumbnail(originalBitmap, "manga_${timestamp}_thumb.jpg")
         }
@@ -711,33 +730,60 @@ class TranslationCacheManager(private val context: Context) {
      * @return 去重后的 HistoryEntry 列表，每个代表条目携带 variantCount 和 variantIds
      */
     fun groupMangaEntriesByPHash(entries: List<HistoryEntry>): List<HistoryEntry> {
+        // ─── 稀疏 hash 守卫 ───
+        // 历史中有一种典型 bug：纯色 / 几乎纯色页面，dHash 4 段几乎全 0（只有 1-3 个 bit）。
+        // Hamming distance 计算的相似度会被多算（distance=2 / 256 = sim=0.992），导致完全不同的页面被错误归并。
+        // 解决办法：infoBits < MIN_INFO_BITS_HISTORY (16 bits，约 6.25%) 的 entry 视为「无判别力 hash」，
+        // 不参与 normal 相似度分组，单独成组（保留所有变体独立）。
+        val MIN_INFO_BITS_HISTORY = 16
+
         val used = mutableSetOf<Long>()
         val groups = mutableListOf<HistoryEntry>()
+        var sparseCount = 0
+
+        // 预计算每个 entry 的总 bits（避免重复计算）
+        val bitsByEntry = entries.associateWith { entry ->
+            java.lang.Long.bitCount(entry.pHash) +
+                java.lang.Long.bitCount(entry.pHash2) +
+                java.lang.Long.bitCount(entry.pHash3) +
+                java.lang.Long.bitCount(entry.pHash4)
+        }
 
         for (entry in entries) {
             if (entry.id in used) continue
-            if (entry.pHash == 0L) {
+            val infoBits = bitsByEntry[entry] ?: 0
+            if (infoBits < MIN_INFO_BITS_HISTORY) {
+                // 稀疏 hash：单独成组，不打印单条日志（避免噪音）
+                sparseCount++
                 groups.add(entry)
                 used.add(entry.id)
                 continue
             }
 
-            val variants = entries.filter {
-                it.id !in used && it.pHash != 0L &&
+            val repHashes = longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
+            val variants = entries.filter { cand ->
+                cand.id !in used &&
+                    (bitsByEntry[cand] ?: 0) >= MIN_INFO_BITS_HISTORY &&
                     PerceptualHash.similarity(
-                        longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4),
-                        longArrayOf(it.pHash, it.pHash2, it.pHash3, it.pHash4)
+                        repHashes,
+                        longArrayOf(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4)
                     ) >= 0.85f
             }
             variants.forEach { used.add(it.id) }
 
             val sorted = variants.sortedByDescending { it.updatedAt }
             val representative = sorted.first()
+            // 只在变体 > 1 时打印（说明发生了合并，排查时能命中正常路径）
+            if (sorted.size > 1) {
+                LogCollector.d(TAG, "合并: 代表 id=${representative.id} 命中 ${sorted.size} 个变体 ${sorted.map { it.id }}")
+            }
             groups.add(representative.copy(
                 variantCount = sorted.size,
                 variantIds = sorted.map { it.id }
             ))
         }
+        // 单行汇总：N entry → M group（含 K 稀疏独立）
+        LogCollector.d(TAG, "groupMangaEntriesByPHash: ${entries.size} entry → ${groups.size} group (其中 ${sparseCount} 个稀疏 hash 单独成组)")
         return groups
     }
 
@@ -869,9 +915,15 @@ class TranslationCacheManager(private val context: Context) {
     }
 
     private fun buildCacheResult(history: HistoryEntity, cropWidth: Int = 0, cropHeight: Int = 0, pageCache: PageCacheEntity? = null): CacheResult {
-        // 漫画模式：优先加载原图（originalImagePath），回退到渲染图（imagePath）兼容旧数据
+        // 漫画模式：新数据（有 bubbleRects）加载原图走实时渲染，旧数据（无 bubbleRects）回退预渲染译文图
         val bitmapPath = if (history.type == MODE_MANGA) {
-            history.originalImagePath ?: history.imagePath
+            if (history.bubbleRects.isNullOrBlank()) {
+                // 旧数据：无实时渲染所需的气泡元数据，回退显示预渲染的译文 overlay
+                history.imagePath ?: history.originalImagePath
+            } else {
+                // 新数据：有气泡元数据，实时渲染 overlay 到原图上
+                history.originalImagePath ?: history.imagePath
+            }
         } else {
             history.imagePath
         }
