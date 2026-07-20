@@ -18,7 +18,7 @@
 **必需：** JDK 17、Android SDK（compileSdk 35）、NDK 25.2.9519653、CMake 3.22.1。
 
 **首次克隆后：**
-1. 创建 `local.properties`（已 gitignore）：`sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk`，路径用正斜杠 `/`
+1. 创建 `local.properties`（已 gitignore）：`sdk.dir=C:/Users/%USERNAME%/AppData/Local/Android/Sdk`，路径用正斜杠 `/`
 2. 配置 git 代理（国内环境）：`git config --global http.proxy http://127.0.0.1:7897`
 3. 确认 Windows hosts 无 `#S302` 条目将 github.com 指向 127.0.0.1
 4. `./gradlew assembleDebug` 验证构建
@@ -652,6 +652,10 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 - **稀疏 hash 误判合并 bug**：`groupMangaEntriesByPHash` 用 256-bit Hamming 距离相似度（阈值 0.85）。**纯色 / 几乎纯色页面 dHash 4 段几乎全 0**（每段 1-3 bits），两张低纹理页间 distance=2~3 bits → `similarity = 1 - 2/256 = 0.992` 远超 0.85 → **错误合并**。**修复**：`MIN_INFO_BITS_HISTORY = 16`（~6.25%）守卫，infoBits < 16 的 entry 单独成组，不参与 normal 相似度判定。**应用范围**：`findCacheExt` 用 0.95 阈值独立判断（line 363），且有 `curBits=0/256` 早退保护，但 `groupMangaEntriesByPHash` 用 0.85 没早退 → 必须加守卫。新加 hash 相似度判定时也要加 infoBits 守卫。详见 [[manga-history-group-sparse-hash]]。
 
 - **pHash 显示格式必须用 `%016X`（完整 64 位）**：MangaViewerActivity 详情面板 `tvTranslationInfo` 显示 pHash 时**不要**用 `entry.pHash and 0xFFFFFFFFL` + `"%08X"`（只显示低 32 位）。曾经修复：`pHash = 0x800000000000`（高 51 位 bit）被显示成 `00000000`，用户看不到真实值。统一用 `String.format("%016X", entry.pHash)` 完整 64-bit hex，与 history 列表 `HistoryMangaAdapter` (`entry.pHash = "%016X"`) 保持一致。
+
+- **BitmapLruCache 替代 ConcurrentHashMap 做 renderCache**：`MangaViewerActivity` 的 `renderCache` 使用 `utils/BitmapLruCache`（`LinkedHashMap` access-order），淘汰时自动 `recycle()` native buffer。**不要用 `ConcurrentHashMap`** — 迭代顺序 ≠ 插入顺序 → 伪 LRU → 可能淘汰热数据。"最久未访问"而非"detach"作淘汰条件，避免 `RecyclerView` 复用 `ViewHolder` 时 recycle 正在显示的 bitmap → `Canvas: trying to use a recycled bitmap` 崩溃。
+
+- **DialogPreference（ColorPreferenceCompat 等）不能用 `setOnPreferenceClickListener` 拦截点击**：`DialogPreference` 通过 `PreferenceFragmentCompat.onDisplayPreferenceDialog()` 展示弹窗，普通 click listener 返回 `true` 也无法阻止弹窗。**正确方式**：重写 `onDisplayPreferenceDialog(pref)`，匹配 `pref.key` 后显示自定义弹窗，其余走 `super`。
 
 ## UI 规范
 
