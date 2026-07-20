@@ -48,6 +48,10 @@ docs/superpowers/
 # Claude Code
 CLAUDE.md
 
+# Superpowers plugin
+.agents/
+AGENTS.md
+
 # 模型文件 (太大不适合 git)
 # PP-OCRv6 small 内置模型例外
 !app/src/main/assets/ppocrv6/
