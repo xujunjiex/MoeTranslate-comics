@@ -36,7 +36,7 @@ class LanguageSelectionDialog(
     companion object {
         // 语言附加描述（源语言选择时显示在名称后面）
         private val LANGUAGE_TIPS = mapOf(
-            "ru" to "（仅支持 PP-OCRv5）"
+            "ru" to "（需要 PP-OCR 引擎）"
         )
     }
 

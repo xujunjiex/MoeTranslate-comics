@@ -1131,26 +1131,28 @@ class MangaFloatingService : LifecycleService() {
      * 4. 俄文 + PP引擎 + RU未下载 → 提示下载
      */
     private fun checkLanguageHints() {
-        val isPP = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
+        val isPPv5 = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
+        val isPPv6 = config.ocrEngine == OcrEngine.PPOcrV6 || config.detEngine == DetEngine.PP_OCR_V6
+        val isAnyPP = isPPv5 || isPPv6
         val isMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
         val src = config.sourceLang
 
-        // 优先级1：俄文 + 非PP引擎 → 提示切换到PP
-        if (src == "ru" && !isPP) {
+        // 俄文：需要 PP 引擎（v5 或 v6）
+        if (src == "ru" && !isAnyPP) {
             showSystemToast(getString(R.string.ru_need_ppocrv5_engine))
             return
         }
-
-        // 优先级2：PP引擎 + KO/RU未下载 → 提示下载
-        if (isPP) {
+        // PP-OCRv5：检查 KO/RU 等需要下载独立模型的语言
+        if (isPPv5) {
             val (_, hint) = PPOcrV5Engine.resolveRecLang(this, src)
             if (hint != null) {
                 showSystemToast(hint)
                 return
             }
         }
+        // PP-OCRv6：多语言模型内置，无需额外下载检查
 
-        // 优先级3：manga-ocr 模型 + 非日文 → 提示
+        // manga-ocr 模型 + 非日文 → 提示
         if (isMangaOcr && src != "ja") {
             showSystemToast(getString(R.string.manga_ocr_non_ja_hint))
         }
@@ -1161,11 +1163,11 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
-     * 循环切换源语言：ja → en → zh → ko → ru → ja
+     * 循环切换源语言：ja → en → zh → zh-TW → ko → ru → ja
      * 跳过 OCR 模型不可用的语言（PP-OCRv5 的 KO/RU 需要检查是否已下载）
      */
     private fun cycleSourceLang() {
-        val langCycle = arrayOf("ja", "en", "zh", "ko", "ru")
+        val langCycle = arrayOf("ja", "en", "zh", "zh-TW", "ko", "ru")
         val current = prefs.getString("Source_Language", "ja")
         val currentIdx = langCycle.indexOf(current).coerceAtLeast(0)
 
@@ -1188,10 +1190,14 @@ class MangaFloatingService : LifecycleService() {
      * 检查指定语言的 OCR 模型是否可用
      */
     private fun isOcrLangAvailable(lang: String): Boolean {
-        val isPP = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
-        if (!isPP) return true  // 非 PP-OCRv5 不需要检查
+        val isPPv5 = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
+        val isPPv6 = config.ocrEngine == OcrEngine.PPOcrV6 || config.detEngine == DetEngine.PP_OCR_V6
+        if (!isPPv5 && !isPPv6) return true  // 非 PP 不需要检查
+        // PP-OCRv6：多语言模型内置，所有语言都支持
+        if (isPPv6) return true
+        // PP-OCRv5：需要检查 KO/RU/EN 模型是否已下载
         return when (lang) {
-            "zh", "ja" -> true  // 内置模型
+            "zh", "zh-TW", "ja" -> true  // 内置模型
             "en" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.EN)
             "ko" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.KO)
             "ru" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.RU)

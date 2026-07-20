@@ -357,7 +357,7 @@ object PPOcrV5Engine {
      * 日文走 JA（= rec_zh，PP-OCRv5 中英日混合模型）。
      */
     fun getRecLang(language: String): RecLang? = when (language.lowercase()) {
-        "zh", "chinese", "中文" -> RecLang.ZH
+        "zh", "zh-tw", "chinese", "chinese (taiwan)", "中文", "繁体中文" -> RecLang.ZH
         "ja", "japanese", "日本語" -> RecLang.JA
         "en", "english", "英语" -> RecLang.EN
         "ko", "korean", "한국어" -> RecLang.KO

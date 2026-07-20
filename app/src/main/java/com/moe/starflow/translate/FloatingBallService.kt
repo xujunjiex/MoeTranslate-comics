@@ -959,11 +959,11 @@ class FloatingBallService : LifecycleService() {
     }
 
     /**
-     * 循环切换源语言：ja → en → zh → ko → ru → ja
+     * 循环切换源语言：ja → en → zh → zh-TW → ko → ru → ja
      * 跳过 OCR 模型不可用的语言（PP-OCRv5 的 KO/RU 需要检查是否已下载）
      */
     private fun cycleSourceLang() {
-        val langCycle = arrayOf("ja", "en", "zh", "ko", "ru")
+        val langCycle = arrayOf("ja", "en", "zh", "zh-TW", "ko", "ru")
         val current = prefs.getString("Source_Language", "ja")
         val currentIdx = langCycle.indexOf(current).coerceAtLeast(0)
 
@@ -988,7 +988,7 @@ class FloatingBallService : LifecycleService() {
         val ocrEngine = prefs.getInt("Game_OCR_Engine", 0)
         if (ocrEngine != 1) return true  // 非 PP-OCRv5 不需要检查
         return when (lang) {
-            "zh", "ja" -> true  // 内置模型
+            "zh", "zh-TW", "ja" -> true  // 内置模型
             "en" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.EN)
             "ko" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.KO)
             "ru" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.RU)
@@ -1112,26 +1112,28 @@ class FloatingBallService : LifecycleService() {
      */
     private fun checkLanguageHints() {
         val currentOcr = prefs.getInt("Game_OCR_Engine", 0)
-        val isPP = currentOcr == 1  // PP-OCRv5
+        val isPPv5 = currentOcr == 1   // PP-OCRv5
+        val isPPv6 = currentOcr == 3   // PP-OCRv6
+        val isAnyPP = isPPv5 || isPPv6
         val isMangaOcr = currentOcr == 2  // manga-ocr
         val src = prefs.getString("Source_Language", "ja")
 
-        // 优先级1：俄文 + 非PP引擎 → 提示切换到PP
-        if (src == "ru" && !isPP) {
+        // 俄文：需要 PP 引擎（v5 或 v6）
+        if (src == "ru" && !isAnyPP) {
             Toast.makeText(this, getString(R.string.ru_need_ppocrv5_engine), Toast.LENGTH_SHORT).show()
             return
         }
-
-        // 优先级2：PP引擎 + KO/RU未下载 → 提示下载
-        if (isPP) {
+        // PP-OCRv5：检查 KO/RU 等需要下载独立模型的语言
+        if (isPPv5) {
             val (_, hint) = PPOcrV5Engine.resolveRecLang(this, src)
             if (hint != null) {
                 Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
                 return
             }
         }
+        // PP-OCRv6：多语言模型内置，无需额外下载检查
 
-        // 优先级3：manga-ocr 模型 + 非日文 → 提示
+        // manga-ocr 模型 + 非日文 → 提示
         if (isMangaOcr && src != "ja") {
             Toast.makeText(this, getString(R.string.manga_ocr_non_ja_hint), Toast.LENGTH_SHORT).show()
         }

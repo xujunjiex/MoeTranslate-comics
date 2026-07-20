@@ -686,12 +686,13 @@ class HistoryFragment : Fragment() {
      */
     private fun downloadGameSession(session: com.moe.starflow.data.HistorySession) {
         lifecycleScope.launch {
+            var progressDialog: android.app.ProgressDialog? = null
             try {
                 // 如果会话条目为空，尝试直接从 DB 获取（兜底）
                 val entriesToDownload = if (session.entries.isEmpty()) {
                     withContext(Dispatchers.IO) {
                         LogCollector.w(TAG, "downloadGameSession: session entries empty, fetching from DB directly")
-                        cacheManager.getHistory(TranslationCacheManager.MODE_GAME, limit = 500)
+                        cacheManager.getHistory(TranslationCacheManager.MODE_GAME, limit = 10000)
                             .filter { it.sessionId == session.sessionId || it.lastSessionId == session.sessionId }
                     }
                 } else {
@@ -701,6 +702,15 @@ class HistoryFragment : Fragment() {
                 LogCollector.d(TAG, "downloadGameSession: sessionId=${session.sessionId.take(8)}, entries=${entriesToDownload.size}")
                 for ((i, e) in entriesToDownload.withIndex()) {
                     LogCollector.d(TAG, "  entry[$i]: src=${e.sourceText?.take(20) ?: "null"}, trans=${e.translatedText?.take(20) ?: "null"}")
+                }
+
+                // 进度提示
+                progressDialog = withContext(Dispatchers.Main) {
+                    android.app.ProgressDialog(requireContext()).apply {
+                        setMessage("正在准备下载...")
+                        setCancelable(false)
+                        show()
+                    }
                 }
 
                 val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
@@ -723,6 +733,7 @@ class HistoryFragment : Fragment() {
                         }
                     }
                 }
+                withContext(Dispatchers.Main) { progressDialog?.dismiss() }
 
                 // 直接通过 SAF 写入，不用临时文件
                 withContext(Dispatchers.Main) {
@@ -738,6 +749,7 @@ class HistoryFragment : Fragment() {
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Download game session failed", e)
                 withContext(Dispatchers.Main) {
+                    progressDialog?.dismiss()
                     com.moe.starflow.utils.UiUtils.showToast(requireContext(), "下载失败")
                 }
             }

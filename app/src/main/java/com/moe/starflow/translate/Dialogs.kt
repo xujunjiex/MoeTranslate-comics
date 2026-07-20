@@ -45,6 +45,16 @@ data class DialogResult(
 )
 
 object Dialogs {
+    /**
+     * 根据屏幕宽度 dp 计算菜单缩放因子。
+     * 360dp → 0.825, 480dp+ → 1.0（不缩放）。
+     */
+    private fun calculateMenuScale(ctx: Context): Float {
+        val dm = ctx.resources.displayMetrics
+        val screenWidthDp = dm.widthPixels / dm.density
+        return (0.3f + 0.7f * (screenWidthDp / 480f)).coerceIn(0.75f, 1.0f)
+    }
+
     @SuppressLint("MissingInflatedId")
     fun menuDialog(ctx: Context, isAutoTranslating: Boolean, ocrEngineLabel: String = "", currentLangName: String = ""): DialogResult {
         // 动态构建菜单项
@@ -83,10 +93,7 @@ object Dialogs {
         strItems.add(ctx.getString(R.string.game_back_main))
         imgItems.add(R.drawable.back_home)
 
-        // 按屏幕宽度 dp 计算菜单缩放因子
-        val dm = ctx.resources.displayMetrics
-        val screenWidthDp = dm.widthPixels / dm.density
-        val menuScale = (0.3f + 0.7f * (screenWidthDp / 480f)).coerceIn(0.75f, 1.0f)
+        val menuScale = calculateMenuScale(ctx)
 
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
@@ -275,10 +282,7 @@ object Dialogs {
                 R.drawable.back_home
             )
         }
-        // 按屏幕宽度 dp 计算菜单缩放因子
-        val dm = ctx.resources.displayMetrics
-        val screenWidthDp = dm.widthPixels / dm.density
-        val menuScale = (0.3f + 0.7f * (screenWidthDp / 480f)).coerceIn(0.75f, 1.0f)
+        val menuScale = calculateMenuScale(ctx)
 
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_manga_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)

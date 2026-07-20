@@ -645,9 +645,9 @@
     <string name="ppocr_rec_ru_desc">Russian/Cyrillic recognition, optional download (~8MB)</string>
     <string name="ppocr_section_title">PP-OCRv5</string>
     <string name="ppocr_section_desc">PP-OCRv5 multilingual text recognition engine</string>
-    <string name="ru_need_ppocrv5_engine">Russian recognition requires PP-OCRv5 engine, please switch to PP-OCRv5 in manga settings</string>
-    <string name="ru_need_download_model">Please download PP-OCRv5 Russian model from model management page</string>
-    <string name="ko_need_download_model">Please download PP-OCRv5 Korean model from model management page</string>
+    <string name="ru_need_ppocrv5_engine">Russian recognition requires PP-OCR engine (v5 or v6), please switch to PP-OCR in manga settings</string>
+    <string name="ru_need_download_model">PP-OCRv5 cannot recognize Russian, please download the Russian model or switch to PP-OCRv6</string>
+    <string name="ko_need_download_model">PP-OCRv5 cannot recognize Korean, please download the Korean model or switch to PP-OCRv6</string>
     <string name="manga_ocr_non_ja_hint">manga-ocr model is optimized for Japanese, current source language may affect recognition, consider switching to PP-OCRv5</string>
     <string name="model_download_in_browser">🔗 Browser</string>
     <string name="model_storage_path_label">Model storage path:</string>
