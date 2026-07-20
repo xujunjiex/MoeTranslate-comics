@@ -896,18 +896,6 @@ class MangaFloatingService : LifecycleService() {
         return (dp * resources.displayMetrics.density).toInt()
     }
 
-    /**
-     * 根据屏幕宽度 dp 计算浮动菜单缩放因子。
-     * 360dp 屏幕 → ~0.90，480dp+ → 1.0（不缩放）。
-     * 公式：0.6 + 0.4 × (screenWidthDp / 480)，下限 0.75。
-     */
-    private fun getMenuScale(): Float {
-        val screenSize = getScreenSize()
-        val screenWidthDp = screenSize.width / resources.displayMetrics.density
-        val scale = 0.6f + 0.4f * (screenWidthDp / 480f)
-        return scale.coerceIn(0.75f, 1.0f)
-    }
-
     // ---------- Touch handling (matches original FloatingBallService pattern) ----------
 
     @SuppressLint("ClickableViewAccessibility")
@@ -1103,20 +1091,8 @@ class MangaFloatingService : LifecycleService() {
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        // 根据屏幕尺寸缩放菜单（图标 + 字号 + 宽度）
-        val screenSize = getScreenSize()
-        val scale = getMenuScale()
-        // 缩放标题图标（55dp × scale，转 px）
-        dialog.findViewById<android.widget.ImageView>(R.id.TitleIcon)?.let { icon ->
-            val iconSizePx = (55 * scale * resources.displayMetrics.density).toInt()
-            val lp = icon.layoutParams
-            lp.width = iconSizePx
-            lp.height = iconSizePx
-            icon.layoutParams = lp
-        }
-        // 缩放标题字号
-        dialog.findViewById<android.widget.TextView>(R.id.welcome)?.textSize = 22f * scale
         // 竖屏宽度限制，横屏保持原有比例
+        val screenSize = getScreenSize()
         if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
             val maxW = (screenSize.width * 0.4).toInt()
             val maxH = (screenSize.height * 0.7).toInt()

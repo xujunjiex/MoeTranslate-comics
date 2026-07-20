@@ -530,10 +530,10 @@ class HistoryFragment : Fragment() {
     private suspend fun doDownloadSession(session: com.moe.starflow.data.HistorySession) {
         // 展开所有变体（session.entries 只含代表，通过 variantIds 获取全部）
         val allEntryIds = session.entries.flatMap { e -> e.variantIds.ifEmpty { listOf(e.id) } }.distinct()
-        val allEntries = if (allEntryIds.size > session.entries.size) {
-            cacheManager.getHistoryByIds(allEntryIds)
+        val allEntriesMap = if (allEntryIds.size > session.entries.size) {
+            cacheManager.getHistoryByIds(allEntryIds).associateBy { it.id }
         } else {
-            session.entries
+            emptyMap()
         }
 
         // 进度提示
@@ -542,7 +542,7 @@ class HistoryFragment : Fragment() {
                 setMessage("正在准备下载...")
                 setCancelable(false)
                 setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL)
-                setMax(allEntries.size)
+                setMax(allEntryIds.size)
                 show()
             }
         }
@@ -550,8 +550,6 @@ class HistoryFragment : Fragment() {
         val config = cacheManager.getOverlayConfig(CustomPreference.getInstance(requireContext()).getSharedPreferences())
         val tempFiles = mutableListOf<File>()
         val tempDir = File(requireContext().cacheDir, "download_${System.currentTimeMillis()}").also { it.mkdirs() }
-        var pageIdx = 1
-        var variantIdx = 0
 
         try {
             LogCollector.d("HistoryFragment", "doDownloadSession: ${session.entries.size} page groups")
@@ -562,7 +560,7 @@ class HistoryFragment : Fragment() {
                 // 按 variantIds 顺序获取每个变体并渲染
                 val variantIds = groupEntry.variantIds.ifEmpty { listOf(groupEntry.id) }
                 val variants = if (variantIds.size > 1) {
-                    cacheManager.getHistoryByIds(variantIds)
+                    variantIds.mapNotNull { allEntriesMap[it] }
                 } else {
                     listOf(groupEntry)
                 }

@@ -83,11 +83,16 @@ object Dialogs {
         strItems.add(ctx.getString(R.string.game_back_main))
         imgItems.add(R.drawable.back_home)
 
+        // 按屏幕宽度 dp 计算菜单缩放因子
+        val dm = ctx.resources.displayMetrics
+        val screenWidthDp = dm.widthPixels / dm.density
+        val menuScale = (0.3f + 0.7f * (screenWidthDp / 480f)).coerceIn(0.75f, 1.0f)
+
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
-        lv.adapter = MenuDialogAdapter(ctx, strItems.toTypedArray(), imgItems.toTypedArray())
+        lv.adapter = MenuDialogAdapter(ctx, strItems.toTypedArray(), imgItems.toTypedArray(), menuScale)
         if (isAutoTranslating) {
             welcome.text = ctx.getString(R.string.floating_ball_menu_1)
             img.setImageResource(R.drawable.fist_pump_star)
@@ -100,6 +105,15 @@ object Dialogs {
             .setCancelable(false)
             .setNegativeButton(R.string.user_cancel, null)
             .create()
+        if (menuScale < 1f) {
+            val iconSizePx = (55 * menuScale * ctx.resources.displayMetrics.density).toInt()
+            img.layoutParams?.let { lp ->
+                lp.width = iconSizePx
+                lp.height = iconSizePx
+                img.layoutParams = lp
+            }
+            welcome.textSize = 22f * menuScale
+        }
         return DialogResult(dialog, lv)
     }
 
@@ -261,11 +275,16 @@ object Dialogs {
                 R.drawable.back_home
             )
         }
+        // 按屏幕宽度 dp 计算菜单缩放因子
+        val dm = ctx.resources.displayMetrics
+        val screenWidthDp = dm.widthPixels / dm.density
+        val menuScale = (0.3f + 0.7f * (screenWidthDp / 480f)).coerceIn(0.75f, 1.0f)
+
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_manga_menu, null, false)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
-        lv.adapter = MenuDialogAdapter(ctx, strlist, imglist)
+        lv.adapter = MenuDialogAdapter(ctx, strlist, imglist, menuScale)
         if (isAutoTranslating) {
             welcome.text = ctx.getString(R.string.floating_ball_menu_3)
             img.setImageResource(R.drawable.sleepy_star)
@@ -278,6 +297,15 @@ object Dialogs {
             .setCancelable(false)
             .setNegativeButton(R.string.user_cancel, null)
             .create()
+        if (menuScale < 1f) {
+            val iconSizePx = (55 * menuScale * ctx.resources.displayMetrics.density).toInt()
+            img.layoutParams?.let { lp ->
+                lp.width = iconSizePx
+                lp.height = iconSizePx
+                img.layoutParams = lp
+            }
+            welcome.textSize = 22f * menuScale
+        }
         return DialogResult(dialog, lv)
     }
 

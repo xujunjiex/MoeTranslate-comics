@@ -27,8 +27,9 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.moe.starflow.R
 
-class MenuDialogAdapter(ctx: Context, private var str: Array<String>, private var img: Array<Int>) : BaseAdapter() {
+class MenuDialogAdapter(ctx: Context, private var str: Array<String>, private var img: Array<Int>, private val menuScale: Float = 1f) : BaseAdapter() {
     private var lf: LayoutInflater = LayoutInflater.from(ctx)
+    private val density = ctx.resources.displayMetrics.density
     override fun getCount(): Int {
         return str.size
     }
@@ -48,6 +49,20 @@ class MenuDialogAdapter(ctx: Context, private var str: Array<String>, private va
         val im:ImageView = newView.findViewById(R.id.smallIcon)
         txt.text = str[position]
         im.setImageResource(img[position])
+        if (menuScale < 1f) {
+            txt.textSize = 25f * menuScale
+            val rowHeightPx = (50 * menuScale * density).toInt()
+            txt.layoutParams?.let { lp ->
+                lp.height = rowHeightPx
+                txt.layoutParams = lp
+            }
+            val iconSizePx = (40 * menuScale * density).toInt()
+            im.layoutParams?.let { lp ->
+                lp.width = iconSizePx
+                lp.height = iconSizePx
+                im.layoutParams = lp
+            }
+        }
         return newView
     }
 
