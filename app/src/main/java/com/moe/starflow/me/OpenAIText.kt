@@ -27,6 +27,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.PopupWindow
 import android.widget.TextView
 import androidx.fragment.app.Fragment
@@ -34,6 +35,7 @@ import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentOpenaiApiBinding
 import com.moe.starflow.utils.CustomPreference
+import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.UiUtils
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
@@ -193,6 +195,8 @@ class OpenAIText :Fragment() {
         // 保存到内置API修改列表
         val mods = ConfigurationStorage.loadBuiltInProviderMods(prefs).toMutableList()
         val existingIndex = mods.indexOfFirst { it.name == original.name }
+        // 关键：保留已有的 customModels（避免保存覆盖掉用户在 popup 中添加的自定义模型）
+        val existingCustomModels = if (existingIndex >= 0) mods[existingIndex].customModels else emptyList()
         val mod = BuiltInProviderMod(
             name = original.name,
             apiKey = apiKey,
@@ -200,7 +204,8 @@ class OpenAIText :Fragment() {
             userPrompt = if (userPrompt != original.defaultUserPrompt) userPrompt else null,
             mangaSystemPrompt = if (mangaSys != original.defaultMangaSystemPrompt) mangaSys else null,
             mangaUserPrompt = if (mangaUsr != original.defaultMangaUserPrompt) mangaUsr else null,
-            selectedModelIndex = selectedModelIndex
+            selectedModelIndex = selectedModelIndex,
+            customModels = existingCustomModels
         )
         if (existingIndex >= 0) {
             mods[existingIndex] = mod
@@ -332,13 +337,22 @@ class OpenAIText :Fragment() {
             }
         }
 
-        // 模型：点击弹出自定义PopupWindow选择
+        // 模型：点击弹出自定义PopupWindow选择（预设 + 用户自定义）
         binding.modelInputLayout.visibility = View.GONE
         binding.modelSpinnerLayout.visibility = View.VISIBLE
         selectedModelIndex = provider.selectedModelIndex
-        binding.modelSelector.text = provider.models[selectedModelIndex]
+        // 首次加载时用 displayModels 渲染顶部文本（避免页面打开时空白）
+        val initialCustoms = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+            .find { it.name == provider.name }?.customModels ?: emptyList()
+        val initialDisplay = provider.models + initialCustoms
+        binding.modelSelector.text = initialDisplay.getOrElse(selectedModelIndex) { initialDisplay[0] }
+        // 关键：每次点击都从 prefs 重新读取 customModels（否则闭包会持有旧 list，
+        // 添加/删除自定义模型后再次打开 popup 会看不到最新列表）
         binding.modelSelector.setOnClickListener { anchor ->
-            showModelPopup(provider.models, anchor)
+            val latestCustoms = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+                .find { it.name == provider.name }?.customModels ?: emptyList()
+            val latestDisplay = provider.models + latestCustoms
+            showModelPopup(provider, latestDisplay, anchor)
         }
         binding.modelTips.visibility = View.VISIBLE
 
@@ -413,38 +427,165 @@ class OpenAIText :Fragment() {
         }
     }
 
-    private fun showModelPopup(models: List<String>, anchor: View) {
+    private fun showModelPopup(provider: OpenAIProviderConfig, models: List<String>, anchor: View) {
         val context = requireContext()
         val density = context.resources.displayMetrics.density
 
         val popupView = LayoutInflater.from(context).inflate(R.layout.popup_model_selector, null)
         val container = popupView.findViewById<android.widget.LinearLayout>(R.id.model_list_container)
+        val btnAddCustom = popupView.findViewById<TextView>(R.id.btn_add_custom)
 
         val freeModels = setOf("glm-4-flash-250414")
+        val presetSize = provider.models.size
+
+        // 用可变 List 容器持有「当前展示列表」，方便添加 / 删除后整体重画
+        val displayModelsState = models.toMutableList()
+        // 当前处于「× 删除模式」的自定义条目下标（null 表示全部收起）
+        var deleteModeIndex: Int? = null
 
         fun refreshItems() {
             container.removeAllViews()
-            models.forEachIndexed { index, model ->
+            displayModelsState.forEachIndexed { index, model ->
                 val isSelected = index == selectedModelIndex
+                val isCustom = index >= presetSize
                 val displayName = if (model in freeModels) "$model（免费）" else model
 
-                val item = TextView(context).apply {
-                    text = displayName
-                    textSize = 15f
-                    setPadding((24 * density).toInt(), (14 * density).toInt(), (24 * density).toInt(), (14 * density).toInt())
-                    setTextColor(if (isSelected) Color.parseColor("#55AEEA") else Color.parseColor("#333333"))
-                    isClickable = true
-                    isFocusable = true
-                    setBackgroundResource(R.drawable.ripple_item_bg)
-                    setOnClickListener {
-                        selectedModelIndex = index
-                        binding.modelSelector.text = model
-                        popupWindow?.dismiss()
+                if (!isCustom) {
+                    // ===== 预设条目：纯文本 =====
+                    val item = TextView(context).apply {
+                        text = displayName
+                        textSize = 15f
+                        setPadding(
+                            (24 * density).toInt(),
+                            (14 * density).toInt(),
+                            (24 * density).toInt(),
+                            (14 * density).toInt()
+                        )
+                        setTextColor(if (isSelected) Color.parseColor("#55AEEA") else Color.parseColor("#333333"))
+                        isClickable = true
+                        isFocusable = true
+                        setBackgroundResource(R.drawable.ripple_item_bg)
+                        setOnClickListener {
+                            selectedModelIndex = index
+                            binding.modelSelector.text = model
+                            popupWindow?.dismiss()
+                        }
                     }
-                }
-                container.addView(item)
+                    container.addView(item)
+                } else {
+                    // ===== 自定义条目：长按进入删除模式 =====
+                    val row = android.widget.FrameLayout(context).apply {
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                        setBackgroundResource(R.drawable.ripple_item_bg)
+                    }
 
-                if (index < models.size - 1) {
+                    val nameView = TextView(context).apply {
+                        text = displayName
+                        textSize = 15f
+                        setPadding(
+                            (24 * density).toInt(),
+                            (14 * density).toInt(),
+                            (24 * density).toInt(),
+                            (14 * density).toInt()
+                        )
+                        setTextColor(if (isSelected) Color.parseColor("#55AEEA") else Color.parseColor("#333333"))
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener {
+                            // 选中并关闭弹窗（即使在删除模式，点名称也视为选中）
+                            selectedModelIndex = index
+                            binding.modelSelector.text = model
+                            popupWindow?.dismiss()
+                        }
+                        setOnLongClickListener {
+                            // 切换删除模式：先触发震动反馈
+                            try {
+                                performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                            } catch (_: Exception) { /* 设备不支持时静默忽略 */ }
+                            deleteModeIndex = if (deleteModeIndex == index) null else index
+                            refreshItems()
+                            true
+                        }
+                    }
+                    row.addView(
+                        nameView,
+                        android.widget.FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+
+                    // 长按后右上角显示小「×」（克制风格，与列表普通条目一致）
+                    if (deleteModeIndex == index) {
+                        val deleteBtn = TextView(context).apply {
+                            text = "×"
+                            textSize = 16f
+                            setTextColor(Color.parseColor("#999999"))
+                            gravity = Gravity.CENTER
+                            // 小的点击区域，无需背景色
+                            setPadding(
+                                (12 * density).toInt(),
+                                (8 * density).toInt(),
+                                (12 * density).toInt(),
+                                (8 * density).toInt()
+                            )
+                            isClickable = true
+                            isFocusable = true
+                            // 初始为不可见 + 从右侧偏移，渐入
+                            alpha = 0f
+                            translationX = (16 * density).toFloat()
+                            setOnClickListener {
+                                // 防御性处理：删除流程包在 try/catch 中，避免任何意外导致 Activity 崩溃
+                                try {
+                                    // 从持久化中取真实 customModels 并删除
+                                    val currentCustoms = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+                                        .find { it.name == provider.name }?.customModels ?: emptyList()
+                                    val (newCustoms, newSelected) = ConfigurationStorage.removeCustomModelAndAdjustIndex(
+                                        presetSize = presetSize,
+                                        customModels = currentCustoms,
+                                        deleteIndex = index,
+                                        selectedIndex = selectedModelIndex
+                                    )
+                                    selectedModelIndex = newSelected
+                                    persistCustomModels(provider, newCustoms)
+                                    displayModelsState.removeAt(index)
+                                    deleteModeIndex = null
+                                    refreshItems()
+                                } catch (e: Exception) {
+                                    LogCollector.e("OpenAIText", "delete custom model failed", e)
+                                    try {
+                                        deleteModeIndex = null
+                                        refreshItems()
+                                    } catch (_: Exception) { /* ignore */ }
+                                }
+                            }
+                        }
+                        row.addView(
+                            deleteBtn,
+                            android.widget.FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                Gravity.END or Gravity.CENTER_VERTICAL
+                            ).apply {
+                                marginEnd = (16 * density).toInt()
+                            }
+                        )
+                        // 渐入动画：alpha 0→1 + translationX 16dp→0，180ms
+                        deleteBtn.animate()
+                            .alpha(1f)
+                            .translationX(0f)
+                            .setDuration(180L)
+                            .start()
+                    }
+
+                    container.addView(row)
+                }
+
+                // 条目间分割线
+                if (index < displayModelsState.size - 1) {
                     val divider = View(context).apply {
                         layoutParams = android.widget.LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, (1 * density).toInt()
@@ -461,12 +602,81 @@ class OpenAIText :Fragment() {
 
         refreshItems()
 
+        // 底部「+ 添加自定义」按钮
+        btnAddCustom.setOnClickListener {
+            // dialog 关闭后统一重弹 popup（无论用户是否真的添加成功），
+            // 因为 AlertDialog 抢焦点期间 popup 视图状态可能未及时刷新，
+            // 必须重弹才能保证用户看到的列表和 prefs 一致。
+            showAddCustomDialog(
+                provider = provider,
+                existingDisplay = displayModelsState.toList(),
+                onAdded = { newName ->
+                    // 写入 prefs
+                    val allMods = ConfigurationStorage.loadBuiltInProviderMods(prefs).toMutableList()
+                    val existingIndex = allMods.indexOfFirst { it.name == provider.name }
+                    val newCustoms: List<String>
+                    if (existingIndex >= 0) {
+                        val old = allMods[existingIndex]
+                        newCustoms = old.customModels + newName
+                        allMods[existingIndex] = old.copy(customModels = newCustoms)
+                    } else {
+                        newCustoms = listOf(newName)
+                        allMods.add(
+                            BuiltInProviderMod(
+                                name = provider.name,
+                                apiKey = provider.apiKey,
+                                customModels = newCustoms
+                            )
+                        )
+                    }
+                    ConfigurationStorage.saveBuiltInProviderMods(prefs, allMods)
+                    // 更新当前 popup 内部状态：选中新加的
+                    displayModelsState.add(newName)
+                    selectedModelIndex = displayModelsState.size - 1
+                    binding.modelSelector.text = newName
+                    deleteModeIndex = null
+                },
+                onDismiss = {
+                    // 重弹 popup，确保显示最新列表（用户视觉上「实时」看到新条目）
+                    popupWindow?.dismiss()
+                    // 从 prefs 取最新 customModels 重新构造 displayModels
+                    val latestCustoms = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+                        .find { it.name == provider.name }?.customModels ?: emptyList()
+                    val latestDisplay = provider.models + latestCustoms
+                    // 重新弹出 popup（必须 post 一次避免 dialog 关闭动画期间 popup 抢占焦点）
+                    binding.modelSelector.post {
+                        showModelPopup(provider, latestDisplay, binding.modelSelector)
+                    }
+                }
+            )
+        }
+
         val popup = PopupWindow(popupView, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true)
         popup.isOutsideTouchable = true
         popup.elevation = 8f * density
         popup.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         popup.showAsDropDown(anchor, 0, (4 * density).toInt(), Gravity.START)
         popupWindow = popup
+    }
+
+    /**
+     * 将当前 provider 的 customModels 列表写回 prefs（保持其他字段不变）。
+     */
+    private fun persistCustomModels(provider: OpenAIProviderConfig, newCustoms: List<String>) {
+        val allMods = ConfigurationStorage.loadBuiltInProviderMods(prefs).toMutableList()
+        val existingIndex = allMods.indexOfFirst { it.name == provider.name }
+        if (existingIndex >= 0) {
+            allMods[existingIndex] = allMods[existingIndex].copy(customModels = newCustoms)
+        } else {
+            allMods.add(
+                BuiltInProviderMod(
+                    name = provider.name,
+                    apiKey = provider.apiKey,
+                    customModels = newCustoms
+                )
+            )
+        }
+        ConfigurationStorage.saveBuiltInProviderMods(prefs, allMods)
     }
 
     private var popupWindow: PopupWindow? = null
@@ -486,7 +696,10 @@ class OpenAIText :Fragment() {
         if (isBuiltin) {
             val provider = allProviders[providerIndex]
             baseUrl = provider.baseUrl
-            modelName = provider.models.getOrElse(selectedModelIndex) { provider.models[0] }
+            val customModels = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+                .find { it.name == provider.name }?.customModels ?: emptyList()
+            val displayModels = provider.models + customModels
+            modelName = displayModels.getOrElse(selectedModelIndex) { displayModels[0] }
         } else {
             baseUrl = binding.editBaseUrl.text.toString().trim()
             modelName = binding.editModelName.text.toString().trim()
@@ -506,8 +719,18 @@ class OpenAIText :Fragment() {
                     .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
 
-                val testSystemPrompt = "你是翻译引擎。只输出译文，不输出任何解释。保持原文格式。"
-                val testUserPrompt = "将以下文本从日语翻译为中文，只输出译文：\n\nこんにちは、世界。今日はとても良い天気ですね。"
+                // 日志 tag = "OpenAIText"，便于在设置页日志查看器 / logcat 中过滤
+                LogCollector.d(
+                    "OpenAIText",
+                    "testConnection: provider=${allProviders[providerIndex].name}, " +
+                        "model=$modelName, baseUrl=$baseUrl, selectedModelIndex=$selectedModelIndex"
+                )
+
+                // 测试 prompt：明确询问模型名称 + 简短翻译（双重验证 API 连通性 + 模型可用性）
+                val testSystemPrompt = "你是翻译引擎。只输出译文或回答问题，不输出任何解释。"
+                val testUserPrompt = "请用中文回答两个问题：" +
+                    "1. 你是什么模型？（请告诉我具体的模型名称或版本）" +
+                    "2. 将以下日语翻译成中文：こんにちは、世界。今日はとても良い天気ですね。"
 
                 val jsonBody = org.json.JSONObject().apply {
                     put("model", modelName)
@@ -521,7 +744,7 @@ class OpenAIText :Fragment() {
                             put("content", testUserPrompt)
                         })
                     })
-                    put("max_tokens", 200)
+                    put("max_tokens", 300)
                     put("temperature", 0.3)
                     put("stream", false)
                     put("thinking", org.json.JSONObject().apply {
@@ -576,6 +799,63 @@ class OpenAIText :Fragment() {
                 }
             }
         }.start()
+    }
+
+    /**
+     * 弹出添加自定义模型对话框。
+     * @param provider 当前 provider（用于校验重复）
+     * @param existingDisplay 当前 popup 中的 displayModels（用于校验重复）
+     * @param onAdded 校验通过后回调，传入 trim 后的新模型名
+     * @param onDismiss dialog 关闭后回调（无论是否成功添加都触发）
+     */
+    private fun showAddCustomDialog(
+        provider: OpenAIProviderConfig,
+        existingDisplay: List<String>,
+        onAdded: (String) -> Unit,
+        onDismiss: () -> Unit = {}
+    ) {
+        val editText = EditText(requireContext()).apply {
+            hint = getString(R.string.hint_custom_model_name)
+            setSingleLine(true)
+        }
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val container = android.widget.FrameLayout(requireContext()).apply {
+            setPadding(pad, pad / 2, pad, 0)
+            addView(editText)
+        }
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.add_custom_model)
+            .setView(container)
+            .setPositiveButton(R.string.add, null) // 在 show 后再绑定，避免自动关闭
+            .setNegativeButton(R.string.user_cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = editText.text.toString().trim()
+                when {
+                    name.isEmpty() -> {
+                        UiUtils.showToast(requireContext(), getString(R.string.model_name_empty))
+                    }
+                    name.length > 100 -> {
+                        UiUtils.showToast(requireContext(), getString(R.string.model_name_too_long))
+                    }
+                    name in existingDisplay -> {
+                        UiUtils.showToast(requireContext(), getString(R.string.model_name_duplicate))
+                    }
+                    existingDisplay.size - provider.models.size >= ConfigurationStorage.MAX_CUSTOM_MODELS_PER_PROVIDER -> {
+                        UiUtils.showToast(requireContext(), getString(R.string.model_count_limit))
+                    }
+                    else -> {
+                        onAdded(name)
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+        // dialog 关闭后（无论成功/取消）刷新 popup，保证用户始终看到最新状态
+        dialog.setOnDismissListener { onDismiss() }
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
     }
 
     private fun showCustomDialog(title: String, message: String?, isCancelable: Boolean): AlertDialog {

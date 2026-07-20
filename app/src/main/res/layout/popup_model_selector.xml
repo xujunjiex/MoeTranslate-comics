@@ -10,11 +10,45 @@
     app:strokeWidth="0dp">
 
     <LinearLayout
-        android:id="@+id/model_list_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingVertical="8dp"
-        android:minWidth="200dp" />
+        android:minWidth="220dp">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxHeight="300dp"
+            android:fillViewport="false">
+
+            <LinearLayout
+                android:id="@+id/model_list_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingVertical="8dp" />
+        </ScrollView>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:background="#E8E8E8" />
+
+        <TextView
+            android:id="@+id/btn_add_custom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:gravity="center"
+            android:text="@string/add_custom_model"
+            android:textColor="#55AEEA"
+            android:textSize="15sp"
+            android:background="@drawable/ripple_item_bg"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

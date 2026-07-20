@@ -105,7 +105,9 @@ data class BuiltInProviderMod(
     val userPrompt: String? = null,
     val mangaSystemPrompt: String? = null,
     val mangaUserPrompt: String? = null,
-    val selectedModelIndex: Int = 0
+    val selectedModelIndex: Int = 0,
+    /** 用户自定义添加的模型名称列表（仅展示在 PopupWindow 中；预设模型不可加此处） */
+    val customModels: List<String> = emptyList()
 )
 
 // SharedPreferences存储
@@ -508,7 +510,11 @@ object ConfigurationStorage {
     private const val KEY_DEFAULT_SYSTEM_PROMPT = "defaultSystemPrompt"
     private const val KEY_DEFAULT_USER_PROMPT = "defaultUserPrompt"
     private const val KEY_SELECTED_MODEL_INDEX = "selectedModelIndex"
+    private const val KEY_CUSTOM_MODELS = "customModels"
     private const val BUILTIN_MODS_KEY = "BuiltIn_Providers_Modifications"
+
+    /** 自定义模型列表上限（防止 UI 列表过长 + 恶意填满） */
+    const val MAX_CUSTOM_MODELS_PER_PROVIDER = 20
 
     fun saveBuiltInProviderMods(prefs: CustomPreference, mods: List<BuiltInProviderMod>) {
         try {
@@ -522,6 +528,9 @@ object ConfigurationStorage {
                     put(KEY_MANGA_SYSTEM_PROMPT, mod.mangaSystemPrompt ?: JSONObject.NULL)
                     put(KEY_MANGA_USER_PROMPT, mod.mangaUserPrompt ?: JSONObject.NULL)
                     put(KEY_SELECTED_MODEL_INDEX, mod.selectedModelIndex)
+                    put(KEY_CUSTOM_MODELS, JSONArray().apply {
+                        mod.customModels.forEach { put(it) }
+                    })
                 })
             }
             prefs.setString(BUILTIN_MODS_KEY, jsonArray.toString())
@@ -545,7 +554,10 @@ object ConfigurationStorage {
                     userPrompt = if (obj.isNull(KEY_USER_PROMPT)) null else obj.getString(KEY_USER_PROMPT),
                     mangaSystemPrompt = if (obj.isNull(KEY_MANGA_SYSTEM_PROMPT)) null else obj.getString(KEY_MANGA_SYSTEM_PROMPT),
                     mangaUserPrompt = if (obj.isNull(KEY_MANGA_USER_PROMPT)) null else obj.getString(KEY_MANGA_USER_PROMPT),
-                    selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
+                    selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0),
+                    customModels = obj.optJSONArray(KEY_CUSTOM_MODELS)?.let { arr ->
+                        (0 until arr.length()).map { arr.getString(it) }
+                    } ?: emptyList()
                 ))
             }
             list
@@ -567,6 +579,8 @@ object ConfigurationStorage {
 
     private fun applyMod(builtin: OpenAIProviderConfig, mod: BuiltInProviderMod?): OpenAIProviderConfig {
         if (mod == null) return builtin
+        // 展示列表 = 预设 + 自定义；自定义为空时与原行为等价（modelName = preset[index]）
+        val displayModels = builtin.models + mod.customModels
         return builtin.copy(
             apiKey = mod.apiKey,
             systemPrompt = mod.systemPrompt ?: builtin.defaultSystemPrompt,
@@ -574,8 +588,47 @@ object ConfigurationStorage {
             mangaSystemPrompt = mod.mangaSystemPrompt ?: builtin.defaultMangaSystemPrompt,
             mangaUserPrompt = mod.mangaUserPrompt ?: builtin.defaultMangaUserPrompt,
             selectedModelIndex = mod.selectedModelIndex,
-            modelName = builtin.models.getOrElse(mod.selectedModelIndex) { builtin.models[0] }
+            modelName = displayModels.getOrElse(mod.selectedModelIndex) { displayModels[0] }
         )
+    }
+
+    /**
+     * 从自定义模型列表中删除指定位置，并返回调整后的 (customModels, selectedModelIndex)。
+     *
+     * 索引约定：
+     *   - 0..presetSize-1 是预设区（不可删除）
+     *   - presetSize..presetSize + customModels.size - 1 是自定义区
+     *   - deleteIndex 必须落在自定义区
+     *
+     * 下标回退规则（针对 selectedIndex 在 displayModels 中的位置）：
+     *   - selectedIndex < deleteIndex   → 不变（选中的项在删除项之前）
+     *   - selectedIndex == deleteIndex  → 不变（删除自己后，该下标自动指向原来的下一项）
+     *   - selectedIndex > deleteIndex   → -1（后面的项前移）
+     *   - selectedIndex 越界（≥ newDisplaySize）→ 0（兜底）
+     */
+    fun removeCustomModelAndAdjustIndex(
+        presetSize: Int,
+        customModels: List<String>,
+        deleteIndex: Int,
+        selectedIndex: Int
+    ): Pair<List<String>, Int> {
+        require(presetSize >= 0) { "presetSize must be >= 0" }
+        require(deleteIndex >= presetSize) {
+            "Cannot delete preset model at index $deleteIndex (presetSize=$presetSize)"
+        }
+        val customIndex = deleteIndex - presetSize
+        require(customIndex in customModels.indices) {
+            "deleteIndex=$deleteIndex out of range (customModels.size=${customModels.size})"
+        }
+        val newCustoms = customModels.toMutableList().apply { removeAt(customIndex) }
+        val newDisplaySize = presetSize + newCustoms.size
+        val newSelected = when {
+            newDisplaySize == 0 -> 0
+            selectedIndex < deleteIndex -> selectedIndex
+            selectedIndex == deleteIndex -> deleteIndex.coerceAtMost(newDisplaySize - 1)
+            else -> (selectedIndex - 1).coerceAtMost(newDisplaySize - 1)
+        }
+        return newCustoms to newSelected.coerceIn(0, (newDisplaySize - 1).coerceAtLeast(0))
     }
 
     fun saveOpenAIProviders(prefs: CustomPreference, list: List<OpenAIProviderConfig>) {

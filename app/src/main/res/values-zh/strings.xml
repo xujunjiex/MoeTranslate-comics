@@ -732,4 +732,13 @@
     <string name="download_txt_description">下载翻译文本文件</string>
     <string name="function_restored_default">已恢复默认</string>
 
+    <!-- 内置 API 自定义模型名称 -->
+    <string name="add_custom_model">+ 添加自定义</string>
+    <string name="hint_custom_model_name">输入模型名称</string>
+    <string name="model_name_empty">模型名称不能为空</string>
+    <string name="model_name_duplicate">该模型名称已存在</string>
+    <string name="model_name_too_long">模型名称过长（最多 100 字符）</string>
+    <string name="model_count_limit">每个 provider 最多添加 %d 个自定义模型</string>
+    <string name="add">添加</string>
+
 </resources>
