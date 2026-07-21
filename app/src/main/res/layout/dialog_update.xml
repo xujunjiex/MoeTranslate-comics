@@ -15,16 +15,22 @@
         android:textColor="#333333"/>
 
     <!-- 更新日志 -->
-    <TextView
-        android:id="@+id/update_description"
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:maxLines="5"
-        android:scrollbars="vertical"
-        android:textSize="14sp"
-        android:textColor="#666666"
-        android:lineSpacingExtra="4dp"/>
+        android:layout_marginBottom="8dp"
+        android:scrollbars="vertical">
+
+        <TextView
+            android:id="@+id/update_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="#666666"
+            android:lineSpacingExtra="4dp"/>
+
+    </ScrollView>
 
     <!-- 分隔线 -->
     <View
