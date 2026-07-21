@@ -262,6 +262,11 @@ class APIConfig : PreferenceFragmentCompat() {
     }
 
     private fun loadSettingsFromSharedPreferences() {
+        // 迁移：ML Kit 移除后 Text_AI 只有 NLLB=0，老用户可能存的是旧值 1（原 NLLB）
+        if (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id) == 1) {
+            prefs.setInt("Text_AI", Constants.TextAI.NLLB.id)
+        }
+
         // 获取当前设置
         val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)

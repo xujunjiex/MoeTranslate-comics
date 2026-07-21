@@ -55,7 +55,7 @@
     <string name="about_page">关于</string>
     <string name="choose_mode">选择您希望使用的翻译模式</string>
     <string name="ocr_mode">本地OCR识别+文本翻译<font color="#55AEEA">（推荐）</font></string>
-    <string name="ocr_mode_description">在本地进行离线OCR来提取图片中的文字，再对文字进行翻译。支持本地AI离线文字翻译，也支持使用预置的云端文字翻译API，还支持使用自定义的云端文字翻译API。需要注意的是离线OCR识别仅支持中文、英文、日文、韩文四种。这种方式花费的数据流量非常少；如果您完全选择本地处理，甚至可以做到完全离线。</string>
+    <string name="ocr_mode_description">在本地进行离线OCR来提取图片中的文字，再对文字进行翻译。支持本地机器离线文字翻译，也支持使用预置的云端文字翻译API，还支持使用自定义的云端文字翻译API。需要注意的是离线OCR识别仅支持中文、英文、日文、韩文四种。这种方式花费的数据流量非常少；如果您完全选择本地处理，甚至可以做到完全离线。</string>
     <string name="pic_mode">直接上传图片进行翻译</string>
     <string name="pic_mode_description">直接把截图上传到云端API进行翻译。支持使用预置的云端图片翻译API，也支持使用自定义的云端图片翻译API，<font color="#55AEEA">不支持本地翻译</font>。这种方式花费的数据流量相对来说要多一些。</string>
     <string name="mlkit_name">ML Kit</string>

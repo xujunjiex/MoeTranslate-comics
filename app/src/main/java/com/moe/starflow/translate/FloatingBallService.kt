@@ -533,7 +533,7 @@ class FloatingBallService : LifecycleService() {
             if (prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id){
                 when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
                     Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)){
-                        Constants.TextAI.NLLB.id -> {
+                        Constants.TextAI.NLLB.id, 1 -> {
                             translatorText = NLLBTranslation(this)
                             LogCollector.d(TAG, "翻译 API 初始化: NLLB Translation")
                         }

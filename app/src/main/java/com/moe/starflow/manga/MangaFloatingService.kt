@@ -516,7 +516,7 @@ class MangaFloatingService : LifecycleService() {
         try {
             when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
                 Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)) {
-                    Constants.TextAI.NLLB.id -> translatorText = NLLBTranslation(this)
+                    Constants.TextAI.NLLB.id, 1 -> translatorText = NLLBTranslation(this)  // 1 = 升级前 NLLB 旧值
                     else -> { showToast("Unknown Translator.") }
                 }
                 Constants.TextApi.BING.id -> translatorText = BingTranslation()

@@ -54,7 +54,7 @@
     <string name="about_page">About</string>
     <string name="choose_mode">Select the translation mode you wish to use</string>
     <string name="ocr_mode">Local OCR Recognition + Text Translation<font color="#55AEEA">(Recommended)</font></string>
-    <string name="ocr_mode_description">Perform offline OCR locally to extract text from the image, and then translate the text. Supports local AI offline text translation, as well as the use of preset cloud text translation APIs and custom cloud text translation APIs. Note that offline OCR recognition only supports Chinese,  English, Japanese, and Korean. This method consumes very little data traffic; if you choose to process it completely locally, you can even do it completely offline.</string>
+    <string name="ocr_mode_description">Perform offline OCR locally to extract text from the image, and then translate the text. Supports local machine offline text translation, as well as the use of preset cloud text translation APIs and custom cloud text translation APIs. Note that offline OCR recognition only supports Chinese,  English, Japanese, and Korean. This method consumes very little data traffic; if you choose to process it completely locally, you can even do it completely offline.</string>
     <string name="pic_mode">Upload Images Directly for Translation</string>
     <string name="pic_mode_description">Upload the screenshot directly to the cloud API for translation. It supports using the preset cloud image translation API, and also supports using the custom cloud image translation API. <font color="#55AEEA">It does not support local translation</font>. This method consumes relatively more data traffic.</string>
     <string name="mlkit_name">ML Kit</string>
