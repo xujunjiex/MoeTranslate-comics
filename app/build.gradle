@@ -86,6 +86,12 @@ android {
             version '3.22.1'
         }
     }
+
+    packaging {
+        jniLibs {
+            excludes += ['**/libsentencepiece_train.so']
+        }
+    }
 }
 
 dependencies {

@@ -119,7 +119,6 @@
     <string name="api_saved">（已加密保存）</string>
     <string name="view_tutorial">查看教程</string>
     <string name="go_now">现在就去</string>
-    <string name="manage_mlkit_models">管理ML Kit模型文件</string>
     <string name="startup_success">启动成功</string>
     <string name="startup_failure">启动失败：%s</string>
     <string name="accessibility_recycle">无障碍权限被系统回收，可在主页右上角教程处重新授予相关权限</string>

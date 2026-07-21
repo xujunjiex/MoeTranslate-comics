@@ -74,7 +74,7 @@ adb devices
 - `ui/history/` — 历史记录 UI：`HistoryFragment`（双视图：默认/管理）、`HistoryGroupAdapter`（游戏分组）、`HistoryMangaGroupAdapter`（漫画分组）、`HistoryGameAdapter`、`HistoryMangaAdapter`、`MangaViewerActivity`（全屏图片浏览+译文详情+重翻操作）、`CropFragment`（重翻裁剪界面）
 
 **翻译 API 实现** (`app/src/main/java/translationapi/`):
-每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`mlkittranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`
+每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`
 
 **关键接口：**
 - `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — 文本翻译
@@ -271,8 +271,6 @@ suspend fun renderOverlay(
 **PP-OCRv5/v6 cls（方向分类）已删除** — v5 和 v6 的 cls 模型、代码、`runOCR(useCls)` 参数全部移除（commit 5d6e235 / 5a1e83e）。
 
 PP-OCRv5 全部模型（det + rec_zh + 字典 + 可选 rec en/ko/ru）改为下载，**assets 中已无 v5 模型文件**。PP-OCRv6 small 仍内置，medium 必须从 ModelScope 下载。PPOcrModelManager 提供所有 v5/v6 模型的 URL、下载、删除接口。
-
-**注意：** ML Kit OCR 是 Google Play Services 内置识别引擎，无需下载模型。需要下载的是 **ML Kit 翻译**（~100MB），属于本地离线翻译，不是 OCR 模型。
 
 ### PP-OCRv5 模型下载地址（ModelScope）
 

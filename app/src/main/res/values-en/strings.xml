@@ -118,7 +118,6 @@
     <string name="api_saved">（Encrypted storage）</string>
     <string name="view_tutorial">View Tutorial</string>
     <string name="go_now">Go Now</string>
-    <string name="manage_mlkit_models">Manage ML Kit Model Files</string>
     <string name="startup_success">Startup successfully</string>
     <string name="startup_failure">Startup failed：%s</string>
     <string name="accessibility_recycle">The accessibility permission has been reclaimed by the system. You can re-grant the relevant permission in the tutorial in the upper right corner of the homepage.</string>
