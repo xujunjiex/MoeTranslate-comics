@@ -72,7 +72,6 @@ import translationapi.customtranslation.CustomTranslationImage
 import translationapi.doubaotranslation.DoubaoTranslation
 import translationapi.customtranslation.CustomTranslationText
 import translationapi.deepltranslation.DeepLTranslation
-import translationapi.mlkittranslation.MLKitTranslation
 import translationapi.niutrans.NiuTranslation
 import translationapi.nllbtranslation.NLLBTranslation
 import translationapi.openaitranslation.OpenAITranslation
@@ -533,11 +532,7 @@ class FloatingBallService : LifecycleService() {
         try {
             if (prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id){
                 when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
-                    Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)){
-                        Constants.TextAI.MLKIT.id -> {
-                            translatorText = MLKitTranslation()
-                            LogCollector.d(TAG, "翻译 API 初始化: MLKit Translation")
-                        }
+                    Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)){
                         Constants.TextAI.NLLB.id -> {
                             translatorText = NLLBTranslation(this)
                             LogCollector.d(TAG, "翻译 API 初始化: NLLB Translation")

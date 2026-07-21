@@ -171,7 +171,7 @@ class TranslateFragment : Fragment() {
                     if ((prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id) && (prefs.getInt(
                             "Text_API",
                             Constants.TextApi.BING.id
-                        ) == Constants.TextApi.AI.id) && (prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id) == Constants.TextAI.NLLB.id)
+                        ) == Constants.TextApi.AI.id) && (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id) == Constants.TextAI.NLLB.id)
                     ) {
                         checkRAM()
                     }
@@ -279,7 +279,7 @@ class TranslateFragment : Fragment() {
     private fun showAPIName() {
         val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
+        val textAi = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
         val customTextApi = prefs.getInt("Custom_Text_API", 0)
         val customPicApi = prefs.getInt("Custom_Pic_API", 0)
@@ -292,17 +292,10 @@ class TranslateFragment : Fragment() {
         when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
-                    if (textAi == Constants.TextAI.MLKIT.id) {
-                        binding.selectedAPI.text = getString(
-                            R.string.api_name,
-                            getString(R.string.mlkit_name)
-                        ) + "（${getString(R.string.ocr)}）"
-                    } else {
-                        binding.selectedAPI.text = getString(
-                            R.string.api_name,
-                            getString(R.string.nllb_name)
-                        ) + "（${getString(R.string.ocr)}）"
-                    }
+                    binding.selectedAPI.text = getString(
+                        R.string.api_name,
+                        getString(R.string.nllb_name)
+                    ) + "（${getString(R.string.ocr)}）"
                 }
 
                 Constants.TextApi.BING.id -> {
@@ -439,37 +432,13 @@ class TranslateFragment : Fragment() {
     private fun checkTranslateAPI(): Boolean {
         val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
+        val textAi = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
 
         val ret: Boolean = when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
-                    if ((textAi == Constants.TextAI.MLKIT.id) && (!(prefs.getBoolean("Download_MLKit", false)))) {
-                        LogCollector.d(
-                            TAG,
-                            "Download_MLKit" + prefs.getBoolean("Download_MLKit", false).toString()
-                        )
-                        val dialog = AlertDialog.Builder(requireContext())
-                            .setTitle(R.string.mlkit_not_download_title)
-                            .setMessage(R.string.mlkit_not_download_content)
-                            .setCancelable(false)
-                            .setPositiveButton(R.string.go_to_download) { _, _ ->
-                                val intent =
-                                    Intent(requireContext(), ManageActivity::class.java).apply {
-                                        putExtra(
-                                            ManageActivity.EXTRA_FRAGMENT_TYPE,
-                                            ManageActivity.TYPE_FRAGMENT_MANAGE_MLKIT
-                                        )
-                                    }
-                                startActivity(intent)
-                            }
-                            .setNegativeButton(R.string.user_cancel, null)
-                            .create()
-                        dialog.show()
-                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                        false
-                    } else if ((textAi == Constants.TextAI.NLLB.id) && (!(prefs.getBoolean("Download_NLLB", false)))) {
+                    if ((textAi == Constants.TextAI.NLLB.id) && (!(prefs.getBoolean("Download_NLLB", false)))) {
                         LogCollector.d(
                             TAG,
                             "Download_NLLB" + prefs.getBoolean("Download_NLLB", false).toString()

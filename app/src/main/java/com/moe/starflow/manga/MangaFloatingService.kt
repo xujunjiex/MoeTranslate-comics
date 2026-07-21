@@ -78,7 +78,6 @@ import translationapi.deepltranslation.DeepLTranslation
 import translationapi.baidutranslation.BaiduTranslationText
 import translationapi.tencentcloud.TencentTranslationText
 import translationapi.customtranslation.CustomTranslationText
-import translationapi.mlkittranslation.MLKitTranslation
 import translationapi.nllbtranslation.NLLBTranslation
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.TranslationCacheManager
@@ -516,8 +515,7 @@ class MangaFloatingService : LifecycleService() {
         LogCollector.d(TAG, "initTranslator: Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
         try {
             when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
-                Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)) {
-                    Constants.TextAI.MLKIT.id -> translatorText = MLKitTranslation()
+                Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)) {
                     Constants.TextAI.NLLB.id -> translatorText = NLLBTranslation(this)
                     else -> { showToast("Unknown Translator.") }
                 }

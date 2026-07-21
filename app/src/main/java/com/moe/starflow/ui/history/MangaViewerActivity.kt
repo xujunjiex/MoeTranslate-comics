@@ -430,10 +430,9 @@ class MangaViewerActivity : AppCompatActivity() {
      */
     private fun createTranslator(prefs: CustomPreference): TranslationTextAPI? {
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAI = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
+        val textAI = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
         return when (textApi) {
             Constants.TextApi.AI.id -> when (textAI) {
-                Constants.TextAI.MLKIT.id -> translationapi.mlkittranslation.MLKitTranslation()
                 Constants.TextAI.NLLB.id -> translationapi.nllbtranslation.NLLBTranslation(this)
                 else -> null
             }

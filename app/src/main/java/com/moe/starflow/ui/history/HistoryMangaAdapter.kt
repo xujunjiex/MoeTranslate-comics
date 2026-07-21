@@ -55,7 +55,6 @@ class HistoryMangaAdapter(
         private val TRANSLATOR_DISPLAY_NAMES = mapOf(
             "OpenAITranslation" to "OpenAI",
             "BingTranslation" to "Bing",
-            "GoogleMLKitTranslation" to "ML Kit",
             "NLLBTranslation" to "NLLB",
             "NiuTransTranslation" to "小牛",
             "VolcTranslation" to "火山",

@@ -126,9 +126,6 @@ dependencies {
     // 韩文识别
     implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
 
-    // ML Kit的基础翻译库
-    implementation 'com.google.mlkit:translate:17.0.3'
-
     // 模型ONNX的运行时库
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.0'  //latest.release
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.12.4'   //latest.release

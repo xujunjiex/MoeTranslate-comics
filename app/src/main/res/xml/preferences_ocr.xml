@@ -32,16 +32,6 @@
         app:iconSpaceReserved="false">
 
         <SwitchPreferenceCompat
-            app:key="mlkit_translation"
-            app:title="@string/mlkit_name"
-            app:icon="@drawable/mlkit"
-            app:summary="@string/mlkit_description"/>
-
-        <Preference
-            app:key="manage_mlkit_model"
-            app:title="@string/manage_mlkit_models" />
-
-        <SwitchPreferenceCompat
             app:key="nllb_translation"
             app:title="@string/nllb_name"
             app:icon="@drawable/meta_nllb"

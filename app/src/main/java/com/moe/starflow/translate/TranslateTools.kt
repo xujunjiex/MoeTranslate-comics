@@ -31,23 +31,16 @@ object TranslateTools {
         val prefs = CustomPreference.getInstance(context)
         val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
+        val textAi = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
 
         // 获取与设置相匹配的语言列表
         val resourceId = when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
-                    if (textAi == Constants.TextAI.MLKIT.id) {
-                        when (type){
-                            1 -> R.raw.ocr_support_languages
-                            else -> R.raw.mlkit_text_support_languages
-                        }
-                    } else {
-                        when (type){
-                            1 -> R.raw.ocr_support_languages
-                            else -> R.raw.nllb_text_support_languages
-                        }
+                    when (type){
+                        1 -> R.raw.ocr_support_languages
+                        else -> R.raw.nllb_text_support_languages
                     }
                 }
                 Constants.TextApi.BING.id -> {

@@ -47,7 +47,7 @@ class APIConfig : PreferenceFragmentCompat() {
         if(prefs.getInt("Translate_Mode", 0) == 0){
             setPreferencesFromResource(R.xml.preferences_ocr, rootKey)
             allTranslationKeys = listOf(
-                "mlkit_translation", "nllb_translation",
+                "nllb_translation",
                 "ui_bing_translation_text", "ui_niu_translation_text",
                 "ui_volc_translation_text", "ui_azure_translation_text", "ui_deepl_translation_text",
                 "ui_baidu_translation_text", "ui_tencent_translation_text"
@@ -79,14 +79,6 @@ class APIConfig : PreferenceFragmentCompat() {
         }
 
         if (prefs.getInt("Translate_Mode", 0) == 0){
-
-            findPreference<Preference>("manage_mlkit_model")?.setOnPreferenceClickListener {
-                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
-                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_MLKIT)
-                }
-                startActivity(intent)
-                true
-            }
 
             findPreference<Preference>("manage_nllb_model")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
@@ -199,13 +191,6 @@ class APIConfig : PreferenceFragmentCompat() {
 
     private fun changeCustomPreferences(key: String) {
         when (key){
-            "mlkit_translation" -> {
-                prefs.setInt("Text_API", Constants.TextApi.AI.id)
-                prefs.setInt("Text_AI", Constants.TextAI.MLKIT.id)
-                prefs.setString("Source_Language", "ja")
-                prefs.setString("Target_Language", "zh")
-                Log.d("APIConfig", "mlkit_translation")
-            }
             "nllb_translation" -> {
                 prefs.setInt("Text_API", Constants.TextApi.AI.id)
                 prefs.setInt("Text_AI", Constants.TextAI.NLLB.id)
@@ -280,7 +265,7 @@ class APIConfig : PreferenceFragmentCompat() {
         // 获取当前设置
         val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAi = prefs.getInt("Text_AI", Constants.TextAI.MLKIT.id)
+        val textAi = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
         val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
         val customPicApi = prefs.getInt("Custom_Pic_API", 0)
 
@@ -288,15 +273,9 @@ class APIConfig : PreferenceFragmentCompat() {
         when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
-                    if (textAi == Constants.TextAI.MLKIT.id) {
-                        val key = "mlkit_translation"
-                        findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                        setKey(key)
-                    } else {
-                        val key = "nllb_translation"
-                        findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                        setKey(key)
-                    }
+                    val key = "nllb_translation"
+                    findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
+                    setKey(key)
                 }
                 Constants.TextApi.BING.id -> {
                     val key = "ui_bing_translation_text"

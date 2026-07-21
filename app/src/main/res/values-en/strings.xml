@@ -58,7 +58,6 @@
     <string name="pic_mode">Upload Images Directly for Translation</string>
     <string name="pic_mode_description">Upload the screenshot directly to the cloud API for translation. It supports using the preset cloud image translation API, and also supports using the custom cloud image translation API. <font color="#55AEEA">It does not support local translation</font>. This method consumes relatively more data traffic.</string>
     <string name="mlkit_name">ML Kit</string>
-    <string name="mlkit_description">Google\'s machine learning kit runs on the device and is suitable for casual and simple translation. <b><u>You need to download a model file of about 100MB for the first run</u></b>. After the download is complete, you can use it right away without the need for a network connection. Click \"Manage ML Kit model files\" below to download and delete model files.</string>
     <string name="nllb_name">NLLB Translate Model</string>
     <string name="nllb_description">Meta\'s model, which is designed for translation, is called \"No Language Left Behind\". As the name suggests, it supports multiple languages. The translation effect of this model is better, but it also needs to be downloaded before use. <b><u>When running for the first time, you need to download a model file of about 1GB. At the same time, the device needs to have at least 6GB of RAM to use this model</u></b>. After the download is complete, there is no need for a network connection, and it can be used immediately. Click \"Manage NLLB model files\" below to download and delete model files.</string>
     <string name="manage_nllb_models">Manage NLLB Model Files</string>
@@ -66,7 +65,7 @@
     <string name="baiduapi_description">Baidu Translate\'s API, click \"Manage Baidu Translate API\" below to set up the API, and you can also view the API application tutorial (there is a free call quota of 1 million characters per month).</string>
     <string name="tencentapi_description">Tencent Cloud\'s translation API, click \"Manage Tencent Cloud API\" below to set up the API, and you can also view the API application tutorial (there is a free call quota of 5 million characters per month).</string>
     <string name="tencentapi_name">Tencent Cloud</string>
-    <string name="ai_title">Local AI Translation</string>
+    <string name="ai_title">Local Machine Translation</string>
     <string name="pre_api_title">Pre-Configured Cloud API</string>
     <string name="custom_api_text_title"><b><u>(Advanced settings)</u></b> Customize the Cloud Text Translation API</string>
     <string name="custom_api_text_1">Custom cloud <b><u>text</u></b> translation API1</string>
@@ -120,8 +119,6 @@
     <string name="view_tutorial">View Tutorial</string>
     <string name="go_now">Go Now</string>
     <string name="manage_mlkit_models">Manage ML Kit Model Files</string>
-    <string name="mlkit_not_download_title">ML Kit model file not downloaded</string>
-    <string name="mlkit_not_download_content">It looks like you have selected ML Kit as the translation model, but it seems that the ML Kit model file has not been downloaded yet, so translation cannot be performed. Click Go to Download to enter the download page. <b><u>The first run requires downloading a model file of about 100MB</u></b>, so it is recommended to download in a WIFI environment. After the download is complete, there is no need for a network, and it can be used immediately.</string>
     <string name="startup_success">Startup successfully</string>
     <string name="startup_failure">Startup failed：%s</string>
     <string name="accessibility_recycle">The accessibility permission has been reclaimed by the system. You can re-grant the relevant permission in the tutorial in the upper right corner of the homepage.</string>
@@ -158,11 +155,6 @@
     <string name="get_download_info">Getting download information...</string>
     <string name="nllb_status_download">NLLB model download status: Downloaded</string>
     <string name="nllb_status_not_download">NLLB model download status: Not downloaded</string>
-    <string name="mlkit_download_tips">In this page, you can download ML Kit model files. In order to keep the download process from being interrupted, please <b><u>do not leave this page while downloading</u></b>. Since the model file is stored on Google\'s server, and the download operation is encapsulated in the ML Kit library, it cannot be controlled separately. Therefore, the download may not be possible depending on the network conditions; please flexibly switch WLAN and data traffic, and enable Or turn off the VPN.\n\nSince the download operation is encapsulated in the ML Kit library, the download progress cannot be displayed in the software. The download operation will call the system downloader and the progress should be displayed in the notification bar. <b><u>The total size of the files to be downloaded is expected to be about 100MB</u></b>.</string>
-    <string name="mlkit_status_download">ML Kit model download status: Downloaded</string>
-    <string name="mlkit_status_not_download">ML Kit model download status: Not Downloaded</string>
-    <string name="check_mlkit_download_error">Check status failed：%s</string>
-    <string name="current_download_mlkit">Downloading：%s Language Model</string>
     <string name="is_translating">The last translation task is still in progress, please wait...</string>
     <string name="translation_failed">Translation Failed：%s</string>
     <string name="font_title">Font</string>

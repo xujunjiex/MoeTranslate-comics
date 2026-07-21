@@ -31,8 +31,8 @@ class ManageActivity : BaseActivity() {
         const val EXTRA_FRAGMENT_TYPE = "fragment_type"
         const val EXTRA_CUSTOM_CODE = "custom_code"
         const val EXTRA_IS_NEW = "is_new"
-        const val TYPE_FRAGMENT_MANAGE_MLKIT = 1
         const val TYPE_FRAGMENT_MANAGE_NLLB = 2
+        // 1 已废弃：原 ML Kit 离线翻译（已移除）
         const val TYPE_FRAGMENT_MANAGE_NIU_API = 3
         const val TYPE_FRAGMENT_MANAGE_VOLC_API = 4
         const val TYPE_FRAGMENT_MANAGE_AZURE_API = 5
@@ -59,12 +59,7 @@ class ManageActivity : BaseActivity() {
         applySystemBarsPadding(binding.manageFragmentContainer, true, true)
 
         when(intent.getIntExtra(EXTRA_FRAGMENT_TYPE,0)){
-            TYPE_FRAGMENT_MANAGE_MLKIT-> {
-                val fragment = MLKitDownloadFragment()
-                supportFragmentManager.beginTransaction()
-                    .replace(binding.manageFragmentContainer.id, fragment)
-                    .commit()
-            }
+            // TYPE_FRAGMENT_MANAGE_MLKIT (1) 已废弃：ML Kit 离线翻译已移除
             TYPE_FRAGMENT_MANAGE_NLLB-> {
                 val fragment = NLLBDownloadFragment()
                 supportFragmentManager.beginTransaction()
