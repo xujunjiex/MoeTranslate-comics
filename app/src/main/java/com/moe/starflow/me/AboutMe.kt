@@ -296,7 +296,7 @@ class AboutMe : Fragment() {
 
         // 设置内容
         titleText.text = "${getString(R.string.find_new_version)} v${update.versionName}"
-        descText.text = update.versionDescription
+        descText.visibility = View.GONE
 
         val dialog = AlertDialog.Builder(requireContext())
             .setView(dialogView)
@@ -372,8 +372,8 @@ class AboutMe : Fragment() {
 
         dialog.show()
         dialog.window?.let { win ->
-            val dm = resources.displayMetrics
-            win.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, (dm.heightPixels * 0.55).toInt())
+            val maxW = (resources.displayMetrics.widthPixels * 0.90).toInt()
+            win.setLayout(maxW, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
     }
 

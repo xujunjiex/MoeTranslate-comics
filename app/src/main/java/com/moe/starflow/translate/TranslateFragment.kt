@@ -927,18 +927,13 @@ class TranslateFragment : Fragment() {
     }
 
     private fun showUpdateDialog(update: UpdateResult.UpdateAvailable) {
-        val scrollView = ScrollView(requireContext())
-        val textView = TextView(requireContext()).apply {
-            text = getString(R.string.version_name) + update.versionName + "\n${update.versionDescription}\n" + getString(R.string.update_prompt)
-            textSize = 14f
-            setPadding(48, 16, 48, 16)
-            setLineSpacing(4f, 1f)
-        }
-        scrollView.addView(textView)
-
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle(R.string.find_new_version)
-            .setView(scrollView)
+            .setMessage(
+                getString(R.string.version_name) + update.versionName + "\n${update.versionDescription}\n" + getString(
+                    R.string.update_prompt
+                )
+            )
             .setCancelable(false)
             .setNeutralButton(R.string.ignore_update) { _, _ ->
                 prefs.setLong("Ignore_Version", update.versionCode)
@@ -953,24 +948,16 @@ class TranslateFragment : Fragment() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.let { win ->
             val dm = resources.displayMetrics
-            win.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, (dm.heightPixels * 0.55).toInt())
+            val maxW = (dm.widthPixels * 0.90).toInt()
+            val maxH = (dm.heightPixels * 0.70).toInt()
+            win.setLayout(maxW, maxH)
         }
     }
 
     private fun showNotificationDialog(notification: NotificationResult.NotificationAvailable) {
-        val scrollView = ScrollView(requireContext())
-        val textView = TextView(requireContext()).apply {
-            text = notification.notificationContent
-            textSize = 14f
-            setPadding(48, 16, 48, 16)
-            setLineSpacing(4f, 1f)
-            linksClickable = true
-        }
-        scrollView.addView(textView)
-
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle(notification.notificationName)
-            .setView(scrollView)
+            .setMessage(notification.notificationContent)
             .setCancelable(false)
             .setPositiveButton(R.string.user_known) { _, _ ->
                 prefs.setLong("Read_Notice", notification.notificationCode)
@@ -980,7 +967,9 @@ class TranslateFragment : Fragment() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.window?.let { win ->
             val dm = resources.displayMetrics
-            win.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, (dm.heightPixels * 0.55).toInt())
+            val maxW = (dm.widthPixels * 0.90).toInt()
+            val maxH = (dm.heightPixels * 0.70).toInt()
+            win.setLayout(maxW, maxH)
         }
     }
 
