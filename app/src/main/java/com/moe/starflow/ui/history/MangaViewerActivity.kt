@@ -61,8 +61,10 @@ class MangaViewerActivity : AppCompatActivity() {
         const val EXTRA_IS_MANAGE_VIEW = "is_manage_view"
 
         /**
-         * renderCache 上限。每个 entry × 3 mode ≈ 36MB，20 个 ≈ 720MB 上限。
-         * BitmapLruCache 基于 LinkedHashMap access-order，淘汰时自动 recycle。
+         * renderCache 上限（单位：渲染后的 bitmap 张数，key=historyId_mode_crop）。
+         * crop 图典型尺寸 ~1200×1800 ARGB_8888 ≈ 8MB，3 mode/entry ≈ 25MB，
+         * 20 条 ≈ 170MB 名义上限。运行期不主动 recycle（靠 GC），onDestroy 时 clear() 全回收。
+         * BitmapLruCache 基于 LinkedHashMap access-order。
          */
         const val MAX_RENDER_CACHE_ENTRIES = 20
     }
@@ -120,6 +122,17 @@ class MangaViewerActivity : AppCompatActivity() {
         // 关闭按钮
         binding.btnClose.setOnClickListener { finish() }
 
+        // 旋转视图按钮：仅 view 层旋转 90° + 自适应 fitCenter 铺满整个屏幕，
+        // 不修改 cache bitmap。消除旋转后黑边裁切，横屏截图旋转后占满屏幕。
+        binding.btnRotate.setOnClickListener {
+            val rv = binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return@setOnClickListener
+            for (i in 0 until rv.childCount) {
+                val child = rv.getChildAt(i) ?: continue
+                val vh = rv.getChildViewHolder(child) as? PageGroupAdapter.ViewHolder ?: continue
+                vh.imageView.rotateAndFit90()
+            }
+        }
+
         // 查看译文按钮
         binding.btnShowTranslation.setOnClickListener {
             togglePanel()
@@ -148,8 +161,13 @@ class MangaViewerActivity : AppCompatActivity() {
                 TranslationCacheManager.OverlayMode.PLAIN -> android.R.drawable.ic_menu_view
             })
             // BitmapLruCache 自动淘汰冷数据，三种 mode 的 bitmap 均独立缓存。
+            // 切三态时重置旋转方向为正常（未旋转），配合新 mode 重新渲染。
+            val pos = binding.viewPager.currentItem
+            (binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView)
+                ?.findViewHolderForAdapterPosition(pos)
+                ?.let { (it as? PageGroupAdapter.ViewHolder)?.imageView?.resetRotation() }
             val adapter = binding.viewPager.adapter as? PageGroupAdapter
-            adapter?.notifyItemChanged(binding.viewPager.currentItem)
+            adapter?.notifyItemChanged(pos)
         }
 
         // Variant spinner
@@ -162,18 +180,23 @@ class MangaViewerActivity : AppCompatActivity() {
                 // 切换尺寸时重置 overlay 状态为译文
                 overlayState = TranslationCacheManager.OverlayMode.TRANSLATED
                 binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
+                // 关键顺序：先清空当前 page 的 ImageView 旧 bitmap 引用，再 recycle，最后 rebind。
+                // 否则 recycleSafeRenderCache 回收旧 variant bitmap 后，ViewHolder.ImageView
+                // 仍持有该引用，next draw cycle 抛 "Canvas: trying to use a recycled bitmap"。
+                clearImageViewRefForPage(pagePosition)
+                val adapter = binding.viewPager.adapter as? PageGroupAdapter
+                adapter?.setActiveVariant(pagePosition, variant.id)
                 // 排除当前 page 的 entry（切回去时能命中 cache），
                 // 同时排除相邻 page entry（ViewPager2 默认 offscreenPageLimit > 0，左右相邻 page 仍在 attach + draw）
                 recycleSafeRenderCache(currentEntryIds = collectLiveEntryIds(pagePosition))
-                val adapter = binding.viewPager.adapter as? PageGroupAdapter
-                adapter?.setActiveVariant(pagePosition, variant.id)
                 adapter?.notifyItemChanged(pagePosition)
                 if (isPanelExpanded) expandPanel()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
 
-        // 重新翻译按钮 — 独立 OCR+翻译+渲染流程，不需要 MangaFloatingService
+        // 重新翻译按钮 — 按当前条目原有的框选区域重新 OCR+翻译+渲染，
+        // 原地替换该条目记录，结果在当前详细页实时刷新。
         binding.btnRetranslate.setOnClickListener {
             val entry = getCurrentVariant()
             val originalPath = entry.originalImagePath
@@ -181,99 +204,17 @@ class MangaViewerActivity : AppCompatActivity() {
                 com.moe.starflow.utils.UiUtils.showToast(this, "原图不可用")
                 return@setOnClickListener
             }
-
-            lifecycleScope.launch {
-                val cache = cacheManager.getCacheByHistoryId(entry.id)
-                if (cache == null || cache.cropRight <= 0) {
-                    com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, "无裁剪信息")
-                    return@launch
-                }
-
-                if (!com.moe.starflow.manga.OcrLock.tryAcquire()) {
-                    com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, "翻译进行中，请稍后")
-                    return@launch
-                }
-
-                binding.btnRetranslate.isEnabled = false
-                com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, "正在翻译...")
-                try {
-                    val savedPosition = binding.viewPager.currentItem
-                    withContext(Dispatchers.IO) {
-                        val original = BitmapFactory.decodeFile(originalPath) ?: throw Exception("原图加载失败")
-                        val cropRect = android.graphics.RectF(
-                            cache.cropLeft.toFloat(), cache.cropTop.toFloat(),
-                            cache.cropRight.toFloat(), cache.cropBottom.toFloat()
-                        )
-                        val cropped = ScreenshotManager.cropBitmap(original, cropRect, android.graphics.Point(0, 0))
-
-                        val prefs = CustomPreference.getInstance(this@MangaViewerActivity)
-                        val engineName = prefs.getString("history_retranslate_engine", "PP_OCR_V5")
-                        val (detEngine, ocrEngine) = mapEngineToDetOcr(engineName)
-                        val sourceLang = prefs.getString("Manga_Source_Language", "ja")
-                        val targetLang = prefs.getString("Manga_Target_Language", "zh")
-
-                        initializeEngines(detEngine, ocrEngine)
-
-                        val ocrResults = DetectionBridge.runOCR(cropped, sourceLang, detEngine.value, ocrEngine.value, this@MangaViewerActivity)
-                        if (ocrResults.isEmpty()) throw Exception("OCR 未识别到文字")
-
-                        val bubbles = DetectionBridge.ocrToBubbleRegions(ocrResults)
-                        if (bubbles.isEmpty()) throw Exception("无有效文字区域")
-
-                        val translator = createTranslator(prefs) ?: throw Exception("翻译器创建失败")
-
-                        val translatedBubbles = com.moe.starflow.manga.TranslateUtils.translateBubbles(
-                            translator, bubbles, sourceLang, targetLang, prefs)
-                        if (translatedBubbles.isEmpty()) throw Exception("翻译失败")
-
-                        val rendered = OverlayRenderer.renderOverlay(
-                            original = cropped, regions = translatedBubbles,
-                            fontSize = prefs.getFloat("Manga_Font_Size", 16f),
-                            autoFit = prefs.getBoolean("Manga_Auto_Font_Size", true),
-                            textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
-                            bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
-                        )
-
-                        val ocrTexts = bubbles.map { it.texts.first() }
-                        val numberedText = ocrTexts.mapIndexed { i, t -> "[${i + 1}] $t" }.joinToString("\n")
-                        val transText = translatedBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
-
-                        cacheManager.refreshCache(entry.id, CacheEntry(
-                            type = TranslationCacheManager.MODE_MANGA,
-                            sourceText = numberedText, translatedText = transText,
-                            resultBitmap = null, sourceLang = sourceLang, targetLang = targetLang,
-                            translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs),
-                            pHash = entry.pHash, pHash2 = entry.pHash2, pHash3 = entry.pHash3, pHash4 = entry.pHash4,
-                            sessionId = "", lastSessionId = "",
-                            cropLeft = cache.cropLeft, cropTop = cache.cropTop,
-                            cropRight = cache.cropRight, cropBottom = cache.cropBottom,
-                            bubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles),
-                            isRetranslated = true,
-                        ), originalBitmap = original)
-                        // Recycle bitmaps after saving to disk
-                        rendered.recycle()
-                        cropped.recycle()
-                        original.recycle()
-                    }
-                    com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, "重新翻译完成")
-                    val currentPos = savedPosition
-                    lifecycleScope.launch {
-                        val allEntries = cacheManager.getHistory(TranslationCacheManager.MODE_MANGA, limit = 500)
-                        pageGroups.clear()
-                        pageGroups.addAll(buildPageGroups(allEntries))
-                        binding.viewPager.adapter?.notifyDataSetChanged()
-                        updatePageIndicator(currentPos.coerceAtMost(pageGroups.size - 1))
-                        // 重翻译后新 entryId 与旧缓存 key 不匹配 → 清理孤儿 bitmap
-                        recycleSafeRenderCache(currentEntryIds = collectLiveEntryIds(currentPos))
-                    }
-                } catch (e: Exception) {
-                    LogCollector.e(TAG, "Retranslate failed", e)
-                    com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, e.message ?: "重新翻译失败")
-                } finally {
-                    binding.btnRetranslate.isEnabled = true
-                    com.moe.starflow.manga.OcrLock.release()
-                }
+            val pageCache = pageCacheMap[entry.id]
+            if (pageCache == null ||
+                pageCache.cropRight <= pageCache.cropLeft || pageCache.cropBottom <= pageCache.cropTop) {
+                com.moe.starflow.utils.UiUtils.showToast(this, "框选区域不可用")
+                return@setOnClickListener
             }
+            if (!com.moe.starflow.manga.OcrLock.tryAcquire()) {
+                com.moe.starflow.utils.UiUtils.showToast(this, "翻译进行中，请稍后")
+                return@setOnClickListener
+            }
+            performRetranslate(entry, pageCache, originalPath)
         }
 
         // 非管理视图隐藏重新翻译按钮
@@ -346,6 +287,13 @@ class MangaViewerActivity : AppCompatActivity() {
                     prefs = CustomPreference.getInstance(this@MangaViewerActivity).getSharedPreferences()
                 )
                 binding.viewPager.adapter = adapter
+                // ViewPager2 内部的 RecyclerView 默认 clipChildren=true，会裁掉旋转后超出 page bounds 的绘制。
+                // 旋转 ImageView 时图片绘制可能溢出 page 边界，必须让 RecyclerView 及其父层不裁剪，
+                // 否则旋转后上下/左右被裁出黑边。
+                (binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView)?.let { rv ->
+                    rv.clipChildren = false
+                    rv.setClipToOutline(false)
+                }
 
                 // 跳转到点击的组
                 val clickedGroupId = pageGroups.indexOfFirst {
@@ -467,7 +415,8 @@ class MangaViewerActivity : AppCompatActivity() {
                     systemPrompt = effectiveSystemPrompt,
                     userPrompt = effectiveUserPrompt,
                     continuationType = effectiveContinuationType,
-                    prefillContent = if (effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else ""
+                    prefillContent = if (effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
+                    autoAppendPath = provider.autoAppendPath
                 )
             }
             Constants.TextApi.VOLC.id -> {
@@ -822,6 +771,7 @@ class MangaViewerActivity : AppCompatActivity() {
         super.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             val currentIds = collectLiveEntryIds(binding.viewPager.currentItem)
+            clearAttachedImageViewRefsNotIn(currentIds)
             renderCache.retainEntries(currentIds)
             LogCollector.d(TAG, "onTrimMemory level=$level, retained=${currentIds.size}, cacheSize=${renderCache.size}")
         }
@@ -835,9 +785,167 @@ class MangaViewerActivity : AppCompatActivity() {
      * - 切换尺寸：保留新 variant 的条目，recycle 旧 variant 的 bitmap
      * - 重新翻译后：保留当前可见页的条目，recycle 旧 entryId 的 bitmap
      */
+    /**
+     * 按当前条目原有的框选区域重新 OCR+翻译+渲染，原地替换该记录，
+     * 结果在当前详细页实时刷新（overlay 图 + 底部详情面板）。
+     */
+    private fun performRetranslate(
+        entry: HistoryEntry,
+        pageCache: PageCacheEntity,
+        originalPath: String
+    ) {
+        binding.btnRetranslate.isEnabled = false
+        com.moe.starflow.utils.UiUtils.showToast(this, "正在翻译...")
+        lifecycleScope.launch {
+            var originalBmp: Bitmap?
+            try {
+                val cropLeftPx = pageCache.cropLeft
+                val cropTopPx = pageCache.cropTop
+                val cropRightPx = pageCache.cropRight
+                val cropBottomPx = pageCache.cropBottom
+                LogCollector.d(TAG, "performRetranslate: entryId=${entry.id}, crop=$cropLeftPx,$cropTopPx-$cropRightPx,$cropBottomPx")
+
+                withContext(Dispatchers.IO) {
+                    originalBmp = BitmapFactory.decodeFile(originalPath)
+                        ?: throw Exception("原图加载失败")
+                    val cropRect = android.graphics.RectF(
+                        cropLeftPx.toFloat(), cropTopPx.toFloat(),
+                        cropRightPx.toFloat(), cropBottomPx.toFloat()
+                    )
+                    val cropped = ScreenshotManager.cropBitmap(originalBmp!!, cropRect, android.graphics.Point(0, 0))
+                    try {
+                        val prefs = CustomPreference.getInstance(this@MangaViewerActivity)
+                        val engineName = prefs.getString("history_retranslate_engine", "PP_OCR_V5")
+                        val (detEngine, ocrEngine) = mapEngineToDetOcr(engineName)
+                        val sourceLang = prefs.getString("Manga_Source_Language", "ja")
+                        val targetLang = prefs.getString("Manga_Target_Language", "zh")
+
+                        initializeEngines(detEngine, ocrEngine)
+
+                        val ocrResults = DetectionBridge.runOCR(cropped, sourceLang, detEngine.value, ocrEngine.value, this@MangaViewerActivity)
+                        if (ocrResults.isEmpty()) throw Exception("OCR 未识别到文字")
+                        val bubbles = DetectionBridge.ocrToBubbleRegions(ocrResults)
+                        if (bubbles.isEmpty()) throw Exception("无有效文字区域")
+                        val translator = createTranslator(prefs) ?: throw Exception("翻译器创建失败")
+                        val translatedBubbles = com.moe.starflow.manga.TranslateUtils.translateBubbles(
+                            translator, bubbles, sourceLang, targetLang, prefs)
+                        if (translatedBubbles.isEmpty()) throw Exception("翻译失败")
+                        val ocrTexts = bubbles.map { it.texts.first() }
+                        val numberedText = ocrTexts.mapIndexed { i, t -> "[${i + 1}] $t" }.joinToString("\n")
+                        val transText = translatedBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+                        val translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs)
+
+                        // 原地更新：保留 historyId，crop 不变，仅替换原文/译文/bubbleRects/translatorName
+                        val ok = cacheManager.refreshCacheInPlace(
+                            historyId = entry.id,
+                            newSourceText = numberedText,
+                            newTranslatedText = transText,
+                            newBubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles),
+                            newCropLeft = cropLeftPx,
+                            newCropTop = cropTopPx,
+                            newCropRight = cropRightPx,
+                            newCropBottom = cropBottomPx,
+                            newTranslatorName = translatorName
+                        )
+                        if (!ok) throw Exception("原地更新失败：historyId=${entry.id} 不存在或 cache 缺失")
+                    } finally {
+                        cropped.recycle()
+                    }
+                }
+
+                // 拉取最新 HistoryEntry + PageCacheEntity，覆盖内存中的快照
+                val refreshedEntry = cacheManager.getHistoryById(entry.id)
+                val refreshedCache = cacheManager.getCacheByHistoryId(entry.id)
+                if (refreshedEntry != null && refreshedCache != null) {
+                    pageCacheMap = pageCacheMap.toMutableMap().also { it[entry.id] = refreshedCache }
+                    updateInMemoryEntry(refreshedEntry)
+                }
+
+                val pos = binding.viewPager.currentItem
+                // 只清空即将被回收的 entry（当前页三 mode）对应的 ViewHolder 引用，
+                // 相邻页 holder 引用保留避免黑屏；随后 notifyItemChanged 触发重渲染当前页。
+                clearAttachedImageViewRefsForEntry(entry.id)
+                // 清掉该 entry 三 mode 的缓存 bitmap（让 cache MISS 触发协程重新渲染 overlay）
+                for (mode in TranslationCacheManager.OverlayMode.values()) {
+                    renderCache.remove("${entry.id}_${mode.name}_crop")
+                }
+                overlayState = TranslationCacheManager.OverlayMode.TRANSLATED
+                binding.btnToggleImage.setImageResource(android.R.drawable.ic_menu_camera)
+                (binding.viewPager.adapter as? PageGroupAdapter)?.notifyItemChanged(pos)
+
+                // 若详情面板展开，实时刷新译文详情
+                if (isPanelExpanded) expandPanel()
+
+                com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, "重新翻译完成")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Retranslate failed", e)
+                com.moe.starflow.utils.UiUtils.showToast(this@MangaViewerActivity, e.message ?: "重新翻译失败")
+            } finally {
+                binding.btnRetranslate.isEnabled = true
+                com.moe.starflow.manga.OcrLock.release()
+            }
+        }
+    }
+
+    /**
+     * 用刷新后的 HistoryEntry 覆盖 pageGroups 中对应条目的内存快照
+     * （代表条目 + 变体列表），保证 expandPanel/getCurrentVariant 读到最新译文。
+     */
+    private fun updateInMemoryEntry(refreshed: HistoryEntry) {
+        for (group in pageGroups) {
+            if (group.representative.id == refreshed.id) {
+                group.representative = refreshed
+            }
+            val idx = group.variants.indexOfFirst { it.id == refreshed.id }
+            if (idx >= 0) group.variants[idx] = refreshed
+        }
+    }
+
     private fun recycleSafeRenderCache(currentEntryIds: Set<Long>?) {
-        if (currentEntryIds.isNullOrEmpty()) return
+        if (currentEntryIds.isNullOrEmpty()) {
+            clearAllAttachedImageViewRefs()
+            renderCache.clear()
+            return
+        }
+        // 关键：recycle 前，清空那些 entryId 不在保留集合内的 ViewHolder.ImageView 引用。
+        // 保留集合内的 holder 引用必须保留（其 bitmap 仍在 cache 中有效且正在显示），
+        // 否则清掉再不重新渲染就是黑屏。只清即将被 recycle 的非保留 holder 引用，
+        // 避免 ImageView 仍持有即将被 recycle 的 bitmap 导致 draw 崩溃。
+        clearAttachedImageViewRefsNotIn(currentEntryIds)
         renderCache.retainEntries(currentEntryIds)
+    }
+
+    /**
+     * 清空 ViewPager2 RecyclerView 当前所有 attach 的 ViewHolder.ImageView bitmap 引用。
+     * 必须在 renderCache.retainEntries / clear / remove 等回收操作之前调用，
+     * 避免 ImageView 仍持有即将被 recycle 的 bitmap 导致 draw 崩溃。
+     */
+    private fun clearAllAttachedImageViewRefs() {
+        clearAttachedImageViewRefsNotIn(null)
+    }
+
+    /** 清空绑定到指定 entryId 的所有 attached ViewHolder 的 ImageView 引用。 */
+    private fun clearAttachedImageViewRefsForEntry(entryId: Long) {
+        val rv = binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        for (i in 0 until rv.childCount) {
+            val child = rv.getChildAt(i) ?: continue
+            val vh = rv.getChildViewHolder(child) as? PageGroupAdapter.ViewHolder ?: continue
+            if (vh.boundEntryId == entryId) vh.imageView.setImageDrawable(null)
+        }
+    }
+
+    /**
+     * 清空 entryId 不在 [retainIds] 内的 ViewHolder.ImageView 引用。
+     * [retainIds] = null 表示清空全部。保留集合内的 holder 引用不动（其 bitmap 仍有效且在显示）。
+     */
+    private fun clearAttachedImageViewRefsNotIn(retainIds: Set<Long>?) {
+        val rv = binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        for (i in 0 until rv.childCount) {
+            val child = rv.getChildAt(i) ?: continue
+            val vh = rv.getChildViewHolder(child) as? PageGroupAdapter.ViewHolder ?: continue
+            if (retainIds != null && vh.boundEntryId in retainIds) continue
+            vh.imageView.setImageDrawable(null)
+        }
     }
 
     private fun collectLiveEntryIds(currentPage: Int): Set<Long> {
@@ -848,6 +956,18 @@ class MangaViewerActivity : AppCompatActivity() {
             result.add(activeId)
         }
         return result
+    }
+
+    /**
+     * 清空指定 page 的 ViewHolder.ImageView bitmap 引用。
+     * 用于在 recycleSafeRenderCache / 切换 variant 前主动释放旧引用，
+     * 避免 ViewHolder.ImageView 持有已 recycle 的 bitmap 导致后续 draw 崩溃。
+     * 调用时机：recycleSafeRenderCache 之前。
+     */
+    private fun clearImageViewRefForPage(pagePosition: Int) {
+        val rv = binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        val vh = rv.findViewHolderForAdapterPosition(pagePosition) as? PageGroupAdapter.ViewHolder ?: return
+        vh.imageView.setImageDrawable(null)
     }
 }
 
@@ -874,6 +994,11 @@ class PageGroupAdapter(
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView: ZoomableImageView = view.findViewById(R.id.ivFullImage)
+        /** 当前正在为该 ViewHolder 加载/显示的 entryId + mode，用于异步渲染回调时校验
+         * holder 是否已被复用到其他条目，避免把过期 bitmap 写到错误的 ImageView 上
+         * 或显示已 recycle 的旧 bitmap。 */
+        @Volatile var boundEntryId: Long = -1L
+        @Volatile var boundMode: TranslationCacheManager.OverlayMode? = null
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -890,6 +1015,8 @@ class PageGroupAdapter(
         } else {
             group.representative
         }
+        holder.boundEntryId = entry.id
+        holder.boundMode = getOverlayState()
         loadImage(holder, entry)
     }
 
@@ -911,7 +1038,15 @@ class PageGroupAdapter(
 
     private fun loadImage(holder: ViewHolder, entry: HistoryEntry) {
         val mode = getOverlayState()
-        val cacheKey = "${entry.id}_${mode.name}"
+        // cacheKey 包含 scope（crop/full）—— 历史页默认只渲染 crop 区域
+        // （"显示框选范围"，不显示原图其它区域）
+        val scope = "crop"
+        val cacheKey = "${entry.id}_${mode.name}_$scope"
+
+        // 防御性释放：先清空 ImageView 旧 bitmap 引用，避免外部 recycle 后
+        // 残留 dangling reference 在 rebind 之间的 draw cycle 中触发崩溃。
+        // 配合 onItemSelected 中 clearImageViewRefForPage 形成双重保护。
+        holder.imageView.setImageDrawable(null)
 
         renderCache[cacheKey]?.let { bitmap ->
             // DIAGNOSTIC #6: log bitmap 身份（address），用于追踪 recycle 来源
@@ -923,6 +1058,10 @@ class PageGroupAdapter(
 
         LogCollector.d("MangaViewer", "loadImage: cache MISS id=${entry.id} mode=$mode, will renderOverlay")
         if (entry.bubbleRects.isNullOrBlank()) {
+            // 旧数据无 bubbleRects：回退到 imagePath/thumbnailPath 原图
+            // 注意：历史页显示的就是 crop 区域本身（用户翻译时的视野范围），
+            // 不是完整原图。但旧数据没有 PageCacheEntity 来定位 crop，
+            // 这里用 entry.imagePath（预渲染译文图）兜底显示。
             val path = entry.imagePath ?: entry.thumbnailPath
             if (path != null && java.io.File(path).exists()) {
                 val bmp = BitmapFactory.decodeFile(path)
@@ -940,32 +1079,64 @@ class PageGroupAdapter(
 
         lifecycleScope.launch {
             try {
+                // forFullImage=false：只渲染 crop 区域（用户框选范围），
+                // 不显示原图其它区域。气泡坐标已在裁剪空间，无需映射。
                 val bitmap = cacheManager.renderOverlay(
                     history = entry,
                     pageCache = pageCache,
                     mode = mode,
-                    forFullImage = true,
+                    forFullImage = false,
                     config = cacheManager.getOverlayConfig(prefs)
                 )
-                if (bitmap != null) {
-                    LogCollector.d("MangaViewer", "loadImage: renderOverlay OK id=${entry.id} mode=$mode bitmapIdentity=${System.identityHashCode(bitmap)}")
-                    renderCache[cacheKey] = bitmap
-                    withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
+                    // 关键：异步渲染完成时校验 holder 是否仍绑定到同一个 entry + mode。
+                    // 若期间翻页/切 variant/切三态已复用此 holder 或切换了 mode，
+                    // 直接 setImageBitmap 旧 bitmap 会把过期内容写到错误的 ImageView，
+                    // 或写入后立即被新一次 loadImage 的 setImageDrawable(null) 覆盖、bitmap
+                    // 既未入 cache 也无人 recycle。校验不一致则丢弃此次结果（不入 cache、不 set）。
+                    if (holder.boundEntryId != entry.id || holder.boundMode != mode) {
+                        LogCollector.d("MangaViewer", "loadImage: stale render discarded holder bound=(${holder.boundEntryId},${holder.boundMode}) req=(${entry.id},$mode)")
+                        bitmap?.recycle()
+                        return@withContext
+                    }
+                    if (bitmap != null) {
+                        LogCollector.d("MangaViewer", "loadImage: renderOverlay OK id=${entry.id} mode=$mode bitmapIdentity=${System.identityHashCode(bitmap)}")
+                        renderCache[cacheKey] = bitmap
                         holder.imageView.resetZoom()
                         holder.imageView.setImageBitmap(bitmap)
                     }
                 }
             } catch (e: Exception) {
                 LogCollector.e("MangaViewer", "loadImage: renderOverlay 失败 entryId=${entry.id}", e)
-                // 回退到原图或缩略图
+                // 回退到原始 full bitmap 后裁剪 crop 区域（保持历史页只显示 crop 区域的设计）
                 val fallbackPath = entry.originalImagePath ?: entry.imagePath ?: entry.thumbnailPath
                 if (fallbackPath != null) {
                     try {
                         val fallback = BitmapFactory.decodeFile(fallbackPath)
                         if (fallback != null) {
-                            withContext(Dispatchers.Main) {
-                                holder.imageView.resetZoom()
-                                holder.imageView.setImageBitmap(fallback)
+                            // 异常 fallback：若 pageCache 有 crop，裁切到 crop 区域；
+                            // 否则显示整张（无 crop 信息的极端情况）。
+                            val croppedFallback = try {
+                                val cl = pageCache.cropLeft.coerceIn(0, fallback.width)
+                                val ct = pageCache.cropTop.coerceIn(0, fallback.height)
+                                val cr = pageCache.cropRight.coerceIn(cl, fallback.width)
+                                val cb = pageCache.cropBottom.coerceIn(ct, fallback.height)
+                                if (cr > cl && cb > ct) Bitmap.createBitmap(fallback, cl, ct, cr - cl, cb - ct) else fallback
+                            } catch (_: Exception) { fallback }
+                            // .copy() 创建独立副本，避免与原图共享底层 buffer（防止外部 recycle 触发崩溃）
+                            val safe = try { croppedFallback.copy(croppedFallback.config ?: android.graphics.Bitmap.Config.ARGB_8888, false) } catch (_: Exception) { croppedFallback }
+                            croppedFallback.takeIf { it !== fallback }?.recycle()
+                            fallback.recycle()
+                            if (safe != null) {
+                                withContext(Dispatchers.Main) {
+                                    // 异步回退完成时同样校验 holder 是否仍属同一 entry + mode
+                                    if (holder.boundEntryId == entry.id && holder.boundMode == mode) {
+                                        holder.imageView.resetZoom()
+                                        holder.imageView.setImageBitmap(safe)
+                                    } else {
+                                        safe.recycle()
+                                    }
+                                }
                             }
                         }
                     } catch (_: Exception) {}

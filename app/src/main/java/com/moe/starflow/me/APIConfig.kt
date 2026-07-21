@@ -725,10 +725,14 @@ class APIConfig : PreferenceFragmentCompat() {
                     put("max_tokens", 5)
                 }
 
-                val url = if (provider.baseUrl.endsWith("/")) {
-                    "${provider.baseUrl}chat/completions"
+                val url = if (provider.isBuiltin || provider.autoAppendPath) {
+                    if (provider.baseUrl.endsWith("/")) {
+                        "${provider.baseUrl}chat/completions"
+                    } else {
+                        "${provider.baseUrl}/chat/completions"
+                    }
                 } else {
-                    "${provider.baseUrl}/chat/completions"
+                    provider.baseUrl
                 }
 
                 val request = okhttp3.Request.Builder()

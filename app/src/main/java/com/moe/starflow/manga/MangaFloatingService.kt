@@ -377,7 +377,12 @@ class MangaFloatingService : LifecycleService() {
         }
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // 先用 specialUse 启动（兼容无障碍模式），需要 MediaProjection 时再升级
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, buildNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }
 
         // 先初始化截图提供者，权限检查在 UI 初始化之前
         initScreenshotProvider()
@@ -550,7 +555,8 @@ class MangaFloatingService : LifecycleService() {
                             systemPrompt = effectiveSystemPrompt,
                             userPrompt = effectiveUserPrompt,
                             continuationType = effectiveContinuationType,
-                            prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else ""
+                            prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
+                            autoAppendPath = provider.autoAppendPath
                         )
                     } else {
                         showToast("No OpenAI Provider Config Found.")
@@ -759,7 +765,7 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun loadConfig(): MangaModeConfig {
-        val detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V5.value))
+        val detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V6.value))
         // RT-DETR-V2 检测器已输出气泡/区域级结果，不需要 BubbleDetector 再次聚类
         val autoDetectBubble = if (detEngine == DetEngine.RT_DETR_V2) {
             false
@@ -2636,7 +2642,14 @@ class MangaFloatingService : LifecycleService() {
             if (!isForceRefreshActive) {
                 val extHashesForCache = currentExtHashes
                     ?: PerceptualHash.computeExtended(pendingFullBitmap ?: bitmap, centerCrop = true)
-                val cached = cacheManager.findCacheExt(extHashesForCache, TranslationCacheManager.MODE_MANGA, bitmap.width, bitmap.height, sessionId)
+                val (curLeft, curTop) = cropRect?.let { Pair(it.left.toInt(), it.top.toInt()) } ?: Pair(-1, -1)
+                val cached = cacheManager.findCacheExt(
+                    extHashesForCache,
+                    TranslationCacheManager.MODE_MANGA,
+                    bitmap.width, bitmap.height,
+                    curLeft, curTop,
+                    sessionId
+                )
                 if (cached != null && cached.resultBitmap != null) {
                     LogCollector.d(TAG, "processMangaScreenshot: 缓存命中, historyId=${cached.historyId}")
                     lastCachedHistoryId = cached.historyId

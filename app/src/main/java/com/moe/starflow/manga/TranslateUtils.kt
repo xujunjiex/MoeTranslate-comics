@@ -9,9 +9,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import translationapi.openaitranslation.OpenAITranslation
 import java.util.LinkedList
+import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
@@ -116,26 +119,33 @@ object TranslateUtils {
             currentContextEnabled
         )
 
-        // 直接调用翻译 API
-        translator.getTranslation(
-            numberedText,
-            sourceLang,
-            targetLang
-        ) { result ->
-            when (result) {
-                is TranslationResult.Success -> {
-                    resultText = result.translatedText
+        // 用 suspendCancellableCoroutine 等待 callback：协程被 cancel 时立即返回，不再阻塞线程
+        val completed = withTimeoutOrNull(35_000L) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                cont.invokeOnCancellation {
+                    // 协程被取消时尝试主动取消翻译任务
+                    translator.cancelTranslation()
                 }
-                is TranslationResult.Error -> {
-                    errorMsg = result.error.message ?: "Unknown error"
+                translator.getTranslation(
+                    numberedText,
+                    sourceLang,
+                    targetLang
+                ) { result ->
+                    when (result) {
+                        is TranslationResult.Success -> {
+                            resultText = result.translatedText
+                        }
+                        is TranslationResult.Error -> {
+                            errorMsg = result.error.message ?: "Unknown error"
+                        }
+                    }
+                    if (cont.isActive) cont.resume(Unit)
                 }
             }
-            latch.countDown()
         }
-
-        val completed = latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
-        if (!completed) {
-            throw RuntimeException("AI batch translation timeout (60s)")
+        if (completed == null) {
+            translator.cancelTranslation()
+            throw RuntimeException("AI batch translation timeout (35s)")
         }
         if (errorMsg != null) {
             throw RuntimeException("AI batch translation failed: $errorMsg")

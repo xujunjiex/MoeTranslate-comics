@@ -79,7 +79,8 @@ data class OpenAIProviderConfig(
     val mangaSystemPrompt: String = "",
     val mangaUserPrompt: String = "",
     val defaultMangaSystemPrompt: String = "",
-    val defaultMangaUserPrompt: String = ""
+    val defaultMangaUserPrompt: String = "",
+    val autoAppendPath: Boolean = true
 ) {
     companion object {
         const val PROVIDER_TYPE_BUILTIN = "builtin"
@@ -646,6 +647,7 @@ object ConfigurationStorage {
                     put(KEY_MANGA_USER_PROMPT, provider.mangaUserPrompt)
                     put(KEY_PROVIDER_TYPE, provider.providerType)
                     put(KEY_SELECTED_MODEL_INDEX, provider.selectedModelIndex)
+                    put("autoAppendPath", provider.autoAppendPath)
                 })
             }
             prefs.setString("OpenAI_Providers", jsonArray.toString())
@@ -672,7 +674,8 @@ object ConfigurationStorage {
                     mangaSystemPrompt = obj.optString(KEY_MANGA_SYSTEM_PROMPT, ""),
                     mangaUserPrompt = obj.optString(KEY_MANGA_USER_PROMPT, ""),
                     providerType = obj.optString(KEY_PROVIDER_TYPE, OpenAIProviderConfig.PROVIDER_TYPE_USER),
-                    selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0)
+                    selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0),
+                    autoAppendPath = obj.optBoolean("autoAppendPath", true)
                 ))
             }
             list

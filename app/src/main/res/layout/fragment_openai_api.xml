@@ -149,6 +149,15 @@
                     android:textColor="#999999"
                     android:textSize="12sp" />
 
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switchAutoAppendPath"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/auto_append_path_title"
+                    android:textSize="13sp"
+                    android:checked="true" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

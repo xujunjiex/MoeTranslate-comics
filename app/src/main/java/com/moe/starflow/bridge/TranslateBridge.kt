@@ -68,7 +68,8 @@ object TranslateBridge {
                         baseUrl = provider.baseUrl,
                         model = provider.modelName,
                         systemPrompt = effectiveSystemPrompt,
-                        userPrompt = effectiveUserPrompt
+                        userPrompt = effectiveUserPrompt,
+                        autoAppendPath = provider.autoAppendPath
                     )
                 } else {
                     null

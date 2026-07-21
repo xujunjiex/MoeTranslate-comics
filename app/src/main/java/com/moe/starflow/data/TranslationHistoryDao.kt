@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 
 @Dao
 interface TranslationHistoryDao {
@@ -12,6 +13,9 @@ interface TranslationHistoryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHistory(entry: HistoryEntity): Long
+
+    @Update
+    suspend fun updateHistory(entry: HistoryEntity)
 
     @Query("SELECT * FROM translation_history WHERE type = :type ORDER BY created_at DESC LIMIT :limit")
     suspend fun getHistoryByType(type: Int, limit: Int = 50): List<HistoryEntity>
@@ -41,6 +45,9 @@ interface TranslationHistoryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCache(entry: PageCacheEntity): Long
+
+    @Update
+    suspend fun updateCache(entry: PageCacheEntity)
 
     @Query("SELECT * FROM page_cache WHERE pHash = :pHash AND mode = :mode")
     suspend fun findAllCacheByHash(pHash: Long, mode: Int): List<PageCacheEntity>

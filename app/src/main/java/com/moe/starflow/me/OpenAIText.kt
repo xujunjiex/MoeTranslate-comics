@@ -28,6 +28,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import java.util.concurrent.atomic.AtomicBoolean
 import android.widget.PopupWindow
 import android.widget.TextView
 import androidx.fragment.app.Fragment
@@ -265,7 +266,8 @@ class OpenAIText :Fragment() {
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             mangaSystemPrompt = mangaSys,
-            mangaUserPrompt = mangaUsr
+            mangaUserPrompt = mangaUsr,
+            autoAppendPath = binding.switchAutoAppendPath.isChecked
         )
 
         lifecycleScope.launch {
@@ -286,6 +288,7 @@ class OpenAIText :Fragment() {
                 binding.editModelName.setText(provider.modelName)
                 binding.editSystemPrompt.setText(provider.systemPrompt)
                 binding.editUserPrompt.setText(provider.userPrompt)
+                binding.switchAutoAppendPath.isChecked = provider.autoAppendPath
 
                 // 初始化游戏缓存（和编辑框同步）
                 gameSystemPromptCache = provider.systemPrompt
@@ -709,8 +712,26 @@ class OpenAIText :Fragment() {
             }
         }
 
-        // 自定义加载弹窗
-        val loadingDialog = showCustomDialog(getString(R.string.testing_connection), null, isCancelable = false)
+        // 取消标志：用户中途关闭弹窗时设为 true，线程回调检测后跳过弹结果
+        val cancelled = AtomicBoolean(false)
+        binding.btnTest.isEnabled = false
+
+        // 自定义加载弹窗（可关闭 + "取消"按钮）
+        val loadingDialog = AlertDialog.Builder(requireContext())
+            .setTitle(getString(R.string.testing_connection))
+            .setMessage("")
+            .setCancelable(true)
+            .setNegativeButton(R.string.user_cancel) { _, _ ->
+                cancelled.set(true)
+            }
+            .create()
+        // 任何方式关闭（返回键、点击外部、取消按钮）都视为取消
+        loadingDialog.setOnDismissListener {
+            cancelled.set(true)
+            if (isAdded) binding.btnTest.isEnabled = true
+        }
+        loadingDialog.show()
+        loadingDialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
 
         Thread {
             try {
@@ -725,6 +746,7 @@ class OpenAIText :Fragment() {
                     "testConnection: provider=${allProviders[providerIndex].name}, " +
                         "model=$modelName, baseUrl=$baseUrl, selectedModelIndex=$selectedModelIndex"
                 )
+                LogCollector.d("OpenAIText", "testConnection: OkHttp 客户端构建完成, 开始构造 request")
 
                 // 测试 prompt：明确询问模型名称 + 简短翻译（双重验证 API 连通性 + 模型可用性）
                 val testSystemPrompt = "你是翻译引擎。只输出译文或回答问题，不输出任何解释。"
@@ -758,10 +780,14 @@ class OpenAIText :Fragment() {
                     "https://$baseUrl"
                 }
 
-                val url = if (normalizedUrl.endsWith("/")) {
-                    "${normalizedUrl}chat/completions"
+                val url = if (isBuiltin || binding.switchAutoAppendPath.isChecked) {
+                    if (normalizedUrl.endsWith("/")) {
+                        "${normalizedUrl}chat/completions"
+                    } else {
+                        "$normalizedUrl/chat/completions"
+                    }
                 } else {
-                    "$normalizedUrl/chat/completions"
+                    normalizedUrl
                 }
 
                 val request = okhttp3.Request.Builder()
@@ -771,9 +797,14 @@ class OpenAIText :Fragment() {
                     .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
                     .build()
 
+                LogCollector.d("OpenAIText", "testConnection: Request: $jsonBody")
+
                 client.newCall(request).execute().use { response ->
+                    LogCollector.d("OpenAIText", "testConnection: 收到响应, code=${response.code}")
                     val body = response.body?.string() ?: "Empty response"
+                    LogCollector.d("OpenAIText", "testConnection: Response: $body")
                     activity?.runOnUiThread {
+                        if (cancelled.get()) return@runOnUiThread
                         loadingDialog.dismiss()
                         if (response.isSuccessful) {
                             val result = try {
@@ -788,12 +819,15 @@ class OpenAIText :Fragment() {
                             }
                             showCustomDialog(getString(R.string.test_success), result, isCancelable = true)
                         } else {
+                            LogCollector.e("OpenAIText", "testConnection: HTTP ${response.code}, body=${body.take(300)}")
                             showCustomDialog(getString(R.string.test_failed), "HTTP ${response.code}\n${body.take(300)}", isCancelable = true)
                         }
                     }
                 }
             } catch (e: Exception) {
+                LogCollector.e("OpenAIText", "testConnection: 异常 type=${e.javaClass.name}, msg=${e.message}", e)
                 activity?.runOnUiThread {
+                    if (cancelled.get()) return@runOnUiThread
                     loadingDialog.dismiss()
                     showCustomDialog(getString(R.string.test_failed), e.message ?: "Unknown error", isCancelable = true)
                 }

@@ -565,7 +565,7 @@ class FloatingBallService : LifecycleService() {
                             } else {
                                 provider.userPrompt.ifEmpty { BuiltinProviders.DEFAULT_USER_PROMPT }
                             }
-                            translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = effectiveSystemPrompt, userPrompt = effectiveUserPrompt)
+                            translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = effectiveSystemPrompt, userPrompt = effectiveUserPrompt, autoAppendPath = provider.autoAppendPath)
                             LogCollector.d(TAG, "翻译 API 初始化: OpenAI (${provider.modelName})")
                         } else {
                             LogCollector.e(TAG, "No OpenAI Provider Config Found")

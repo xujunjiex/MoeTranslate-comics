@@ -3,13 +3,15 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:clipChildren="false"
     android:background="#FF000000">
 
     <!-- 图片翻页 -->
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/viewPager"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:clipChildren="false" />
 
     <!-- 顶部页码 -->
     <TextView
@@ -35,7 +37,7 @@
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="#FFFFFF" />
 
-    <!-- 右上角按钮组：原文/译文切换 + 删除（共享背景） -->
+    <!-- 右上角按钮组：旋转 + 原文/译文切换 + 删除（共享背景） -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -44,6 +46,15 @@
         android:orientation="horizontal"
         android:background="@drawable/bg_manga_toolbar_btn"
         android:paddingHorizontal="4dp">
+
+        <ImageButton
+            android:id="@+id/btnRotate"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@android:color/transparent"
+            android:src="@android:drawable/ic_menu_rotate"
+            android:tint="#FFFFFF"
+            android:contentDescription="旋转视图" />
 
         <ImageButton
             android:id="@+id/btnToggleImage"
@@ -103,16 +114,18 @@
             app:backgroundTint="#CC555555"
             app:cornerRadius="20dp" />
 
-        <!-- 重新翻译按钮 -->
-        <ImageButton
+        <!-- 重新翻译按钮：MaterialButton 带文本，避免和「旋转」按钮图标重复 -->
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRetranslate"
-            android:layout_width="40dp"
+            android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_manga_toolbar_btn"
-            android:src="@android:drawable/ic_menu_rotate"
-            android:tint="#55AEEA"
-            android:contentDescription="@string/history_retranslate" />
+            android:paddingHorizontal="12dp"
+            android:text="@string/history_retranslate"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            app:backgroundTint="#CC55AEEA"
+            app:cornerRadius="20dp" />
     </LinearLayout>
 
     <!-- 底部译文面板 -->

@@ -46,7 +46,7 @@ data class MangaModeConfig(
     val targetLang: String = "zh",
     val textColor: Int = android.graphics.Color.BLACK,
     val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255),
-    val ocrEngine: OcrEngine = OcrEngine.PPOcrV5,  // OCR 引擎（默认 PP-OCRv5）
-    val detEngine: DetEngine = DetEngine.PP_OCR_V5,  // 检测引擎（默认 PP-OCRv5）
+    val ocrEngine: OcrEngine = OcrEngine.PPOcrV6,  // OCR 引擎（默认 PP-OCRv6）
+    val detEngine: DetEngine = DetEngine.PP_OCR_V6,  // 检测引擎（默认 PP-OCRv6）
     val keepTextFree: Boolean = false  // RT-DETR-V2: 是否保留 text_free 区域（自由文字/旁白/音效）
 )

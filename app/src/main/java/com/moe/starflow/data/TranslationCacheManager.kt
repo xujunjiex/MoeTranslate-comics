@@ -28,6 +28,7 @@ class TranslationCacheManager(private val context: Context) {
         private const val THUMBNAIL_SIZE = 200
         private const val AREA_RATIO_MIN = 0.8f   // 面积比下限（框选偏移面积变化 <1%，宽松允许 ±20%）
         private const val AREA_RATIO_MAX = 1.25f  // 面积比上限
+        private const val CROP_POSITION_IOU_THRESHOLD = 0.5f  // 框选位置 IoU 下限（交集 / 较小面积）—— 拦截"同图不同区域"的错误命中（用户小调整也会超过 0.7，留余量给 ±20% 微调）
 
         // ========== 气泡解析工具函数 ==========
 
@@ -226,7 +227,10 @@ class TranslationCacheManager(private val context: Context) {
                 // 注意：Bitmap.createBitmap 共享底层数据，必须先渲染完再 recycle 原图
                 croppedBitmap = Bitmap.createBitmap(fullBitmap, safeCropLeft, safeCropTop, cropW, cropH)
                 if (mode == OverlayMode.PLAIN) {
-                    croppedBitmap
+                    // PLAIN 返回的 bitmap 会被外部 ImageView 长期持有，
+                    // 不能直接返回共享 fullBitmap 底层的 croppedBitmap（finally 会 recycle fullBitmap → 子 bitmap 失效）。
+                    // 复制出独立副本后再让原 full/cropped 安全回收。
+                    croppedBitmap.copy(croppedBitmap.config ?: android.graphics.Bitmap.Config.ARGB_8888, false)
                 } else {
                     OverlayRenderer.renderOverlay(
                         original = croppedBitmap,
@@ -308,6 +312,8 @@ class TranslationCacheManager(private val context: Context) {
         mode: Int,
         currentCropWidth: Int = 0,
         currentCropHeight: Int = 0,
+        currentCropLeft: Int = -1,
+        currentCropTop: Int = -1,
         lastSessionId: String? = null
     ): CacheResult? = withContext(Dispatchers.IO) {
         if (getMaxCacheCount() <= 0) return@withContext null
@@ -323,7 +329,7 @@ class TranslationCacheManager(private val context: Context) {
         // 同一截图方式、同一页时 4 段 hash 完全一致，直接命中
         val exactMatch = dao.findCacheByExactHashExtended(pHash1, pHash2, pHash3, pHash4, mode)
         if (exactMatch != null) {
-            // 面积比校验
+            // 面积比 + 位置校验（防止同图不同区域被误命中）
             val isCompat = if (currentCropWidth > 0 && currentCropHeight > 0) {
                 val ew = exactMatch.effectiveCropWidth()
                 val eh = exactMatch.effectiveCropHeight()
@@ -332,7 +338,10 @@ class TranslationCacheManager(private val context: Context) {
                     ratio in AREA_RATIO_MIN..AREA_RATIO_MAX
                 } else true
             } else true
-            if (isCompat) {
+            val isPositionCompat = isCropPositionCompatible(
+                exactMatch, currentCropLeft, currentCropTop, currentCropWidth, currentCropHeight
+            )
+            if (isCompat && isPositionCompat) {
                 val now = System.currentTimeMillis()
                 dao.updateLastAccessed(exactMatch.id, now)
                 val history = dao.getHistoryById(exactMatch.historyId)
@@ -361,7 +370,8 @@ class TranslationCacheManager(private val context: Context) {
                 val entryHashes = longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
                 val sim = PerceptualHash.similarity(extHashes, entryHashes)
                 if (sim >= SIMILARITY_THRESHOLD_MANGA && sim > bestSimilarity) {
-                    if (isCropAreaCompatible(entry, currentCropWidth, currentCropHeight)) {
+                    if (isCropAreaCompatible(entry, currentCropWidth, currentCropHeight)
+                        && isCropPositionCompatible(entry, currentCropLeft, currentCropTop, currentCropWidth, currentCropHeight)) {
                         bestSimilarity = sim
                         bestMatch = entry
                     }
@@ -409,6 +419,57 @@ class TranslationCacheManager(private val context: Context) {
         val compatible = ratio in AREA_RATIO_MIN..AREA_RATIO_MAX
         if (!compatible) {
             LogCollector.d(TAG, "面积比不兼容: current=${currentCropWidth}x${currentCropHeight}, cached=${entryWidth}x${entryHeight}, ratio=${String.format("%.2f", ratio)}")
+        }
+        return compatible
+    }
+
+    /**
+     * 校验缓存条目的框选位置与当前框选位置是否兼容（防止同图不同区域被误命中）。
+     * 算法：当前 bbox 与缓存 bbox 的 交集面积 / 较小面积 = IoU（小区域版本）
+     * - IoU ≥ CROP_POSITION_IOU_THRESHOLD (0.3) → 兼容（允许小幅微调）
+     * - IoU < 0.3 → 不兼容（视为不同区域，跳过此 cache 条目）
+     * 旧数据（无 cropLeft/Top 信息）跳过校验，保持向后兼容。
+     */
+    private fun isCropPositionCompatible(
+        entry: PageCacheEntity,
+        currentCropLeft: Int,
+        currentCropTop: Int,
+        currentCropWidth: Int,
+        currentCropHeight: Int
+    ): Boolean {
+        // 不校验：未提供位置信息（向后兼容旧调用）或缓存无位置信息（旧数据）
+        if (currentCropLeft < 0 && currentCropTop < 0) return true
+        if (currentCropWidth <= 0 || currentCropHeight <= 0) return true
+        val entryLeft = entry.cropLeft
+        val entryTop = entry.cropTop
+        val entryWidth = entry.effectiveCropWidth()
+        val entryHeight = entry.effectiveCropHeight()
+        // 缓存无位置/尺寸信息（旧数据）跳过校验
+        if (entryWidth <= 0 || entryHeight <= 0) return true
+
+        val currentRight = currentCropLeft + currentCropWidth
+        val currentBottom = currentCropTop + currentCropHeight
+        val entryRight = entryLeft + entryWidth
+        val entryBottom = entryTop + entryHeight
+
+        // 计算交集 bbox
+        val intersectLeft = maxOf(currentCropLeft, entryLeft)
+        val intersectTop = maxOf(currentCropTop, entryTop)
+        val intersectRight = minOf(currentRight, entryRight)
+        val intersectBottom = minOf(currentBottom, entryBottom)
+        if (intersectRight <= intersectLeft || intersectBottom <= intersectTop) {
+            LogCollector.d(TAG, "位置不兼容(无交集): current=${currentCropLeft},${currentCropTop}-${currentRight},${currentBottom} cached=${entryLeft},${entryTop}-${entryRight},${entryBottom}")
+            return false
+        }
+        val intersectArea = (intersectRight - intersectLeft).toLong() * (intersectBottom - intersectTop).toLong()
+        val currentArea = currentCropWidth.toLong() * currentCropHeight.toLong()
+        val entryArea = entryWidth.toLong() * entryHeight.toLong()
+        if (currentArea <= 0 || entryArea <= 0) return true
+        val smallerArea = minOf(currentArea, entryArea)
+        val ratio = intersectArea.toFloat() / smallerArea.toFloat()
+        val compatible = ratio >= CROP_POSITION_IOU_THRESHOLD
+        if (!compatible) {
+            LogCollector.d(TAG, "位置不兼容: current=(${currentCropLeft},${currentCropTop})-(${currentRight},${currentBottom}) ${currentCropWidth}x${currentCropHeight}, cached=(${entryLeft},${entryTop})-(${entryRight},${entryBottom}) ${entryWidth}x${entryHeight}, iou=${String.format("%.2f", ratio)}")
         }
         return compatible
     }
@@ -477,8 +538,8 @@ class TranslationCacheManager(private val context: Context) {
         entry: CacheEntry,
         originalBitmap: Bitmap? = null,
         createdAt: Long = System.currentTimeMillis()
-    ) = withContext(Dispatchers.IO) {
-        if (getMaxCacheCount() <= 0) return@withContext
+    ): Long = withContext(Dispatchers.IO) {
+        if (getMaxCacheCount() <= 0) return@withContext 0L
 
         // 漫画模式：查找并删除同 pHash + 同尺寸的旧记录，继承 sessionId 和 createdAt
         var inheritedSessionId = entry.sessionId
@@ -588,12 +649,75 @@ class TranslationCacheManager(private val context: Context) {
         )
         dao.insertCache(cacheEntity)
         LogCollector.d(TAG, "saveToCache: 插入 cache, pHash=0x${entry.pHash.toString(16)}, pHash2=0x${entry.pHash2.toString(16)}, pHash3=0x${entry.pHash3.toString(16)}, pHash4=0x${entry.pHash4.toString(16)}, mode=${entry.type}")
+        historyId
     }
 
     /**
      * 强制刷新缓存：用 historyId 删除旧记录，保存新结果。
      * sessionId 继承旧记录（按创建排序位置不变），lastSessionId 使用当前会话，createdAt 继承旧记录。
      */
+    /**
+     * 漫画模式原地重翻译（in-place update）：保留同一个 historyId + cacheId，
+     * 仅替换译文相关字段和 crop 区域。解决 MangaViewerActivity 重翻译后
+     * 「deleteHistoryById + insertHistory → 新 historyId」导致 pageGroups、
+     * renderCache、activeVariantIds 等所有引用断裂引发的黑屏问题。
+     *
+     * 调用方必须确保传入的 cache 仍存在；不存在的退化到 refreshCache() 路径。
+     *
+     * @return true=成功更新，false=旧 history/cache 不存在
+     */
+    suspend fun refreshCacheInPlace(
+        historyId: Long,
+        newSourceText: String,
+        newTranslatedText: String,
+        newBubbleRects: String,
+        newCropLeft: Int,
+        newCropTop: Int,
+        newCropRight: Int,
+        newCropBottom: Int,
+        newTranslatorName: String,
+        isRetranslated: Boolean = true
+    ): Boolean = withContext(Dispatchers.IO) {
+        val oldHistory = dao.getHistoryById(historyId) ?: run {
+            LogCollector.w(TAG, "refreshCacheInPlace: historyId=$historyId 不存在，回退到 refreshCache 路径")
+            return@withContext false
+        }
+        val oldCache = dao.findCacheByHistoryId(historyId) ?: run {
+            LogCollector.w(TAG, "refreshCacheInPlace: historyId=$historyId 无 cache 条目")
+            return@withContext false
+        }
+
+        // 1. history: 替换源文/译文/bubbleRects/translatorName/isRetranslated/updated_at
+        // 保留：id, pHash*4 (图片指纹不变), sessionId/createdAt (双 sessionId 架构)
+        val now = System.currentTimeMillis()
+        val updatedHistory = oldHistory.copy(
+            sourceText = newSourceText,
+            translatedText = newTranslatedText,
+            bubbleRects = newBubbleRects,
+            translatorName = newTranslatorName,
+            updatedAt = now,
+            isRetranslated = isRetranslated
+        )
+        dao.updateHistory(updatedHistory)
+
+        // 2. cache: 替换 crop 区域（保留 historyId 与 pHash*4）
+        val newWidth = (newCropRight - newCropLeft).coerceAtLeast(0)
+        val newHeight = (newCropBottom - newCropTop).coerceAtLeast(0)
+        val updatedCache = oldCache.copy(
+            cropLeft = newCropLeft,
+            cropTop = newCropTop,
+            cropRight = newCropRight,
+            cropBottom = newCropBottom,
+            cropWidth = newWidth,
+            cropHeight = newHeight,
+            lastAccessedAt = now
+        )
+        dao.updateCache(updatedCache)
+
+        LogCollector.d(TAG, "refreshCacheInPlace: historyId=$historyId 已原地更新, crop=$newCropLeft,$newCropTop-$newCropRight,$newCropBottom (${newWidth}x${newHeight})")
+        true
+    }
+
     suspend fun refreshCache(historyIdToDelete: Long, newEntry: CacheEntry, originalBitmap: Bitmap? = null) = withContext(Dispatchers.IO) {
         var inheritedSessionId = newEntry.sessionId
         var inheritedCreatedAt = System.currentTimeMillis()
@@ -753,10 +877,35 @@ class TranslationCacheManager(private val context: Context) {
             if (entry.id in used) continue
             val infoBits = bitsByEntry[entry] ?: 0
             if (infoBits < MIN_INFO_BITS_HISTORY) {
-                // 稀疏 hash：单独成组，不打印单条日志（避免噪音）
-                sparseCount++
-                groups.add(entry)
-                used.add(entry.id)
+                // 稀疏 hash：守卫只跳过相似度判断（不参与 0.85 阈值比较），
+                // 但 4 段 hash bit-by-bit 完全相等的仍视为同图 → 合并。
+                // 256 bit 完全相等的碰撞概率 ≈ 2^-256，远低于纯色页 2-3 bit
+                // 差异被误判为高相似度的风险（id=237 bug），可作为强同图信号。
+                val exactDuplicates = entries.filter { cand ->
+                    cand.id != entry.id && cand.id !in used &&
+                        (bitsByEntry[cand] ?: 0) < MIN_INFO_BITS_HISTORY &&
+                        cand.pHash == entry.pHash &&
+                        cand.pHash2 == entry.pHash2 &&
+                        cand.pHash3 == entry.pHash3 &&
+                        cand.pHash4 == entry.pHash4
+                }
+                if (exactDuplicates.isNotEmpty()) {
+                    val allSparse = listOf(entry) + exactDuplicates
+                    allSparse.forEach { used.add(it.id) }
+                    sparseCount++
+                    val sorted = allSparse.sortedByDescending { it.updatedAt }
+                    val representative = sorted.first()
+                    groups.add(representative.copy(
+                        variantCount = sorted.size,
+                        variantIds = sorted.map { it.id }
+                    ))
+                    LogCollector.d(TAG, "稀疏 hash 完全相等合并: 代表 id=${representative.id} 命中 ${sorted.size} 个变体 ${sorted.map { it.id }}")
+                } else {
+                    // 单独成组，不打印单条日志（避免噪音）
+                    sparseCount++
+                    groups.add(entry)
+                    used.add(entry.id)
+                }
                 continue
             }
 

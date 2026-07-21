@@ -57,6 +57,14 @@ class CropView @JvmOverloads constructor(
     private val confirmButtonRect = RectF()
     var onConfirmCrop: (() -> Unit)? = null
 
+    /**
+     * 禁用裁剪框**内部**拖动（position == 8）。
+     * 默认 false：维持原行为，框内触摸 = 移动整个裁剪框。
+     * 设为 true：框内触摸透传给下层 ImageView（典型用法：让 ZoomableImageView 接管缩放/平移）。
+     * 8 个 corner/edge 手柄（position 0-7）不受影响，仍可 resize 裁剪框。
+     */
+    var disableInternalDrag: Boolean = false
+
     fun setRect(rectF: RectF) {  //设置初始矩形宽高
         mRect = RectF(rectF)
         mInitRect = RectF(rectF)
@@ -193,10 +201,15 @@ class CropView @JvmOverloads constructor(
                 actionDownRectTop = mRect.top //按下顶 = 原来顶
                 actionDownRectRight = mRect.right //按下右 = 原来右
                 actionDownRectBottom = mRect.bottom //按下底 = 原来底
-                return getPosition(
+                // 关键修复：ACTION_DOWN 时锁定 mPressPointIndex 给后续 ACTION_MOVE 用。
+                // 缺少这一行，ACTION_MOVE 第一帧如果触摸点已经移出 50px 手柄区，
+                // getPosition 重算会返回 -1 → onTouchEvent 返回 false → 事件透传，
+                // 8 个手柄 resize 完全失效。
+                mPressPointIndex = getPosition(
                     mActionMovePoint.x.toFloat(),
                     mActionMovePoint.y.toFloat()
-                ) != -1 //如果焦点不在八个点上则不消耗事件，由DragScaleView来处理
+                )
+                return mPressPointIndex != -1 //如果焦点不在八个点上则不消耗事件，由DragScaleView来处理
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -361,7 +374,8 @@ class CropView @JvmOverloads constructor(
         } else if ((x - mRect.right) * (x - mRect.right) + (y - mRect.bottom) * (y - mRect.bottom) < POINT_RADIUS) {
             return 7
         } else if ((x > mRect.left) && (x < mRect.right) && (y > mRect.top) && (y < mRect.bottom)) {
-            return 8
+            // disableInternalDrag=true 时，框内触摸透传给下层 ImageView（让 ZoomableImageView 缩放/平移）
+            return if (disableInternalDrag) -1 else 8
         }
         return -1
     }

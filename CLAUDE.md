@@ -150,8 +150,7 @@ suspend fun renderOverlay(
 |--------|--------------|------|
 | MangaFloatingService 缓存命中 | false | TRANSLATED |
 | MangaFloatingService 复制模式切换 | false | TRANSLATED/ORIGINAL（**二态**，不加 PLAIN） |
-| MangaViewerActivity 首次加载 | true | TRANSLATED（默认） |
-| MangaViewerActivity 三态切换 | true | TRANSLATED→ORIGINAL→PLAIN |
+| MangaViewerActivity 预览（首次加载/翻页/三态切换） | false（scope=crop，只渲染框选区域） | TRANSLATED→ORIGINAL→PLAIN |
 | HistoryFragment 下载 | false | TRANSLATED |
 
 **坐标映射规则：**
@@ -352,6 +351,8 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
   - `applyCombo()` — 应用组合（更新 config + 持久化 prefs + 启动引擎）
 
 **添加新引擎只需：** 1) 枚举加值 2) `engineCombos`/`engineCycle` 加一项 3) `applyCombo`/`initEngineAsync` 加 `when` 分支。不需要同步多个分散的 `when` 表达式。
+
+**⚠️ 漫画引擎的「两个默认值」：** `MangaFloatingService.loadConfig()` 中 `prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V6.value)` 的默认值（第一默认，source of truth）和新安装用户 `MangaModeConfig.detEngine = DetEngine.PP_OCR_V6` 的 data class 默认值（第二默认）**在代码逻辑中等价**——首次运行时 prefs 无值 → 返回第一默认覆盖 data class 默认。但两者分别维护，修改默认引擎时必须同时更新两处。只改 data class 默认值而 prefs 默认值不变，升级用户（已有 prefs 值）不受影响；只改 prefs 默认值而 data class 默认值不变，某些间接路径（如 `loadConfig()` 未覆盖的代码）会读到旧值。
 
 **合并机制：**
 
@@ -627,6 +628,10 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 
 - **`Bitmap.createBitmap(src, x, y, w, h)` 是子 bitmap**，共享原图底层数据。原图 `recycle()` 后子 bitmap 失效，再调用 `.copy()` 抛 `Can't copy a recycled bitmap`。**正确顺序：先渲染（产生独立副本），再 try/finally 中 recycle 源 bitmap。**（cache 实时渲染 + 下载修复踩过）
 
+- **`libsentencepiece_train.so` 可安全排除**：NLLB 推理不需要 sentencepiece 训练库。在 `build.gradle` 的 `packaging { jniLibs { excludes += ['**/libsentencepiece_train.so'] } }` 中添加排除规则可节省 ~1.6MB APK 体积。不影响 NLLB 翻译功能。
+
+- **`MangaFloatingService` 前台服务类型（无障碍模式兼容性）**：Android 14+（targetSdk 35）要求 `startForeground()` 的类型与 Manifest 声明的 `foregroundServiceType` 匹配。如果服务声明了 `mediaProjection` 但以无障碍模式启动（无需 MediaProjection 授权），直接 `SecurityException` 崩溃。**修复**：始终以 `FOREGROUND_SERVICE_TYPE_SPECIAL_USE` 启动，仅在切换到 MediaProjection 模式时通过重新 `startForeground()` 升级到 `MEDIA_PROJECTION`。`FloatingBallService` 若后续添加无障碍截图模式也需同样处理。
+
 - **Android 11+ Scoped Storage**：直接 `File` 写 `/storage/emulated/0/Download/...` 会 EACCES 被拒。下载等需要写入公共目录的场景，用 `MediaStore.Downloads.EXTERNAL_CONTENT_URI` 写入。**SAF `openOutputStream(uri).use { ... .copyTo(out) }` 在某些 Android 版本上会丢数据（zip 显示 0B）**，优先 MediaStore，失败 fallback SAF。
 
 - **`groupMangaEntriesByPHash()` 必须返回所有变体**（不能只返回代表 entry）。否则下载/历史浏览只下载/看到代表那张，多尺寸变体丢失。
@@ -639,23 +644,25 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 
 - **`spinnerVariant` 显示"?"**：新条目 `imagePath=null`，但 `pageCacheMap[entry.id]?.cropRect` 有框选尺寸。**用 cropRect 宽高当 spinner 显示文本**，不要 fallback 到文件头尺寸（那是原图尺寸，不是用户框选的）。
 
-- **`renderCache` bitmap 回收**：`MangaViewerActivity.renderCache` 是 `ConcurrentHashMap<String, Bitmap?>`（key = `"${entryId}_${mode}"`）。**绝对禁止**在切换/翻页时调用 `values.forEach { it?.recycle() }` + `clear()` —— ViewPager2 的 RecyclerView 同时持有当前页 + 左右相邻 page 的 ViewHolder，ImageView 上的 BitmapDrawable 仍在引用这些 bitmap，强制 recycle 必然触发 `java.lang.RuntimeException: Canvas: trying to use a recycled bitmap` 崩溃。**正确做法**：`PageGroupAdapter.onViewDetachedFromWindow` 触发 `recycleEntryCaches(holder.activeId)` —— 此时 ViewHolder 已离开 RecyclerView 窗口，ImageView 不再持有引用，可以安全 recycle 全 3 个 mode bitmap。翻回去时 `loadImage` 走 IO `renderOverlay` 重新渲染（~100ms 视觉延迟可接受）。`onDestroy` 全 recycle 是 OK 的（ViewHolder 也都被释放）。
+- **`renderCache` bitmap 回收纪律（防静默 recycle 崩溃）**：`MangaViewerActivity.renderCache` 用 `utils/BitmapLruCache`（key = `"${entryId}_${mode.name}_crop"`）。**运行期绝不 recycle**：LRU 淘汰（`removeEldestEntry`）/ `set` 同 key 替换 / `remove` / `retainEntries` 全部只移除 cache 条目，旧 bitmap 交给 GC 回收 native buffer——被移除的 bitmap 可能仍被某个相邻未 detach 的 ViewHolder 的 ImageView 引用，静默 recycle 必触发 `Canvas: trying to use a recycled bitmap` 崩溃。**只有 `clear()`（onDestroy，ViewHolder 已全部释放）才 recycle**。`PageGroupAdapter.onViewDetachedFromWindow` 仅打 log，不做回收。`loadImage` 异步渲染完成后用 `ViewHolder.boundEntryId`/`boundMode` 校验 holder 是否仍属同一 entry+mode，过期则丢弃（`bitmap.recycle()`，此时 bitmap 未上屏，安全）。
+
+- **`ZoomableImageView` 旋转用 imageMatrix 而非 View.rotation**：旋转按钮调 `rotateAndFit90()` 累加 `imgRotation`（0/90/180/270）并用 `imageMatrix` 旋转 + 按旋转后视觉外接尺寸 contain 铺满（消除黑边、不溢出）。**绝不用 `View.rotation`**——旋转后 View bounds 外接矩形变大，被父容器（ViewPager2 的 RecyclerView，默认 clipChildren=true）裁切出黑边。旋转态下 `constrainMatrix` 禁用边界限制（未旋转几何公式不适用，会错误回拉图像到屏外）。三态切换/翻页重绑定触发 `resetRotation()` 还原正常方向（imgRotation=0 + fitCenter）。
 
 - **`updateToggleSegments` 协程必须 cancel**：每次 toggle 启动新协程前 `renderToggleJob?.cancel()`，避免用户快速点击产生并发渲染浪费 CPU。`dismissCacheOverlay` 回收 `currentOriginalBitmap` 前也要 cancel render job，否则协程回到 Main 时 bitmap 已回收 → `IllegalStateException`。
 
 - **缓存命中路径必须检查 bubbleRects**：新数据有 `bubbleRects` → 走实时渲染。旧数据无 `bubbleRects` → 回退加载 `imagePath`（预渲染译文 overlay）。`buildCacheResult` 需根据 `bubbleRects.isNullOrBlank()` 选择加载路径。漏检查会导致旧数据用户看到原图而非译文 overlay。
 
-- **MangaViewerActivity 重翻必须保存 bubbleRects**：`doRetranslate` 中 `refreshCache` 需传入 `bubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles)`，否则下次浏览时无法实时渲染。同时 `resultBitmap` 应设为 `null`（新设计不存译文图）。
+- **MangaViewerActivity 重翻流程（`performRetranslate`）**：按当前条目**原有框选区域**（读 `pageCacheMap[entry.id]` 的 crop 坐标）原地重 OCR+翻译，调 `refreshCacheInPlace`（保 historyId 不变，替换 sourceText/translatedText/bubbleRects/translatorName）。完成后 `cacheManager.getHistoryById` + `updateInMemoryEntry` 覆盖 `pageGroups` 内存快照（否则 `expandPanel` 显示旧译文），清该 entry 三态 renderCache 后 `notifyItemChanged`，必要时调 `expandPanel` 刷新详细面板。**无「重新框选」对话框**（已删除 `view_manga_retranslate_recrop.xml`）。
 
 - **稀疏 hash 误判合并 bug**：`groupMangaEntriesByPHash` 用 256-bit Hamming 距离相似度（阈值 0.85）。**纯色 / 几乎纯色页面 dHash 4 段几乎全 0**（每段 1-3 bits），两张低纹理页间 distance=2~3 bits → `similarity = 1 - 2/256 = 0.992` 远超 0.85 → **错误合并**。**修复**：`MIN_INFO_BITS_HISTORY = 16`（~6.25%）守卫，infoBits < 16 的 entry 单独成组，不参与 normal 相似度判定。**应用范围**：`findCacheExt` 用 0.95 阈值独立判断（line 363），且有 `curBits=0/256` 早退保护，但 `groupMangaEntriesByPHash` 用 0.85 没早退 → 必须加守卫。新加 hash 相似度判定时也要加 infoBits 守卫。详见 [[manga-history-group-sparse-hash]]。
 
 - **pHash 显示格式必须用 `%016X`（完整 64 位）**：MangaViewerActivity 详情面板 `tvTranslationInfo` 显示 pHash 时**不要**用 `entry.pHash and 0xFFFFFFFFL` + `"%08X"`（只显示低 32 位）。曾经修复：`pHash = 0x800000000000`（高 51 位 bit）被显示成 `00000000`，用户看不到真实值。统一用 `String.format("%016X", entry.pHash)` 完整 64-bit hex，与 history 列表 `HistoryMangaAdapter` (`entry.pHash = "%016X"`) 保持一致。
 
-- **BitmapLruCache 替代 ConcurrentHashMap 做 renderCache**：`MangaViewerActivity` 的 `renderCache` 使用 `utils/BitmapLruCache`（`LinkedHashMap` access-order），淘汰时自动 `recycle()` native buffer。**不要用 `ConcurrentHashMap`** — 迭代顺序 ≠ 插入顺序 → 伪 LRU → 可能淘汰热数据。"最久未访问"而非"detach"作淘汰条件，避免 `RecyclerView` 复用 `ViewHolder` 时 recycle 正在显示的 bitmap → `Canvas: trying to use a recycled bitmap` 崩溃。
-
 - **DialogPreference（ColorPreferenceCompat 等）不能用 `setOnPreferenceClickListener` 拦截点击**：`DialogPreference` 通过 `PreferenceFragmentCompat.onDisplayPreferenceDialog()` 展示弹窗，普通 click listener 返回 `true` 也无法阻止弹窗。**正确方式**：重写 `onDisplayPreferenceDialog(pref)`，匹配 `pref.key` 后显示自定义弹窗，其余走 `super`。
 
 - **AlertDialog 自定义布局 View 不用 `dialog.findViewById`**：`AlertDialog.Builder.setView(view)` 传入自定义布局后，通过 `dialog.findViewById(R.id.xxx)` 查找子 View 不可靠（可能返回 null，尤其是 dialog 未 show 时）。**正确做法**：inflate 布局后从 `view.findViewById(...)` 直接持有 View 引用，在 `create()` 前后操作该引用。
+
+- **`AlertDialog.setView()` + `window.setLayout()` 按钮被推出屏幕**：`AlertDialog.Builder.setView(view)` 替换内容区域后，再通过 `dialog.window.setLayout(width, fixedHeight)` 约束高度，如果固定高度过小（<55% 屏幕高），底部的确定/取消按钮可能被推出屏幕外。**原因**：固定高度限制的是 content 区域而非 dialog 整体（title + content + button 区总高 > fixedHeight）。**修复**：用 `setMessage()`（内部自动绑定 ScrollView）替代 `setView()` 约束内容高度；或 `setView()` 时高度用 `WRAP_CONTENT`，只限制宽度百分比。
 
 ## UI 规范
 

@@ -741,14 +741,27 @@
                 android:layout_marginBottom="8dp"/>
 
             <!-- manga-ocr -->
-            <TextView
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:text="manga-ocr"
-    android:textSize="14sp"
-    android:textStyle="bold"/>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="manga-ocr"
+                    android:textSize="14sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/manga_ocr_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:textSize="12sp"/>
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -756,13 +769,6 @@
                 android:orientation="horizontal"
                 android:layout_marginTop="6dp"
                 android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/manga_ocr_status"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textSize="12sp"/>
 
                 <TextView
                     android:id="@+id/manga_ocr_encoder_button"
@@ -775,6 +781,7 @@
                     android:text="@string/model_browser_emoji_encoder"
                     android:textSize="11sp"
                     android:textColor="#666"
+                    android:gravity="center"
                     android:layout_marginEnd="4dp"/>
 
                 <TextView
@@ -788,6 +795,7 @@
                     android:text="@string/model_browser_emoji_decoder"
                     android:textSize="11sp"
                     android:textColor="#666"
+                    android:gravity="center"
                     android:layout_marginEnd="4dp"/>
 
                 <TextView
@@ -801,7 +809,13 @@
                     android:text="@string/model_browser_emoji_vocab"
                     android:textSize="11sp"
                     android:textColor="#666"
+                    android:gravity="center"
                     android:layout_marginEnd="6dp"/>
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
 
                 <TextView
                     android:id="@+id/manga_ocr_action_button"
@@ -814,6 +828,7 @@
                     android:background="@drawable/btn_download"
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
+                    android:gravity="center"
                     android:text="@string/model_download"/>
             </LinearLayout>
         </LinearLayout>

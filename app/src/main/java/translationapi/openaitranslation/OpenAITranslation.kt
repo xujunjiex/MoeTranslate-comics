@@ -49,14 +49,15 @@ class OpenAITranslation(
     private val maxTokens: Int = 1000,
     private val temperature: Float = 0.3f,
     private val continuationType: String = "none",
-    private val prefillContent: String = ""
+    private val prefillContent: String = "",
+    private val autoAppendPath: Boolean = true
 ) : TranslationTextAPI {
 
     override val modelName: String get() = model
 
     companion object {
         private const val TAG = "OpenAITranslation"
-        private const val SOCKET_TIMEOUT = 30L // 30秒，AI接口需要更长时间
+        private const val SOCKET_TIMEOUT = 90L // 90秒，AI接口（尤其第三方代理）冷启动/长文本响应偶尔超过 30s
     }
 
     // 上下文相关（动态更新，每次翻译前通过 updateContext 设置）
@@ -124,9 +125,29 @@ class OpenAITranslation(
         LogCollector.d(TAG, "Request: $requestBody")
 
         val endpoint = if (continuationType == "prefix") {
-            "$baseUrl/beta/chat/completions"
+            if (autoAppendPath) {
+                if (baseUrl.endsWith("/")) {
+                    "${baseUrl}beta/chat/completions"
+                } else {
+                    "$baseUrl/beta/chat/completions"
+                }
+            } else {
+                if (baseUrl.endsWith("/")) {
+                    "${baseUrl}beta"
+                } else {
+                    baseUrl
+                }
+            }
         } else {
-            "$baseUrl/chat/completions"
+            if (autoAppendPath) {
+                if (baseUrl.endsWith("/")) {
+                    "${baseUrl}chat/completions"
+                } else {
+                    "$baseUrl/chat/completions"
+                }
+            } else {
+                baseUrl
+            }
         }
 
         val request = Request.Builder()
