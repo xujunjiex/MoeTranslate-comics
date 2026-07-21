@@ -371,6 +371,10 @@ class AboutMe : Fragment() {
         }
 
         dialog.show()
+        dialog.window?.let { win ->
+            val dm = resources.displayMetrics
+            win.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, (dm.heightPixels * 0.55).toInt())
+        }
     }
 
     /**
