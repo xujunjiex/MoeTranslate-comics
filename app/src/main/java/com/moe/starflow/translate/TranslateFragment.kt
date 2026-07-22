@@ -957,7 +957,7 @@ class TranslateFragment : Fragment() {
     private fun showNotificationDialog(notification: NotificationResult.NotificationAvailable) {
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle(notification.notificationName)
-            .setMessage(notification.notificationContent)
+            .setMessage(android.text.Html.fromHtml(notification.notificationContent, android.text.Html.FROM_HTML_MODE_LEGACY))
             .setCancelable(false)
             .setPositiveButton(R.string.user_known) { _, _ ->
                 prefs.setLong("Read_Notice", notification.notificationCode)
