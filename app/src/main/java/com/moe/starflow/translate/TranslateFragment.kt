@@ -968,8 +968,10 @@ class TranslateFragment : Fragment() {
         dialog.window?.let { win ->
             val dm = resources.displayMetrics
             val maxW = (dm.widthPixels * 0.90).toInt()
-            val maxH = (dm.heightPixels * 0.70).toInt()
-            win.setLayout(maxW, maxH)
+            // 高度用 WRAP_CONTENT 让公告内容少时自适应、内容多时由 setMessage 内置 ScrollView 自动滚动，
+            // 避免固定 maxH 导致短内容时底部大片空白（CLAUDE.md 「弹窗高度」踩坑）
+            val desiredH = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            win.setLayout(maxW, desiredH)
         }
     }
 
