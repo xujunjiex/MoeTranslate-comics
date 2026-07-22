@@ -4284,10 +4284,15 @@ class MangaFloatingService : LifecycleService() {
     private fun createPPOcrParamSlidersView(): android.view.View {
         val dp = resources.displayMetrics.density
 
-        // 默认值
-        val DEF_BOX = 0.3f; val DEF_UNCLIP = 1.6f; val DEF_TEXT = 0.5f
-        val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
-        val DEF_LIMIT_SIDE_V5 = 1080; val DEF_LIMIT_TYPE_V5 = "max"
+        // 默认值统一从 PPOcrDefault 取（单一来源）。改默认值时只动 PPOcrParams.kt。
+        // 别名（缩写）：UI 层常用短名，提高可读性。
+        val DEF_BOX = PPOcrDefault.DET_BOX_THRESH_V5
+        val DEF_UNCLIP = PPOcrDefault.DET_UNCLIP_RATIO
+        val DEF_TEXT = PPOcrDefault.TEXT_SCORE_THRESH
+        val DEF_LARGE_ENABLED = PPOcrDefault.LARGE_BOX_ENABLED
+        val DEF_LARGE_RATIO = PPOcrDefault.LARGE_BOX_RATIO
+        val DEF_LIMIT_SIDE_V5 = PPOcrDefault.LIMIT_SIDE_LEN
+        val DEF_LIMIT_TYPE_V5 = PPOcrDefault.LIMIT_TYPE
 
         // 滑块范围映射
         fun boxToSeek(v: Float) = ((v - 0.01f) / 0.49f * 100).roundToInt().coerceIn(0, 100)
@@ -4662,7 +4667,7 @@ class MangaFloatingService : LifecycleService() {
         val DEF_LARGE_ENABLED = false; val DEF_LARGE_RATIO = 0.6f
         val DEF_GAP = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
         // v6 新增参数默认值（对齐 v5 但稍大）
-        val DEF_LIMIT_SIDE = 1080; val DEF_LIMIT_TYPE = "max"  // 比 v5 的 960 稍大，max 模式避免游戏细长框选被强制放大
+        val DEF_LIMIT_SIDE = 1200; val DEF_LIMIT_TYPE = "max"  // 比 v5 的 960 稍大，max 模式避免游戏细长框选被强制放大
         val DEF_USE_DILATION = true; val DEF_SCORE_MODE = "fast"; val DEF_MAX_CANDIDATES = 1000
         val DEF_MIN_HEIGHT = 30
 

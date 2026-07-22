@@ -99,11 +99,13 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // Det 常量 (ch_ppocr_det/utils.py DetPreProcess + DBPostProcess)
     // -----------------------------------------------------------------------
+    // 用户可调参数的"默认值"已迁到 PPOcrDefault（manga/PPOcrParams.kt）作为单一来源。
+    // 这里保留 *_DEFAULT 常量仅用于字段初始化（冷启动 fallback），refreshParams() 会从 prefs 覆盖。
     private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)
     private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
     private const val DET_THRESH = 0.1f
-    private const val DET_BOX_THRESH_DEFAULT = 0.3f
-    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6
+    private const val DET_BOX_THRESH_DEFAULT = 0.3f       // must match PPOcrDefault.DET_BOX_THRESH_V5
+    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6     // must match PPOcrDefault.DET_UNCLIP_RATIO
     private const val DET_MAX_CANDIDATES = 100
     private const val DET_MIN_SIZE = 3
 
@@ -122,7 +124,7 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // 全局常量
     // -----------------------------------------------------------------------
-    private const val TEXT_SCORE_THRESH_DEFAULT = 0.5f
+    private const val TEXT_SCORE_THRESH_DEFAULT = 0.5f   // must match PPOcrDefault.TEXT_SCORE_THRESH
 
     // -----------------------------------------------------------------------
     // 用户可调参数（从 SharedPreferences 动态读取）
@@ -132,7 +134,7 @@ object PPOcrV5Engine {
     @Volatile private var textScoreThresh = TEXT_SCORE_THRESH_DEFAULT
     @Volatile private var largeBoxEnabled = false
     @Volatile private var largeBoxRatio = 0.6f  // 宽/高/面积占图片比例阈值
-    @Volatile private var limitSideLen = 1080        // Det.limit_side_len
+    @Volatile private var limitSideLen = 1200        // Det.limit_side_len（must match PPOcrDefault.LIMIT_SIDE_LEN）
     @Volatile private var limitType = "max"          // Det.limit_type: "min" | "max"
 
     /**
@@ -141,13 +143,14 @@ object PPOcrV5Engine {
      */
     fun refreshParams(context: Context) {
         val prefs = CustomPreference.getInstance(context)
-        detBoxThresh = prefs.getFloat("ppocr_det_box_thresh", DET_BOX_THRESH_DEFAULT)
-        detUnclipRatio = prefs.getFloat("ppocr_det_unclip_ratio", DET_UNCLIP_RATIO_DEFAULT.toFloat()).toDouble()
-        textScoreThresh = prefs.getFloat("ppocr_text_score_thresh", TEXT_SCORE_THRESH_DEFAULT)
-        largeBoxEnabled = prefs.getBoolean("ppocr_large_box_enabled", false)
-        largeBoxRatio = prefs.getFloat("ppocr_large_box_ratio", 0.6f)
-        limitSideLen = prefs.getInt("ppocr_limit_side_len", 1080)
-        limitType = prefs.getString("ppocr_limit_type", "max") ?: "max"
+        // 默认值单一来源见 PPOcrDefault；prefs key 见 PPOcrKey。改默认值时只动 PPOcrParams.kt。
+        detBoxThresh = PPOcrPrefs.boxThreshV5(prefs)
+        detUnclipRatio = PPOcrPrefs.unclipRatio(prefs).toDouble()
+        textScoreThresh = PPOcrPrefs.textScoreV5(prefs)
+        largeBoxEnabled = PPOcrPrefs.largeBoxEnabled(prefs)
+        largeBoxRatio = PPOcrPrefs.largeBoxRatio(prefs)
+        limitSideLen = PPOcrPrefs.limitSideLen(prefs)
+        limitType = PPOcrPrefs.limitType(prefs)
     }
 
     // -----------------------------------------------------------------------

@@ -1472,16 +1472,6 @@ class FloatingBallService : LifecycleService() {
                 }
             }
         }
-
-        // 画面变化加速检测：AccessibilityService 检测到事件时立即触发
-        lifecycleScope.launch {
-            ScreenshotManager.eventTriggerFlow.collect {
-                if (isAutoTranslating && !isTranslating.get()) {
-                    autoTranslateHandler.removeCallbacksAndMessages(null)
-                    runAutoDetect()
-                }
-            }
-        }
     }
 
     private fun showFontSizeDialog(){

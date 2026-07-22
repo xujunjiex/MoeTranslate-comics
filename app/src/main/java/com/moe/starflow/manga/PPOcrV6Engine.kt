@@ -44,15 +44,16 @@ object PPOcrV6Engine {
     // -----------------------------------------------------------------------
     // Det 常量 (ch_ppocr_det/utils.py DetPreProcess + DBPostProcess)
     // -----------------------------------------------------------------------
-    private const val DET_LIMIT_SIDE_LEN = 1080      // 比 v5 的 960 稍大，保留更多细节
-    private const val DET_LIMIT_TYPE = "max"          // 对齐 v5：避免游戏模式细长框选被强制放大 6 倍 → det 输入 15548x736 → OOM/慢
-                                                     // 官方默认 min 是为通用场景设计（确保文字够大），但游戏框选局部图文字本来就够大，用 max 更合适
+    // 用户可调参数的"默认值"已迁到 PPOcrDefault（manga/PPOcrParams.kt）作为单一来源。
+    // 这里保留 *_DEFAULT 常量仅用于字段初始化（冷启动 fallback），refreshParams() 会从 prefs 覆盖。
+    private const val DET_LIMIT_SIDE_LEN = 1200      // 必须与 PPOcrDefault.LIMIT_SIDE_LEN 一致
+    private const val DET_LIMIT_TYPE = "max"          // 必须与 PPOcrDefault.LIMIT_TYPE 一致
     private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)  // same
     private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)   // same
     private const val DET_THRESH = 0.3f               // was 0.1f
-    private const val DET_BOX_THRESH_DEFAULT = 0.5f   // was 0.3f
-    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6  // same
-    private const val DET_MAX_CANDIDATES_DEFAULT = 1000  // was 100; 对齐 RapidOCR v6 默认值
+    private const val DET_BOX_THRESH_DEFAULT = 0.5f   // must match PPOcrDefault.DET_BOX_THRESH_V6
+    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6  // must match PPOcrDefault.DET_UNCLIP_RATIO
+    private const val DET_MAX_CANDIDATES_DEFAULT = 1000  // must match PPOcrDefault.V6_MAX_CANDIDATES
     private const val DET_MIN_SIZE = 3                 // same
 
     // cls removed — direction classification is no longer used
@@ -67,7 +68,7 @@ object PPOcrV6Engine {
     // -----------------------------------------------------------------------
     // 全局常量
     // -----------------------------------------------------------------------
-    private const val TEXT_SCORE_THRESH_DEFAULT = 0.5f
+    private const val TEXT_SCORE_THRESH_DEFAULT = 0.5f   // must match PPOcrDefault.TEXT_SCORE_THRESH
 
     // -----------------------------------------------------------------------
     // 用户可调参数（从 SharedPreferences 动态读取）
@@ -99,23 +100,23 @@ object PPOcrV6Engine {
      */
     fun refreshParams(context: Context) {
         val prefs = CustomPreference.getInstance(context)
-        detThresh = prefs.getFloat("ppocrv6_det_thresh", 0.3f)
-        detBoxThresh = prefs.getFloat("ppocrv6_det_box_thresh", 0.5f)
-        detUnclipRatio = prefs.getFloat("ppocrv6_det_unclip_ratio", 1.6f).toDouble()
-        limitSideLen = prefs.getInt("ppocrv6_limit_side_len", 736)
-        limitType = prefs.getString("ppocrv6_limit_type", "min") ?: "min"
-        textScoreThresh = prefs.getFloat("ppocrv6_text_score", 0.5f)
-        recBatchNum = prefs.getInt("ppocrv6_rec_batch_num", 6)
-        largeBoxEnabled = prefs.getBoolean("ppocrv6_large_box_enabled", false)
-        largeBoxRatio = prefs.getFloat("ppocrv6_large_box_ratio", 0.6f)
+        // 默认值单一来源见 PPOcrDefault；prefs key 见 PPOcrKey。改默认值时只动 PPOcrParams.kt。
+        detThresh = PPOcrPrefs.detThreshV6(prefs)
+        detBoxThresh = PPOcrPrefs.boxThreshV6(prefs)
+        detUnclipRatio = PPOcrPrefs.unclipRatioV6(prefs).toDouble()
+        limitSideLen = PPOcrPrefs.limitSideLenV6(prefs)
+        limitType = PPOcrPrefs.limitTypeV6(prefs)
+        textScoreThresh = PPOcrPrefs.textScoreV6(prefs)
+        recBatchNum = PPOcrPrefs.recBatchNumV6(prefs)
+        largeBoxEnabled = PPOcrPrefs.largeBoxEnabledV6(prefs)
+        largeBoxRatio = PPOcrPrefs.largeBoxRatioV6(prefs)
 
         // v6 新增参数
-        useDilation = prefs.getBoolean("ppocrv6_use_dilation", true)
-        scoreMode = prefs.getString("ppocrv6_score_mode", "fast") ?: "fast"
-        maxCandidates = prefs.getInt("ppocrv6_max_candidates", DET_MAX_CANDIDATES_DEFAULT)
-        // max_side_len / min_side_len 已删除——官方 RapidOCR 没有这两个参数
-        minHeight = prefs.getInt("ppocrv6_min_height", 30)
-        widthHeightRatio = prefs.getFloat("ppocrv6_width_height_ratio", -1f)
+        useDilation = PPOcrPrefs.useDilationV6(prefs)
+        scoreMode = PPOcrPrefs.scoreModeV6(prefs)
+        maxCandidates = PPOcrPrefs.maxCandidatesV6(prefs)
+        minHeight = PPOcrPrefs.minHeightV6(prefs)
+        widthHeightRatio = PPOcrPrefs.widthHeightRatioV6(prefs)
     }
 
     // -----------------------------------------------------------------------

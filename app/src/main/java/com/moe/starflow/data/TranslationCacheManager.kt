@@ -836,7 +836,7 @@ class TranslationCacheManager(private val context: Context) {
                             sessionId = sessionId,
                             startTime = sessionEntries.minOf { it.createdAt },
                             endTime = sessionEntries.maxOf { it.createdAt },
-                            entries = sessionEntries.sortedBy { it.createdAt }
+                            entries = sessionEntries.sortedByDescending { it.createdAt }
                         )
                     }
                     .sortedByDescending { it.startTime }
