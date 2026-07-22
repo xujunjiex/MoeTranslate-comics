@@ -664,6 +664,10 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 
 - **`AlertDialog.setView()` + `window.setLayout()` 按钮被推出屏幕**：`AlertDialog.Builder.setView(view)` 替换内容区域后，再通过 `dialog.window.setLayout(width, fixedHeight)` 约束高度，如果固定高度过小（<55% 屏幕高），底部的确定/取消按钮可能被推出屏幕外。**原因**：固定高度限制的是 content 区域而非 dialog 整体（title + content + button 区总高 > fixedHeight）。**修复**：用 `setMessage()`（内部自动绑定 ScrollView）替代 `setView()` 约束内容高度；或 `setView()` 时高度用 `WRAP_CONTENT`，只限制宽度百分比。
 
+- **`AlertDialog.setMessage()` 公告内容必须 `Html.fromHtml()` 渲染**：`TranslateFragment.showNotificationDialog` 接收 Gist content 用 `android.text.Html.fromHtml(content, FROM_HTML_MODE_LEGACY)` 渲染。**直接 `setMessage` 纯文本会显示字面 `<br>` 标签**（v0.9.2 早期版本踩坑）。Gist content 已约定用 HTML 标记（见「Gist 公告格式」），不要换成纯文本。
+
+- **`OpenAIText.testConnection` 在 `isNew=true` 时 `providerIndex` 越界**：`ManageActivity` 启动「新增自定义 API」fragment 时传 `custom_code = allProviders.size`（越界值，APIConfig.kt:674）。OpenAIText 接收后 `providerIndex = allProviders.size` 指向数组末尾的下一个位置。`testConnection` line 746 无条件访问 `allProviders[providerIndex]` → `ArrayIndexOutOfBoundsException` → HTTP 请求根本没发出，弹"测试失败：Index N out of bounds for length N"（N 为当前 provider 数）。修复：line 746 用 `if (providerIndex in allProviders.indices)` 安全访问，越界时显示 `"custom[new]"`；`setupUserMode()` 在 `isNew=true` 时显式 `switchAutoAppendPath.isChecked = true`。
+
 ## UI 规范
 
 - **禁止使用系统原生弹窗和选择器**：所有弹窗、菜单、选择器必须使用应用自身的样式，禁止系统原生样式（白色背景、系统字体）
@@ -746,6 +750,10 @@ val jsonStart = body.indexOf('{')
 if (jsonStart < 0) return NotificationResult.Error
 val json = JSONObject(body.substring(jsonStart))
 ```
+
+**单文件要求**：Gist 只能保留一个名为 `gist_v086_final.txt` 的文件。`NotificationChecker` 通过 `raw` URL 拉取（按文件名字母序返回第一个），多余文件（如 `gist_content.txt`）会让 raw URL 返回旧版本内容（v0.9.2 发布时踩坑）。
+
+**Content 用 HTML 标记**：`content` 字段支持 `<b>...</b>`、`<br>`、`<ul><li>` 等简单标记，app 用 `Html.fromHtml(content, FROM_HTML_MODE_LEGACY)` 渲染。**不要用 Markdown `**bold**`**——app 不渲染星号。`\n` 在 JSON 字符串里用字面 `\\n`（JSONParser 解析为真换行），不要用真实换行（破坏 JSON 结构）。
 
 ### Android 13+ 通知权限
 
