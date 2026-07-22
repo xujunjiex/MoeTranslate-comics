@@ -406,6 +406,13 @@ class OpenAIText :Fragment() {
         binding.modelSpinnerLayout.visibility = View.GONE
         binding.modelTips.visibility = View.VISIBLE
 
+        // 防御性：isNew=true 路径下 loadConfig 不会设置 switchAutoAppendPath，
+        // XML 默认值不一定可靠（部分主题/换主题可能未应用）。
+        // 用户模式下，baseUrl 通常不带 /chat/completions，所以默认勾选更安全。
+        if (isNew) {
+            binding.switchAutoAppendPath.isChecked = true
+        }
+
         // 重置按钮：游戏模式重置到通用翻译prompt，漫画模式重置到内置漫画默认prompt
         binding.btnResetSystemPrompt.visibility = View.VISIBLE
         binding.btnResetUserPrompt.visibility = View.VISIBLE
@@ -741,9 +748,15 @@ class OpenAIText :Fragment() {
                     .build()
 
                 // 日志 tag = "OpenAIText"，便于在设置页日志查看器 / logcat 中过滤
+                // 修复：providerIndex 在 isNew=true 时等于 allProviders.size（越界），要安全访问
+                val providerLabel = if (providerIndex in allProviders.indices) {
+                    allProviders[providerIndex].name
+                } else {
+                    "custom[new]"  // 新建自定义 provider
+                }
                 LogCollector.d(
                     "OpenAIText",
-                    "testConnection: provider=${allProviders[providerIndex].name}, " +
+                    "testConnection: provider=$providerLabel, " +
                         "model=$modelName, baseUrl=$baseUrl, selectedModelIndex=$selectedModelIndex"
                 )
                 LogCollector.d("OpenAIText", "testConnection: OkHttp 客户端构建完成, 开始构造 request")
