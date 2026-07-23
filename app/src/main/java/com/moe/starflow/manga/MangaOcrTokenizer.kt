@@ -69,7 +69,10 @@ class MangaOcrTokenizer(private val context: Context) {
                 sb.append(token)
             }
         }
-        return sb.toString().replace(" ##", "").replace("##", "").trim()
+        return sb.toString()
+            .replace(" ##", "").replace("##", "")
+            .replace(" ", "")  // 日文竖排逐字 token 间被 BPE 插入空格，去掉
+            .trim()
     }
 
     /**

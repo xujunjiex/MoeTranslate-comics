@@ -22,7 +22,7 @@ object VerticalTextRenderer {
             textAlign = Paint.Align.CENTER
         }
 
-        val charHeight = fontSize * 1.4f
+        val charHeight = fontSize * 1.2f
         val columnSpacing = fontSize * 1.2f
         var currentX = region.right - columnSpacing / 2
         var currentY = region.top + fontSize
@@ -59,7 +59,7 @@ object VerticalTextRenderer {
             textAlign = Paint.Align.CENTER
         }
 
-        val charHeight = fontSize * 1.4f
+        val charHeight = fontSize * 1.2f
         val columnSpacing = fontSize * 1.2f
         var currentX = region.left + columnSpacing / 2
         var currentY = region.top + fontSize
@@ -94,7 +94,7 @@ object VerticalTextRenderer {
             isAntiAlias = true
         }
 
-        val lineHeight = fontSize * 1.4f
+        val lineHeight = fontSize * 1.2f
         val maxWidth = region.width().toFloat()
         var currentY = region.top + fontSize
 
@@ -150,8 +150,8 @@ object VerticalTextRenderer {
 
         // 字体上限不能超过矩形本身能容纳的大小
         val rectLimit = when (direction) {
-            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> regionHeight / 1.4f
-            TextDirection.HORIZONTAL -> regionWidth / 1.4f
+            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> regionHeight / 1.2f
+            TextDirection.HORIZONTAL -> regionWidth / 1.2f
         }
         val cappedMax = minOf(maxFontSize, rectLimit)
 
@@ -179,7 +179,7 @@ object VerticalTextRenderer {
         direction: TextDirection,
         fontSize: Float
     ): Boolean {
-        val charHeight = fontSize * 1.4f
+        val charHeight = fontSize * 1.2f
         val columnSpacing = fontSize * 1.2f
         val regionWidth = region.width().toFloat()
         val regionHeight = region.height().toFloat()
@@ -193,7 +193,7 @@ object VerticalTextRenderer {
             }
             TextDirection.HORIZONTAL -> {
                 val paint = Paint().apply { textSize = fontSize }
-                val lineHeight = fontSize * 1.4f
+                val lineHeight = fontSize * 1.2f
                 val maxLines = (regionHeight / lineHeight).toInt()
                 var lines = 0
                 val paragraphs = text.split("\n")
