@@ -312,6 +312,8 @@
     <string name="faq_a7">在漫画翻译调试模式中，可通过滑块/开关实时调整 PP-OCRv5/v6 引擎参数。修改立即生效并自动应用到正常翻译流程。面板中「⚙」按钮可展开/折叠参数面板，「📊」按钮可展开/折叠调试信息。\n\n下方参数为 v5/v6 共享（独立存储，默认值可能不同），仅 v6 独有的参数列在最末。\n\n<b><u>── 共享参数（PP-OCRv5 &amp; PP-OCRv6）──</u></b>\n\n<b>box_thresh — 检测框置信度阈值</b>\n默认 <b>0.3（v5）</b> / <b>0.5（v6）</b>，范围 0.01 ~ 0.7。从 mask 连通域提取外接矩形后计算平均得分，低于此值的框丢弃。\n- 漏框→降低\n- 噪声框→升高\n\n<b>unclip_ratio — 检测框膨胀系数</b>\n默认 1.6，范围 <b>1.0 ~ 3.0（v5）</b> / <b>1.6 ~ 2.0（v6）</b>。对保留的框做 Vatti clipping 膨胀，向外扩展边界避免裁剪时缺字。值越大框越宽松。\n- 字符截断→增大\n- 框过大→减小\n\n<b>text_score — 识别置信度阈值</b>\n默认 0.5，范围 0.1 ~ 0.9。CTC 解码后按文本行平均置信度过滤，低于此值丢弃。\n- 翻译缺失→降低\n- 乱码→升高\n\n<b>limit_side_len — 检测阶段边长限制</b>\n默认 <b>1200</b>，范围 64 ~ 2048（像素）。配合 limit_type 控制检测时的图像缩放。\n\n<b>limit_type — 边长限制策略</b>\n默认 <b>max</b>，选项 min / max。\nmax = 最长边超出时等比缩小（速度快，漫画/游戏框选推荐）；min = 最短边不足时等比放大（保留细节，细长框选可能慢）。\n\n<b>large_box_enabled — 大框过滤开关</b>\n默认 关闭。过滤宽/高/面积占比过大的检测框，避免背景被误检。\n- 大误检框→开启\n\n<b>large_box_ratio — 大框过滤比例</b>\n默认 60%，范围 30% ~ 80%。仅大框过滤开启时生效。\n\n<b>merge_gap — 行间合并距离门控</b>\n默认 1.5，范围 0.5 ~ 5.0。文字行合并为气泡时的距离阈值（×字号）。\n\n<b><u>── 仅 PP-OCRv6 ──</u></b>\n\n<b>thresh — 像素级二值化阈值</b>\n默认 0.3，范围 0.1 ~ 0.5。将 DBNet 输出概率图转为黑白 mask：超过此值的像素判为文字。\n- 漏框→降低\n- 噪声框→升高\n\n<b>max_candidates — 最大候选框数目</b>\n默认 1000，范围 50 ~ 2000。连通域分析阶段保留的最大候选框数，超出者直接丢弃。\n\n<b>use_dilation — 形态学膨胀</b>\n默认 开启。二值化后对 mask 做 3×3 十字核膨胀，使相邻文字区域合并。密集竖排漫画建议开启。\n\n<b>min_height — 图像最小高度阈值</b>\n默认 30，范围 10 ~ 200（像素）。图像高度低于此值时跳过文本检测，直接全图识别。\n\n<b>rec_batch_num — 批推理大小</b>\n默认 6，范围 1 ~ 12。一次 ONNX 推理同时处理的文字行数。</string>
     <string name="faq_q8">下载专用 OCR 识别模型有什么作用？</string>
     <string name="faq_a8">PP-OCRv5 的中文识别模型（rec_zh）是一个中日英混合通用模型，可以识别中文、日文和英文。在未下载专用模型时，英文识别默认使用这个通用模型。\n\n<b><u>下载专用模型后，系统会自动切换</u></b>，效果更好：\n\n• <b><u>英文模型（rec_en）</u></b>：专为英文优化，识别准确率更高，特别是大小写、数字、标点的识别更精确。\n• <b><u>韩文模型（rec_ko）</u></b>：韩文专用，未下载时韩文无法识别。\n• <b><u>俄文模型（rec_ru）</u></b>：俄文/西里尔文字专用，未下载时俄文无法识别。\n\n<b><u>如何下载</u></b>：进入 设置 → 模型管理 → PP-OCRv5 识别模型，点击下载即可。模型体积小（7~13MB），下载后立即生效，无需重启。\n\n<b><u>如何确认是否生效</u></b>：使用非默认语言（如英文）进行漫画翻译时，屏幕底部会弹出提示\"使用专用识别模型: rec_en\"，表示专用模型已生效。如果没有弹出提示，说明仍在使用通用中文模型。</string>
+    <string name="faq_q9">模型下载失败，如何手动下载并放入正确的目录？</string>
+    <string name="faq_a9">如果自动下载不成功，您可以手动下载模型文件并放入正确位置。\n\n模型存储基础路径：<b>Android/data/com.moe.starflow/files/</b>\n\n1. <b><u>PP-OCRv5 核心（det + rec_zh）</u></b>\n   子目录：ppocrv5/\n   ├── det_v5.onnx → 浏览器（检测模型 ~4.6MB）\n   ├── rec_zh.onnx → 浏览器（识别模型 ~16MB）\n   └── rec_zh_dict.txt → 浏览器（字典 ~75KB）\n\n2. <b><u>PP-OCRv5 可选语言</u></b>\n   子目录：ppocrv5/\n   ├── rec_en.onnx + rec_en_dict.txt（英文 ~7.5MB）\n   ├── rec_ko.onnx + rec_ko_dict.txt（韩文 ~12.9MB）\n   └── rec_ru.onnx + rec_ru_dict.txt（俄文 ~7.7MB）\n\n3. <b><u>PP-OCRv6 medium（检测 + 识别）</u></b>\n   子目录：ppocrv6/\n   ├── det_v6_medium.onnx → 浏览器（~60MB）\n   └── rec_v6_medium.onnx → 浏览器（~74MB）\n\n4. <b><u>RT-DETR-V2</u></b>\n   子目录：rt_detr/\n   └── model.onnx → 浏览器（~11MB）\n\n5. <b><u>manga-ocr</u></b>\n   子目录：manga_ocr_download/\n   ├── encoder_model.onnx → 浏览器（~85MB）\n   ├── decoder_model.onnx → 浏览器（~50MB）\n   └── vocab.txt → 浏览器（~200KB）\n\n您可以点击模型旁边的 🔗 按钮打开下载链接。下载完成后，用文件管理器将文件移动到对应子目录。如果目录不存在，请手动创建。</string>
 
     <string name="faq_q10">漫画模式反复提示"未检测到文字"，但图片上明明有文字？</string>
     <string name="faq_a10">这个问题取决于你当前使用的截图方式，以下是可能的原因和解决方法：\n\n<b><u>录屏模式（MediaProjection）</u></b>\n• <b>受保护的应用无法截图</b>：部分应用（系统相册、私密相册、银行、支付等）使用 FLAG_SECURE 或 DRM 阻止录屏捕获，系统会返回空白画面，导致 OCR 检测不到文字。\n• <b>私密相册限制</b>：华为/荣耀/小米等品牌的系统相册内置了隐私保护功能，即使已授予录屏权限，相册内的图片内容仍然无法被截取。\n• <b>解决方法</b>：将图片保存到普通文件夹（如下载目录），使用第三方图片查看器打开，或使用浏览器在线查看内容。\n\n<b><u>无障碍模式（Accessibility）</u></b>\n• <b>同样受限</b>：无障碍截图在受保护的应用和私密相册中同样无法获取画面内容。\n• <b>未处于目标应用界面</b>：如果当前在桌面、通知栏等位置，无障碍服务可能捕获不到内容。请先打开目标应用，再触发翻译。\n• <b>解决方法</b>：同上，用第三方查看器打开。也可尝试在系统设置中关闭无障碍服务再重新开启。\n\n<b><u>其他常见原因</u></b>\n• <b>页面确实无可识别文字</b>：纯图片、装饰性文字、艺术字体等 OCR 引擎可能无法识别。\n• <b>框选区域不含文字</b>：检查框选范围是否包含文字区域，尝试扩大框选。\n• <b>OCR 引擎不匹配</b>：在漫画悬浮菜单中切换 OCR 引擎（PP-OCRv5 ↔ ML Kit ↔ manga-ocr），不同引擎对不同字体的识别效果不同。\n• <b>图片质量不佳</b>：模糊、分辨率低或压缩过度的文字难以被识别。\n\n如果以上都无法解决，尝试在「设置 → 关于 → 截图方式」中切换截图方式，不同设备和场景的兼容性可能不同。</string>
@@ -539,6 +541,7 @@
     <string name="manga_ocr_non_ja_hint">manga-ocr 模型针对日文优化，当前源语言可能影响识别效果，建议切换到 PP-OCRv5</string>
     <string name="model_download_in_browser">🔗 浏览器下载</string>
     <string name="model_storage_path_label">模型存储路径：</string>
+    <string name="model_storage_faq_hint">各模型文件的存放位置请参考 常见问题 → 「模型下载失败，如何手动下载并放入正确的目录？」</string>
 
     <!-- 历史记录 -->
     <string name="refresh_history">刷新</string>
@@ -684,7 +687,7 @@
     <string name="model_group_mlkit">ML Kit</string>
     <string name="model_group_mlkit_desc">Google 设备端机器学习，检测识别一体。速度快，适合字幕翻译和快速扫图</string>
     <string name="model_group_rt_manga">RT-DETR-V2 + manga-ocr</string>
-    <string name="model_group_rt_manga_desc">漫画气泡检测与日文竖排识别组合</string>
+    <string name="model_group_rt_manga_desc">漫画气泡检测与日文竖排识别组合（识别速度较慢）</string>
     <string name="model_group_ppocrv5">PP-OCRv5</string>
     <string name="model_group_ppocrv5_desc">源自 PaddleOCR，ONNX 格式离线识别</string>
     <string name="model_group_ppocrv6">PP-OCRv6</string>
