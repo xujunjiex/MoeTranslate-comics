@@ -531,6 +531,7 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="recognizer_mlkit_desc">Google ML Kit OCR, ~10MB, no download required</string>
     <string name="recognizer_manga_desc">~135MB, dedicated Japanese manga OCR, slow but high accuracy. Requires RT-DETR-V2 detector</string>
     <string name="model_download">Download</string>
+    <string name="delete_history_group_confirm">Delete this entire group (%1$d entries)?\nThis includes all crop sizes and translation variants.</string>
     <string name="model_delete">Delete</string>
     <string name="model_downloaded">Downloaded</string>
     <string name="model_not_downloaded">Not downloaded</string>

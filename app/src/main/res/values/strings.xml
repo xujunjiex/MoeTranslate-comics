@@ -527,6 +527,7 @@
     <string name="history_manga_tab">Manga</string>
     <string name="confirm_clear_history">Confirm clear all history?</string>
     <string name="delete_history_confirm">Delete this history record?</string>
+    <string name="delete_history_group_confirm">Delete this entire group (%1$d entries)?\nThis includes all crop sizes and translation variants.</string>
     <string name="delete">Delete</string>
     <string name="history_deleted">History deleted</string>
     <string name="history_cleared">History cleared</string>

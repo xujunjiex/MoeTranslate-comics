@@ -120,7 +120,7 @@ class HistoryFragment : Fragment() {
         val viewMode = prefs.getString("history_view_mode", "default")
         mangaGroupAdapter = HistoryMangaGroupAdapter(
             onItemClick = { grouped -> openMangaViewer(grouped) },
-            onItemLongClick = { entry -> showDeleteDialog(entry) },
+            onItemLongClick = { grouped -> showDeleteDialog(grouped) },
             displayMode = displayMode,
             isManageView = (viewMode == "manage"),
             onThumbnailClick = { entry ->
@@ -414,6 +414,34 @@ class HistoryFragment : Fragment() {
         dialog.show()
     }
 
+    private fun showDeleteDialog(grouped: GroupedHistoryEntry) {
+        val ids = grouped.allEntryIds
+        val isGroup = ids.size > 1
+        val message = if (isGroup) {
+            getString(R.string.delete_history_group_confirm, ids.size)
+        } else {
+            getString(R.string.delete_history_confirm)
+        }
+        showDarkDialog(
+            message = message,
+            positiveText = getString(R.string.confirm),
+            negativeText = getString(R.string.user_cancel),
+            onPositive = {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        cacheManager.deleteHistories(ids)
+                        LogCollector.d(TAG, "Deleted history group: ${ids.size} entries")
+                        loadHistory()
+                        Toast.makeText(requireContext(), R.string.history_deleted, Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        LogCollector.e(TAG, "Delete history group failed", e)
+                    }
+                }
+            }
+        )
+    }
+
+    /** 游戏历史：单条删除（游戏模式无 pHash 分组概念） */
     private fun showDeleteDialog(entry: HistoryEntry) {
         showDarkDialog(
             message = getString(R.string.delete_history_confirm),

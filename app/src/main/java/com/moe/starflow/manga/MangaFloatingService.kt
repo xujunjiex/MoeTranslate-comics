@@ -3292,15 +3292,16 @@ class MangaFloatingService : LifecycleService() {
         dismissDebugInfoPanel()
         if (isResultShowing) {
             try {
+                // 先 removeView 再清 drawable，避免 FrameLayout 半透明黑色背景在清 bitmap 后、removeView 前那一帧暴露给用户（曾短暂闪烁黑色图层）
+                if (resultOverlayView.isAttachedToWindow) {
+                    windowManager.removeView(resultOverlayView)
+                }
                 // 先清除引用再回收，避免 Choreographer 待处理帧使用已回收的 bitmap
                 val oldBitmap = (resultOverlayImage.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                 resultOverlayImage.setImageBitmap(null)
                 oldBitmap?.recycle()
                 resultOverlayView.setOnTouchListener(null)
                 resultOverlayImage.setOnTouchListener(null)
-                if (resultOverlayView.isAttachedToWindow) {
-                    windowManager.removeView(resultOverlayView)
-                }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Error dismissing overlay", e)
             }

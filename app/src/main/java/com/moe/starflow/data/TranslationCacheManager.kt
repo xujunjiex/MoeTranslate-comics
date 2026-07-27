@@ -25,10 +25,48 @@ class TranslationCacheManager(private val context: Context) {
         const val MODE_MANGA = 1
         private const val DEFAULT_CACHE_COUNT = 100
         private const val SIMILARITY_THRESHOLD_MANGA = 0.95f  // 256-bit hash 相似度阈值（~13 bit 容差）
+        /**
+         * 稀疏 hash 守卫阈值：256-bit dHash 总有效位 < 该值视为「无判别力 hash」，
+         * 不参与任何 256-bit hash 相似度判定（缓存命中 + 历史分组两处共用）。
+         *
+         * 背景：纯色/几乎纯色页面 dHash 4 段几乎全 0（每段 1-3 bits）。两张低纹理页即使内容完全不同，
+         * Hamming distance 也只有 2-3 bits → similarity = 1 - 3/256 = 0.988 远超 0.95 → 错误命中/合并。
+         * ~6.25% 是 dHash 在低纹理页面下的经验上界，足以过滤此 FP class。
+         *
+         * 使用方：findCacheExt、groupMangaEntriesByPHash 都必须先调 isSparseHash 判断再走相似度逻辑。
+         */
+        const val MIN_INFO_BITS = 16
         private const val THUMBNAIL_SIZE = 200
         private const val AREA_RATIO_MIN = 0.8f   // 面积比下限（框选偏移面积变化 <1%，宽松允许 ±20%）
         private const val AREA_RATIO_MAX = 1.25f  // 面积比上限
         private const val CROP_POSITION_IOU_THRESHOLD = 0.5f  // 框选位置 IoU 下限（交集 / 较小面积）—— 拦截"同图不同区域"的错误命中（用户小调整也会超过 0.7，留余量给 ±20% 微调）
+
+        /**
+         * 计算 256-bit dHash 总有效位（4 段 Long bits 之和）。
+         * 稀疏守卫的唯一判断依据：必须用整体累加（≈ 4 段的 bitCount 之和），不能分段判断。
+         */
+        fun countInfoBits(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long): Int =
+            java.lang.Long.bitCount(pHash) +
+            java.lang.Long.bitCount(pHash2) +
+            java.lang.Long.bitCount(pHash3) +
+            java.lang.Long.bitCount(pHash4)
+
+        /**
+         * LongArray 形式的便利重载。
+         */
+        fun countInfoBits(hashes: LongArray): Int {
+            require(hashes.size >= 4) { "需要至少 4 段 hash" }
+            return countInfoBits(hashes[0], hashes[1], hashes[2], hashes[3])
+        }
+
+        /**
+         * 稀疏 hash 判定：infoBits < MIN_INFO_BITS → true。
+         * 任何调用 256-bit hash 相似度比较的地方都必须先过这一关。
+         */
+        fun isSparseHash(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long): Boolean =
+            countInfoBits(pHash, pHash2, pHash3, pHash4) < MIN_INFO_BITS
+
+        fun isSparseHash(hashes: LongArray): Boolean = isSparseHash(hashes[0], hashes[1], hashes[2], hashes[3])
 
         // ========== 气泡解析工具函数 ==========
 
@@ -323,7 +361,6 @@ class TranslationCacheManager(private val context: Context) {
         val pHash2 = extHashes[1]
         val pHash3 = extHashes[2]
         val pHash4 = extHashes[3]
-        val currentBits = extHashes.sumOf { java.lang.Long.bitCount(it) }
 
         // 1. 精确匹配（4 段全部一致）— 快速路径（索引查询，O(1)）
         // 同一截图方式、同一页时 4 段 hash 完全一致，直接命中
@@ -363,10 +400,19 @@ class TranslationCacheManager(private val context: Context) {
         // 用途：同一页在不同截图方式（无障碍/录屏）下像素略有差异时仍能命中
         // 性能：比精确匹配慢（遍历全部缓存），所以先走精确匹配的快速路径
         if (mode == MODE_MANGA) {
+            // 稀疏 hash 守卫：纯色 / 几乎纯色页面 dHash 4 段几乎全 0（只有 1-3 bit）。
+            // 两张低纹理页即使内容完全不同，Hamming distance 也只有 2-3 bits，
+            // similarity = 1 - 3/256 = 0.988 远超 0.95 → 误命中（曾导致第二页命中第一页缓存）。
+            // 与 groupMangaEntriesByPHash 同样的守卫：infoBits < MIN_INFO_BITS 不参与相似度匹配。
+            if (isSparseHash(extHashes)) {
+                LogCollector.d(TAG, "findCacheExt: 稀疏 hash 跳过相似度匹配 (curBits=${countInfoBits(extHashes)}/256)")
+            } else {
             val allCache = dao.getAllCacheByMode(mode)
             var bestMatch: PageCacheEntity? = null
             var bestSimilarity = 0f
             for (entry in allCache) {
+                // 守卫候选 entry 也必须满足稀疏阈值，否则两张稀疏 hash 容易被错误匹配
+                if (isSparseHash(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)) continue
                 val entryHashes = longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
                 val sim = PerceptualHash.similarity(extHashes, entryHashes)
                 if (sim >= SIMILARITY_THRESHOLD_MANGA && sim > bestSimilarity) {
@@ -389,10 +435,10 @@ class TranslationCacheManager(private val context: Context) {
                             dao.updateHistoryTimestamp(history.id, now)
                         }
                     }
-                    val entryBits = java.lang.Long.bitCount(bestMatch.pHash) + java.lang.Long.bitCount(bestMatch.pHash2) + java.lang.Long.bitCount(bestMatch.pHash3) + java.lang.Long.bitCount(bestMatch.pHash4)
-                    LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=$currentBits/256, entryBits=$entryBits/256), historyId=${history.id}")
+                    LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=${countInfoBits(extHashes)}/256, entryBits=${countInfoBits(bestMatch.pHash, bestMatch.pHash2, bestMatch.pHash3, bestMatch.pHash4)}/256), historyId=${history.id}")
                     return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight(), bestMatch)
                 }
+            }
             }
         }
 
@@ -848,7 +894,7 @@ class TranslationCacheManager(private val context: Context) {
 
     /**
      * 按 256-bit 扩展哈希相似度分组（漫画历史去重）。
-     * 与 MangaViewerActivity.buildPageGroups 使用相同的算法和阈值（0.85），
+     * 与 MangaViewerActivity.buildPageGroups 使用相同的算法和阈值（0.95），
      * 保证历史列表和图片浏览器的分组数量一致。
      *
      * @return 去重后的 HistoryEntry 列表，每个代表条目携带 variantCount 和 variantIds
@@ -857,9 +903,9 @@ class TranslationCacheManager(private val context: Context) {
         // ─── 稀疏 hash 守卫 ───
         // 历史中有一种典型 bug：纯色 / 几乎纯色页面，dHash 4 段几乎全 0（只有 1-3 个 bit）。
         // Hamming distance 计算的相似度会被多算（distance=2 / 256 = sim=0.992），导致完全不同的页面被错误归并。
-        // 解决办法：infoBits < MIN_INFO_BITS_HISTORY (16 bits，约 6.25%) 的 entry 视为「无判别力 hash」，
+        // 解决办法：infoBits < MIN_INFO_BITS (16 bits，约 6.25%) 的 entry 视为「无判别力 hash」，
         // 不参与 normal 相似度分组，单独成组（保留所有变体独立）。
-        val MIN_INFO_BITS_HISTORY = 16
+        // 复用 companion 的 isSparseHash，统一与 findCacheExt 的守卫逻辑（threshold 必须保持一致！）。
 
         val used = mutableSetOf<Long>()
         val groups = mutableListOf<HistoryEntry>()
@@ -867,23 +913,20 @@ class TranslationCacheManager(private val context: Context) {
 
         // 预计算每个 entry 的总 bits（避免重复计算）
         val bitsByEntry = entries.associateWith { entry ->
-            java.lang.Long.bitCount(entry.pHash) +
-                java.lang.Long.bitCount(entry.pHash2) +
-                java.lang.Long.bitCount(entry.pHash3) +
-                java.lang.Long.bitCount(entry.pHash4)
+            countInfoBits(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
         }
 
         for (entry in entries) {
             if (entry.id in used) continue
             val infoBits = bitsByEntry[entry] ?: 0
-            if (infoBits < MIN_INFO_BITS_HISTORY) {
-                // 稀疏 hash：守卫只跳过相似度判断（不参与 0.85 阈值比较），
+            if (isSparseHash(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)) {
+                // 稀疏 hash：守卫只跳过相似度判断（不参与 0.95 阈值比较），
                 // 但 4 段 hash bit-by-bit 完全相等的仍视为同图 → 合并。
                 // 256 bit 完全相等的碰撞概率 ≈ 2^-256，远低于纯色页 2-3 bit
                 // 差异被误判为高相似度的风险（id=237 bug），可作为强同图信号。
                 val exactDuplicates = entries.filter { cand ->
                     cand.id != entry.id && cand.id !in used &&
-                        (bitsByEntry[cand] ?: 0) < MIN_INFO_BITS_HISTORY &&
+                        isSparseHash(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4) &&
                         cand.pHash == entry.pHash &&
                         cand.pHash2 == entry.pHash2 &&
                         cand.pHash3 == entry.pHash3 &&
@@ -912,11 +955,11 @@ class TranslationCacheManager(private val context: Context) {
             val repHashes = longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
             val variants = entries.filter { cand ->
                 cand.id !in used &&
-                    (bitsByEntry[cand] ?: 0) >= MIN_INFO_BITS_HISTORY &&
+                    !isSparseHash(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4) &&
                     PerceptualHash.similarity(
                         repHashes,
                         longArrayOf(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4)
-                    ) >= 0.85f
+                    ) >= 0.95f
             }
             variants.forEach { used.add(it.id) }
 
@@ -925,6 +968,13 @@ class TranslationCacheManager(private val context: Context) {
             // 只在变体 > 1 时打印（说明发生了合并，排查时能命中正常路径）
             if (sorted.size > 1) {
                 LogCollector.d(TAG, "合并: 代表 id=${representative.id} 命中 ${sorted.size} 个变体 ${sorted.map { it.id }}")
+                // 调试：打印每个合并变体的 bits 和 hamming distance，便于诊断「不同页面被错误合并」
+                sorted.forEach { v ->
+                    val vBits = bitsByEntry[v] ?: 0
+                    val candHashes = longArrayOf(v.pHash, v.pHash2, v.pHash3, v.pHash4)
+                    val dist = (0..3).sumOf { i -> java.lang.Long.bitCount(repHashes[i] xor candHashes[i]) }
+                    LogCollector.d(TAG, "  变体 id=${v.id} bits=$vBits hammingDist=$dist/256")
+                }
             }
             groups.add(representative.copy(
                 variantCount = sorted.size,
@@ -1001,6 +1051,16 @@ class TranslationCacheManager(private val context: Context) {
         // 删除历史记录
         dao.deleteHistoryById(id.toInt())
         LogCollector.d(TAG, "deleteHistory: id=$id")
+    }
+
+    /**
+     * 批量删除历史记录（长按删除整个组时使用）。
+     * 每条 entry 都走 deleteHistory，完整清理图片文件 + PageCache + HistoryEntry。
+     * deleteHistory 已覆盖级联清理（line 1050 调用 deleteCacheByHistoryId），无孤儿。
+     */
+    suspend fun deleteHistories(ids: List<Long>) = withContext(Dispatchers.IO) {
+        for (id in ids) deleteHistory(id)
+        LogCollector.d(TAG, "deleteHistories: deleted ${ids.size} entries")
     }
 
     /**

@@ -600,6 +600,7 @@
     <string name="clear_cache_success">缓存已清除（删除了 %d 条记录）</string>
 
     <string name="delete_history_confirm">确认删除此条历史记录？</string>
+    <string name="delete_history_group_confirm">确认删除整个组（共 %1$d 条）？\n将一并删除所有尺寸和翻译变体。</string>
     <string name="delete">删除</string>
     <string name="history_deleted">历史记录已删除</string>
     <string name="history_cleared">历史记录已清空</string>

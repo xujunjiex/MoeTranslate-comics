@@ -27,7 +27,7 @@ import java.util.Locale
  */
 class HistoryMangaAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
-    private val onItemLongClick: (HistoryEntry) -> Unit,
+    private val onItemLongClick: (GroupedHistoryEntry) -> Unit,
     private val colorMap: Map<Long, Int> = emptyMap(),
     private val displayMode: String = "large",
     private val sortByUpdated: Boolean = false,
@@ -190,7 +190,7 @@ class HistoryMangaAdapter(
 
             itemView.setOnClickListener { onItemClick(grouped) }
             itemView.setOnLongClickListener {
-                onItemLongClick(entry)
+                onItemLongClick(grouped)
                 true
             }
         }

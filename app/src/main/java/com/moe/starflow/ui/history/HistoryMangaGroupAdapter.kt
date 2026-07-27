@@ -35,7 +35,7 @@ data class GroupedHistoryEntry(
  */
 class HistoryMangaGroupAdapter(
     private val onItemClick: (GroupedHistoryEntry) -> Unit,
-    private val onItemLongClick: (HistoryEntry) -> Unit,
+    private val onItemLongClick: (GroupedHistoryEntry) -> Unit,
     private var displayMode: String = "large",
     private var sortByUpdated: Boolean = false,
     var isManageView: Boolean = false,
@@ -108,7 +108,7 @@ class HistoryMangaGroupAdapter(
 
     private inner class MangaSessionAdapter(
         private val onItemClick: (GroupedHistoryEntry) -> Unit,
-        private val onItemLongClick: (HistoryEntry) -> Unit,
+        private val onItemLongClick: (GroupedHistoryEntry) -> Unit,
         private val colorMap: Map<Long, Int> = emptyMap(),
         private val onThumbnailClick: ((HistoryEntry) -> Unit)? = null,
         private val onDownloadSessionClick: ((HistorySession) -> Unit)? = null
