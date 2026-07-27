@@ -3659,7 +3659,10 @@ class MangaFloatingService : LifecycleService() {
             withContext(Dispatchers.Main) {
                 if (!isResultShowing || overlay == null) return@withContext
                 val target = cacheOverlayImage ?: resultOverlayImage
+                // 先回收旧 bitmap，避免全屏 overlay 每次切换都泄漏一张 ~13MB（OOM 风险）
+                val oldBitmap = (target.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                 target.setImageBitmap(overlay)
+                if (oldBitmap !== overlay) oldBitmap?.recycle()
             }
         }
     }
