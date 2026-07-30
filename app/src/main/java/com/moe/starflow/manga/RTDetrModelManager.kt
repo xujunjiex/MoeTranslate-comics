@@ -134,7 +134,7 @@ object RTDetrModelManager {
         return ModelDownloadManager.downloadModel(
             context = context,
             url = DOWNLOAD_URL,
-            sha256Hash = "",  // HuggingFace 不提供 hash
+            checksum = "",  // HuggingFace 不提供 hash
             destFile = modelFile,
             onProgress = onProgress
         )

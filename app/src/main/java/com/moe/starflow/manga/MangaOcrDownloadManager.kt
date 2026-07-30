@@ -209,7 +209,7 @@ object MangaOcrDownloadManager {
 
             LogCollector.d(TAG, "下载 $fileName (size=$currentFileTotal): $fileUrl")
             val result = ModelDownloadManager.downloadModel(
-                context = context, url = fileUrl, sha256Hash = "",
+                context = context, url = fileUrl, checksum = "",
                 destFile = destFile,
                 onProgress = object : ModelDownloadManager.ProgressCallback {
                     override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {

@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.GET_PACKAGE_INFO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -22,6 +23,7 @@
         tools:ignore="ScopedStorage" />
 
     <application
+        android:name=".StarFlowApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -102,6 +104,11 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="漫画翻译悬浮窗服务，通过录屏或无障碍服务截屏后进行 OCR 识别和翻译" />
         </service>
+
+        <service
+            android:name=".service.ModelDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
 
         <activity
             android:name=".translate.ScreenCapturePermissionActivity"

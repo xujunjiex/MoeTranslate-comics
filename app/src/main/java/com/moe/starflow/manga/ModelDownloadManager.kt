@@ -3,6 +3,7 @@ package com.moe.starflow.manga
 import android.content.Context
 import com.moe.starflow.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
@@ -11,7 +12,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.DigestInputStream
 import java.security.MessageDigest
 
 /**
@@ -37,7 +37,7 @@ object ModelDownloadManager {
     suspend fun downloadModel(
         @Suppress("UNUSED_PARAMETER") context: Context,
         url: String,
-        sha256Hash: String,
+        checksum: String,  // MD5
         destFile: File,
         onProgress: ProgressCallback? = null,
         maxRetries: Int = 3
@@ -56,9 +56,10 @@ object ModelDownloadManager {
                 connection.requestMethod = "GET"
                 connection.setRequestProperty("Accept-Encoding", "identity")
 
-                // 断点续传
-                val startOffset = if (attempt > 1 && tempFile.exists() && tempFile.length() > 0) {
-                    LogCollector.d(TAG, "断点续传：从 ${tempFile.length()} 字节继续")
+                // 断点续传：任何时候 .part 文件存在且 size > 0 都尝试续传
+                // 这样应用重启、跨页面、跨协程作用域都能恢复
+                val startOffset = if (tempFile.exists() && tempFile.length() > 0) {
+                    LogCollector.d(TAG, "断点续传：从 ${tempFile.length()} 字节继续 (attempt=$attempt)")
                     connection.setRequestProperty("Range", "bytes=${tempFile.length()}-")
                     tempFile.length()
                 } else {
@@ -85,7 +86,13 @@ object ModelDownloadManager {
                     totalBytes
                 }
 
-                val appendMode = startOffset > 0
+                // 服务器不支持 Range（返回 200 而非 206）：即使有 .part 也要从头开始
+                // 否则 append 模式会把完整文件追加到旧 .part 后面，得到损坏文件
+                val appendMode = startOffset > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL
+                if (startOffset > 0 && !appendMode) {
+                    LogCollector.d(TAG, "服务器不支持 Range 续传，清除 .part 重新下载")
+                    if (tempFile.exists()) tempFile.delete()
+                }
                 val conn = connection
                 FileOutputStream(tempFile, appendMode).use { outputStream ->
                     val buffer = ByteArray(BUFFER_SIZE)
@@ -96,6 +103,12 @@ object ModelDownloadManager {
 
                     conn.inputStream.use { inputStream ->
                         while (true) {
+                            // 检查协程取消：Job.cancel() 不会中断阻塞 IO，必须主动 disconnect
+                            // 让下一次 read() 抛 SocketException 退出循环
+                            if (currentCoroutineContext()[kotlinx.coroutines.Job]?.isActive == false) {
+                                conn.disconnect()
+                                throw kotlinx.coroutines.CancellationException("下载被取消")
+                            }
                             val read = inputStream.read(buffer)
                             if (read == -1) break
 
@@ -127,17 +140,21 @@ object ModelDownloadManager {
                 }
 
                 // 校验
-                if (sha256Hash.isNotEmpty()) {
-                    val fileHash = calculateSHA256(destFile)
-                    if (fileHash != sha256Hash.lowercase()) {
+                if (checksum.isNotEmpty()) {
+                    val fileHash = calculateMD5(destFile)
+                    if (fileHash != checksum.lowercase()) {
                         destFile.delete()
-                        throw Exception("SHA-256 校验失败")
+                        throw Exception("MD5 校验失败")
                     }
                 }
 
                 LogCollector.d(TAG, "下载完成: ${destFile.absolutePath}")
                 return@withContext Result.success(Unit)
 
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 取消时直接抛出，不当作失败
+                LogCollector.d(TAG, "下载已取消")
+                throw e
             } catch (e: Exception) {
                 lastException = e
                 LogCollector.e(TAG, "attempt $attempt/$maxRetries 失败: ${e.message}")
@@ -150,18 +167,20 @@ object ModelDownloadManager {
         }
 
         LogCollector.e(TAG, "下载失败，已重试 $maxRetries 次")
-        if (tempFile.exists()) tempFile.delete()
+        // 保留 .part 文件，下次可继续断点续传（应用重启、跨页面都能恢复）
+        // 只有删除已下载成功的目标文件时才会清理（由调用方 deleteModel() 处理）
         Result.failure(lastException ?: Exception("下载失败"))
     }
 
-    private fun calculateSHA256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
+    private fun calculateMD5(file: File): String {
+        val md = MessageDigest.getInstance("MD5")
         FileInputStream(file).use { fis ->
-            DigestInputStream(fis, digest).use { dis ->
-                val buffer = ByteArray(8192)
-                while (dis.read(buffer) != -1) { /* auto-update digest */ }
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+            while (fis.read(buffer).also { bytesRead = it } != -1) {
+                md.update(buffer, 0, bytesRead)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        return md.digest().joinToString("") { "%02x".format(it) }
     }
 }

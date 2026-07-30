@@ -548,7 +548,7 @@ class AboutMe : Fragment() {
             val result = ModelDownloadManager.downloadModel(
                 context = requireContext(),
                 url = apkUrl,
-                sha256Hash = "", // GitHub assets 可信，不校验
+                checksum = "", // GitHub assets 可信，不校验
                 destFile = destFile,
                 onProgress = object : ModelDownloadManager.ProgressCallback {
                     override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {

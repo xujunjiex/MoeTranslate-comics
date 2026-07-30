@@ -200,7 +200,7 @@ object PPOcrModelManager {
             val result = ModelDownloadManager.downloadModel(
                 context = context,
                 url = url,
-                sha256Hash = "",
+                checksum = "",
                 destFile = recFile,
                 onProgress = onProgress
             )
@@ -217,7 +217,7 @@ object PPOcrModelManager {
             val dictResult = ModelDownloadManager.downloadModel(
                 context = context,
                 url = dictUrl,
-                sha256Hash = "",
+                checksum = "",
                 destFile = dictFile,
                 onProgress = onProgress
             )
@@ -332,7 +332,7 @@ object PPOcrModelManager {
         val result = ModelDownloadManager.downloadModel(
             context = context,
             url = url,
-            sha256Hash = "",
+            checksum = "",
             destFile = destFile,
             onProgress = onProgress
         )
