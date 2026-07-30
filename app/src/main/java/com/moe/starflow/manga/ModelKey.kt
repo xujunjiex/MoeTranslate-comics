@@ -9,34 +9,34 @@ package com.moe.starflow.manga
  *
  * 用作 JSON 配置 `model_key` 字段值（`ModelKey.valueOf(keyStr)`），错误键名会被跳过。
  */
-enum class ModelKey {
+enum class ModelKey(val stableId: Int) {
     /** RT-DETR-V2 漫画气泡/文字检测模型（单文件 ~11MB） */
-    RT_DETR_V2,
+    RT_DETR_V2(1001),
 
     /** manga-ocr 识别组（encoder.onnx + decoder.onnx + vocab.txt） */
-    MANGA_OCR_GROUP,
+    MANGA_OCR_GROUP(1009),
 
     /** PP-OCRv5 文字检测模型（单文件 ~4.6MB） */
-    PP_OCR_V5_DET,
+    PP_OCR_V5_DET(1002),
 
     /** PP-OCRv5 中文识别模型（rec_zh.onnx + rec_zh_dict.txt） */
-    PP_OCR_V5_REC_ZH,
+    PP_OCR_V5_REC_ZH(1003),
 
     /** PP-OCRv5 英文识别模型（rec_en.onnx + rec_en_dict.txt） */
-    PP_OCR_V5_REC_EN,
+    PP_OCR_V5_REC_EN(1004),
 
     /** PP-OCRv5 韩文识别模型（rec_ko.onnx + rec_ko_dict.txt） */
-    PP_OCR_V5_REC_KO,
+    PP_OCR_V5_REC_KO(1005),
 
     /** PP-OCRv5 俄文识别模型（rec_ru.onnx + rec_ru_dict.txt） */
-    PP_OCR_V5_REC_RU,
+    PP_OCR_V5_REC_RU(1006),
 
     /** PP-OCRv6 medium 检测模型（单文件 ~60MB） */
-    PP_OCR_V6_MEDIUM_DET,
+    PP_OCR_V6_MEDIUM_DET(1007),
 
     /** PP-OCRv6 medium 识别模型（单文件 ~74MB） */
-    PP_OCR_V6_MEDIUM_REC,
+    PP_OCR_V6_MEDIUM_REC(1008),
 
     /** NLLB 翻译模型组（NLLB_encoder.onnx + NLLB_decoder.onnx + sentencepiece_bpe.model） */
-    NLLB_GROUP
+    NLLB_GROUP(2010);
 }
