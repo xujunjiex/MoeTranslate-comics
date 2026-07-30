@@ -14,10 +14,14 @@ import androidx.preference.PreferenceManager
 import android.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.R
+import com.moe.starflow.data.DownloadState
+import com.moe.starflow.data.ModelDownloadRepository
 import com.moe.starflow.manga.MangaOcrDownloadManager
 import com.moe.starflow.manga.ModelDownloadManager
+import com.moe.starflow.manga.ModelKey
 import com.moe.starflow.manga.PPOcrModelManager
 import com.moe.starflow.manga.RTDetrModelManager
+import com.moe.starflow.service.ModelDownloadService
 import com.moe.starflow.utils.LogCollector
 import android.content.Intent
 import android.net.Uri
@@ -65,14 +69,21 @@ class ModelManagementFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        updateRTDetrStatus()
-        updateMangaOcrStatus()
-        updateV5DetStatus()
-        updateV5RecZhStatus()
-        updateV5RecEnStatus()
-        updateV5RecKoStatus()
-        updateV5RecRuStatus()
-        updatePPOcrV6Status()
+
+        // Subscribe to Repository state changes; refresh all model status blocks on each emission.
+        val repo = ModelDownloadRepository.getInstance(requireContext())
+        viewLifecycleOwner.lifecycleScope.launch {
+            repo.observe().collect {
+                updateRTDetrStatus()
+                updateMangaOcrStatus()
+                updateV5DetStatus()
+                updateV5RecZhStatus()
+                updateV5RecEnStatus()
+                updateV5RecKoStatus()
+                updateV5RecRuStatus()
+                updatePPOcrV6Status()
+            }
+        }
 
         // 浏览器下载按钮
         setupBrowserDownloadButtons()
@@ -170,15 +181,27 @@ class ModelManagementFragment : Fragment() {
         val statusText = rootView.findViewById<TextView>(R.id.rtdetr_status)
         val actionBtn = rootView.findViewById<TextView>(R.id.rtdetr_action_button)
 
+        val repo = ModelDownloadRepository.getInstance(requireContext())
+        val state = repo.getState(ModelKey.RT_DETR_V2)
+        val info = repo.getModelInfo(ModelKey.RT_DETR_V2)
         val isDownloaded = RTDetrModelManager.isModelInFilesDir(requireContext())
-        val isDownloading = rtdetrDownloadJob != null
 
         when {
-            isDownloading -> {
-                statusText.text = getString(R.string.model_downloading)
+            state is DownloadState.Running -> {
+                val mb = state.bytesDownloaded / (1024 * 1024)
+                val total = if (state.totalBytes > 0) state.totalBytes / (1024 * 1024) else 0
+                statusText.text = "${getString(R.string.model_downloading)} ${mb}/${total} MB"
                 actionBtn.text = getString(R.string.user_cancel)
                 setButtonDeleteStyle(actionBtn, false)
-                actionBtn.setOnClickListener { cancelRTDetrDownload() }
+                actionBtn.setOnClickListener { ModelDownloadService.cancelDownload(requireContext(), ModelKey.RT_DETR_V2) }
+            }
+            state is DownloadState.Partial -> {
+                val mb = state.bytesDownloaded / (1024 * 1024)
+                val total = if (state.totalBytes > 0) state.totalBytes / (1024 * 1024) else 0
+                statusText.text = formatModelStatus(false, "$mb MB", "~11MB")
+                actionBtn.text = "继续"
+                setButtonDeleteStyle(actionBtn, false)
+                actionBtn.setOnClickListener { ModelDownloadService.startDownload(requireContext(), ModelKey.RT_DETR_V2, isResume = true) }
             }
             isDownloaded -> {
                 val size = RTDetrModelManager.getModelSizeString(requireContext())
@@ -191,63 +214,31 @@ class ModelManagementFragment : Fragment() {
                 statusText.text = formatModelStatus(false, "", "~11MB")
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
-                actionBtn.setOnClickListener { startRTDetrDownload() }
+                actionBtn.setOnClickListener { ModelDownloadService.startDownload(requireContext(), ModelKey.RT_DETR_V2, isResume = false) }
             }
         }
     }
 
     private fun cancelRTDetrDownload() {
-        rtdetrIsCancelled = true
-        rtdetrDownloadJob?.cancel()
-        rtdetrDownloadJob = null
+        ModelDownloadService.cancelDownload(requireContext(), ModelKey.RT_DETR_V2)
         LogCollector.d(TAG, "RT-DETR-V2 下载已取消")
         updateRTDetrStatus()
     }
 
     private fun startRTDetrDownload() {
-        rtdetrIsCancelled = false
-        rtdetrDownloadJob = lifecycleScope.launch(Dispatchers.IO) {
-            LogCollector.d(TAG, "开始下载 RT-DETR-V2 模型...")
-            try {
-                val result = RTDetrModelManager.downloadModel(
-                    requireContext(),
-                    object : ModelDownloadManager.ProgressCallback {
-                        override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                            if (rtdetrIsCancelled || !isAdded) return
-                            handler.post {
-                                if (rtdetrIsCancelled || !isAdded) return@post
-                                val progress = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
-                                val statusText = rootView.findViewById<TextView>(R.id.rtdetr_status)
-                                val mbRead = bytesRead / (1024 * 1024)
-                                val mbTotal = if (totalBytes > 0) totalBytes / (1024 * 1024) else 0
-                                val speedStr = if (speed > 0) String.format(" (%.1f MB/s)", speed) else ""
-                                statusText.text = "${getString(R.string.model_downloading)} $progress%  ${mbRead}/${mbTotal} MB$speedStr"
-                            }
-                        }
-                    }
-                )
+        ModelDownloadService.startDownload(requireContext(), ModelKey.RT_DETR_V2, isResume = false)
+        LogCollector.d(TAG, "开始下载 RT-DETR-V2 模型...")
+        updateRTDetrStatus()
+    }
 
-                withContext(Dispatchers.Main) {
-                    rtdetrDownloadJob = null
-                    if (rtdetrIsCancelled) return@withContext
-                    if (result.isSuccess) {
-                        Toast.makeText(requireContext(), R.string.model_download_success, Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(requireContext(), getString(R.string.model_download_failed, result.exceptionOrNull()?.message), Toast.LENGTH_LONG).show()
-                    }
-                    updateRTDetrStatus()
-                }
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "RT-DETR-V2 下载异常", e)
-                withContext(Dispatchers.Main) {
-                    rtdetrDownloadJob = null
-                    if (rtdetrIsCancelled) return@withContext
-                    Toast.makeText(requireContext(), getString(R.string.model_download_failed, e.message), Toast.LENGTH_LONG).show()
-                    updateRTDetrStatus()
-                }
+    private fun deleteRTDetrModel() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            RTDetrModelManager.deleteModel(requireContext())
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
+                updateRTDetrStatus()
             }
         }
-        updateRTDetrStatus()
     }
 
     private fun showRTDetrDeleteConfirmDialog() {
@@ -257,20 +248,6 @@ class ModelManagementFragment : Fragment() {
             .setPositiveButton(R.string.confirm) { _, _ -> deleteRTDetrModel() }
             .setNegativeButton(R.string.user_cancel, null)
             .show()
-    }
-
-    private fun deleteRTDetrModel() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val result = RTDetrModelManager.deleteModel(requireContext())
-            withContext(Dispatchers.Main) {
-                if (result.isSuccess) {
-                    Toast.makeText(requireContext(), R.string.model_delete_success, Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(requireContext(), R.string.model_delete_failed, Toast.LENGTH_LONG).show()
-                }
-                updateRTDetrStatus()
-            }
-        }
     }
 
     // ========== manga-ocr 下载相关 ==========

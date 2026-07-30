@@ -61,7 +61,7 @@ class ManageActivity : BaseActivity() {
         when(intent.getIntExtra(EXTRA_FRAGMENT_TYPE,0)){
             // TYPE_FRAGMENT_MANAGE_MLKIT (1) 已废弃：ML Kit 离线翻译已移除
             TYPE_FRAGMENT_MANAGE_NLLB-> {
-                val fragment = NLLBDownloadFragment()
+                val fragment = NllbModelFragment()
                 supportFragmentManager.beginTransaction()
                     .replace(binding.manageFragmentContainer.id, fragment)
                     .commit()
