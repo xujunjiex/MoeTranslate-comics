@@ -106,7 +106,7 @@
         </service>
 
         <service
-            android:name=".service.ModelDownloadService"
+            android:name=".download.ModelDownloadService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
