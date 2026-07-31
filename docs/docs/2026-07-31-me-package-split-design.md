@@ -62,11 +62,26 @@ com/moe/starflow/me/
 
 ### 3.1 资源/Manifest（全限定名）
 
+**运行时引用**（改错必崩）：
+
 | 文件 | 原值 | 新值 |
 |------|------|------|
 | `AndroidManifest.xml` | `.me.SettingPageActivity` | `.me.settings.SettingPageActivity` |
 | `res/navigation/navigation_manage.xml` | `com.moe.starflow.me.AboutMe` | `com.moe.starflow.me.about.AboutMe` |
 | `res/xml/personalization.xml` | `<com.moe.starflow.me.PreferenceWithPreview>` | `<com.moe.starflow.me.settings.PreferenceWithPreview>`（2 处） |
+
+**`tools:context`（设计期引用，构建不报错但会留脏引用/IDE 跳转失效）**：
+
+| 文件 | 原值 | 新值 |
+|------|------|------|
+| `res/layout/activity_setting_page.xml` | `.me.SettingPageActivity` | `.me.settings.SettingPageActivity` |
+| `res/layout/fragment_about_me.xml` | `.me.AboutMe` | `.me.about.AboutMe` |
+| `res/layout/fragment_developer.xml` | `.me.Developer` | `.me.about.Developer` |
+| `res/layout/fragment_faq_page.xml` | `.me.FAQPage` | `.me.about.FAQPage` |
+| `res/layout/fragment_open_source.xml` | `.me.OpenSource` | `.me.about.OpenSource` |
+| `res/layout/fragment_translation_mode.xml` | `.me.AboutMe`（原样照搬） | `.me.about.AboutMe` |
+
+> `fragment_model_management.xml` / `fragment_nllb_model.xml` / `activity_manage.xml` 均无 `tools:context`，无需改。
 
 ### 3.2 代码 import 更新（非 me 包，7 个文件）
 
@@ -104,9 +119,9 @@ com/moe/starflow/me/
 
 **每步原则**：每个子包一个 commit。commit 内既要改**被移动文件**（package 声明 + 其跨包引用），也要改**所有引用这些类的文件**（含尚未移动的 me/ 根文件、外部 7 文件、资源/Manifest）——保证每一步独立 `assembleDebug` 通过。
 
-1. **about/ 子包**：git mv AboutMe/Developer/FAQPage/OpenSource/CardAdapter → about/ + 改 package + 更新引用（`navigation_manage.xml` 的 AboutMe、留根 Developer→ManageActivity 的跨包引用等）→ 构建 → commit
+1. **about/ 子包**：git mv AboutMe/Developer/FAQPage/OpenSource/CardAdapter → about/ + 改 package + 更新引用（`navigation_manage.xml` 的 AboutMe、5 个 fragment 布局 `tools:context`、留根 Developer→ManageActivity 的跨包引用等）→ 构建 → commit
 2. **model/ 子包**：git mv ModelManagementFragment/NllbModelFragment → model/ + 改 package + 更新引用（留根 ManageActivity 加 NllbModelFragment import、未迁移 SettingPageActivity 加 ModelManagementFragment import）→ 构建 → commit
-3. **settings/ 子包**：git mv SettingPageActivity/PersonalizationConfig/TranslationMode/PreferenceWithPreview → settings/ + 改 package + 改 Manifest `.me.SettingPageActivity` + 改 `personalization.xml` + 更新引用（about/AboutMe 加 SettingPageActivity import 等）→ 构建 → commit
+3. **settings/ 子包**：git mv SettingPageActivity/PersonalizationConfig/TranslationMode/PreferenceWithPreview → settings/ + 改 package + 改 Manifest `.me.SettingPageActivity` + 改 `personalization.xml` + 改 `activity_setting_page.xml` 的 `tools:context` + 更新引用（about/AboutMe 的 SettingPageActivity import 改包路径等）→ 构建 → commit
 4. **apiconfig/ 子包**：git mv APIConfig/OnlineAPI/OpenAIText/CustomTextAPI/CustomPicAPI/BuiltinProviders/CustomStorage/UrlUtils → apiconfig/ + 改 package + 更新外部 7 文件 import + MangaViewerActivity 内联 FQN 转 import + 移测试 CustomStorageTest → 构建 → commit
 5. **最终验证**：`assembleDebug` + `testDebugUnitTest`（全量）→ 确认全绿
 
