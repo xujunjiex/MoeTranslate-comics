@@ -21,7 +21,8 @@ object ChecksumHelper {
 
     fun verifyChecksum(file: File, expectedMd5: String): Boolean {
         return try {
-            calculateMD5(file) == expectedMd5
+            // calculateMD5 返回小写；expectedMd5 统一转小写，与 ModelDownloadManager 的 .lowercase() 保持一致
+            calculateMD5(file) == expectedMd5.lowercase()
         } catch (e: Exception) {
             LogCollector.e(TAG, "MD5 verify failed: ${file.name}", e)
             false

@@ -256,6 +256,7 @@ class ModelDownloadRepository private constructor(private val context: Context) 
     suspend fun cancelDownload(modelKey: ModelKey) = withContext(Dispatchers.IO) {
         stateMutex.withLock {
             val info = getModelInfo(modelKey) ?: return@withContext
+            queuedKeys.remove(modelKey)  // 取消排队中的下载，避免当前完成后又被自动重启
             for (fileInfo in info.files) {
                 val partFile = File(targetFileFor(modelKey).parentFile, fileInfo.fileName + ".part")
                 if (partFile.exists()) {
@@ -271,6 +272,7 @@ class ModelDownloadRepository private constructor(private val context: Context) 
     suspend fun deleteDownload(modelKey: ModelKey) = withContext(Dispatchers.IO) {
         stateMutex.withLock {
             val info = getModelInfo(modelKey) ?: return@withContext
+            queuedKeys.remove(modelKey)
             for (fileInfo in info.files) {
                 val target = File(targetFileFor(modelKey).parentFile, fileInfo.fileName)
                 if (target.exists()) target.delete()
@@ -359,9 +361,18 @@ class ModelDownloadRepository private constructor(private val context: Context) 
     }
 
     fun dequeueNext(): ModelKey? {
-        val first = queuedKeys.firstOrNull() ?: return null
-        queuedKeys.remove(first)
-        return first
+        // 跳过已取消/已删除（Idle）的排队项，避免自动重启被取消的下载
+        val iterator = queuedKeys.iterator()
+        while (iterator.hasNext()) {
+            val key = iterator.next()
+            if (stateMap[key] is DownloadState.Idle) {
+                iterator.remove()
+                continue
+            }
+            iterator.remove()
+            return key
+        }
+        return null
     }
 
     /**
