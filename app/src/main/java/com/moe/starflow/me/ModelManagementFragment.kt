@@ -22,12 +22,74 @@ import android.content.Intent
 import android.net.Uri
 import kotlinx.coroutines.launch
 
+/**
+ * 模型管理页面 — **数据驱动**，可扩展。
+ *
+ * 新增一个模型只需：
+ * 1. 在 `fragment_model_management.xml` 加一行（status/action/cancel + 可选浏览器按钮，ID 见下文约定）
+ * 2. 在 [modelRows] 加一条 [ModelRow] 配置
+ *
+ * 渲染、浏览器按钮接线、磁盘状态刷新全部由 [modelRows] 自动完成，不再需要逐模型写方法。
+ */
 class ModelManagementFragment : Fragment() {
 
     private val TAG = "ModelManagementFragment"
     private lateinit var rootView: View
     private val handler = Handler(Looper.getMainLooper())
     private val repo by lazy { ModelDownloadRepository.getInstance(requireContext()) }
+
+    /** 页面展示的所有模型行配置（顺序即页面顺序） */
+    private data class ModelRow(
+        val modelKey: ModelKey,
+        val displayName: String,
+        val expectedSize: String,
+        val statusId: Int,
+        val actionBtnId: Int,
+        val cancelBtnId: Int,
+        /** 浏览器按钮 → 打开 browser_url（模型主页） */
+        val browserUrlBtnId: Int? = null,
+        /** 浏览器按钮列表，逐个对应 JSON files 里第 i 个文件的 download_url */
+        val fileBrowserBtnIds: List<Int> = emptyList()
+    )
+
+    private val modelRows: List<ModelRow> = listOf(
+        // 1. RT-DETR-V2（单文件，浏览器按钮开模型主页）
+        ModelRow(ModelKey.RT_DETR_V2, "RT-DETR-V2", "~11MB",
+            R.id.rtdetr_status, R.id.rtdetr_action_button, R.id.rtdetr_cancel_button,
+            browserUrlBtnId = R.id.rtdetr_browser_button),
+        // 2. manga-ocr（3 文件：encoder/decoder/vocab）
+        ModelRow(ModelKey.MANGA_OCR_GROUP, "manga-ocr", "~135MB",
+            R.id.manga_ocr_status, R.id.manga_ocr_action_button, R.id.manga_ocr_cancel_button,
+            fileBrowserBtnIds = listOf(
+                R.id.manga_ocr_encoder_button,
+                R.id.manga_ocr_decoder_button,
+                R.id.manga_ocr_vocab_button
+            )),
+        // 3. PP-OCRv5 检测器（单文件，浏览器按钮开模型主页）
+        ModelRow(ModelKey.PP_OCR_V5_DET, "PP-OCRv5 DET", "~4.6MB",
+            R.id.v5_det_status, R.id.v5_det_action_button, R.id.v5_det_cancel_button,
+            browserUrlBtnId = R.id.v5_det_browser_button),
+        // 4-7. PP-OCRv5 识别器（每个 2 文件：onnx + 字典）
+        ModelRow(ModelKey.PP_OCR_V5_REC_ZH, "PP-OCRv5 REC ZH", "~16MB",
+            R.id.v5_rec_zh_status, R.id.v5_rec_zh_action_button, R.id.v5_rec_zh_cancel_button,
+            fileBrowserBtnIds = listOf(R.id.v5_rec_zh_onnx_button, R.id.v5_rec_zh_dict_button)),
+        ModelRow(ModelKey.PP_OCR_V5_REC_EN, "PP-OCRv5 REC EN", "~7.5MB",
+            R.id.v5_rec_en_status, R.id.v5_rec_en_action_button, R.id.v5_rec_en_cancel_button,
+            fileBrowserBtnIds = listOf(R.id.v5_rec_en_onnx_button, R.id.v5_rec_en_dict_button)),
+        ModelRow(ModelKey.PP_OCR_V5_REC_KO, "PP-OCRv5 REC KO", "~12.9MB",
+            R.id.v5_rec_ko_status, R.id.v5_rec_ko_action_button, R.id.v5_rec_ko_cancel_button,
+            fileBrowserBtnIds = listOf(R.id.v5_rec_ko_onnx_button, R.id.v5_rec_ko_dict_button)),
+        ModelRow(ModelKey.PP_OCR_V5_REC_RU, "PP-OCRv5 REC RU", "~7.7MB",
+            R.id.v5_rec_ru_status, R.id.v5_rec_ru_action_button, R.id.v5_rec_ru_cancel_button,
+            fileBrowserBtnIds = listOf(R.id.v5_rec_ru_onnx_button, R.id.v5_rec_ru_dict_button)),
+        // 8-9. PP-OCRv6 medium（单文件，浏览器按钮开文件下载）
+        ModelRow(ModelKey.PP_OCR_V6_MEDIUM_DET, "PP-OCRv6 DET (medium)", "~60MB",
+            R.id.ppocrv6_medium_det_status, R.id.ppocrv6_medium_det_action, R.id.ppocrv6_medium_det_cancel,
+            fileBrowserBtnIds = listOf(R.id.ppocrv6_medium_det_browser_button)),
+        ModelRow(ModelKey.PP_OCR_V6_MEDIUM_REC, "PP-OCRv6 REC (medium)", "~74MB",
+            R.id.ppocrv6_medium_rec_status, R.id.ppocrv6_medium_rec_action, R.id.ppocrv6_medium_rec_cancel,
+            fileBrowserBtnIds = listOf(R.id.ppocrv6_medium_rec_browser_button))
+    )
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -44,35 +106,15 @@ class ModelManagementFragment : Fragment() {
         // Subscribe to Repository state changes; refresh all model status blocks on each emission.
         viewLifecycleOwner.lifecycleScope.launch {
             // 页面进入时先按磁盘文件重新计算状态（识别已下载/部分下载的模型）
-            val shownKeys = listOf(
-                ModelKey.RT_DETR_V2,
-                ModelKey.MANGA_OCR_GROUP,
-                ModelKey.PP_OCR_V5_DET,
-                ModelKey.PP_OCR_V5_REC_ZH,
-                ModelKey.PP_OCR_V5_REC_EN,
-                ModelKey.PP_OCR_V5_REC_KO,
-                ModelKey.PP_OCR_V5_REC_RU,
-                ModelKey.PP_OCR_V6_MEDIUM_DET,
-                ModelKey.PP_OCR_V6_MEDIUM_REC
-            )
-            for (key in shownKeys) {
-                repo.refreshFromDisk(key)
+            for (row in modelRows) {
+                repo.refreshFromDisk(row.modelKey)
             }
             repo.observe().collect {
-                updateRTDetrStatus()
-                updateMangaOcrStatus()
-                updateV5DetStatus()
-                updateV5RecZhStatus()
-                updateV5RecEnStatus()
-                updateV5RecKoStatus()
-                updateV5RecRuStatus()
-                updatePPOcrV6Status()
+                renderAll()
             }
         }
 
-        // 浏览器下载按钮（用 JSON browser_url）
         setupBrowserDownloadButtons()
-        setupV6Buttons()
         setupV6TierSwitching()
 
         // 显示模型存储路径（Android 通用格式）
@@ -87,49 +129,30 @@ class ModelManagementFragment : Fragment() {
         pathText.text = genericPath
     }
 
+    /** 渲染所有模型行（数据驱动，遍历 [modelRows]） */
+    private fun renderAll() {
+        for (row in modelRows) {
+            renderModelBlock(row, repo.getState(row.modelKey))
+        }
+        updateV6TierVisibility()
+    }
+
+    /** 接线所有浏览器按钮（数据驱动） */
     private fun setupBrowserDownloadButtons() {
-        // 所有浏览器按钮改为通过 repo.getBrowserUrl() 取 JSON 的 browser_url
-        rootView.findViewById<TextView>(R.id.rtdetr_browser_button)?.setOnClickListener {
-            openBrowser(repo.getBrowserUrl(ModelKey.RT_DETR_V2) ?: "")
-        }
-        // manga-ocr 三个文件按钮：用 JSON 里每个文件的 download_url
-        rootView.findViewById<TextView>(R.id.manga_ocr_encoder_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.MANGA_OCR_GROUP)?.files?.firstOrNull()?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.manga_ocr_decoder_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.MANGA_OCR_GROUP)?.files?.getOrNull(1)?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.manga_ocr_vocab_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.MANGA_OCR_GROUP)?.files?.getOrNull(2)?.downloadUrl ?: "")
-        }
-        // v5 det / rec_zh
-        rootView.findViewById<TextView>(R.id.v5_det_browser_button)?.setOnClickListener {
-            openBrowser(repo.getBrowserUrl(ModelKey.PP_OCR_V5_DET) ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_zh_onnx_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_ZH)?.files?.firstOrNull()?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_zh_dict_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_ZH)?.files?.getOrNull(1)?.downloadUrl ?: "")
-        }
-        // v5 EN/KO/RU
-        rootView.findViewById<TextView>(R.id.v5_rec_en_onnx_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_EN)?.files?.firstOrNull()?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_en_dict_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_EN)?.files?.getOrNull(1)?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_ko_onnx_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_KO)?.files?.firstOrNull()?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_ko_dict_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_KO)?.files?.getOrNull(1)?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_ru_onnx_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_RU)?.files?.firstOrNull()?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.v5_rec_ru_dict_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V5_REC_RU)?.files?.getOrNull(1)?.downloadUrl ?: "")
+        for (row in modelRows) {
+            row.browserUrlBtnId?.let { btnId ->
+                rootView.findViewById<TextView>(btnId)?.setOnClickListener {
+                    openBrowser(repo.getBrowserUrl(row.modelKey) ?: "")
+                }
+            }
+            row.fileBrowserBtnIds.forEachIndexed { i, btnId ->
+                rootView.findViewById<TextView>(btnId)?.setOnClickListener {
+                    val url = repo.getModelInfo(row.modelKey)?.files?.getOrNull(i)?.downloadUrl
+                        ?: repo.getBrowserUrl(row.modelKey)
+                        ?: ""
+                    openBrowser(url)
+                }
+            }
         }
     }
 
@@ -155,28 +178,23 @@ class ModelManagementFragment : Fragment() {
      * - Done: 单按钮「删除」
      */
     private fun renderModelBlock(
-        statusId: Int,
-        downloadBtnId: Int,
-        cancelBtnId: Int,
-        modelKey: ModelKey,
-        state: DownloadState,
-        displayName: String,
-        expectedSize: String
+        row: ModelRow,
+        state: DownloadState
     ) {
-        val statusText = rootView.findViewById<TextView>(statusId)
-        val actionBtn = rootView.findViewById<TextView>(downloadBtnId)
-        val cancelBtn = rootView.findViewById<TextView>(cancelBtnId)
+        val statusText = rootView.findViewById<TextView>(row.statusId)
+        val actionBtn = rootView.findViewById<TextView>(row.actionBtnId)
+        val cancelBtn = rootView.findViewById<TextView>(row.cancelBtnId)
 
         // 默认隐藏 cancel 按钮
         cancelBtn.visibility = View.GONE
 
         when (state) {
             DownloadState.Idle, is DownloadState.Partial -> {
-                statusText.text = getString(R.string.model_status_undownloaded_format, expectedSize)
+                statusText.text = getString(R.string.model_status_undownloaded_format, row.expectedSize)
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener {
-                    ModelDownloadService.startDownload(requireContext(), modelKey, isResume = state is DownloadState.Partial)
+                    ModelDownloadService.startDownload(requireContext(), row.modelKey, isResume = state is DownloadState.Partial)
                 }
             }
             is DownloadState.Running -> {
@@ -198,11 +216,11 @@ class ModelManagementFragment : Fragment() {
                 actionBtn.text = getString(R.string.model_btn_pause)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener {
-                    ModelDownloadService.pauseDownload(requireContext(), modelKey)
+                    ModelDownloadService.pauseDownload(requireContext(), row.modelKey)
                 }
                 cancelBtn.visibility = View.VISIBLE
                 cancelBtn.setOnClickListener {
-                    ModelDownloadService.cancelDownload(requireContext(), modelKey)
+                    ModelDownloadService.cancelDownload(requireContext(), row.modelKey)
                 }
             }
             is DownloadState.Paused -> {
@@ -224,20 +242,20 @@ class ModelManagementFragment : Fragment() {
                 actionBtn.text = getString(R.string.model_btn_resume)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener {
-                    ModelDownloadService.startDownload(requireContext(), modelKey, isResume = true)
+                    ModelDownloadService.startDownload(requireContext(), row.modelKey, isResume = true)
                 }
             }
             DownloadState.Done -> {
-                val total = repo.getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
+                val total = repo.getModelInfo(row.modelKey)?.files?.sumOf { it.fileSize } ?: 0L
                 statusText.text = getString(R.string.model_status_with_size_format, formatBytes(total))
                 actionBtn.text = getString(R.string.model_delete)
                 setButtonDeleteStyle(actionBtn, true)
                 actionBtn.setOnClickListener {
-                    confirmDelete(modelKey, displayName)
+                    confirmDelete(row.modelKey, row.displayName)
                 }
             }
         }
-        LogCollector.d(TAG, "$displayName state=$state")
+        LogCollector.d(TAG, "${row.displayName} state=$state")
     }
 
     private fun confirmDelete(modelKey: ModelKey, displayName: String) {
@@ -259,110 +277,7 @@ class ModelManagementFragment : Fragment() {
     private fun formatSpeed(bytesPerSec: Long): String =
         String.format("%.1f MB/s", bytesPerSec / (1024.0 * 1024.0))
 
-    // ========== RT-DETR-V2 ==========
-    private fun updateRTDetrStatus() {
-        val state = repo.getState(ModelKey.RT_DETR_V2)
-        renderModelBlock(
-            statusId = R.id.rtdetr_status,
-            downloadBtnId = R.id.rtdetr_action_button,
-            cancelBtnId = R.id.rtdetr_cancel_button,
-            modelKey = ModelKey.RT_DETR_V2,
-            state = state,
-            displayName = "RT-DETR-V2",
-            expectedSize = "~11MB"
-        )
-    }
-
-    // ========== manga-ocr ==========
-    private fun updateMangaOcrStatus() {
-        val state = repo.getState(ModelKey.MANGA_OCR_GROUP)
-        renderModelBlock(
-            statusId = R.id.manga_ocr_status,
-            downloadBtnId = R.id.manga_ocr_action_button,
-            cancelBtnId = R.id.manga_ocr_cancel_button,
-            modelKey = ModelKey.MANGA_OCR_GROUP,
-            state = state,
-            displayName = "manga-ocr",
-            expectedSize = "~135MB"
-        )
-    }
-
-    // ========== v5 det ==========
-    private fun updateV5DetStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V5_DET)
-        renderModelBlock(
-            statusId = R.id.v5_det_status,
-            downloadBtnId = R.id.v5_det_action_button,
-            cancelBtnId = R.id.v5_det_cancel_button,
-            modelKey = ModelKey.PP_OCR_V5_DET,
-            state = state,
-            displayName = "PP-OCRv5 DET",
-            expectedSize = "~4.6MB"
-        )
-    }
-
-    // ========== v5 rec_zh ==========
-    private fun updateV5RecZhStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V5_REC_ZH)
-        renderModelBlock(
-            statusId = R.id.v5_rec_zh_status,
-            downloadBtnId = R.id.v5_rec_zh_action_button,
-            cancelBtnId = R.id.v5_rec_zh_cancel_button,
-            modelKey = ModelKey.PP_OCR_V5_REC_ZH,
-            state = state,
-            displayName = "PP-OCRv5 REC ZH",
-            expectedSize = "~16MB"
-        )
-    }
-
-    // ========== v5 rec_en ==========
-    private fun updateV5RecEnStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V5_REC_EN)
-        renderModelBlock(
-            statusId = R.id.v5_rec_en_status,
-            downloadBtnId = R.id.v5_rec_en_action_button,
-            cancelBtnId = R.id.v5_rec_en_cancel_button,
-            modelKey = ModelKey.PP_OCR_V5_REC_EN,
-            state = state,
-            displayName = "PP-OCRv5 REC EN",
-            expectedSize = "~7.5MB"
-        )
-    }
-
-    // ========== v5 rec_ko ==========
-    private fun updateV5RecKoStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V5_REC_KO)
-        renderModelBlock(
-            statusId = R.id.v5_rec_ko_status,
-            downloadBtnId = R.id.v5_rec_ko_action_button,
-            cancelBtnId = R.id.v5_rec_ko_cancel_button,
-            modelKey = ModelKey.PP_OCR_V5_REC_KO,
-            state = state,
-            displayName = "PP-OCRv5 REC KO",
-            expectedSize = "~12.9MB"
-        )
-    }
-
-    // ========== v5 rec_ru ==========
-    private fun updateV5RecRuStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V5_REC_RU)
-        renderModelBlock(
-            statusId = R.id.v5_rec_ru_status,
-            downloadBtnId = R.id.v5_rec_ru_action_button,
-            cancelBtnId = R.id.v5_rec_ru_cancel_button,
-            modelKey = ModelKey.PP_OCR_V5_REC_RU,
-            state = state,
-            displayName = "PP-OCRv5 REC RU",
-            expectedSize = "~7.7MB"
-        )
-    }
-
-    // ========== PP-OCRv6 ==========
-    private fun updatePPOcrV6Status() {
-        updatePPOcrV6DetStatus()
-        updatePPOcrV6RecStatus()
-        updateV6TierVisibility()
-    }
+    // ========== PP-OCRv6 small/medium 切档（v6 特有，保留） ==========
 
     private fun updateV6TierVisibility() {
         val smallRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_small)
@@ -381,41 +296,6 @@ class ModelManagementFragment : Fragment() {
             PreferenceManager.getDefaultSharedPreferences(requireContext()).edit().putString("ppocrv6_tier", "small").commit()
             smallRadio.isChecked = true
             android.widget.Toast.makeText(requireContext(), "medium 模型不完整，已自动切回 small", android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun updatePPOcrV6DetStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V6_MEDIUM_DET)
-        renderModelBlock(
-            statusId = R.id.ppocrv6_medium_det_status,
-            downloadBtnId = R.id.ppocrv6_medium_det_action,
-            cancelBtnId = R.id.ppocrv6_medium_det_cancel,
-            modelKey = ModelKey.PP_OCR_V6_MEDIUM_DET,
-            state = state,
-            displayName = "PP-OCRv6 DET (medium)",
-            expectedSize = "~60MB"
-        )
-    }
-
-    private fun updatePPOcrV6RecStatus() {
-        val state = repo.getState(ModelKey.PP_OCR_V6_MEDIUM_REC)
-        renderModelBlock(
-            statusId = R.id.ppocrv6_medium_rec_status,
-            downloadBtnId = R.id.ppocrv6_medium_rec_action,
-            cancelBtnId = R.id.ppocrv6_medium_rec_cancel,
-            modelKey = ModelKey.PP_OCR_V6_MEDIUM_REC,
-            state = state,
-            displayName = "PP-OCRv6 REC (medium)",
-            expectedSize = "~74MB"
-        )
-    }
-
-    private fun setupV6Buttons() {
-        rootView.findViewById<TextView>(R.id.ppocrv6_medium_det_browser_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V6_MEDIUM_DET)?.files?.firstOrNull()?.downloadUrl ?: "")
-        }
-        rootView.findViewById<TextView>(R.id.ppocrv6_medium_rec_browser_button)?.setOnClickListener {
-            openBrowser(repo.getModelInfo(ModelKey.PP_OCR_V6_MEDIUM_REC)?.files?.firstOrNull()?.downloadUrl ?: "")
         }
     }
 

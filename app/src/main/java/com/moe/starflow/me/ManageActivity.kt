@@ -24,6 +24,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.moe.starflow.BaseActivity
 import com.moe.starflow.databinding.ActivityManageBinding
+import com.moe.starflow.manga.ModelKey
 
 class ManageActivity : BaseActivity() {
 
@@ -61,7 +62,7 @@ class ManageActivity : BaseActivity() {
         when(intent.getIntExtra(EXTRA_FRAGMENT_TYPE,0)){
             // TYPE_FRAGMENT_MANAGE_MLKIT (1) 已废弃：ML Kit 离线翻译已移除
             TYPE_FRAGMENT_MANAGE_NLLB-> {
-                val fragment = NllbModelFragment()
+                val fragment = NllbModelFragment.newInstance(ModelKey.NLLB_GROUP)
                 supportFragmentManager.beginTransaction()
                     .replace(binding.manageFragmentContainer.id, fragment)
                     .commit()

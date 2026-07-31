@@ -22,7 +22,19 @@ import kotlinx.coroutines.launch
 class NllbModelFragment : Fragment() {
 
     private val repo by lazy { ModelDownloadRepository.getInstance(requireContext()) }
-    private val modelKey = ModelKey.NLLB_GROUP
+    private val modelKey: ModelKey
+        get() = arguments?.getString(ARG_MODEL_KEY)?.let { runCatching { ModelKey.valueOf(it) }.getOrNull() }
+            ?: ModelKey.NLLB_GROUP
+
+    companion object {
+        private const val ARG_MODEL_KEY = "model_key"
+
+        /** 本地翻译模型下载页。默认 NLLB，可传入其他本地翻译模型 ModelKey 复用本页面。 */
+        fun newInstance(modelKey: ModelKey = ModelKey.NLLB_GROUP): NllbModelFragment =
+            NllbModelFragment().apply {
+                arguments = Bundle().apply { putString(ARG_MODEL_KEY, modelKey.name) }
+            }
+    }
 
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar

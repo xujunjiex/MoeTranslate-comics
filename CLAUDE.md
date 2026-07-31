@@ -39,8 +39,12 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 # 清理构建
 ./gradlew clean assembleDebug
 
-# 运行单元测试
-./gradlew test
+# 运行单元测试（⚠️ 直接 ./gradlew test 会因 Git Bash 弄乱 PATH 使 test worker 崩溃
+# ClassNotFoundException: Files\Git\mingw64\bin;...，需用 PowerShell + 干净 PATH + --no-daemon + 指定测试类）：
+# powershell:
+#   $env:JAVA_HOME='C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'
+#   $env:PATH='C:\Windows\System32;C:\Windows;'+$env:JAVA_HOME+'\bin'
+#   .\gradlew.bat --no-daemon :app:testDebugUnitTest --tests com.moe.starflow.data.XxxTest
 
 # 实时查看应用日志
 adb logcat --pid=$(adb shell pidof com.moe.starflow)
@@ -319,6 +323,21 @@ ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、
 4. **下载/删除按钮**（绿色 btn_download 或红色 btn_delete，weight=0 固定宽度）
 
 v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium RadioButton），RadioButton 与「medium」标题同行右侧，与 small RadioButton 互斥。删除任一 medium 文件 → 自动切回 small + Toast 提示。
+
+**可扩展设计（v5 起）：** `ModelManagementFragment` 是**数据驱动**的——`modelRows` 列表驱动渲染、浏览器按钮接线、磁盘状态刷新，不再逐模型写方法。
+
+**新增一个可下载模型只需 3 步：**
+1. `downloadinfo.json` 加模型定义（`model_key` + `files` 数组：文件名/URL/大小/MD5）
+2. `fragment_model_management.xml` 加一行：`status` + `action_button` + `cancel_button`（+ 可选浏览器按钮，命名 `xxx_browser_button` / 每文件一个）
+3. `ModelManagementFragment.modelRows` 加一条 `ModelRow`（modelKey + 显示名 + 预估大小 + 全部 view ID；单文件浏览器按钮用 `browserUrlBtnId`，多文件逐文件用 `fileBrowserBtnIds`）
+
+**本地翻译模型下载页：** `NllbModelFragment` 已参数化——`NllbModelFragment.newInstance(ModelKey.X)` 可复用于任意本地翻译模型（默认 NLLB），`ManageActivity` 按 `EXTRA_FRAGMENT_TYPE` 传 modelKey 即可。
+
+**下载系统关键约定（防踩坑）：**
+- **校验走 MD5，不按 `file_size` 精确匹配**（JSON 的 file_size 常与服务器实际文件不符，曾导致"下载完成→误删→死循环"）；`downloadinfo.json` 各模型 checksum 从本地 `models/` 真实文件计算，NLLB 的 5 个 checksum 未验证
+- **多文件 Done 必须所有文件都有完整 target**（`computeStateFromDisk`），不能只检查第一个文件（曾导致强退后 NLLB 误判已下载）
+- **下载完成立即 `markDone`**，否则状态卡 Running，只有重启 `initialize()` 才识别
+- 页面进入先调 `refreshFromDisk()` 让 UI 反映磁盘真实状态；取消/删除已入队的下载会从 `queuedKeys` 移除，不会被自动重启
 
 **关键规则：**
 - **所有日志用 `LogCollector`**，不用 `Log.d/i/e`
@@ -696,6 +715,51 @@ MediaProjectionIntentHolder — 存储授权 Intent。
   - 下拉选择器：禁止系统 `Spinner`（白色下拉菜单），使用 Material `MaterialAutoCompleteTextView` + `ExposedDropdownMenu` 或自定义下拉
 - **禁止使用系统级窗口**：所有 UI 必须在 Activity/Fragment 内实现，禁止 `TYPE_APPLICATION_OVERLAY` 以外的系统窗口
 - 所有 UI 组件优先使用 Material Design 组件库（`com.google.android.material.*`）
+
+## 弹窗系统（选型规则）
+
+**翻译状态类消息 → 统一用 `TranslationStatusOverlay`，不要用系统 Toast。** 它是全局共享单例，最多 3 条消息纵向堆叠（第 2/3 行不重叠），可配置位置（上/中/下）和时长。
+
+| 需求场景 | 用哪个 | 说明 |
+|---------|--------|------|
+| 翻译状态/初始化/进度/模型切换 | `TranslationStatusOverlay` | 共享单例、多消息堆叠、圆角动画 |
+| 一次性操作反馈（保存成功、复制、下载完成） | `UiUtils.showToast` | 底部系统 Toast |
+| 需要确认/操作/选择 | `android.app.AlertDialog` | 必须自定义布局，禁止原生样式 |
+| 底部面板/菜单 | `BottomSheetDialogFragment` | 禁止系统 `Dialog` |
+| 常驻可拖动浮层 | `TranslationResultView` / 悬浮球 | WindowManager |
+
+**消息方法选择（`TranslationStatusOverlay`）：**
+- `show(message)`：普通消息，堆叠显示，到时自动消失（初始化信息、启停提示）
+- `showImmediate(message, autoDismiss = false)`：**进度/状态**消息，复用顶部第一条，下面堆叠的保留（检测中/翻译中/模型切换）
+- `showError(message)`：错误，红色、可点击复制
+- `update(message)`：更新顶部文字（进度实时刷新，不重置计时器）
+- `dismiss()`：清空全部（进度结束）；`release()`：服务销毁时调用
+
+**代码示例：**
+```kotlin
+// 1. 翻译状态浮层（共享单例）
+val overlay = TranslationStatusOverlay.getInstance(this)
+overlay.show("初始化中...")                                  // 第 1 行
+overlay.show("翻译 API 初始化成功")                          // 第 2 行（堆叠）
+overlay.showImmediate("检测中...", autoDismiss = false)       // 进度，复用顶部
+overlay.showError("翻译失败: ${e.message}")                   // 红色可复制
+overlay.dismiss()                                            // 清空
+
+// 2. 一次性操作反馈（底部系统 Toast）
+UiUtils.showToast(context, "已保存", isShort = true)
+
+// 3. 确认/操作弹窗（AlertDialog + 自定义布局）
+AlertDialog.Builder(requireContext())
+    .setTitle(R.string.xxx)
+    .setMessage(R.string.xxx)
+    .setPositiveButton(R.string.confirm) { _, _ -> /* 操作 */ }
+    .setNegativeButton(R.string.user_cancel, null)
+    .show()
+```
+
+**个性化配置键**（`CustomPreference`）：`status_overlay_enabled`（总开关）、`Status_Position`（top/center/bottom）、`Status_Duration`（毫秒，默认 2000）。
+
+⚠️ 详细设计与消息堆叠行为见本地参考文档 `tools/popup-system.md`（gitignore，不提交）。
 
 ## 网络配置
 
