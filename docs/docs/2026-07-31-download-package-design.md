@@ -20,7 +20,7 @@
 | `manga/ModelDownloadManager.kt` | `ModelDownloadManager.kt` | `com.moe.starflow.manga` |
 | `service/helpers/ChecksumHelper.kt`（含 `VerifyResult`） | `ChecksumHelper.kt` | `com.moe.starflow.service.helpers` |
 
-> 注：`ModelDownloadService.kt` 的 `helpers/` 目录搬迁后留空；`DownloadState.kt` 还包含 `DownloadSnapshot`（Repository 内部结构）。
+> 注：`ModelDownloadService.kt` 的 `helpers/` 目录搬迁后留空；`ModelDownloadRepository.kt` 还包含内部结构 `DownloadSnapshot`。
 
 ## 需要改动的文件
 
@@ -28,12 +28,14 @@
 - `package` 声明改为 `com.moe.starflow.download`
 - 同包引用（如 Repository 引用 ModelKey/DownloadState/ModelInfo）的 import 删除或改为同包
 
-### 引用方（按包）
-- `me/`：`ModelManagementFragment`、`NllbModelFragment`、`ManageActivity`
-- `translate/`：`TranslateFragment`
-- `data/`：`TranslationCacheManager` 不引用被迁文件（已查证），无改动
-- `service/`：无其他（Service 本身迁走）
-- 测试：`app/src/test/.../ModelDownloadPauseProgressTest.kt`、`ModelInfoTest.kt`
+### 引用方（已 grep 精确确认）
+- `StarFlowApplication.kt`（`ModelDownloadRepository`）
+- `me/AboutMe.kt`（`ModelDownloadManager`，APK 更新下载用）
+- `me/ManageActivity.kt`、`me/ModelManagementFragment.kt`、`me/NllbModelFragment.kt`
+- `translate/TranslateFragment.kt`
+- 测试：`ModelDownloadPauseProgressTest.kt`、`ModelDownloadRepositoryTest.kt`
+- `data/TranslationCacheManager` 不引用被迁文件（已查证），无改动
+- `service/` 无其他（Service 本身迁走）
 
 ### 文档
 - `CLAUDE.md` 中引用旧包路径的段落
