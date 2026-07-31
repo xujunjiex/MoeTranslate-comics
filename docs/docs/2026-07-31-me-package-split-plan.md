@@ -35,7 +35,7 @@
 - [ ] **Step 1: git mv 5 个文件并改 package**
 
 ```bash
-cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow"
+cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow/me"
 mkdir -p about
 git mv AboutMe.kt about/AboutMe.kt
 git mv Developer.kt about/Developer.kt
@@ -122,7 +122,7 @@ git add -A && git commit -m "refactor: me/ 拆出 about/ 子包（关于/FAQ/开
 - [ ] **Step 1: git mv + 改 package**
 
 ```bash
-cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow"
+cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow/me"
 mkdir -p model
 git mv ModelManagementFragment.kt model/ModelManagementFragment.kt
 git mv NllbModelFragment.kt model/NllbModelFragment.kt
@@ -170,7 +170,7 @@ git add -A && git commit -m "refactor: me/ 拆出 model/ 子包（模型管理�
 - [ ] **Step 1: git mv + 改 package**
 
 ```bash
-cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow"
+cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow/me"
 mkdir -p settings
 git mv SettingPageActivity.kt settings/SettingPageActivity.kt
 git mv PersonalizationConfig.kt settings/PersonalizationConfig.kt
@@ -242,7 +242,7 @@ git add -A && git commit -m "refactor: me/ 拆出 settings/ 子包（设置/个�
 - [ ] **Step 1: git mv 8 个文件 + 测试，改 package**
 
 ```bash
-cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow"
+cd "D:/xjj20/Desktop/fyapp/MoeTranslate-comics/app/src/main/java/com/moe/starflow/me"
 mkdir -p apiconfig
 git mv APIConfig.kt apiconfig/APIConfig.kt
 git mv OnlineAPI.kt apiconfig/OnlineAPI.kt
