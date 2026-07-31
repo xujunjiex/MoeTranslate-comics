@@ -282,8 +282,8 @@ class ModelManagementFragment : Fragment() {
     private fun updateV6TierVisibility() {
         val smallRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_small)
         val mediumRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_medium)
-        val detDownloaded = com.moe.starflow.manga.PPOcrModelManager.isV6MediumDownloaded(requireContext(), "det")
-        val recDownloaded = com.moe.starflow.manga.PPOcrModelManager.isV6MediumDownloaded(requireContext(), "rec")
+        val detDownloaded = com.moe.starflow.manga.PPOcrModelFiles.isV6MediumDownloaded(requireContext(), "det")
+        val recDownloaded = com.moe.starflow.manga.PPOcrModelFiles.isV6MediumDownloaded(requireContext(), "rec")
         val mediumAvailable = detDownloaded && recDownloaded
 
         mediumRadio.visibility = if (mediumAvailable) android.view.View.VISIBLE else android.view.View.GONE

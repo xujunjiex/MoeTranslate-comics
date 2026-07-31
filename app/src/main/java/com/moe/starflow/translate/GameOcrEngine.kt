@@ -3,7 +3,7 @@ package com.moe.starflow.translate
 import android.content.Context
 import android.graphics.Bitmap
 import com.moe.starflow.manga.MangaOcrBridge
-import com.moe.starflow.manga.MangaOcrDownloadManager
+import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.utils.CustomPreference
@@ -116,7 +116,7 @@ class GameOcrEngine(
         LogCollector.d(TAG, "initMangaOcrIfNeeded: isAvailable=${MangaOcrBridge.isAvailable()}")
         if (MangaOcrBridge.isAvailable()) return
         try {
-            if (MangaOcrDownloadManager.isModelDownloaded(context)) {
+            if (MangaOcrModelFiles.isModelDownloaded(context)) {
                 LogCollector.d(TAG, "initMangaOcrIfNeeded: 开始初始化 manga-ocr")
                 onMessage?.invoke("manga-ocr 识别器初始化中...")
                 MangaOcrBridge.initializeDownloaded(context)

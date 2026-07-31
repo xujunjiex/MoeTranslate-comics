@@ -21,7 +21,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.moe.starflow.manga.MangaOcrDownloadManager
+import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.utils.LogCollector
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -241,8 +241,8 @@ class MangaFloatingService : LifecycleService() {
     /** 检查需下载的组合是否可用 */
     private fun isComboAvailable(combo: ComboDef): Boolean = when {
         !combo.needsDownloadCheck -> true
-        combo.key == "ppocr" -> PPOcrModelManager.isV5DetDownloaded(this) && PPOcrModelManager.isV5RecZhDownloaded(this)
-        else -> RTDetrModelManager.isModelAvailable(this) && MangaOcrDownloadManager.isModelDownloaded(this)
+        combo.key == "ppocr" -> PPOcrModelFiles.isV5DetDownloaded(this) && PPOcrModelFiles.isV5RecZhDownloaded(this)
+        else -> RTDetrModelFiles.isModelAvailable(this) && MangaOcrModelFiles.isModelDownloaded(this)
     }
 
     /** 应用组合：更新 config + 持久化 + 初始化引擎 */
@@ -716,7 +716,7 @@ class MangaFloatingService : LifecycleService() {
 
     /**
      * 确保 manga-ocr 已初始化。
-     * 优先使用已下载的模型（通过 MangaOcrDownloadManager 管理），
+     * 优先使用已下载的模型（通过 MangaOcrModelFiles 管理），
      * 如果没有下载的模型则提示用户去下载。
      */
     private suspend fun ensureMangaOcrInitialized() {
@@ -724,7 +724,7 @@ class MangaFloatingService : LifecycleService() {
 
         when (currentConfig.ocrEngine) {
             OcrEngine.MangaOcr -> {
-                if (MangaOcrDownloadManager.isModelDownloaded(this@MangaFloatingService)) {
+                if (MangaOcrModelFiles.isModelDownloaded(this@MangaFloatingService)) {
                     try {
                         // 如果已初始化，直接返回
                         if (MangaOcrRecognizer.isInitialized) {

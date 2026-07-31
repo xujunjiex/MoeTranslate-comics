@@ -46,9 +46,9 @@ object DBNetDetector {
             }
 
             val modelPath = if (useAssets) {
-                OnnxUtils.copyAssetToCache(context, "$modelDir/${DBNetModelManager.getModelFileName()}")
+                OnnxUtils.copyAssetToCache(context, "$modelDir/${DBNetModelFiles.getModelFileName()}")
             } else {
-                "$modelDir/${DBNetModelManager.getModelFileName()}"
+                "$modelDir/${DBNetModelFiles.getModelFileName()}"
             }
 
             session = ortEnv!!.createSession(modelPath, sessionOptions)

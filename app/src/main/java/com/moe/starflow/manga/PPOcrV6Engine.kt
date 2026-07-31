@@ -214,7 +214,7 @@ object PPOcrV6Engine {
     private fun loadDetModelBytes(context: Context): ByteArray {
         val tier = CustomPreference.getInstance(context).getString("ppocrv6_tier", "small") ?: "small"
         if (tier == "medium") {
-            val file = File(PPOcrModelManager.getV6ModelDir(context), "det_v6_medium.onnx")
+            val file = File(PPOcrModelFiles.getV6ModelDir(context), "det_v6_medium.onnx")
             if (file.exists() && file.length() > 0) {
                 LogCollector.d(TAG, "从外部存储加载 det medium 模型")
                 return file.readBytes()
@@ -228,7 +228,7 @@ object PPOcrV6Engine {
     private fun loadRecModelBytes(context: Context): ByteArray {
         val tier = CustomPreference.getInstance(context).getString("ppocrv6_tier", "small") ?: "small"
         if (tier == "medium") {
-            val file = File(PPOcrModelManager.getV6ModelDir(context), "rec_v6_medium.onnx")
+            val file = File(PPOcrModelFiles.getV6ModelDir(context), "rec_v6_medium.onnx")
             if (file.exists() && file.length() > 0) {
                 LogCollector.d(TAG, "从外部存储加载 rec medium 模型")
                 return file.readBytes()

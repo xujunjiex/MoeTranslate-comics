@@ -223,7 +223,7 @@ object PPOcrV5Engine {
 
                 // det（从 filesDir 加载）
                 LogCollector.d(TAG, "加载 det 模型...")
-                val detFile = java.io.File(PPOcrModelManager.getModelDir(context), "det_v5.onnx")
+                val detFile = java.io.File(PPOcrModelFiles.getModelDir(context), "det_v5.onnx")
                 if (!detFile.exists() || detFile.length() == 0L) {
                     LogCollector.e(TAG, "v5 det 模型未下载，请先在模型管理中下载")
                     throw IllegalStateException("PP-OCRv5 检测模型未下载，请在模型管理中下载")
@@ -274,7 +274,7 @@ object PPOcrV5Engine {
 
                 val bytes = if (lang == RecLang.ZH || lang == RecLang.JA) {
                     // 从 filesDir 加载（原内置，现需下载）
-                    val recFile = java.io.File(PPOcrModelManager.getModelDir(context), "rec_zh.onnx")
+                    val recFile = java.io.File(PPOcrModelFiles.getModelDir(context), "rec_zh.onnx")
                     if (!recFile.exists() || recFile.length() == 0L) {
                         LogCollector.w(TAG, "rec_zh 模型未下载")
                         return null
@@ -283,7 +283,7 @@ object PPOcrV5Engine {
                     recFile.readBytes()
                 } else {
                     // 可选模型，从 filesDir 加载
-                    val modelFile = PPOcrModelManager.getRecModelFile(context, lang.code)
+                    val modelFile = PPOcrModelFiles.getRecModelFile(context, lang.code)
                     if (modelFile == null) {
                         LogCollector.w(TAG, "rec 模型 ${lang.code} 未下载")
                         return null
@@ -308,7 +308,7 @@ object PPOcrV5Engine {
      */
     private fun loadDictionary(context: Context) {
         val dicts = mutableMapOf<RecLang, List<String>>()
-        val modelDir = PPOcrModelManager.getModelDir(context)
+        val modelDir = PPOcrModelFiles.getModelDir(context)
 
         for (lang in RecLang.entries) {
             try {
@@ -374,9 +374,9 @@ object PPOcrV5Engine {
      */
     fun isRecModelAvailable(context: Context, lang: RecLang): Boolean {
         return if (lang == RecLang.ZH || lang == RecLang.JA) {
-            PPOcrModelManager.isV5RecZhDownloaded(context)
+            PPOcrModelFiles.isV5RecZhDownloaded(context)
         } else {
-            PPOcrModelManager.isRecModelDownloaded(context, lang.code)
+            PPOcrModelFiles.isRecModelDownloaded(context, lang.code)
         }
     }
 

@@ -20,9 +20,9 @@ import java.io.File
  * - rec_ko.onnx (~12.9MB) + 字典 — 韩文识别
  * - rec_ru.onnx (~7.7MB) + 字典 — 俄文/西里尔文字识别
  */
-object PPOcrModelManager {
+object PPOcrModelFiles {
 
-    private const val TAG = "PPOcrModelManager"
+    private const val TAG = "PPOcrModelFiles"
     private const val MODEL_DIR = "ppocrv5"
 
     fun isRecDictDownloaded(context: Context, lang: String): Boolean {

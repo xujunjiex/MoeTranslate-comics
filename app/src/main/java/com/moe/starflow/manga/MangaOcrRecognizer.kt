@@ -78,7 +78,7 @@ object MangaOcrRecognizer {
                 val encoderPath = if (useAssets) {
                     copyAssetToCache(context, "$modelDir/manga_ocr_encoder.onnx")
                 } else {
-                    MangaOcrDownloadManager.getEncoderFile(context).absolutePath
+                    MangaOcrModelFiles.getEncoderFile(context).absolutePath
                 }
                 encoderSessions = listOf(env.createSession(encoderPath, sessionOptions))
                 LogCollector.d(TAG, "Encoder 加载完成 (1 session, 支持动态 batch)")
@@ -87,7 +87,7 @@ object MangaOcrRecognizer {
                 val decoderPath = if (useAssets) {
                     copyAssetToCache(context, "$modelDir/manga_ocr_decoder.onnx")
                 } else {
-                    MangaOcrDownloadManager.getDecoderFile(context).absolutePath
+                    MangaOcrModelFiles.getDecoderFile(context).absolutePath
                 }
                 decoderSessions = (1..sessionCount).map {
                     env.createSession(decoderPath, sessionOptions)
@@ -99,7 +99,7 @@ object MangaOcrRecognizer {
                     if (useAssets) {
                         loadFromAssets(modelDir)
                     } else {
-                        loadFromFile(MangaOcrDownloadManager.getVocabFile(context))
+                        loadFromFile(MangaOcrModelFiles.getVocabFile(context))
                     }
                 }
                 LogCollector.d(TAG, "Tokenizer 加载完成")

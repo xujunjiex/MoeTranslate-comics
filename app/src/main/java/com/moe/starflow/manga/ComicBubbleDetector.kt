@@ -57,7 +57,7 @@ object ComicBubbleDetector {
     suspend fun initialize(context: Context) {
         if (isInitialized) return
 
-        val modelFile = RTDetrModelManager.getFilesDirModelFile(context)
+        val modelFile = RTDetrModelFiles.getFilesDirModelFile(context)
         if (!modelFile.exists() || modelFile.length() == 0L) {
             throw IllegalStateException("RT-DETR-V2 模型未下载，请先在模型管理中下载")
         }

@@ -3,9 +3,9 @@ package com.moe.starflow.manga
 import android.content.Context
 import com.moe.starflow.utils.LogCollector
 
-object DBNetModelManager {
+object DBNetModelFiles {
 
-    private const val TAG = "DBNetModelManager"
+    private const val TAG = "DBNetModelFiles"
     private const val MODEL_DIR = "dbnet"
     private const val MODEL_FILE = "dbnet_detector.onnx"
     private const val MODEL_DATA_FILE = "dbnet_detector.onnx.data"

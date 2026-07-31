@@ -25,7 +25,7 @@ import com.moe.starflow.manga.BubbleRegion
 import com.moe.starflow.manga.ComicBubbleDetector
 import com.moe.starflow.manga.DetEngine
 import com.moe.starflow.manga.DetectionBridge
-import com.moe.starflow.manga.MangaOcrDownloadManager
+import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.MangaOcrRecognizer
 import com.moe.starflow.manga.OcrEngine
 import com.moe.starflow.manga.OcrLock
@@ -480,7 +480,7 @@ class MangaViewerActivity : AppCompatActivity() {
             OcrEngine.PPOcrV5 -> PPOcrV5Engine.initialize(this@MangaViewerActivity)
             OcrEngine.PPOcrV6 -> PPOcrV6Engine.initialize(this@MangaViewerActivity)
             OcrEngine.MangaOcr -> {
-                if (MangaOcrDownloadManager.isModelDownloaded(this@MangaViewerActivity)) {
+                if (MangaOcrModelFiles.isModelDownloaded(this@MangaViewerActivity)) {
                     MangaOcrRecognizer.initialize(this@MangaViewerActivity, useAssets = false)
                 } else {
                     throw IllegalStateException("manga-ocr 模型未下载，请先在模型管理页面下载")

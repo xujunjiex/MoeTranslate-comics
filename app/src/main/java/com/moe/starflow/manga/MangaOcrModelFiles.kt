@@ -14,9 +14,9 @@ import java.io.File
  * - Decoder: https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/decoder_model.onnx
  * - Vocab:   https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/vocab.txt
  */
-object MangaOcrDownloadManager {
+object MangaOcrModelFiles {
 
-    private const val TAG = "MangaOcrDownloadManager"
+    private const val TAG = "MangaOcrModelFiles"
 
     // 模型配置（文件名常量，OCR 引擎依赖）
     private const val ENCODER_FILE = "encoder_model.onnx"

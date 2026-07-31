@@ -14,9 +14,9 @@ import java.io.IOException
  * 模型需从网络下载，存储在 filesDir/rt_detr/ 目录。
  * 下载地址：https://huggingface.co/ogkalu/comic-text-and-bubble-detector
  */
-object RTDetrModelManager {
+object RTDetrModelFiles {
 
-    private const val TAG = "RTDetrModelManager"
+    private const val TAG = "RTDetrModelFiles"
     const val MODEL_DIR = "rt_detr"
     const val MODEL_FILE = "model.onnx"
 

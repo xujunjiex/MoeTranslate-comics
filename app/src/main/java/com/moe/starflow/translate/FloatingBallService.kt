@@ -50,9 +50,9 @@ import com.moe.starflow.R
 import com.moe.starflow.me.BuiltinProviders
 import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.manga.MangaOcrBridge
-import com.moe.starflow.manga.MangaOcrDownloadManager
+import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.MangaOcrRecognizer
-import com.moe.starflow.manga.PPOcrModelManager
+import com.moe.starflow.manga.PPOcrModelFiles
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.utils.Constants
@@ -1030,9 +1030,9 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun isEngineAvailable(engine: Int): Boolean = when (engine) {
-        ENGINE_V5 -> PPOcrModelManager.isV5DetDownloaded(this) && PPOcrModelManager.isV5RecZhDownloaded(this)
+        ENGINE_V5 -> PPOcrModelFiles.isV5DetDownloaded(this) && PPOcrModelFiles.isV5RecZhDownloaded(this)
         ENGINE_V6 -> true  // small 内置，始终可用
-        ENGINE_MANGA -> MangaOcrDownloadManager.isModelDownloaded(this)
+        ENGINE_MANGA -> MangaOcrModelFiles.isModelDownloaded(this)
         ENGINE_MLKIT -> true
         else -> false
     }
@@ -1072,7 +1072,7 @@ class FloatingBallService : LifecycleService() {
                         showToast("PP-OCRv5 初始化成功", true)
                     }
                     ENGINE_MANGA -> {
-                        if (MangaOcrDownloadManager.isModelDownloaded(this@FloatingBallService)) {
+                        if (MangaOcrModelFiles.isModelDownloaded(this@FloatingBallService)) {
                             showToast("manga-ocr 初始化中...", true)
                             withContext(Dispatchers.IO) {
                                 MangaOcrBridge.initializeDownloaded(this@FloatingBallService)
