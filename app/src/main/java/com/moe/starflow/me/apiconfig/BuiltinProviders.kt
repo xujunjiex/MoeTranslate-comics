@@ -1,4 +1,4 @@
-package com.moe.starflow.me
+package com.moe.starflow.me.apiconfig
 
 /**
  * 内置 OpenAI 兼容 API 提供商定义

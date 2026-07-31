@@ -27,6 +27,10 @@ import com.moe.starflow.databinding.ActivityManageBinding
 import com.moe.starflow.download.ModelKey
 import com.moe.starflow.me.about.OpenSource
 import com.moe.starflow.me.model.NllbModelFragment
+import com.moe.starflow.me.apiconfig.OnlineAPI
+import com.moe.starflow.me.apiconfig.OpenAIText
+import com.moe.starflow.me.apiconfig.CustomTextAPI
+import com.moe.starflow.me.apiconfig.CustomPicAPI
 
 class ManageActivity : BaseActivity() {
 

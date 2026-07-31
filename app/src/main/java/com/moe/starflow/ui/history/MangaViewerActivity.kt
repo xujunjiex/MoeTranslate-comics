@@ -44,7 +44,9 @@ import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.KeystoreManager
 import com.moe.starflow.utils.LogCollector
 
-import com.moe.starflow.me.ConfigurationStorage
+import com.moe.starflow.me.apiconfig.ConfigurationStorage
+import com.moe.starflow.me.apiconfig.BuiltinProviders
+import com.moe.starflow.me.apiconfig.OpenAIProviderConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -396,17 +398,17 @@ class MangaViewerActivity : AppCompatActivity() {
                 val effectiveContinuationType = if (provider.isBuiltin) {
                     provider.continuationType
                 } else {
-                    com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE
+                    OpenAIProviderConfig.CONTINUATION_NONE
                 }
                 val effectiveSystemPrompt = if (provider.isBuiltin) {
                     provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
                 } else {
-                    provider.mangaSystemPrompt.ifEmpty { com.moe.starflow.me.BuiltinProviders.DEFAULT_MANGA_SYSTEM_PROMPT }
+                    provider.mangaSystemPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_SYSTEM_PROMPT }
                 }
                 val effectiveUserPrompt = if (provider.isBuiltin) {
                     provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
                 } else {
-                    provider.mangaUserPrompt.ifEmpty { com.moe.starflow.me.BuiltinProviders.DEFAULT_MANGA_USER_PROMPT }
+                    provider.mangaUserPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_USER_PROMPT }
                 }
                 translationapi.openaitranslation.OpenAITranslation(
                     apiKey = provider.apiKey,
@@ -415,7 +417,7 @@ class MangaViewerActivity : AppCompatActivity() {
                     systemPrompt = effectiveSystemPrompt,
                     userPrompt = effectiveUserPrompt,
                     continuationType = effectiveContinuationType,
-                    prefillContent = if (effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != com.moe.starflow.me.OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
+                    prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
                     autoAppendPath = provider.autoAppendPath
                 )
             }

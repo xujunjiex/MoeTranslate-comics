@@ -27,7 +27,7 @@ import com.moe.starflow.databinding.ActivitySettingPageBinding
 import com.moe.starflow.me.about.Developer
 import com.moe.starflow.me.about.FAQPage
 import com.moe.starflow.me.model.ModelManagementFragment
-import com.moe.starflow.me.APIConfig
+import com.moe.starflow.me.apiconfig.APIConfig
 
 class SettingPageActivity : BaseActivity() {
 

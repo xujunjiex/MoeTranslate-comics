@@ -38,9 +38,9 @@ import com.moe.starflow.MainActivity
 import com.moe.starflow.R
 import com.moe.starflow.bridge.OCRBridge
 import com.moe.starflow.bridge.TextBlockInfo
-import com.moe.starflow.me.BuiltinProviders
-import com.moe.starflow.me.ConfigurationStorage
-import com.moe.starflow.me.OpenAIProviderConfig
+import com.moe.starflow.me.apiconfig.BuiltinProviders
+import com.moe.starflow.me.apiconfig.ConfigurationStorage
+import com.moe.starflow.me.apiconfig.OpenAIProviderConfig
 import com.moe.starflow.translate.AccessibilityProvider
 import com.moe.starflow.translate.AccessibilityEventHandler
 import com.moe.starflow.translate.AccessibilityServiceManager

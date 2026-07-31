@@ -18,7 +18,7 @@
 package translationapi.customtranslation
 
 import android.util.Log
-import com.moe.starflow.me.CustomTextAPIConfig
+import com.moe.starflow.me.apiconfig.CustomTextAPIConfig
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
 import kotlinx.coroutines.CancellationException

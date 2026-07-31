@@ -15,7 +15,7 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.me
+package com.moe.starflow.me.apiconfig
 
 import android.app.ActivityManager
 import android.app.AlertDialog
@@ -34,6 +34,7 @@ import com.moe.starflow.manga.MangaFloatingService
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.ServiceUtils
+import com.moe.starflow.me.ManageActivity
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 

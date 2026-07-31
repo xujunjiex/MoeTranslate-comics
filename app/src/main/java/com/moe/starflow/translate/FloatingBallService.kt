@@ -47,8 +47,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.starflow.MainActivity
 import com.moe.starflow.R
-import com.moe.starflow.me.BuiltinProviders
-import com.moe.starflow.me.ConfigurationStorage
+import com.moe.starflow.me.apiconfig.BuiltinProviders
+import com.moe.starflow.me.apiconfig.ConfigurationStorage
 import com.moe.starflow.manga.MangaOcrBridge
 import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.MangaOcrRecognizer

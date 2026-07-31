@@ -48,7 +48,7 @@ import com.moe.starflow.me.about.AboutMe
 import com.moe.starflow.utils.UpdateChecker
 import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentTranslateBinding
-import com.moe.starflow.me.ConfigurationStorage
+import com.moe.starflow.me.apiconfig.ConfigurationStorage
 import com.moe.starflow.me.ManageActivity
 import com.moe.starflow.download.ModelDownloadRepository
 import com.moe.starflow.download.ModelKey

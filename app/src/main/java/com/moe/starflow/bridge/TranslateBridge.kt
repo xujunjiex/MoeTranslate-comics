@@ -1,9 +1,9 @@
 package com.moe.starflow.bridge
 
 import android.content.Context
-import com.moe.starflow.me.BuiltinProviders
-import com.moe.starflow.me.ConfigurationStorage
-import com.moe.starflow.me.ConfigurationStorage.loadTextConfig
+import com.moe.starflow.me.apiconfig.BuiltinProviders
+import com.moe.starflow.me.apiconfig.ConfigurationStorage
+import com.moe.starflow.me.apiconfig.ConfigurationStorage.loadTextConfig
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
 import com.moe.starflow.utils.Constants

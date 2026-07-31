@@ -20,7 +20,7 @@ package translationapi.customtranslation
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
-import com.moe.starflow.me.CustomPicAPIConfig
+import com.moe.starflow.me.apiconfig.CustomPicAPIConfig
 import com.moe.starflow.translate.TranslationPicAPI
 import com.moe.starflow.translate.TranslationResult
 import kotlinx.coroutines.CancellationException

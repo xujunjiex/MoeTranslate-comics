@@ -1,4 +1,4 @@
-package com.moe.starflow.me
+package com.moe.starflow.me.apiconfig
 
 import com.moe.starflow.utils.CustomPreference
 import org.junit.After
