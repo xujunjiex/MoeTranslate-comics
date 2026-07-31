@@ -298,12 +298,18 @@ PP-OCRv5 全部模型（det + rec_zh + 字典 + 可选 rec en/ko/ru）改为下�
 
 ### 下载管理器
 
+下载流水线收拢在独立包 **`download/`**（`com.moe.starflow.download`）：
+
 ```
-ModelDownloadManager          # 统一 HTTP 下载器（断点续传、重试、进度回调）
-├── RTDetrModelManager        # RT-DETR-V2 模型（单文件下载，~11MB）
-├── MangaOcrDownloadManager   # manga-ocr 模型（逐文件下载，~135MB）
-└── PPOcrModelManager         # PP-OCRv5/v6 全部模型管理（v5 det/rec_zh/rec en/ko/ru + v6 medium det/rec）
+download/
+├── ModelDownloadManager.kt      # 统一 HTTP 下载器（断点续传、重试、进度回调）
+├── ModelDownloadRepository.kt   # 状态机 + 磁盘扫描 + JSON 解析
+├── ModelDownloadService.kt      # 下载编排 + 前台服务 + 通知
+├── DownloadState.kt / ModelInfo.kt / ModelKey.kt  # 状态/元数据/枚举定义
+└── ChecksumHelper.kt            # MD5 校验（含 VerifyResult）
 ```
+
+`manga/` 下的 `RTDetrModelManager`/`PPOcrModelManager`/`MangaOcrDownloadManager`/`DBNetModelManager` 仅保留**模型文件检查**逻辑（下载方法已迁到 download/，待后续清理）。
 
 ### 模型管理 UI 架构（v4 起）
 
