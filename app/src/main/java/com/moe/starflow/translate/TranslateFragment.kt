@@ -50,6 +50,8 @@ import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentTranslateBinding
 import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.me.ManageActivity
+import com.moe.starflow.data.ModelDownloadRepository
+import com.moe.starflow.manga.ModelKey
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.NotificationChecker
@@ -438,11 +440,11 @@ class TranslateFragment : Fragment() {
         val ret: Boolean = when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
-                    if ((textAi == Constants.TextAI.NLLB.id) && (!(prefs.getBoolean("Download_NLLB", false)))) {
-                        LogCollector.d(
-                            TAG,
-                            "Download_NLLB" + prefs.getBoolean("Download_NLLB", false).toString()
-                        )
+                    // 用磁盘文件检查 NLLB 是否已完整下载，替代旧的 Download_NLLB 布尔标记
+                    val nllbDownloaded = ModelDownloadRepository.getInstance(requireContext())
+                        .isFullyDownloaded(ModelKey.NLLB_GROUP)
+                    if (textAi == Constants.TextAI.NLLB.id && !nllbDownloaded) {
+                        LogCollector.d(TAG, "NLLB fully downloaded: $nllbDownloaded")
                         val dialog = AlertDialog.Builder(requireContext())
                             .setTitle(R.string.nllb_not_download_title)
                             .setMessage(R.string.nllb_not_download_content)

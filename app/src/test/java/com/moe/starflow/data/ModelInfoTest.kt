@@ -7,14 +7,14 @@ import org.junit.Test
 class ModelInfoTest {
     @Test
     fun `downloadState Partial equals same data`() {
-        val a = DownloadState.Partial(100L, 200L)
-        val b = DownloadState.Partial(100L, 200L)
+        val a = DownloadState.Partial(100L, 200L, 0, 1, "", 100L, 200L)
+        val b = DownloadState.Partial(100L, 200L, 0, 1, "", 100L, 200L)
         assertEquals(a, b)
     }
 
     @Test
     fun `downloadState Running holds speed`() {
-        val s = DownloadState.Running(50L, 200L, 1_000_000L)
+        val s = DownloadState.Running(50L, 200L, 1_000_000L, 0, 1, "", 25, 50L, 200L)
         assertEquals(1_000_000L, s.speedBytesPerSec)
     }
 

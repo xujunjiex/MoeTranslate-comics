@@ -14,6 +14,7 @@ import com.moe.starflow.data.DownloadState
 import com.moe.starflow.data.ModelDownloadRepository
 import com.moe.starflow.manga.ModelKey
 import com.moe.starflow.utils.LogCollector
+import com.moe.starflow.utils.UiUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -153,9 +154,23 @@ class ModelDownloadService : LifecycleService() {
                     "${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)} · ${formatSpeed(state.speedBytesPerSec)}"
             }
             is DownloadState.Paused -> "${modelKey.displayName()} 已暂停" to
-                "${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)}"
+                formatPausedOrPartialBody(
+                    state.currentFileCount,
+                    state.currentFileIndex,
+                    state.currentFileBytesDownloaded,
+                    state.currentFileTotalBytes,
+                    state.bytesDownloaded,
+                    state.totalBytes
+                )
             is DownloadState.Partial -> "${modelKey.displayName()} 未下载完整" to
-                "${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)}"
+                formatPausedOrPartialBody(
+                    state.currentFileCount,
+                    state.currentFileIndex,
+                    state.currentFileBytesDownloaded,
+                    state.currentFileTotalBytes,
+                    state.bytesDownloaded,
+                    state.totalBytes
+                )
             is DownloadState.Done -> "${modelKey.displayName()} 下载完成" to ""
             DownloadState.Idle -> "" to ""
         }
@@ -227,6 +242,20 @@ class ModelDownloadService : LifecycleService() {
     private fun formatSpeed(bytesPerSec: Long): String =
         String.format("%.1f MB/s", bytesPerSec / (1024.0 * 1024.0))
 
+    /** 多文件显示当前文件进度（1/3: 50.0MB/100.0MB），单文件显示聚合进度 */
+    private fun formatPausedOrPartialBody(
+        currentFileCount: Int,
+        currentFileIndex: Int,
+        currentFileBytesDownloaded: Long,
+        currentFileTotalBytes: Long,
+        bytesDownloaded: Long,
+        totalBytes: Long
+    ): String = if (currentFileCount > 1) {
+        "${currentFileIndex + 1}/${currentFileCount}: ${formatBytes(currentFileBytesDownloaded)}/${formatBytes(currentFileTotalBytes)}"
+    } else {
+        "${formatBytes(bytesDownloaded)} / ${formatBytes(totalBytes)}"
+    }
+
     internal suspend fun downloadModelInternal(modelKey: ModelKey, isResume: Boolean) {
         try {
             val modelInfo = repo.getModelInfo(modelKey) ?: run {
@@ -272,7 +301,8 @@ class ModelDownloadService : LifecycleService() {
             modelKey = modelKey,
             currentFileIndex = fileIndex,
             currentFileCount = fileCount,
-            currentFileName = fileInfo.fileName
+            currentFileName = fileInfo.fileName,
+            bytesDownloaded = priorBytes
         )
         updateNotification(modelKey, repo.getState(modelKey))
 
@@ -282,19 +312,22 @@ class ModelDownloadService : LifecycleService() {
             checksum = fileInfo.checksum,
             destFile = destFile,
             onProgress = object : com.moe.starflow.manga.ModelDownloadManager.ProgressCallback {
-                override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                    val currentFilePct = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                override fun onProgress(bytesRead: Long, fileTotalBytes: Long, speed: Float) {
+                    // bytesRead / fileTotalBytes 是当前文件的进度；totalBytes 是整体总大小
+                    val currentFilePct = if (fileTotalBytes > 0) (bytesRead * 100 / fileTotalBytes).toInt() else 0
                     val aggregateBytes = priorBytes + bytesRead
                     lifecycleScope.launch {
                         repo.updateProgress(
                             modelKey = modelKey,
                             bytes = aggregateBytes,
                             total = totalBytes,
-                            speed = (speed * 1_000_000).toLong(),
+                            speed = (speed * 1024 * 1024).toLong(),
                             currentFileIndex = fileIndex,
                             currentFileCount = fileCount,
                             currentFileName = fileInfo.fileName,
-                            currentFileProgress = currentFilePct
+                            currentFileProgress = currentFilePct,
+                            currentFileBytesDownloaded = bytesRead,
+                            currentFileTotalBytes = fileTotalBytes
                         )
                         updateNotification(modelKey, repo.getState(modelKey))
                     }
@@ -302,38 +335,17 @@ class ModelDownloadService : LifecycleService() {
             }
         )
 
-        if (result.isSuccess && verifyFile(destFile, fileInfo) != VerifyResult.COMPLETE) {
-            LogCollector.e(TAG, "${fileInfo.fileName} 下载成功但校验失败，删除重试")
-            destFile.delete()
-            val retryResult = com.moe.starflow.manga.ModelDownloadManager.downloadModel(
-                context = applicationContext,
-                url = fileInfo.downloadUrl,
-                checksum = fileInfo.checksum,
-                destFile = destFile,
-                onProgress = object : com.moe.starflow.manga.ModelDownloadManager.ProgressCallback {
-                    override fun onProgress(bytesRead: Long, totalBytes: Long, speed: Float) {
-                        val currentFilePct = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
-                        lifecycleScope.launch {
-                            repo.updateProgress(
-                                modelKey = modelKey,
-                                bytes = priorBytes + bytesRead,
-                                total = totalBytes,
-                                speed = (speed * 1_000_000).toLong(),
-                                currentFileIndex = fileIndex,
-                                currentFileCount = fileCount,
-                                currentFileName = fileInfo.fileName,
-                                currentFileProgress = currentFilePct
-                            )
-                        }
-                    }
-                }
-            )
-            if (retryResult.isFailure || verifyFile(destFile, fileInfo) != VerifyResult.COMPLETE) {
-                LogCollector.e(TAG, "${fileInfo.fileName} 校验重试仍失败，标记 Partial")
-                repo.markPartial(modelKey)
+        if (result.isSuccess) {
+            // downloadModel 内部已按服务器 Content-Length + MD5 校验，文件有效。
+            if (fileCount == 1) {
+                // 单文件模型：下载完成立即标记 Done。
+                // 否则状态会停在 Running，只有重启 initialize() 才能识别成 Done。
+                repo.markDone(modelKey)
                 updateNotification(modelKey, repo.getState(modelKey))
+                UiUtils.showToast(this, getString(R.string.model_download_success), isShort = false)
             }
-        } else if (result.isFailure) {
+            // 多文件模型由 downloadMultiFile 在全部文件完成后统一 markDone
+        } else {
             repo.markPartial(modelKey)
             updateNotification(modelKey, repo.getState(modelKey))
         }
@@ -353,7 +365,7 @@ class ModelDownloadService : LifecycleService() {
             val destFile = targetFileFor(modelKey, fileInfo.fileName)
             if (verifyFile(destFile, fileInfo) == VerifyResult.COMPLETE) {
                 LogCollector.d(TAG, "${fileInfo.fileName} 已下载且校验通过，跳过")
-                completedBytes += fileInfo.fileSize
+                completedBytes += destFile.length()
                 continue
             }
 
@@ -372,7 +384,7 @@ class ModelDownloadService : LifecycleService() {
             }
 
             if (verifyFile(destFile, fileInfo) == VerifyResult.COMPLETE) {
-                completedBytes += fileInfo.fileSize
+                completedBytes += destFile.length()
             } else {
                 return
             }
@@ -382,6 +394,7 @@ class ModelDownloadService : LifecycleService() {
         if (allComplete) {
             repo.markDone(modelKey)
             updateNotification(modelKey, repo.getState(modelKey))
+            UiUtils.showToast(this, getString(R.string.model_download_success), isShort = false)
         } else {
             LogCollector.e(TAG, "整体完整性检查失败：部分文件损坏")
             repo.markPartial(modelKey)
@@ -389,13 +402,21 @@ class ModelDownloadService : LifecycleService() {
         }
     }
 
+    /**
+     * 校验已下载文件。
+     *
+     * 以 MD5 校验和为准，**不按 fileSize 精确匹配**：JSON 里的 file_size 可能过时或与
+     * 服务器实际文件不一致（曾导致已下载完成的文件被误删、重复下载死循环）。
+     * 下载本身（ModelDownloadManager）已经按服务器 Content-Length 校验过完整性，
+     * 所以这里只需确认文件非空 + 校验和一致（有校验和时）。
+     */
     private fun verifyFile(file: File, fileInfo: com.moe.starflow.data.FileInfo): VerifyResult {
         if (!file.exists()) return VerifyResult.MISSING
-        if (file.length() != fileInfo.fileSize) {
+        if (file.length() <= 0) {
             file.delete()
             return VerifyResult.DAMAGED
         }
-        if (!ChecksumHelper.verifyChecksum(file, fileInfo.checksum)) {
+        if (fileInfo.checksum.isNotEmpty() && !ChecksumHelper.verifyChecksum(file, fileInfo.checksum)) {
             file.delete()
             return VerifyResult.DAMAGED
         }

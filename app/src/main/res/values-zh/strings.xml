@@ -60,7 +60,7 @@
     <string name="pic_mode_description">直接把截图上传到云端API进行翻译。支持使用预置的云端图片翻译API，也支持使用自定义的云端图片翻译API，<font color="#55AEEA">不支持本地翻译</font>。这种方式花费的数据流量相对来说要多一些。</string>
     <string name="mlkit_name">ML Kit</string>
     <string name="nllb_name">NLLB翻译模型</string>
-    <string name="nllb_description">Meta推出的专为翻译而生的模型，全称为"No Language Left Behind"，顾名思义，支持多种语言。该模型的翻译效果更好，但同样需要下载后使用。<b><u>首次运行时需下载约1GB的模型文件，同时，使用该模型需要设备至少拥有6GB的运行内存</u></b>。下载完成后，同样无需网络，即点即用。点击下方的"管理NLLB模型文件"可进行模型文件的下载、删除等操作。</string>
+    <string name="nllb_description">NLLB 是萌译（MoeTranslate）作者内置的机器翻译模型，支持多语言，翻译效果好。该模型需下载后使用，首次使用需下载约 1GB 模型文件，且设备需至少 6GB 运行内存。下载完成后无需联网即可使用。点击下方「管理 NLLB 模型文件」可进行下载、删除等操作。</string>
     <string name="manage_nllb_models">管理NLLB模型文件</string>
     <string name="baiduapi_name">百度翻译</string>
     <string name="baiduapi_description">百度翻译的API，点击下方的"管理百度翻译API"即可设置API，还可以在其中查看API的申请教程（每月有100万字符的免费调用额度）。</string>
@@ -487,10 +487,25 @@
     <string name="recognizer_manga_desc">专用日文漫画 OCR，约 135MB，速度较慢，精度高；需搭配 RT-DETR-V2 检测器使用</string>
     <string name="model_coming_soon">即将支持</string>
     <string name="model_download">下载</string>
+    <string name="model_btn_pause">暂停</string>
+    <string name="model_btn_resume">继续</string>
+    <string name="model_btn_cancel">取消</string>
+    <string name="model_btn_delete">删除</string>
     <string name="model_delete">删除</string>
     <string name="model_downloaded">已下载</string>
     <string name="model_not_downloaded">未下载</string>
     <string name="model_downloading">下载中…</string>
+    <string name="model_status_idle">未下载</string>
+    <string name="model_status_paused">已暂停 %1$s / %2$s</string>
+    <string name="model_status_partial">未下载完整 %1$s / %2$s</string>
+    <string name="model_status_done">已下载</string>
+    <string name="model_status_running_multi">下载中 %1$d/%2$d: %3$d%%（%4$s）</string>
+    <string name="model_status_running_single">下载中 %1$d%%</string>
+    <string name="model_status_running_file">下载中 %1$d/%2$d: %3$s</string>
+    <string name="model_status_paused_multi">已暂停 %1$d/%2$d: %3$s/%4$s</string>
+    <string name="model_status_partial_multi">未下载完整 %1$d/%2$d: %3$s/%4$s</string>
+    <string name="model_overall_label">整体</string>
+    <string name="model_overall_progress">%1$d%% · %2$s / %3$s</string>
     <string name="model_download_success">模型下载成功</string>
     <string name="model_download_failed">下载失败: %s</string>
     <string name="model_delete_confirm">确定删除 %s 模型吗？</string>

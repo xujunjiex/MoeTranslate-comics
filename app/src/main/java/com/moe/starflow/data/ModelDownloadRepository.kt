@@ -35,29 +35,90 @@ class ModelDownloadRepository private constructor(private val context: Context) 
     fun getBrowserUrl(modelKey: ModelKey): String? =
         getModelInfo(modelKey)?.browserUrl
 
+    /**
+     * 检查模型是否已完整下载（所有文件都有非空 target）。
+     * 用于替代旧的 Download_NLLB 布尔标记（新下载架构不再写该标记）。
+     */
+    fun isFullyDownloaded(modelKey: ModelKey): Boolean {
+        val info = getModelInfo(modelKey) ?: return false
+        val baseDir = baseDirFor(modelKey)
+        return info.files.all { fileInfo ->
+            val t = File(baseDir, fileInfo.fileName)
+            t.exists() && t.length() > 0
+        }
+    }
+
     suspend fun initialize() {
         withContext(Dispatchers.IO) {
             stateMutex.withLock {
                 for (key in ModelKey.values()) {
-                    val targetFile = targetFileFor(key)
-                    val partFile = partFileFor(key)
-                    val state = when {
-                        targetFile.exists() && targetFile.length() > 0 -> DownloadState.Done
-                        partFile.exists() && partFile.length() > 0 -> {
-                            val info = getModelInfo(key)
-                            val totalBytes = info?.files?.sumOf { it.fileSize } ?: 0L
-                            val downloadedBytes = info?.files?.sumOf { fileInfo ->
-                                val f = File(targetFile.parentFile, fileInfo.fileName)
-                                if (f.exists() && f.length() > 0) f.length() else 0L
-                            } ?: partFile.length()
-                            DownloadState.Partial(downloadedBytes, totalBytes)
-                        }
-                        else -> DownloadState.Idle
-                    }
-                    stateMap[key] = state
+                    stateMap[key] = computeStateFromDisk(key)
                 }
                 emitSnapshot()
             }
+        }
+    }
+
+    /**
+     * 从磁盘重新计算单个模型的状态。
+     *
+     * 用于页面进入时识别「目录里已有文件但状态还是 Idle/Partial」的模型：
+     * 例如下载完成后状态未更新、或文件由外部放入。Running/Paused/Done 保持原样不打断。
+     */
+    suspend fun refreshFromDisk(modelKey: ModelKey) = updateState(modelKey) {
+        val current = stateMap[modelKey]
+        if (current is DownloadState.Running || current is DownloadState.Paused || current is DownloadState.Done) {
+            current
+        } else {
+            computeStateFromDisk(modelKey)
+        }
+    }
+
+    /**
+     * 根据磁盘上的 target/.part 文件计算模型状态（Idle / Partial / Done）。
+     *
+     * ⚠️ 多文件模型必须**所有文件**都有完整 target 才算 Done，不能只检查第一个文件
+     * （否则只下载了第一个文件就被误判为「已下载」——曾导致强退后 NLLB 显示已完成）。
+     */
+    private fun computeStateFromDisk(modelKey: ModelKey): DownloadState {
+        val info = getModelInfo(modelKey)
+        val files = info?.files.orEmpty()
+        val baseDir = baseDirFor(modelKey)
+
+        if (files.isNotEmpty()) {
+            val allComplete = files.all { fileInfo ->
+                val t = File(baseDir, fileInfo.fileName)
+                t.exists() && t.length() > 0
+            }
+            if (allComplete) return DownloadState.Done
+
+            // 没有任何文件被下载（无 target 也无 .part）→ Idle
+            val anyPartial = files.any { fileInfo ->
+                val t = File(baseDir, fileInfo.fileName)
+                val p = File(baseDir, fileInfo.fileName + ".part")
+                (t.exists() && t.length() > 0) || (p.exists() && p.length() > 0)
+            }
+            if (!anyPartial) return DownloadState.Idle
+
+            // 部分完成：用 computeFileProgress 计算进度（含 .part）
+            val p = computeFileProgress(modelKey)
+                ?: return DownloadState.Partial(0L, 0L, 0, 1, "", 0L, 0L)
+            return DownloadState.Partial(
+                p.downloadedBytes, p.totalBytes,
+                p.currentFileIndex, p.currentFileCount, p.currentFileName,
+                p.currentFileBytesDownloaded, p.currentFileTotalBytes
+            )
+        }
+
+        // 无模型信息时退回只检查第一个文件（旧行为）
+        val targetFile = targetFileFor(modelKey)
+        val partFile = partFileFor(modelKey)
+        return when {
+            targetFile.exists() && targetFile.length() > 0 -> DownloadState.Done
+            partFile.exists() && partFile.length() > 0 -> DownloadState.Partial(
+                partFile.length(), 0L, 0, 1, "", partFile.length(), 0L
+            )
+            else -> DownloadState.Idle
         }
     }
 
@@ -65,39 +126,101 @@ class ModelDownloadRepository private constructor(private val context: Context) 
         modelKey: ModelKey,
         currentFileIndex: Int = 0,
         currentFileCount: Int = 1,
-        currentFileName: String = ""
+        currentFileName: String = "",
+        bytesDownloaded: Long = 0
     ) = updateState(modelKey) {
-        val totalBytes = getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
+        val info = getModelInfo(modelKey)
+        val totalBytes = info?.files?.sumOf { it.fileSize } ?: 0L
+        val currentFileTotal = info?.files?.getOrNull(currentFileIndex)?.fileSize ?: 0L
         DownloadState.Running(
-            bytesDownloaded = 0,
+            bytesDownloaded = bytesDownloaded,
             totalBytes = totalBytes,
             speedBytesPerSec = 0,
             currentFileIndex = currentFileIndex,
             currentFileCount = currentFileCount,
             currentFileName = currentFileName,
-            currentFileProgress = 0
+            currentFileProgress = 0,
+            currentFileBytesDownloaded = 0,
+            currentFileTotalBytes = currentFileTotal
         )
     }
 
     suspend fun markPartial(modelKey: ModelKey) = updateState(modelKey) {
-        val totalBytes = getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
-        val downloadedBytes = getModelInfo(modelKey)?.files?.sumOf { fileInfo ->
-            val f = File(targetFileFor(modelKey).parentFile, fileInfo.fileName)
-            if (f.exists() && f.length() > 0) f.length() else 0L
-        } ?: 0L
-        DownloadState.Partial(downloadedBytes, totalBytes)
+        val p = computeFileProgress(modelKey)
+            ?: return@updateState DownloadState.Partial(0L, 0L, 0, 1, "", 0L, 0L)
+        DownloadState.Partial(
+            p.downloadedBytes, p.totalBytes,
+            p.currentFileIndex, p.currentFileCount, p.currentFileName,
+            p.currentFileBytesDownloaded, p.currentFileTotalBytes
+        )
     }
 
     suspend fun markPaused(modelKey: ModelKey) = updateState(modelKey) {
-        val totalBytes = getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
-        val downloadedBytes = getModelInfo(modelKey)?.files?.sumOf { fileInfo ->
-            val f = File(targetFileFor(modelKey).parentFile, fileInfo.fileName)
-            if (f.exists() && f.length() > 0) f.length() else 0L
-        } ?: 0L
-        DownloadState.Paused(downloadedBytes, totalBytes)
+        val p = computeFileProgress(modelKey)
+            ?: return@updateState DownloadState.Paused(0L, 0L, 0, 1, "", 0L, 0L)
+        DownloadState.Paused(
+            p.downloadedBytes, p.totalBytes,
+            p.currentFileIndex, p.currentFileCount, p.currentFileName,
+            p.currentFileBytesDownloaded, p.currentFileTotalBytes
+        )
     }
 
     suspend fun markDone(modelKey: ModelKey) = updateState(modelKey) { DownloadState.Done }
+
+    private data class FileProgress(
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+        val currentFileIndex: Int,
+        val currentFileCount: Int,
+        val currentFileName: String,
+        val currentFileBytesDownloaded: Long,
+        val currentFileTotalBytes: Long
+    )
+
+    /**
+     * 计算模型当前下载进度（含 .part 文件）。
+     *
+     * 已完成的目标文件计入 completedBytes；第一个「未完成」的文件（target 不存在，
+     * 但有 .part 或尚未开始）作为当前文件返回。返回 null 当 modelInfo 不存在或 files 为空。
+     */
+    private fun computeFileProgress(modelKey: ModelKey): FileProgress? {
+        val info = getModelInfo(modelKey) ?: return null
+        val files = info.files
+        if (files.isEmpty()) return null
+        val baseDir = targetFileFor(modelKey).parentFile
+        val totalBytes = files.sumOf { it.fileSize }
+        var completedBytes = 0L
+
+        for ((i, fileInfo) in files.withIndex()) {
+            val target = File(baseDir, fileInfo.fileName)
+            val part = File(baseDir, fileInfo.fileName + ".part")
+            if (target.exists() && target.length() > 0) {
+                completedBytes += target.length()
+            } else {
+                val partBytes = if (part.exists() && part.length() > 0) part.length() else 0L
+                completedBytes += partBytes
+                return FileProgress(
+                    downloadedBytes = completedBytes,
+                    totalBytes = totalBytes,
+                    currentFileIndex = i,
+                    currentFileCount = files.size,
+                    currentFileName = fileInfo.fileName,
+                    currentFileBytesDownloaded = partBytes,
+                    currentFileTotalBytes = fileInfo.fileSize
+                )
+            }
+        }
+        // 全部完成（Paused/Partial 理论不会出现，防御）
+        return FileProgress(
+            downloadedBytes = completedBytes,
+            totalBytes = totalBytes,
+            currentFileIndex = files.size - 1,
+            currentFileCount = files.size,
+            currentFileName = files.last().fileName,
+            currentFileBytesDownloaded = 0L,
+            currentFileTotalBytes = files.last().fileSize
+        )
+    }
 
     suspend fun updateProgress(
         modelKey: ModelKey,
@@ -107,17 +230,27 @@ class ModelDownloadRepository private constructor(private val context: Context) 
         currentFileIndex: Int,
         currentFileCount: Int,
         currentFileName: String,
-        currentFileProgress: Int
+        currentFileProgress: Int,
+        currentFileBytesDownloaded: Long,
+        currentFileTotalBytes: Long
     ) = updateState(modelKey) {
-        DownloadState.Running(
-            bytesDownloaded = bytes,
-            totalBytes = total,
-            speedBytesPerSec = speed,
-            currentFileIndex = currentFileIndex,
-            currentFileCount = currentFileCount,
-            currentFileName = currentFileName,
-            currentFileProgress = currentFileProgress
-        )
+        // 取消/暂停后，迟到的 onProgress 回调不应把 Paused 复活成 Running
+        val current = stateMap[modelKey]
+        if (current !is DownloadState.Running) {
+            current ?: DownloadState.Idle
+        } else {
+            DownloadState.Running(
+                bytesDownloaded = bytes,
+                totalBytes = total,
+                speedBytesPerSec = speed,
+                currentFileIndex = currentFileIndex,
+                currentFileCount = currentFileCount,
+                currentFileName = currentFileName,
+                currentFileProgress = currentFileProgress,
+                currentFileBytesDownloaded = currentFileBytesDownloaded,
+                currentFileTotalBytes = currentFileTotalBytes
+            )
+        }
     }
 
     suspend fun cancelDownload(modelKey: ModelKey) = withContext(Dispatchers.IO) {

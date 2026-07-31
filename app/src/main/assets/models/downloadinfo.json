@@ -8,8 +8,8 @@
         {
           "file_name": "model.onnx",
           "download_url": "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector-v4-s_int8.onnx",
-          "file_size": 11534336,
-          "checksum": ""
+          "file_size": 11120765,
+          "checksum": "cf9acb5d594099c277e44112a74c31f4"
         }
       ]
     },
@@ -20,20 +20,20 @@
         {
           "file_name": "encoder_model.onnx",
           "download_url": "https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/encoder_model.onnx",
-          "file_size": 141557760,
-          "checksum": ""
+          "file_size": 22356885,
+          "checksum": "b5a9e1120fc21f0862c5f0c004d11635"
         },
         {
           "file_name": "decoder_model.onnx",
           "download_url": "https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/decoder_model.onnx",
-          "file_size": 52428800,
-          "checksum": ""
+          "file_size": 118053454,
+          "checksum": "2e6eb4c7666cd8a2c03cd2c85181f36d"
         },
         {
           "file_name": "vocab.txt",
           "download_url": "https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/vocab.txt",
-          "file_size": 204800,
-          "checksum": ""
+          "file_size": 24072,
+          "checksum": "18022f84055b9e54c82612e85bdb8633"
         }
       ]
     },
@@ -44,8 +44,8 @@
         {
           "file_name": "det_v5.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx",
-          "file_size": 4751360,
-          "checksum": ""
+          "file_size": 4819576,
+          "checksum": "e5143055221b1bea9983aa8be028ea23"
         }
       ]
     },
@@ -56,14 +56,14 @@
         {
           "file_name": "rec_zh.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx",
-          "file_size": 16777216,
-          "checksum": ""
+          "file_size": 16631306,
+          "checksum": "0a10f3e80160ed99b59391738814c320"
         },
         {
           "file_name": "rec_zh_dict.txt",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.1/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt",
-          "file_size": 76800,
-          "checksum": ""
+          "file_size": 74012,
+          "checksum": "03bf9f8950975633cc5f12ad94952e2f"
         }
       ]
     },
@@ -74,14 +74,14 @@
         {
           "file_name": "rec_en.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile.onnx",
-          "file_size": 7864320,
-          "checksum": ""
+          "file_size": 7872351,
+          "checksum": "0365744a8fa9281f5d5b8e0b5b5334be"
         },
         {
           "file_name": "rec_en_dict.txt",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.1/paddle/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile/ppocrv5_en_dict.txt",
-          "file_size": 7680,
-          "checksum": ""
+          "file_size": 1416,
+          "checksum": "495c4e95cbdd5c7d8a2edf606f73f139"
         }
       ]
     },
@@ -92,14 +92,14 @@
         {
           "file_name": "rec_ko.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec/korean_PP-OCRv5_rec_mobile.onnx",
-          "file_size": 13496320,
-          "checksum": ""
+          "file_size": 13488748,
+          "checksum": "a1d1a7dc8945b59255a4ebccd854a243"
         },
         {
           "file_name": "rec_ko_dict.txt",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.1/paddle/PP-OCRv5/rec/korean_PP-OCRv5_rec_mobile/ppocrv5_korean_dict.txt",
-          "file_size": 30720,
-          "checksum": ""
+          "file_size": 47451,
+          "checksum": "32c992cbe580ebb5260938b52b8cb9d3"
         }
       ]
     },
@@ -110,14 +110,14 @@
         {
           "file_name": "rec_ru.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec/cyrillic_PP-OCRv5_rec_mobile.onnx",
-          "file_size": 8060928,
-          "checksum": ""
+          "file_size": 8074092,
+          "checksum": "c293425a8489a0b4e22634401ed8114c"
         },
         {
           "file_name": "rec_ru_dict.txt",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.1/paddle/PP-OCRv5/rec/cyrillic_PP-OCRv5_rec_mobile/ppocrv5_cyrillic_dict.txt",
-          "file_size": 11776,
-          "checksum": ""
+          "file_size": 2781,
+          "checksum": "8fdd9120f9c0b95911106fcc76b5cd77"
         }
       ]
     },
@@ -128,8 +128,8 @@
         {
           "file_name": "det_v6_medium.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv6/det/PP-OCRv6_det_medium.onnx",
-          "file_size": 62914560,
-          "checksum": ""
+          "file_size": 62119454,
+          "checksum": "210c687aa5b014dfd0e033a486071198"
         }
       ]
     },
@@ -140,14 +140,14 @@
         {
           "file_name": "rec_v6_medium.onnx",
           "download_url": "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx",
-          "file_size": 77594624,
-          "checksum": ""
+          "file_size": 76629984,
+          "checksum": "50ad4d6a84ce88e312a5f731c4d4f885"
         }
       ]
     },
     {
       "model_key": "NLLB_GROUP",
-      "browser_url": "https://github.com/xujunjiex/StarFlow",
+      "browser_url": "https://www.moetranslate.top/docs/translationapi/nllb/",
       "files": [
         {
           "file_name": "NLLB_encoder.onnx",

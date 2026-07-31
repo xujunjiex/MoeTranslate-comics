@@ -43,6 +43,21 @@ class ModelManagementFragment : Fragment() {
 
         // Subscribe to Repository state changes; refresh all model status blocks on each emission.
         viewLifecycleOwner.lifecycleScope.launch {
+            // 页面进入时先按磁盘文件重新计算状态（识别已下载/部分下载的模型）
+            val shownKeys = listOf(
+                ModelKey.RT_DETR_V2,
+                ModelKey.MANGA_OCR_GROUP,
+                ModelKey.PP_OCR_V5_DET,
+                ModelKey.PP_OCR_V5_REC_ZH,
+                ModelKey.PP_OCR_V5_REC_EN,
+                ModelKey.PP_OCR_V5_REC_KO,
+                ModelKey.PP_OCR_V5_REC_RU,
+                ModelKey.PP_OCR_V6_MEDIUM_DET,
+                ModelKey.PP_OCR_V6_MEDIUM_REC
+            )
+            for (key in shownKeys) {
+                repo.refreshFromDisk(key)
+            }
             repo.observe().collect {
                 updateRTDetrStatus()
                 updateMangaOcrStatus()
@@ -132,11 +147,17 @@ class ModelManagementFragment : Fragment() {
     }
 
     /**
-     * 统一渲染一个模型的状态块（5 态：Idle/Running/Paused/Partial/Done）
+     * 统一渲染一个模型的状态块（2 按钮版）
+     *
+     * - Idle / Partial: 单按钮「下载」
+     * - Running: 双按钮「暂停」+「取消」
+     * - Paused: 单按钮「继续」
+     * - Done: 单按钮「删除」
      */
     private fun renderModelBlock(
         statusId: Int,
         downloadBtnId: Int,
+        cancelBtnId: Int,
         modelKey: ModelKey,
         state: DownloadState,
         displayName: String,
@@ -144,47 +165,62 @@ class ModelManagementFragment : Fragment() {
     ) {
         val statusText = rootView.findViewById<TextView>(statusId)
         val actionBtn = rootView.findViewById<TextView>(downloadBtnId)
+        val cancelBtn = rootView.findViewById<TextView>(cancelBtnId)
+
+        // 默认隐藏 cancel 按钮
+        cancelBtn.visibility = View.GONE
 
         when (state) {
-            DownloadState.Idle -> {
+            DownloadState.Idle, is DownloadState.Partial -> {
                 statusText.text = getString(R.string.model_status_undownloaded_format, expectedSize)
                 actionBtn.text = getString(R.string.model_download)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener {
-                    ModelDownloadService.startDownload(requireContext(), modelKey, isResume = false)
+                    ModelDownloadService.startDownload(requireContext(), modelKey, isResume = state is DownloadState.Partial)
                 }
             }
             is DownloadState.Running -> {
                 val totalPct = if (state.totalBytes > 0)
                     (state.bytesDownloaded * 100 / state.totalBytes).toInt() else 0
-                val fileLabel = if (state.currentFileCount > 1) {
-                    " ${state.currentFileIndex + 1}/${state.currentFileCount}"
-                } else ""
-                statusText.text = "${getString(R.string.model_downloading)}$fileLabel $totalPct%"
+                val speed = if (state.speedBytesPerSec > 0) " · ${formatSpeed(state.speedBytesPerSec)}" else ""
+                statusText.text = if (state.currentFileCount > 1) {
+                    // 多文件显示当前文件进度（第几个 + 当前文件百分比 + 文件名）+ 速度
+                    getString(
+                        R.string.model_status_running_multi,
+                        state.currentFileIndex + 1,
+                        state.currentFileCount,
+                        state.currentFileProgress,
+                        state.currentFileName
+                    ) + speed
+                } else {
+                    "${getString(R.string.model_downloading)} $totalPct%$speed"
+                }
                 actionBtn.text = getString(R.string.model_btn_pause)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener {
                     ModelDownloadService.pauseDownload(requireContext(), modelKey)
                 }
-            }
-            is DownloadState.Paused -> {
-                statusText.text = getString(
-                    R.string.model_status_paused,
-                    formatBytes(state.bytesDownloaded),
-                    formatBytes(state.totalBytes)
-                )
-                actionBtn.text = getString(R.string.model_btn_cancel)
-                setButtonDeleteStyle(actionBtn, false)
-                actionBtn.setOnClickListener {
+                cancelBtn.visibility = View.VISIBLE
+                cancelBtn.setOnClickListener {
                     ModelDownloadService.cancelDownload(requireContext(), modelKey)
                 }
             }
-            is DownloadState.Partial -> {
-                statusText.text = getString(
-                    R.string.model_status_partial,
-                    formatBytes(state.bytesDownloaded),
-                    formatBytes(state.totalBytes)
-                )
+            is DownloadState.Paused -> {
+                statusText.text = if (state.currentFileCount > 1) {
+                    getString(
+                        R.string.model_status_paused_multi,
+                        state.currentFileIndex + 1,
+                        state.currentFileCount,
+                        formatBytes(state.currentFileBytesDownloaded),
+                        formatBytes(state.currentFileTotalBytes)
+                    )
+                } else {
+                    getString(
+                        R.string.model_status_paused,
+                        formatBytes(state.bytesDownloaded),
+                        formatBytes(state.totalBytes)
+                    )
+                }
                 actionBtn.text = getString(R.string.model_btn_resume)
                 setButtonDeleteStyle(actionBtn, false)
                 actionBtn.setOnClickListener {
@@ -220,12 +256,16 @@ class ModelManagementFragment : Fragment() {
         return if (mb >= 1) String.format("%.1f MB", mb) else String.format("%.0f KB", bytes / 1024.0)
     }
 
+    private fun formatSpeed(bytesPerSec: Long): String =
+        String.format("%.1f MB/s", bytesPerSec / (1024.0 * 1024.0))
+
     // ========== RT-DETR-V2 ==========
     private fun updateRTDetrStatus() {
         val state = repo.getState(ModelKey.RT_DETR_V2)
         renderModelBlock(
             statusId = R.id.rtdetr_status,
             downloadBtnId = R.id.rtdetr_action_button,
+            cancelBtnId = R.id.rtdetr_cancel_button,
             modelKey = ModelKey.RT_DETR_V2,
             state = state,
             displayName = "RT-DETR-V2",
@@ -239,6 +279,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.manga_ocr_status,
             downloadBtnId = R.id.manga_ocr_action_button,
+            cancelBtnId = R.id.manga_ocr_cancel_button,
             modelKey = ModelKey.MANGA_OCR_GROUP,
             state = state,
             displayName = "manga-ocr",
@@ -252,6 +293,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.v5_det_status,
             downloadBtnId = R.id.v5_det_action_button,
+            cancelBtnId = R.id.v5_det_cancel_button,
             modelKey = ModelKey.PP_OCR_V5_DET,
             state = state,
             displayName = "PP-OCRv5 DET",
@@ -265,6 +307,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.v5_rec_zh_status,
             downloadBtnId = R.id.v5_rec_zh_action_button,
+            cancelBtnId = R.id.v5_rec_zh_cancel_button,
             modelKey = ModelKey.PP_OCR_V5_REC_ZH,
             state = state,
             displayName = "PP-OCRv5 REC ZH",
@@ -278,6 +321,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.v5_rec_en_status,
             downloadBtnId = R.id.v5_rec_en_action_button,
+            cancelBtnId = R.id.v5_rec_en_cancel_button,
             modelKey = ModelKey.PP_OCR_V5_REC_EN,
             state = state,
             displayName = "PP-OCRv5 REC EN",
@@ -291,6 +335,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.v5_rec_ko_status,
             downloadBtnId = R.id.v5_rec_ko_action_button,
+            cancelBtnId = R.id.v5_rec_ko_cancel_button,
             modelKey = ModelKey.PP_OCR_V5_REC_KO,
             state = state,
             displayName = "PP-OCRv5 REC KO",
@@ -304,6 +349,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.v5_rec_ru_status,
             downloadBtnId = R.id.v5_rec_ru_action_button,
+            cancelBtnId = R.id.v5_rec_ru_cancel_button,
             modelKey = ModelKey.PP_OCR_V5_REC_RU,
             state = state,
             displayName = "PP-OCRv5 REC RU",
@@ -343,6 +389,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.ppocrv6_medium_det_status,
             downloadBtnId = R.id.ppocrv6_medium_det_action,
+            cancelBtnId = R.id.ppocrv6_medium_det_cancel,
             modelKey = ModelKey.PP_OCR_V6_MEDIUM_DET,
             state = state,
             displayName = "PP-OCRv6 DET (medium)",
@@ -355,6 +402,7 @@ class ModelManagementFragment : Fragment() {
         renderModelBlock(
             statusId = R.id.ppocrv6_medium_rec_status,
             downloadBtnId = R.id.ppocrv6_medium_rec_action,
+            cancelBtnId = R.id.ppocrv6_medium_rec_cancel,
             modelKey = ModelKey.PP_OCR_V6_MEDIUM_REC,
             state = state,
             displayName = "PP-OCRv6 REC (medium)",

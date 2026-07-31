@@ -10,8 +10,9 @@
 
 - **`.reference/`** — 参考项目，只读，已 gitignore。用于克隆第三方开源项目作为代码参考。
 - **`tools/`** — 测试模型和脚本，已 gitignore。用于本地测试转换后的模型。
+- **`models/`** — 模型源文件集中目录，已 gitignore（体积大不适合提交）。存放从各服务器下载的真实模型文件（manga-ocr / PP-OCRv5 / PP-OCRv6 medium / RT-DETR），用于计算 MD5 和核对大小。参见 memory `[[model-download-md5-not-size]]`。
 - **`docs/docs/`** — 文档内容（提交到 GitHub），`docs/` 其余文件已 gitignore。
-- 禁止在项目根目录或其他非标准位置放置模型文件或参考项目。
+- 禁止在项目根目录散落模型文件；模型源文件统一放 `models/`。
 
 ## 环境搭建
 
@@ -546,6 +547,24 @@ tag:OCRBridge | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:O
 
 **绝对禁止未经用户确认就执行 `adb uninstall`！**
 安装失败时：只报告错误，询问用户是否需要卸载重装，等用户明确同意后才能执行。这条规则没有例外。
+
+## 设备操作规范（最高优先级）
+
+**禁止未经用户确认直接操作设备**。以下命令都属于「操作设备」，一律先问用户或只报告不执行：
+- `adb shell input tap/swipe/text/keyevent`（点击/滑动/输入）
+- `adb install` / `adb uninstall` / `adb shell pm`（安装/卸载）
+- `adb shell screencap` + pull（截图）
+- `adb shell svc power` / `input keyevent KEYCODE_POWER`（电源/亮屏）
+- `adb shell wm` / `input` 解锁或关闭通知栏
+
+**允许的只读调查手段**：
+- 读代码、读 logcat（`adb logcat -d` 只读查询）
+- `adb shell ls/stat` 查看设备文件状态（不修改）
+- `adb shell pidof` 查进程
+
+**验证由用户自己做**：修复后提供清晰的验证步骤（观察什么、预期什么），用户自己构建、安装、点击测试。需要设备状态时，明确说「请你测试 X」。
+
+这条规则的背景：曾多次未经确认直接点击/截图/安装设备，用户明确要求禁止。详见 memory `[[no-device-operations]]`。
 
 ## 双模式截图
 

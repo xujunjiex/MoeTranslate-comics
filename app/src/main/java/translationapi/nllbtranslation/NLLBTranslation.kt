@@ -22,13 +22,18 @@ import com.moe.starflow.R
 import com.moe.starflow.translate.CustomLocale
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
+import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.TranslationStatusOverlay
 
 class NLLBTranslation(context: Context) : TranslationTextAPI {
     private val ctx = context.applicationContext
     private var currentTask: Thread? = null
     private var isInitialized = false
-    private val statusOverlay = TranslationStatusOverlay(ctx)
+    private val statusOverlay = TranslationStatusOverlay.getInstance(ctx)
+
+    companion object {
+        private const val TAG = "NLLBTranslation"
+    }
 
     private var nllbTranslator: TranslationCore = TranslationCore(ctx, object :InitializationListener{
         override fun onInitializationComplete() {
@@ -52,26 +57,30 @@ class NLLBTranslation(context: Context) : TranslationTextAPI {
         callback: (TranslationResult) -> Unit
     ) {
         if (isInitialized){
-
+            LogCollector.d(TAG, "NLLB 翻译开始: $sourceLanguage→$targetLanguage, text=$text")
             currentTask = Thread {
                 try {
                     nllbTranslator.translate(text, CustomLocale(sourceLanguage), CustomLocale(targetLanguage), object: TranslationListener{
                         override fun onTranslationComplete(result: String) {
+                            LogCollector.d(TAG, "NLLB 翻译完成: result=$result")
                             callback(TranslationResult.Success(result))
                         }
 
                         override fun onTranslationError(e: java.lang.Exception) {
+                            LogCollector.e(TAG, "NLLB 翻译失败: ${e.message}", e)
                             callback(TranslationResult.Error(e))
                         }
 
                     })
                 } catch (e: Exception) {
+                    LogCollector.e(TAG, "NLLB 翻译异常: ${e.message}", e)
                     callback(TranslationResult.Error(e))
                 }
 
             }.apply { start() }
 
         }else{
+            LogCollector.d(TAG, "NLLB 未初始化完成，跳过翻译")
             showToast(R.string.initialization_not_complete)
         }
     }

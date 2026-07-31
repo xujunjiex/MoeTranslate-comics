@@ -1,5 +1,6 @@
 package com.moe.starflow.utils
 
+import android.animation.LayoutTransition
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -9,148 +10,133 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.LinkedList
 
 /**
  * 翻译状态悬浮提示条 — 统一的游戏/漫画翻译状态反馈组件。
  *
+ * - 单窗口 + 竖直 LinearLayout 容器：同一时间可显示多条消息，**纵向堆叠**（第 1/2/3 行），不会重叠
  * - 位置、时长从个性化设置读取
  * - 所有消息通过 LogCollector 记录
  * - 错误消息可点击复制
+ * - 进度/状态消息（showImmediate）复用最顶部一条；队列消息依次补位
  */
-class TranslationStatusOverlay(private val context: Context) {
+class TranslationStatusOverlay private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "StatusOverlay"
+        private const val MAX_SLOTS = 3
+
+        /** 全局唯一实例：游戏/漫画/无障碍服务/NLLB 共用同一浮窗，避免多条消息在不同浮窗上重叠 */
+        @Volatile
+        private var instance: TranslationStatusOverlay? = null
+
+        fun getInstance(context: Context): TranslationStatusOverlay =
+            instance ?: synchronized(this) {
+                instance ?: TranslationStatusOverlay(context.applicationContext).also { instance = it }
+            }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val prefs = CustomPreference.getInstance(context)
 
-    private var overlayView: TextView? = null
+    private var container: LinearLayout? = null
     private var isShowing = false
-    private var dismissRunnable: Runnable? = null
 
-    // 消息队列
-    private val messageQueue = LinkedList<String>()
-    private var isDisplaying = false
+    // 每条消息的自动消失任务
+    private val dismissRunnables = HashMap<TextView, Runnable>()
+    // 待显示队列（超过 MAX_SLOTS 时排队）
+    private val messageQueue = LinkedList<QueuedMessage>()
+
+    private data class QueuedMessage(val text: String, val isError: Boolean)
 
     // ========== Public API ==========
 
     /**
-     * 队列显示状态提示（依次显示，不覆盖）。
+     * 队列显示状态提示。多条消息会**同时纵向堆叠**显示（最多 3 条），
+     * 超过 3 条排队，前面的消失后补位。
      * 用于：初始化信息、启停提示等用户需要看到每一条的消息。
-     * @param message 提示文案
      */
     fun show(message: String) {
         if (!isEnabled()) return
         LogCollector.d(TAG, message)
         runOnMainThread {
-            if (isDisplaying) {
-                // 当前有消息在显示，加入队列
-                messageQueue.add(message)
+            if (activeCount() >= MAX_SLOTS) {
+                messageQueue.add(QueuedMessage(message, isError = false))
             } else {
-                // 没有消息在显示，直接显示
-                displayMessage(message, true)
+                addChip(message, isError = false, autoDismiss = true)
             }
         }
     }
 
     /**
-     * 覆盖显示状态提示（直接替换当前消息）。
+     * 覆盖显示状态提示（替换最顶部一条，其他堆叠消息保留）。
      * 用于：状态进度、模型切换等只关心最新状态的消息。
-     * @param message 提示文案
-     * @param autoDismiss true=到期自动消失；false=持续显示直到下次 update/dismiss
      */
     fun showImmediate(message: String, autoDismiss: Boolean = true) {
         if (!isEnabled()) return
         LogCollector.d(TAG, message)
         runOnMainThread {
-            cancelAutoDismiss()
-            messageQueue.clear()
-            displayMessage(message, autoDismiss)
-        }
-    }
-
-    private fun displayMessage(message: String, autoDismiss: Boolean = true) {
-        isDisplaying = true
-        ensureView()
-        overlayView?.let { view ->
-            view.text = message
-            view.background = createRoundedBackground(Color.argb(150, 0, 0, 0))
-            view.setOnClickListener(null)
-            view.isClickable = false
-            addToWindowIfNeeded()
-            scheduleAutoDismiss(autoDismiss)
-        }
-    }
-
-    private fun showNextMessage() {
-        if (messageQueue.isNotEmpty()) {
-            val nextMessage = messageQueue.poll()
-            if (nextMessage != null) {
-                displayMessage(nextMessage, true)
+            val top = topChip()
+            if (top != null) {
+                top.text = message
+                top.background = createRoundedBackground(Color.argb(150, 0, 0, 0))
+                top.isClickable = false
+                top.setOnClickListener(null)
+                rescheduleDismiss(top, autoDismiss)
             } else {
-                isDisplaying = false
+                addChip(message, isError = false, autoDismiss = autoDismiss)
             }
-        } else {
-            isDisplaying = false
         }
     }
 
     /**
-     * 显示错误提示（红色背景，可点击复制）。
-     * @param message 错误文案（包含原始报错信息）
+     * 显示错误提示（红色背景，可点击复制）。替换最顶部一条。
      */
     fun showError(message: String) {
         if (!isEnabled()) return
         LogCollector.e(TAG, message)
         runOnMainThread {
-            // 错误消息优先显示，清空队列
-            messageQueue.clear()
-            isDisplaying = true
-            cancelAutoDismiss()
-            ensureView()
-            overlayView?.let { view ->
-                view.text = message
-                view.background = createRoundedBackground(Color.argb(150, 180, 0, 0))
-                view.isClickable = true
-                view.setOnClickListener {
-                    copyToClipboard(message)
-                    view.text = "已复制"
-                    view.background = createRoundedBackground(Color.argb(150, 0, 120, 0))
-                    view.isClickable = false
-                    scheduleAutoDismiss(true, 1000L)
-                }
-                addToWindowIfNeeded()
+            val top = topChip()
+            val chip = if (top != null) {
+                top.text = message
+                top
+            } else {
+                addChip(message, isError = true, autoDismiss = false)
+            }
+            chip.background = createRoundedBackground(Color.argb(150, 180, 0, 0))
+            chip.isClickable = true
+            chip.setOnClickListener {
+                copyToClipboard(message)
+                chip.text = "已复制"
+                chip.background = createRoundedBackground(Color.argb(150, 0, 120, 0))
+                chip.isClickable = false
+                rescheduleDismiss(chip, true, 1000L)
             }
         }
     }
 
     /**
-     * 更新提示文字（不重置计时器）。
-     * 用于：进度提示的实时更新。
+     * 更新提示文字（不重置计时器）。用于：进度提示的实时更新。
      */
     fun update(message: String) {
         if (!isEnabled()) return
         runOnMainThread {
-            if (isShowing) {
-                overlayView?.text = message
-            }
+            topChip()?.text = message
         }
     }
 
     /**
-     * 手动关闭提示。
+     * 手动关闭所有提示。
      */
     fun dismiss() {
         runOnMainThread {
-            cancelAutoDismiss()
-            removeFromWindow()
+            removeAllChips()
             messageQueue.clear()
-            isDisplaying = false
         }
     }
 
@@ -159,30 +145,109 @@ class TranslationStatusOverlay(private val context: Context) {
      */
     fun release() {
         runOnMainThread {
-            cancelAutoDismiss()
-            removeFromWindow()
+            removeAllChips()
             messageQueue.clear()
-            isDisplaying = false
-            overlayView = null
+            container = null
         }
     }
 
     // ========== Internal ==========
 
+    private fun activeCount(): Int = container?.childCount ?: 0
+
+    private fun topChip(): TextView? = container?.getChildAt(0) as? TextView
+
+    private fun ensureContainer(): LinearLayout {
+        container?.let { return it }
+        val linearLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            // 出现（淡入）/ 移动（兄弟项位移）/ 消失（淡出）动画
+            layoutTransition = LayoutTransition().apply {
+                setDuration(220L)
+            }
+        }
+        container = linearLayout
+        addToWindowIfNeeded()
+        return linearLayout
+    }
+
+    private fun createChip(): TextView = TextView(context).apply {
+        setTextColor(Color.WHITE)
+        textSize = 12f
+        val hPad = (10 * context.resources.displayMetrics.density).toInt()
+        val vPad = (4 * context.resources.displayMetrics.density).toInt()
+        setPadding(hPad, vPad, hPad, vPad)
+        gravity = Gravity.CENTER
+    }
+
+    /** 圆角半透明背景 */
     private fun createRoundedBackground(color: Int): GradientDrawable {
-        val radius = 16 * context.resources.displayMetrics.density
+        val radius = (12 * context.resources.displayMetrics.density).toInt()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = radius
+            cornerRadius = radius.toFloat()
             setColor(color)
         }
     }
 
-    private fun isEnabled(): Boolean {
-        val enabled = prefs.getBoolean("status_overlay_enabled", true)
-        LogCollector.d(TAG, "isEnabled: $enabled")
-        return enabled
+    private fun addChip(message: String, isError: Boolean, autoDismiss: Boolean): TextView {
+        val layout = ensureContainer()
+        val chip = createChip()
+        chip.text = message
+        chip.background = createRoundedBackground(
+            if (isError) Color.argb(150, 180, 0, 0)
+            else Color.argb(150, 0, 0, 0)
+        )
+        val lp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        if (layout.childCount > 0) {
+            lp.topMargin = (6 * context.resources.displayMetrics.density).toInt()
+        }
+        layout.addView(chip, lp)
+        layout.post { addToWindowIfNeeded() }  // 内容变化后强制刷新/重新添加窗口
+        if (autoDismiss) rescheduleDismiss(chip, true)
+        return chip
     }
+
+    private fun rescheduleDismiss(chip: TextView, enabled: Boolean, customDurationMs: Long? = null) {
+        dismissRunnables.remove(chip)?.let { mainHandler.removeCallbacks(it) }
+        if (!enabled) return
+        val duration = customDurationMs ?: getDurationMs()
+        val runnable = Runnable {
+            removeChip(chip)
+        }
+        dismissRunnables[chip] = runnable
+        mainHandler.postDelayed(runnable, duration)
+    }
+
+    private fun removeChip(chip: TextView) {
+        val layout = container ?: return
+        layout.removeView(chip)
+        dismissRunnables.remove(chip)?.let { mainHandler.removeCallbacks(it) }
+        if (layout.childCount == 0) {
+            removeFromWindow()
+        } else {
+            layout.post { addToWindowIfNeeded() }
+        }
+        // 队列补位
+        if (messageQueue.isNotEmpty() && layout.childCount < MAX_SLOTS) {
+            val next = messageQueue.poll()
+            if (next != null) addChip(next.text, next.isError, autoDismiss = true)
+        }
+    }
+
+    private fun removeAllChips() {
+        val layout = container ?: return
+        dismissRunnables.values.forEach { mainHandler.removeCallbacks(it) }
+        dismissRunnables.clear()
+        layout.removeAllViews()
+        removeFromWindow()
+    }
+
+    private fun isEnabled(): Boolean = prefs.getBoolean("status_overlay_enabled", true)
 
     private fun getPosition(): Int {
         return when (prefs.getString("Status_Position", "top")) {
@@ -196,21 +261,8 @@ class TranslationStatusOverlay(private val context: Context) {
         return prefs.getString("Status_Duration", "2000").toLongOrNull() ?: 2000L
     }
 
-    private fun ensureView() {
-        if (overlayView != null) return
-        overlayView = TextView(context).apply {
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            val hPad = (20 * context.resources.displayMetrics.density).toInt()
-            val vPad = (12 * context.resources.displayMetrics.density).toInt()
-            setPadding(hPad, vPad, hPad, vPad)
-            gravity = Gravity.CENTER
-        }
-    }
-
     private fun getViewParams(): WindowManager.LayoutParams {
         val position = getPosition()
-
         return WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             format = PixelFormat.RGBA_8888
@@ -220,25 +272,25 @@ class TranslationStatusOverlay(private val context: Context) {
             height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = position or Gravity.CENTER_HORIZONTAL
             y = when (position) {
-                Gravity.TOP -> (24 * context.resources.displayMetrics.density).toInt()  // 状态栏下方
-                Gravity.BOTTOM -> (80 * context.resources.displayMetrics.density).toInt()  // 导航栏上方
+                Gravity.TOP -> (24 * context.resources.displayMetrics.density).toInt()
+                Gravity.BOTTOM -> (80 * context.resources.displayMetrics.density).toInt()
                 else -> 0
             }
         }
     }
 
     private fun addToWindowIfNeeded() {
+        val layout = container ?: return
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         if (isShowing) {
             try {
-                wm.updateViewLayout(overlayView, getViewParams())
-                LogCollector.d(TAG, "Overlay updated")
+                wm.updateViewLayout(layout, getViewParams())
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Failed to update overlay", e)
             }
         } else {
             try {
-                wm.addView(overlayView, getViewParams())
+                wm.addView(layout, getViewParams())
                 isShowing = true
                 LogCollector.d(TAG, "Overlay added to window")
             } catch (e: Exception) {
@@ -249,27 +301,12 @@ class TranslationStatusOverlay(private val context: Context) {
 
     private fun removeFromWindow() {
         if (!isShowing) return
+        val layout = container ?: return
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         try {
-            wm.removeView(overlayView)
+            wm.removeView(layout)
         } catch (_: Exception) {}
         isShowing = false
-    }
-
-    private fun scheduleAutoDismiss(enabled: Boolean, customDurationMs: Long? = null) {
-        cancelAutoDismiss()
-        if (!enabled) return
-        val duration = customDurationMs ?: getDurationMs()
-        dismissRunnable = Runnable {
-            removeFromWindow()
-            showNextMessage()
-        }
-        mainHandler.postDelayed(dismissRunnable!!, duration)
-    }
-
-    private fun cancelAutoDismiss() {
-        dismissRunnable?.let { mainHandler.removeCallbacks(it) }
-        dismissRunnable = null
     }
 
     private fun copyToClipboard(text: String) {

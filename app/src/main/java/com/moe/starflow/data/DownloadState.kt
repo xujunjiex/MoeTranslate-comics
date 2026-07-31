@@ -21,22 +21,34 @@ sealed class DownloadState {
 
     data class Partial(
         val bytesDownloaded: Long,
-        val totalBytes: Long
+        val totalBytes: Long,
+        val currentFileIndex: Int,          // 0-based 当前文件（正在下载或下一个待下载）
+        val currentFileCount: Int,          // 单文件 = 1
+        val currentFileName: String,        // 当前文件（正在下载或下一个待下载）
+        val currentFileBytesDownloaded: Long,  // 当前文件已下载字节（含 .part）
+        val currentFileTotalBytes: Long     // 当前文件总大小
     ) : DownloadState()
 
     data class Running(
-        val bytesDownloaded: Long,
-        val totalBytes: Long,
+        val bytesDownloaded: Long,           // 整体已下载字节（跨所有文件）
+        val totalBytes: Long,                // 整体总字节（所有文件之和）
         val speedBytesPerSec: Long,
         val currentFileIndex: Int,     // 0-based；单文件始终为 0
         val currentFileCount: Int,     // 单文件始终为 1
         val currentFileName: String,   // 单文件 = fileInfo.fileName
-        val currentFileProgress: Int   // 0-100；单文件 = 总进度
+        val currentFileProgress: Int,  // 当前文件 0-100
+        val currentFileBytesDownloaded: Long,  // 当前文件已下载字节
+        val currentFileTotalBytes: Long        // 当前文件总大小
     ) : DownloadState()
 
     data class Paused(
         val bytesDownloaded: Long,
-        val totalBytes: Long
+        val totalBytes: Long,
+        val currentFileIndex: Int,          // 0-based 当前文件（正在下载或下一个待下载）
+        val currentFileCount: Int,          // 单文件 = 1
+        val currentFileName: String,        // 当前文件（正在下载或下一个待下载）
+        val currentFileBytesDownloaded: Long,  // 当前文件已下载字节（含 .part）
+        val currentFileTotalBytes: Long     // 当前文件总大小
     ) : DownloadState()
 
     object Done : DownloadState()

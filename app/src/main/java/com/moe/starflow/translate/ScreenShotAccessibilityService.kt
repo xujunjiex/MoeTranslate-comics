@@ -104,7 +104,7 @@ class ScreenShotAccessibilityService: AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        statusOverlay = TranslationStatusOverlay(this)
+        statusOverlay = TranslationStatusOverlay.getInstance(this)
         AccessibilityServiceManager.setService(this)
         Log.d("CONNECT", "Service Connected")
     }

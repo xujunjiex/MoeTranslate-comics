@@ -27,8 +27,8 @@ class NllbModelFragment : Fragment() {
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var progressText: TextView
-    private lateinit var sizeText: TextView
-    private lateinit var speedText: TextView
+    private lateinit var progressBarOverall: ProgressBar
+    private lateinit var overallText: TextView
     private lateinit var downloadButton: Button
     private lateinit var pauseButton: Button
     private lateinit var resumeButton: Button
@@ -48,8 +48,8 @@ class NllbModelFragment : Fragment() {
         statusText = view.findViewById(R.id.statusText)
         progressBar = view.findViewById(R.id.progressBar)
         progressText = view.findViewById(R.id.progressText)
-        sizeText = view.findViewById(R.id.sizeText)
-        speedText = view.findViewById(R.id.speedText)
+        progressBarOverall = view.findViewById(R.id.progressBarOverall)
+        overallText = view.findViewById(R.id.overallText)
         downloadButton = view.findViewById(R.id.downloadButton)
         pauseButton = view.findViewById(R.id.pauseButton)
         resumeButton = view.findViewById(R.id.resumeButton)
@@ -58,7 +58,9 @@ class NllbModelFragment : Fragment() {
         downloadHandText = view.findViewById(R.id.download_hand_Text)
 
         downloadHandText.setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/xujunjiex/StarFlow/releases"))
+            // 手动下载说明链接从 downloadinfo.json 的 browser_url 读取
+            val url = repo.getBrowserUrl(modelKey) ?: return@setOnClickListener
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
         }
 
@@ -81,6 +83,8 @@ class NllbModelFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            // 页面进入时先按磁盘文件重新计算状态（识别已下载/部分下载的模型）
+            repo.refreshFromDisk(modelKey)
             repo.observe().collect { snapshot ->
                 val state = snapshot.states[modelKey] ?: DownloadState.Idle
                 render(state)
@@ -100,73 +104,110 @@ class NllbModelFragment : Fragment() {
                 statusText.text = getString(R.string.model_status_idle)
                 progressBar.progress = 0
                 progressText.text = "0%"
-                sizeText.text = ""
-                speedText.text = ""
+                progressBarOverall.progress = 0
+                overallText.text = "0%"
                 downloadButton.visibility = View.VISIBLE
             }
             is DownloadState.Running -> {
-                val totalPct = if (state.totalBytes > 0)
+                // 当前文件进度（主进度条）
+                val currentPct = state.currentFileProgress
+                // 整体进度（跨所有文件）
+                val overallPct = if (state.totalBytes > 0)
                     (state.bytesDownloaded * 100 / state.totalBytes).toInt() else 0
-                progressBar.progress = totalPct
-                progressText.text = "$totalPct%"
+                progressBar.progress = currentPct
+                val currentBytes = "${formatBytes(state.currentFileBytesDownloaded)} / ${formatBytes(state.currentFileTotalBytes)}"
+                val speed = if (state.speedBytesPerSec > 0) formatSpeed(state.speedBytesPerSec) else ""
+                progressText.text = "$currentPct% · $currentBytes${if (speed.isNotEmpty()) " · $speed" else ""}"
+                progressBarOverall.progress = overallPct
+                overallText.text = getString(
+                    R.string.model_overall_progress,
+                    overallPct,
+                    formatBytes(state.bytesDownloaded),
+                    formatBytes(state.totalBytes)
+                )
 
                 statusText.text = if (state.currentFileCount > 1) {
                     getString(
-                        R.string.model_status_running_multi,
+                        R.string.model_status_running_file,
                         state.currentFileIndex + 1,
                         state.currentFileCount,
-                        state.currentFileProgress,
                         state.currentFileName
                     )
                 } else {
-                    getString(R.string.model_status_running_single, totalPct)
+                    getString(R.string.model_status_running_single, currentPct)
                 }
-
-                sizeText.text = "${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)}"
-                speedText.text = if (state.speedBytesPerSec > 0) formatSpeed(state.speedBytesPerSec) else ""
 
                 pauseButton.visibility = View.VISIBLE
                 cancelButton.visibility = View.VISIBLE
             }
             is DownloadState.Paused -> {
-                val totalPct = if (state.totalBytes > 0)
+                val currentPct = if (state.currentFileTotalBytes > 0)
+                    (state.currentFileBytesDownloaded * 100 / state.currentFileTotalBytes).toInt() else 0
+                val overallPct = if (state.totalBytes > 0)
                     (state.bytesDownloaded * 100 / state.totalBytes).toInt() else 0
-                progressBar.progress = totalPct
-                progressText.text = "$totalPct%"
-                statusText.text = getString(
-                    R.string.model_status_paused,
+                progressBar.progress = currentPct
+                progressText.text = "$currentPct%"
+                progressBarOverall.progress = overallPct
+                overallText.text = getString(
+                    R.string.model_overall_progress,
+                    overallPct,
                     formatBytes(state.bytesDownloaded),
                     formatBytes(state.totalBytes)
                 )
-                sizeText.text = "${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)}"
-                speedText.text = ""
-
+                statusText.text = if (state.currentFileCount > 1) {
+                    getString(
+                        R.string.model_status_paused_multi,
+                        state.currentFileIndex + 1,
+                        state.currentFileCount,
+                        formatBytes(state.currentFileBytesDownloaded),
+                        formatBytes(state.currentFileTotalBytes)
+                    )
+                } else {
+                    getString(
+                        R.string.model_status_paused,
+                        formatBytes(state.bytesDownloaded),
+                        formatBytes(state.totalBytes)
+                    )
+                }
                 resumeButton.visibility = View.VISIBLE
-                cancelButton.visibility = View.VISIBLE
             }
             is DownloadState.Partial -> {
-                val totalPct = if (state.totalBytes > 0)
+                val currentPct = if (state.currentFileTotalBytes > 0)
+                    (state.currentFileBytesDownloaded * 100 / state.currentFileTotalBytes).toInt() else 0
+                val overallPct = if (state.totalBytes > 0)
                     (state.bytesDownloaded * 100 / state.totalBytes).toInt() else 0
-                progressBar.progress = totalPct
-                progressText.text = "$totalPct%"
-                statusText.text = getString(
-                    R.string.model_status_partial,
+                progressBar.progress = currentPct
+                progressText.text = "$currentPct%"
+                progressBarOverall.progress = overallPct
+                overallText.text = getString(
+                    R.string.model_overall_progress,
+                    overallPct,
                     formatBytes(state.bytesDownloaded),
                     formatBytes(state.totalBytes)
                 )
-                sizeText.text = "${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)}"
-                speedText.text = ""
-
+                statusText.text = if (state.currentFileCount > 1) {
+                    getString(
+                        R.string.model_status_partial_multi,
+                        state.currentFileIndex + 1,
+                        state.currentFileCount,
+                        formatBytes(state.currentFileBytesDownloaded),
+                        formatBytes(state.currentFileTotalBytes)
+                    )
+                } else {
+                    getString(
+                        R.string.model_status_partial,
+                        formatBytes(state.bytesDownloaded),
+                        formatBytes(state.totalBytes)
+                    )
+                }
                 resumeButton.visibility = View.VISIBLE
-                deleteButton.visibility = View.VISIBLE
             }
             DownloadState.Done -> {
-                val totalBytes = repo.getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
                 statusText.text = getString(R.string.model_status_done)
                 progressBar.progress = 100
                 progressText.text = "100%"
-                sizeText.text = formatBytes(totalBytes)
-                speedText.text = ""
+                progressBarOverall.progress = 100
+                overallText.text = "100%"
                 deleteButton.visibility = View.VISIBLE
             }
         }

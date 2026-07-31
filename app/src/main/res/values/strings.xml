@@ -60,7 +60,7 @@
     <string name="pic_mode_description">Upload the screenshot directly to the cloud API for translation. It supports using the preset cloud image translation API, and also supports using the custom cloud image translation API. <font color="#55AEEA">It does not support local translation</font>. This method consumes relatively more data traffic.</string>
     <string name="nllb_name">NLLB Translate Model</string>
     <string name="mlkit_name">ML Kit</string>
-    <string name="nllb_description">Meta\'s model, which is designed for translation, is called \"No Language Left Behind\". As the name suggests, it supports multiple languages. The translation effect of this model is better, but it also needs to be downloaded before use. <b><u>When running for the first time, you need to download a model file of about 1GB. At the same time, the device needs to have at least 6GB of RAM to use this model</u></b>. After the download is complete, there is no need for a network connection, and it can be used immediately. Click \"Manage NLLB model files\" below to download and delete model files.</string>
+    <string name="nllb_description">NLLB is a built-in machine translation model by the MoeTranslate author. It supports multiple languages with good translation quality. The model needs to be downloaded before use: about 1GB on first use, and the device needs at least 6GB of RAM. After the download is complete, it works offline. Click "Manage NLLB Model Files" below to download or delete the model files.</string>
     <string name="manage_nllb_models">Manage NLLB Model Files</string>
     <string name="baiduapi_name">Baidu Translate</string>
     <string name="baiduapi_description">Baidu Translate\'s API, click \"Manage Baidu Translate API\" below to set up the API, and you can also view the API application tutorial (there is a free call quota of 1 million characters per month).</string>
@@ -504,6 +504,11 @@
     <string name="model_status_done">Downloaded</string>
     <string name="model_status_running_multi">Downloading %1$d/%2$d: %3$d%% (%4$s)</string>
     <string name="model_status_running_single">Downloading %1$d%%</string>
+    <string name="model_status_running_file">Downloading %1$d/%2$d: %3$s</string>
+    <string name="model_status_paused_multi">Paused %1$d/%2$d: %3$s/%4$s</string>
+    <string name="model_status_partial_multi">Incomplete %1$d/%2$d: %3$s/%4$s</string>
+    <string name="model_overall_label">Overall</string>
+    <string name="model_overall_progress">%1$d%% · %2$s / %3$s</string>
     <string name="model_download_success">Model downloaded successfully</string>
     <string name="model_download_failed">Download failed: %s</string>
     <string name="model_delete_confirm">Delete %s model?</string>

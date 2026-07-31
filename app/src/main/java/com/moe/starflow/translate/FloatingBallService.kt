@@ -433,7 +433,7 @@ class FloatingBallService : LifecycleService() {
         iconChangeReceiver = receiver
         androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
             .registerReceiver(receiver, android.content.IntentFilter("action_floating_ball_icon_changed"))
-        statusOverlay = TranslationStatusOverlay(this)
+        statusOverlay = TranslationStatusOverlay.getInstance(this)
         // 读取手势动作配置
         singleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Single_Click", "0").toIntOrNull() ?: 0)
         doubleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Double_Click", "2").toIntOrNull() ?: 2)

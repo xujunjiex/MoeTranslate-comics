@@ -217,6 +217,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/ppocrv6_medium_det_cancel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
 
             <!-- medium 识别器 -->
@@ -266,6 +280,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/ppocrv6_medium_rec_cancel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
         </LinearLayout>
 
@@ -345,6 +373,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/v5_det_cancel_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
 
             <!-- 分隔线 -->
@@ -427,6 +469,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/v5_rec_zh_cancel_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
 
             <!-- 分隔线 -->
@@ -501,6 +557,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/v5_rec_en_cancel_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
 
             <!-- 分隔线 -->
@@ -575,6 +645,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/v5_rec_ko_cancel_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
 
             <!-- 分隔线 -->
@@ -649,6 +733,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/v5_rec_ru_cancel_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
         </LinearLayout>
 
@@ -728,6 +826,20 @@
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/rtdetr_cancel_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
 
             <!-- 分隔线 -->
@@ -774,43 +886,43 @@
                     android:id="@+id/manga_ocr_encoder_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
                     android:paddingTop="6dp"
                     android:paddingBottom="6dp"
                     android:text="@string/model_browser_emoji_encoder"
                     android:textSize="11sp"
                     android:textColor="#666"
                     android:gravity="center"
-                    android:layout_marginEnd="4dp"/>
+                    android:layout_marginEnd="2dp"/>
 
                 <TextView
                     android:id="@+id/manga_ocr_decoder_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
                     android:paddingTop="6dp"
                     android:paddingBottom="6dp"
                     android:text="@string/model_browser_emoji_decoder"
                     android:textSize="11sp"
                     android:textColor="#666"
                     android:gravity="center"
-                    android:layout_marginEnd="4dp"/>
+                    android:layout_marginEnd="2dp"/>
 
                 <TextView
                     android:id="@+id/manga_ocr_vocab_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
                     android:paddingTop="6dp"
                     android:paddingBottom="6dp"
                     android:text="@string/model_browser_emoji_vocab"
                     android:textSize="11sp"
                     android:textColor="#666"
                     android:gravity="center"
-                    android:layout_marginEnd="6dp"/>
+                    android:layout_marginEnd="4dp"/>
 
                 <View
                     android:layout_width="0dp"
@@ -819,10 +931,8 @@
 
                 <TextView
                     android:id="@+id/manga_ocr_action_button"
-                    android:layout_width="wrap_content"
+                    android:layout_width="60dp"
                     android:layout_height="wrap_content"
-                    android:paddingStart="18dp"
-                    android:paddingEnd="18dp"
                     android:paddingTop="6dp"
                     android:paddingBottom="6dp"
                     android:background="@drawable/btn_download"
@@ -830,6 +940,19 @@
                     android:textSize="12sp"
                     android:gravity="center"
                     android:text="@string/model_download"/>
+                <TextView
+                    android:id="@+id/manga_ocr_cancel_button"
+                    android:layout_width="60dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/btn_download"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:gravity="center"
+                    android:visibility="gone"
+                    android:text="@string/model_btn_cancel"/>
             </LinearLayout>
         </LinearLayout>
 
