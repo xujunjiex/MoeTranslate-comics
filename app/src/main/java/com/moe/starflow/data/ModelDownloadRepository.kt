@@ -61,8 +61,22 @@ class ModelDownloadRepository private constructor(private val context: Context) 
         }
     }
 
-    suspend fun markRunning(modelKey: ModelKey) = updateState(modelKey) {
-        DownloadState.Running(0, getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0, 0)
+    suspend fun markRunning(
+        modelKey: ModelKey,
+        currentFileIndex: Int = 0,
+        currentFileCount: Int = 1,
+        currentFileName: String = ""
+    ) = updateState(modelKey) {
+        val totalBytes = getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
+        DownloadState.Running(
+            bytesDownloaded = 0,
+            totalBytes = totalBytes,
+            speedBytesPerSec = 0,
+            currentFileIndex = currentFileIndex,
+            currentFileCount = currentFileCount,
+            currentFileName = currentFileName,
+            currentFileProgress = 0
+        )
     }
 
     suspend fun markPartial(modelKey: ModelKey) = updateState(modelKey) {
@@ -74,10 +88,37 @@ class ModelDownloadRepository private constructor(private val context: Context) 
         DownloadState.Partial(downloadedBytes, totalBytes)
     }
 
+    suspend fun markPaused(modelKey: ModelKey) = updateState(modelKey) {
+        val totalBytes = getModelInfo(modelKey)?.files?.sumOf { it.fileSize } ?: 0L
+        val downloadedBytes = getModelInfo(modelKey)?.files?.sumOf { fileInfo ->
+            val f = File(targetFileFor(modelKey).parentFile, fileInfo.fileName)
+            if (f.exists() && f.length() > 0) f.length() else 0L
+        } ?: 0L
+        DownloadState.Paused(downloadedBytes, totalBytes)
+    }
+
     suspend fun markDone(modelKey: ModelKey) = updateState(modelKey) { DownloadState.Done }
 
-    suspend fun updateProgress(modelKey: ModelKey, bytes: Long, total: Long, speed: Long) =
-        updateState(modelKey) { DownloadState.Running(bytes, total, speed) }
+    suspend fun updateProgress(
+        modelKey: ModelKey,
+        bytes: Long,
+        total: Long,
+        speed: Long,
+        currentFileIndex: Int,
+        currentFileCount: Int,
+        currentFileName: String,
+        currentFileProgress: Int
+    ) = updateState(modelKey) {
+        DownloadState.Running(
+            bytesDownloaded = bytes,
+            totalBytes = total,
+            speedBytesPerSec = speed,
+            currentFileIndex = currentFileIndex,
+            currentFileCount = currentFileCount,
+            currentFileName = currentFileName,
+            currentFileProgress = currentFileProgress
+        )
+    }
 
     suspend fun cancelDownload(modelKey: ModelKey) = withContext(Dispatchers.IO) {
         stateMutex.withLock {
@@ -164,6 +205,30 @@ class ModelDownloadRepository private constructor(private val context: Context) 
             stateMap.toMap(),
             stateMap.filter { it.value is DownloadState.Running }.keys.toSet()
         )
+    }
+
+    private val queuedKeys = ConcurrentHashMap.newKeySet<ModelKey>()
+
+    /**
+     * 如果该 modelKey 当前不是 Running，将其加入待处理队列。
+     * 返回 true 表示需要调用方启动下载；返回 false 表示已在下载中（已自动入队，当前完成后会再次启动）。
+     */
+    suspend fun enqueueDownload(modelKey: ModelKey): Boolean {
+        stateMutex.withLock {
+            val current = stateMap[modelKey]
+            return if (current is DownloadState.Running) {
+                queuedKeys.add(modelKey)
+                false
+            } else {
+                true
+            }
+        }
+    }
+
+    fun dequeueNext(): ModelKey? {
+        val first = queuedKeys.firstOrNull() ?: return null
+        queuedKeys.remove(first)
+        return first
     }
 
     /**
