@@ -1,6 +1,5 @@
-package com.moe.starflow.data
+package com.moe.starflow.download
 
-import com.moe.starflow.manga.ModelKey
 
 /**
  * 模型元信息（从 assets/models/downloadinfo.json 加载）。

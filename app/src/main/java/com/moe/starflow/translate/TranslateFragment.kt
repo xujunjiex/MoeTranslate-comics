@@ -50,8 +50,8 @@ import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentTranslateBinding
 import com.moe.starflow.me.ConfigurationStorage
 import com.moe.starflow.me.ManageActivity
-import com.moe.starflow.data.ModelDownloadRepository
-import com.moe.starflow.manga.ModelKey
+import com.moe.starflow.download.ModelDownloadRepository
+import com.moe.starflow.download.ModelKey
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.NotificationChecker

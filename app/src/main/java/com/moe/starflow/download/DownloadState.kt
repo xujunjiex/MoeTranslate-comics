@@ -1,4 +1,4 @@
-package com.moe.starflow.data
+package com.moe.starflow.download
 
 /**
  * 模型下载状态。

@@ -45,7 +45,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentAboutMeBinding
-import com.moe.starflow.manga.ModelDownloadManager
+import com.moe.starflow.download.ModelDownloadManager
 import com.moe.starflow.translate.FloatingBallService
 import com.moe.starflow.manga.MangaFloatingService
 import com.moe.starflow.utils.LogCollector

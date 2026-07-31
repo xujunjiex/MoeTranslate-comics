@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.download
 
 import android.content.Context
 import com.moe.starflow.utils.LogCollector

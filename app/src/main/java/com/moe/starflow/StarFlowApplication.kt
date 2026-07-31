@@ -1,7 +1,7 @@
 package com.moe.starflow
 
 import android.app.Application
-import com.moe.starflow.data.ModelDownloadRepository
+import com.moe.starflow.download.ModelDownloadRepository
 import com.moe.starflow.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope

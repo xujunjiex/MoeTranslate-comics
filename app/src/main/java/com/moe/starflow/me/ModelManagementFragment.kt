@@ -13,10 +13,10 @@ import androidx.preference.PreferenceManager
 import android.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.R
-import com.moe.starflow.data.DownloadState
-import com.moe.starflow.data.ModelDownloadRepository
-import com.moe.starflow.manga.ModelKey
-import com.moe.starflow.service.ModelDownloadService
+import com.moe.starflow.download.DownloadState
+import com.moe.starflow.download.ModelDownloadRepository
+import com.moe.starflow.download.ModelKey
+import com.moe.starflow.download.ModelDownloadService
 import com.moe.starflow.utils.LogCollector
 import android.content.Intent
 import android.net.Uri

@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.download
 
 /**
  * 所有可下载模型的统一标识。

@@ -24,7 +24,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.moe.starflow.BaseActivity
 import com.moe.starflow.databinding.ActivityManageBinding
-import com.moe.starflow.manga.ModelKey
+import com.moe.starflow.download.ModelKey
 
 class ManageActivity : BaseActivity() {
 

@@ -1,6 +1,6 @@
 package com.moe.starflow.data
 
-import com.moe.starflow.manga.ModelKey
+import com.moe.starflow.download.ModelKey
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest

@@ -1,4 +1,4 @@
-package com.moe.starflow.service.helpers
+package com.moe.starflow.download
 
 import com.moe.starflow.utils.LogCollector
 import java.io.File

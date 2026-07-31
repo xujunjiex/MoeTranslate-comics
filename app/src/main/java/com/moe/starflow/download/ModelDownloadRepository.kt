@@ -1,7 +1,6 @@
-package com.moe.starflow.data
+package com.moe.starflow.download
 
 import android.content.Context
-import com.moe.starflow.manga.ModelKey
 import com.moe.starflow.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow

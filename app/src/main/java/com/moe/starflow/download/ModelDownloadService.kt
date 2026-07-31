@@ -1,4 +1,4 @@
-package com.moe.starflow.service
+package com.moe.starflow.download
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,17 +10,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.R
-import com.moe.starflow.data.DownloadState
-import com.moe.starflow.data.ModelDownloadRepository
-import com.moe.starflow.manga.ModelKey
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.UiUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import com.moe.starflow.service.helpers.ChecksumHelper
-import com.moe.starflow.service.helpers.VerifyResult
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File

@@ -1,6 +1,6 @@
 package com.moe.starflow.data
 
-import com.moe.starflow.manga.ModelKey
+import com.moe.starflow.download.ModelKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
