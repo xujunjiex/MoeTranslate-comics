@@ -1,6 +1,10 @@
 package com.moe.starflow.data
 
 import com.moe.starflow.download.ModelKey
+import com.moe.starflow.download.DownloadState
+import com.moe.starflow.download.FileInfo
+import com.moe.starflow.download.ModelDownloadRepository
+import com.moe.starflow.download.ModelInfo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest

@@ -1,4 +1,6 @@
 package com.moe.starflow.data
+import com.moe.starflow.download.DownloadState
+import com.moe.starflow.download.FileInfo
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

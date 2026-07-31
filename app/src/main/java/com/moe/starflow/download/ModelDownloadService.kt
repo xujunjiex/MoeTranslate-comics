@@ -280,7 +280,7 @@ class ModelDownloadService : LifecycleService() {
 
     private suspend fun downloadSingleFile(
         modelKey: ModelKey,
-        fileInfo: com.moe.starflow.data.FileInfo,
+        fileInfo: FileInfo,
         fileIndex: Int = 0,
         fileCount: Int = 1,
         priorBytes: Long = 0L,
@@ -301,12 +301,12 @@ class ModelDownloadService : LifecycleService() {
         )
         updateNotification(modelKey, repo.getState(modelKey))
 
-        val result = com.moe.starflow.manga.ModelDownloadManager.downloadModel(
+        val result = ModelDownloadManager.downloadModel(
             context = applicationContext,
             url = fileInfo.downloadUrl,
             checksum = fileInfo.checksum,
             destFile = destFile,
-            onProgress = object : com.moe.starflow.manga.ModelDownloadManager.ProgressCallback {
+            onProgress = object : ModelDownloadManager.ProgressCallback {
                 override fun onProgress(bytesRead: Long, fileTotalBytes: Long, speed: Float) {
                     // bytesRead / fileTotalBytes 是当前文件的进度；totalBytes 是整体总大小
                     val currentFilePct = if (fileTotalBytes > 0) (bytesRead * 100 / fileTotalBytes).toInt() else 0
@@ -348,7 +348,7 @@ class ModelDownloadService : LifecycleService() {
 
     private suspend fun downloadMultiFile(
         modelKey: ModelKey,
-        files: List<com.moe.starflow.data.FileInfo>
+        files: List<FileInfo>
     ) {
         var completedBytes = 0L
         val totalBytes = files.sumOf { it.fileSize }
@@ -405,7 +405,7 @@ class ModelDownloadService : LifecycleService() {
      * 下载本身（ModelDownloadManager）已经按服务器 Content-Length 校验过完整性，
      * 所以这里只需确认文件非空 + 校验和一致（有校验和时）。
      */
-    private fun verifyFile(file: File, fileInfo: com.moe.starflow.data.FileInfo): VerifyResult {
+    private fun verifyFile(file: File, fileInfo: FileInfo): VerifyResult {
         if (!file.exists()) return VerifyResult.MISSING
         if (file.length() <= 0) {
             file.delete()
