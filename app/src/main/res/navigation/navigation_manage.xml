@@ -38,7 +38,7 @@
 
     <fragment
         android:id="@+id/me_fragment"
-        android:name="com.moe.starflow.me.AboutMe"
+        android:name="com.moe.starflow.me.about.AboutMe"
         android:label="fragment_about_me"
         tools:layout="@layout/fragment_about_me" />
 

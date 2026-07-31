@@ -44,7 +44,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.moe.starflow.launch.FirstLaunchPage
 import com.moe.starflow.manga.MangaFloatingService
-import com.moe.starflow.me.AboutMe
+import com.moe.starflow.me.about.AboutMe
 import com.moe.starflow.utils.UpdateChecker
 import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentTranslateBinding

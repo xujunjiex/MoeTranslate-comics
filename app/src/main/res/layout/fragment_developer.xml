@@ -26,7 +26,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        tools:context=".me.Developer">
+        tools:context=".me.about.Developer">
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"

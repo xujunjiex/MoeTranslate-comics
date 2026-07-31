@@ -15,7 +15,7 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.me
+package com.moe.starflow.me.about
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -53,6 +53,7 @@ import com.moe.starflow.utils.ServiceUtils
 import com.moe.starflow.utils.UiUtils
 import com.moe.starflow.utils.UpdateChecker
 import com.moe.starflow.utils.UpdateResult
+import com.moe.starflow.me.SettingPageActivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 

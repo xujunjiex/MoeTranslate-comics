@@ -15,7 +15,7 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.me
+package com.moe.starflow.me.about
 
 import android.app.AlertDialog
 import android.content.Intent
@@ -29,6 +29,7 @@ import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentDeveloperBinding
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.UiUtils
+import com.moe.starflow.me.ManageActivity
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
 import nl.dionsegijn.konfetti.core.emitter.Emitter

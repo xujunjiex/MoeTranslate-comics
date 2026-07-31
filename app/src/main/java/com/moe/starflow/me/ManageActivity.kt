@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.moe.starflow.BaseActivity
 import com.moe.starflow.databinding.ActivityManageBinding
 import com.moe.starflow.download.ModelKey
+import com.moe.starflow.me.about.OpenSource
 
 class ManageActivity : BaseActivity() {
 

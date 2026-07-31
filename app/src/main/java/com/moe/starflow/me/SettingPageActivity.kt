@@ -24,6 +24,8 @@ import android.os.Bundle
 import android.widget.Toast
 import com.moe.starflow.BaseActivity
 import com.moe.starflow.databinding.ActivitySettingPageBinding
+import com.moe.starflow.me.about.Developer
+import com.moe.starflow.me.about.FAQPage
 
 class SettingPageActivity : BaseActivity() {
 
