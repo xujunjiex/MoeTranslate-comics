@@ -207,26 +207,6 @@ class QuadBox(
     }
 
     companion object {
-        /**
-         * 从 RotatedRect 构建 QuadBox。
-         * 计算旋转矩形的 4 个角点，与 manga-image-translator 的 get_mini_boxes 输出一致。
-         */
-        fun fromRotatedRect(rotatedRect: DBNetPostProcessor.RotatedRect, text: String = "", prob: Float = 1f): QuadBox {
-            val cosA = kotlin.math.cos(rotatedRect.angle)
-            val sinA = kotlin.math.sin(rotatedRect.angle)
-            val hw = rotatedRect.width / 2
-            val hh = rotatedRect.height / 2
-            val cx = rotatedRect.cx
-            val cy = rotatedRect.cy
-            val pts = arrayOf(
-                PointF((cx + cosA * (-hw) - sinA * (-hh)).toFloat(), (cy + sinA * (-hw) + cosA * (-hh)).toFloat()),
-                PointF((cx + cosA * (hw) - sinA * (-hh)).toFloat(), (cy + sinA * (hw) + cosA * (-hh)).toFloat()),
-                PointF((cx + cosA * (hw) - sinA * (hh)).toFloat(), (cy + sinA * (hw) + cosA * (hh)).toFloat()),
-                PointF((cx + cosA * (-hw) - sinA * (hh)).toFloat(), (cy + sinA * (-hw) + cosA * (hh)).toFloat())
-            )
-            return QuadBox(pts, text, prob)
-        }
-
         private fun segmentToSegmentDistance(a1: PointF, a2: PointF, b1: PointF, b2: PointF): Float {
             if (segmentsIntersect(a1, a2, b1, b2)) return 0f
             var minDist = pointToSegmentDistance(a1, b1, b2)
