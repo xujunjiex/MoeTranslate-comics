@@ -274,7 +274,7 @@ suspend fun renderOverlay(
 
 **PP-OCRv5/v6 cls（方向分类）已删除** — v5 和 v6 的 cls 模型、代码、`runOCR(useCls)` 参数全部移除（commit 5d6e235 / 5a1e83e）。
 
-PP-OCRv5 全部模型（det + rec_zh + 字典 + 可选 rec en/ko/ru）改为下载，**assets 中已无 v5 模型文件**。PP-OCRv6 small 仍内置，medium 必须从 ModelScope 下载。PPOcrModelManager 提供所有 v5/v6 模型的 URL、下载、删除接口。
+PP-OCRv5 全部模型（det + rec_zh + 字典 + 可选 rec en/ko/ru）改为下载，**assets 中已无 v5 模型文件**。PP-OCRv6 small 仍内置，medium 必须从 ModelScope 下载。`PPOcrModelFiles` 提供所有 v5/v6 模型的文件查询、浏览器 URL、删除接口（下载走 `download/`）。
 
 ### PP-OCRv5 模型下载地址（ModelScope）
 
@@ -309,7 +309,7 @@ download/
 └── ChecksumHelper.kt            # MD5 校验（含 VerifyResult）
 ```
 
-`manga/` 下的 `RTDetrModelManager`/`PPOcrModelManager`/`MangaOcrDownloadManager`/`DBNetModelManager` 仅保留**模型文件检查**逻辑（下载方法已迁到 download/，待后续清理）。
+`manga/` 下的 `RTDetrModelFiles`/`PPOcrModelFiles`/`MangaOcrModelFiles`/`DBNetModelFiles` 仅保留**模型文件检查**逻辑（下载方法已迁到 download/，待后续清理）。
 
 ### 模型管理 UI 架构（v4 起）
 
