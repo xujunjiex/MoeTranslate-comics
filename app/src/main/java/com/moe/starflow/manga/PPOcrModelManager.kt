@@ -5,7 +5,7 @@ import com.moe.starflow.utils.LogCollector
 import java.io.File
 
 /**
- * PP-OCRv5 模型管理器
+ * PP-OCRv5/v6 模型管理器（仅查询 API，下载走 ModelDownloadService）
  *
  * v5 所有模型（det/rec/字典）均为下载使用，不再内置在 assets 中。
  * 模型存储在 filesDir/ppocrv5/ 目录。下载源：ModelScope (RapidAI/RapidOCR)
@@ -25,24 +25,6 @@ object PPOcrModelManager {
     private const val TAG = "PPOcrModelManager"
     private const val MODEL_DIR = "ppocrv5"
 
-    // ModelScope 下载 URL
-    private const val BASE_URL = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5/rec"
-
-    val DOWNLOAD_URLS = mapOf(
-        "rec_en.onnx" to "$BASE_URL/en_PP-OCRv5_rec_mobile.onnx",
-        "rec_ko.onnx" to "$BASE_URL/korean_PP-OCRv5_rec_mobile.onnx",
-        "rec_ru.onnx" to "$BASE_URL/cyrillic_PP-OCRv5_rec_mobile.onnx"
-    )
-
-    // v5 dict URLs（随 rec 模型一起下载）
-    private const val V5_DICT_BASE = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.1/paddle/PP-OCRv5/rec"
-
-    val REC_DICT_URLS = mapOf(
-        "en" to "$V5_DICT_BASE/en_PP-OCRv5_rec_mobile/ppocrv5_en_dict.txt",
-        "ko" to "$V5_DICT_BASE/korean_PP-OCRv5_rec_mobile/ppocrv5_korean_dict.txt",
-        "ru" to "$V5_DICT_BASE/cyrillic_PP-OCRv5_rec_mobile/ppocrv5_cyrillic_dict.txt"
-    )
-
     fun isRecDictDownloaded(context: Context, lang: String): Boolean {
         val f = File(getModelDir(context), "rec_${lang}_dict.txt")
         return f.exists() && f.length() > 0
@@ -51,13 +33,6 @@ object PPOcrModelManager {
     // ========================================================================
     // v5 核心模型（det + rec_zh，原内置改为下载）
     // ========================================================================
-
-    private const val V5_BASE_ONNX = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5"
-    private const val V5_BASE_DICT2 = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.1/paddle/PP-OCRv5"
-
-    val V5_DET_URL = "$V5_BASE_ONNX/det/ch_PP-OCRv5_det_mobile.onnx"
-    val V5_REC_ZH_ONNX_URL = "$V5_BASE_ONNX/rec/ch_PP-OCRv5_rec_mobile.onnx"
-    val V5_REC_ZH_DICT_URL = "$V5_BASE_DICT2/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt"
 
     fun isV5DetDownloaded(context: Context): Boolean {
         val f = File(getModelDir(context), "det_v5.onnx")
@@ -72,48 +47,6 @@ object PPOcrModelManager {
     fun isV5RecZhDictDownloaded(context: Context): Boolean {
         val f = File(getModelDir(context), "rec_zh_dict.txt")
         return f.exists() && f.length() > 0
-    }
-
-    suspend fun downloadV5Det(
-        context: Context,
-        onProgress: ModelDownloadManager.ProgressCallback? = null
-    ): Result<Unit> {
-        val dir = getModelDir(context)
-        if (!dir.exists()) dir.mkdirs()
-        val destFile = File(dir, "det_v5.onnx")
-        if (destFile.exists() && destFile.length() > 0) {
-            LogCollector.d(TAG, "v5 det 已存在，跳过")
-            return Result.success(Unit)
-        }
-        LogCollector.d(TAG, "开始下载 v5 det: $V5_DET_URL")
-        return ModelDownloadManager.downloadModel(context, V5_DET_URL, "", destFile, onProgress)
-    }
-
-    suspend fun downloadV5RecZh(
-        context: Context,
-        onProgress: ModelDownloadManager.ProgressCallback? = null
-    ): Result<Unit> {
-        val dir = getModelDir(context)
-        if (!dir.exists()) dir.mkdirs()
-
-        // 1. 下载 ONNX
-        val onnxFile = File(dir, "rec_zh.onnx")
-        if (!onnxFile.exists() || onnxFile.length() == 0L) {
-            LogCollector.d(TAG, "开始下载 v5 rec_zh ONNX: $V5_REC_ZH_ONNX_URL")
-            val r1 = ModelDownloadManager.downloadModel(context, V5_REC_ZH_ONNX_URL, "", onnxFile, onProgress)
-            if (r1.isFailure) return r1
-        }
-
-        // 2. 下载字典
-        val dictFile = File(dir, "rec_zh_dict.txt")
-        if (!dictFile.exists() || dictFile.length() == 0L) {
-            LogCollector.d(TAG, "开始下载 v5 rec_zh 字典: $V5_REC_ZH_DICT_URL")
-            val r2 = ModelDownloadManager.downloadModel(context, V5_REC_ZH_DICT_URL, "", dictFile, onProgress)
-            if (r2.isFailure) return r2
-        }
-
-        LogCollector.d(TAG, "v5 rec_zh 下载完成")
-        return Result.success(Unit)
     }
 
     fun deleteV5Det(context: Context): Result<Unit> {
@@ -180,55 +113,6 @@ object PPOcrModelManager {
     }
 
     /**
-     * 下载可选 rec 模型（ONNX + 字典）
-     * @param lang "en"、"ko" 或 "ru"
-     */
-    suspend fun downloadRecModel(
-        context: Context,
-        lang: String,
-        onProgress: ModelDownloadManager.ProgressCallback? = null
-    ): Result<Unit> {
-        val dir = getOrCreateDir(context)
-
-        // 1. 下载 ONNX
-        val recFileName = "rec_$lang.onnx"
-        val recFile = File(dir, recFileName)
-        if (!recFile.exists() || recFile.length() == 0L) {
-            val url = DOWNLOAD_URLS[recFileName]
-                ?: return Result.failure(IllegalArgumentException("Unknown model: $recFileName"))
-            LogCollector.d(TAG, "开始下载 $recFileName: $url")
-            val result = ModelDownloadManager.downloadModel(
-                context = context,
-                url = url,
-                checksum = "",
-                destFile = recFile,
-                onProgress = onProgress
-            )
-            if (result.isFailure) return result
-        }
-
-        // 2. 下载字典
-        val dictFileName = "rec_${lang}_dict.txt"
-        val dictFile = File(dir, dictFileName)
-        if (!dictFile.exists() || dictFile.length() == 0L) {
-            val dictUrl = REC_DICT_URLS[lang]
-                ?: return Result.failure(IllegalArgumentException("Unknown dict for: $lang"))
-            LogCollector.d(TAG, "开始下载 $dictFileName: $dictUrl")
-            val dictResult = ModelDownloadManager.downloadModel(
-                context = context,
-                url = dictUrl,
-                checksum = "",
-                destFile = dictFile,
-                onProgress = onProgress
-            )
-            if (dictResult.isFailure) return dictResult
-        }
-
-        LogCollector.d(TAG, "可选模型 $lang 下载完成（含字典）")
-        return Result.success(Unit)
-    }
-
-    /**
      * 删除可选 rec 模型（含字典）
      */
     fun deleteRecModel(context: Context, lang: String): Result<Unit> {
@@ -259,12 +143,6 @@ object PPOcrModelManager {
     // 工具方法
     // ========================================================================
 
-    private fun getOrCreateDir(context: Context): File {
-        val dir = getModelDir(context)
-        if (!dir.exists()) dir.mkdirs()
-        return dir
-    }
-
     private fun formatSize(bytes: Long): String = when {
         bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024 -> String.format("%.1f KB", bytes / 1024.0)
@@ -272,17 +150,10 @@ object PPOcrModelManager {
     }
 
     // ========================================================================
-    // PP-OCRv6 medium 模型下载管理
+    // PP-OCRv6 medium 模型查询（下载走 Service）
     // ========================================================================
 
     private const val V6_MODEL_DIR = "ppocrv6"
-
-    private const val V6_BASE_URL = "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv6"
-
-    val V6_DOWNLOAD_URLS = mapOf(
-        "det" to "$V6_BASE_URL/det/PP-OCRv6_det_medium.onnx",
-        "rec" to "$V6_BASE_URL/rec/PP-OCRv6_rec_medium.onnx"
-    )
 
     fun getV6ModelDir(context: Context): File = File(context.getExternalFilesDir(null), V6_MODEL_DIR)
 
@@ -311,37 +182,6 @@ object PPOcrModelManager {
         }
     }
 
-    suspend fun downloadV6Medium(
-        context: Context,
-        type: String,
-        onProgress: ModelDownloadManager.ProgressCallback? = null
-    ): Result<Unit> {
-        val v6Dir = getV6ModelDir(context)
-        if (!v6Dir.exists()) v6Dir.mkdirs()
-
-        val fileName = if (type == "det") "det_v6_medium.onnx" else "rec_v6_medium.onnx"
-        val destFile = File(v6Dir, fileName)
-        if (destFile.exists() && destFile.length() > 0) {
-            LogCollector.d(TAG, "v6 $fileName 已存在，跳过")
-            return Result.success(Unit)
-        }
-
-        val url = V6_DOWNLOAD_URLS[type]
-            ?: return Result.failure(IllegalArgumentException("Unknown v6 model type: $type"))
-        LogCollector.d(TAG, "开始下载 v6 $fileName: $url")
-        val result = ModelDownloadManager.downloadModel(
-            context = context,
-            url = url,
-            checksum = "",
-            destFile = destFile,
-            onProgress = onProgress
-        )
-        if (result.isFailure) return result
-
-        LogCollector.d(TAG, "v6 模型 $type 下载完成")
-        return Result.success(Unit)
-    }
-
     fun deleteV6Medium(context: Context): Result<Unit> {
         return try {
             val dir = getV6ModelDir(context)
@@ -353,11 +193,5 @@ object PPOcrModelManager {
             LogCollector.e(TAG, "删除 v6 模型失败", e)
             Result.failure(e)
         }
-    }
-
-    fun getV6MediumSize(type: String): String = when (type) {
-        "det" -> "~60MB"
-        "rec" -> "~74MB"
-        else -> "?"
     }
 }

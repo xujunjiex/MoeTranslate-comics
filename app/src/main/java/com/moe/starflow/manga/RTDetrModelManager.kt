@@ -20,8 +20,6 @@ object RTDetrModelManager {
     const val MODEL_DIR = "rt_detr"
     const val MODEL_FILE = "model.onnx"
 
-    const val DOWNLOAD_URL = "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector-v4-s_int8.onnx"
-
     fun getModelDir(): String = MODEL_DIR
 
     fun getModelFileName(): String = MODEL_FILE
@@ -107,36 +105,5 @@ object RTDetrModelManager {
             size < 1024 * 1024 -> String.format("%.1f KB", size / 1024.0)
             else -> String.format("%.1f MB", size / (1024.0 * 1024.0))
         }
-    }
-
-    /**
-     * 下载模型到 filesDir
-     */
-    suspend fun downloadModel(
-        context: Context,
-        onProgress: ModelDownloadManager.ProgressCallback? = null
-    ): Result<Unit> {
-        val modelDir = getFilesDirModelDir(context)
-        if (!modelDir.exists()) {
-            if (!modelDir.mkdirs()) {
-                return Result.failure(IllegalStateException("Failed to create model directory: $modelDir"))
-            }
-        }
-
-        val modelFile = getFilesDirModelFile(context)
-        // 已存在则跳过
-        if (modelFile.exists() && modelFile.length() > 0) {
-            LogCollector.d(TAG, "模型已存在，跳过下载: ${modelFile.absolutePath}")
-            return Result.success(Unit)
-        }
-
-        LogCollector.d(TAG, "开始下载 RT-DETR-V2 模型: $DOWNLOAD_URL")
-        return ModelDownloadManager.downloadModel(
-            context = context,
-            url = DOWNLOAD_URL,
-            checksum = "",  // HuggingFace 不提供 hash
-            destFile = modelFile,
-            onProgress = onProgress
-        )
     }
 }
