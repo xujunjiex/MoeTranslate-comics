@@ -1,4 +1,4 @@
-package com.moe.starflow.me
+package com.moe.starflow.me.model
 
 import android.os.Bundle
 import android.os.Handler
