@@ -1,4 +1,4 @@
-package com.moe.starflow.me
+package com.moe.starflow.me.settings
 
 import android.content.Context
 import android.util.AttributeSet

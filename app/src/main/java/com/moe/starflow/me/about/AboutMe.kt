@@ -53,7 +53,7 @@ import com.moe.starflow.utils.ServiceUtils
 import com.moe.starflow.utils.UiUtils
 import com.moe.starflow.utils.UpdateChecker
 import com.moe.starflow.utils.UpdateResult
-import com.moe.starflow.me.SettingPageActivity
+import com.moe.starflow.me.settings.SettingPageActivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 

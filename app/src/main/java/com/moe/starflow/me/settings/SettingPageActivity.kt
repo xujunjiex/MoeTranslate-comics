@@ -15,7 +15,7 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.me
+package com.moe.starflow.me.settings
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
@@ -27,6 +27,7 @@ import com.moe.starflow.databinding.ActivitySettingPageBinding
 import com.moe.starflow.me.about.Developer
 import com.moe.starflow.me.about.FAQPage
 import com.moe.starflow.me.model.ModelManagementFragment
+import com.moe.starflow.me.APIConfig
 
 class SettingPageActivity : BaseActivity() {
 

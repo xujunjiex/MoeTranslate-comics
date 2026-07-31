@@ -23,7 +23,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#EFF7FB"
-    tools:context=".me.SettingPageActivity">
+    tools:context=".me.settings.SettingPageActivity">
 
 
     <androidx.fragment.app.FragmentContainerView

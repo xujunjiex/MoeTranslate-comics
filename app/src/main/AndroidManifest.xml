@@ -38,7 +38,7 @@
             android:exported="false"
             android:theme="@style/Base.Theme.MT" />
         <activity
-            android:name=".me.SettingPageActivity"
+            android:name=".me.settings.SettingPageActivity"
             android:exported="false"
             android:theme="@style/settheme" />
         <activity

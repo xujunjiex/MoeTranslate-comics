@@ -15,7 +15,7 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.me
+package com.moe.starflow.me.settings
 
 import android.app.ActivityManager
 import android.app.AlertDialog

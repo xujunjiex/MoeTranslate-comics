@@ -24,13 +24,13 @@
         android:title="@string/floating_ball"
         app:iconSpaceReserved="false">
 
-        <com.moe.starflow.me.PreferenceWithPreview
+        <com.moe.starflow.me.settings.PreferenceWithPreview
             android:key="Icon_Game"
             app:iconSpaceReserved="false"
             app:prefKey="Icon_Game"
             android:title="@string/floating_ball_game_icon_title" />
 
-        <com.moe.starflow.me.PreferenceWithPreview
+        <com.moe.starflow.me.settings.PreferenceWithPreview
             android:key="Icon_Comic"
             app:iconSpaceReserved="false"
             app:prefKey="Icon_Comic"
