@@ -1,18 +1,14 @@
 package com.moe.starflow.me.model
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentHymt2DetailBinding
 import com.moe.starflow.download.DownloadState
@@ -67,6 +63,7 @@ class HyMt2DetailFragment : Fragment() {
             android.widget.ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, contextOptions)
         )
 
+        setupParamHelp(b)
         loadParams(b)
 
         b.saveButton.setOnClickListener {
@@ -81,6 +78,44 @@ class HyMt2DetailFragment : Fragment() {
                 render(b, state)
             }
         }
+    }
+
+    /** 每个参数输入框右侧的信息图标 → 弹出该参数的官方说明。 */
+    private fun setupParamHelp(b: FragmentHymt2DetailBinding) {
+        b.promptInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_prompt_label, R.string.hymt2_help_prompt)
+        }
+        b.threadsInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_threads_label, R.string.hymt2_help_threads)
+        }
+        b.contextInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_context_label, R.string.hymt2_help_context)
+        }
+        b.tempInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_temp_label, R.string.hymt2_help_temperature)
+        }
+        b.topPInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_top_p_label, R.string.hymt2_help_top_p)
+        }
+        b.topKInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_top_k_label, R.string.hymt2_help_top_k)
+        }
+        b.repPenaltyInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_rep_penalty_label, R.string.hymt2_help_rep_penalty)
+        }
+        b.maxTokensInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_max_tokens_label, R.string.hymt2_help_max_tokens)
+        }
+    }
+
+    private fun showParamHelp(titleRes: Int, descRes: Int) {
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(titleRes)
+            .setMessage(descRes)
+            .setPositiveButton(R.string.user_known, null)
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun loadParams(b: FragmentHymt2DetailBinding) {
@@ -107,7 +142,7 @@ class HyMt2DetailFragment : Fragment() {
         prefs.setInt(HyMt2Params.KEY_MAX_TOKENS, b.maxTokensEdit.text?.toString()?.toIntOrNull() ?: HyMt2Params.DEFAULT_MAX_TOKENS)
     }
 
-    /** 与 NllbModelFragment.render 一致的四态渲染。 */
+    /** 单文件模型：只显示单个进度条（Hy-MT2 仅一个 gguf 文件，无需整体进度）。 */
     private fun render(b: FragmentHymt2DetailBinding, state: DownloadState) {
         b.downloadButton.visibility = View.GONE
         b.pauseButton.visibility = View.GONE
@@ -120,30 +155,21 @@ class HyMt2DetailFragment : Fragment() {
                 b.statusText.text = getString(R.string.model_status_idle)
                 b.progressBar.progress = 0
                 b.progressText.text = "0%"
-                b.progressBarOverall.progress = 0
-                b.overallText.text = "0%"
                 b.downloadButton.visibility = View.VISIBLE
             }
             is DownloadState.Running -> {
                 val currentPct = state.currentFileProgress
-                val overallPct = if (state.totalBytes > 0)
-                    (state.bytesDownloaded * 100 / state.totalBytes).toInt() else 0
                 b.progressBar.progress = currentPct
                 b.progressText.text = "$currentPct% · ${formatBytes(state.currentFileBytesDownloaded)} / ${formatBytes(state.currentFileTotalBytes)}"
-                b.progressBarOverall.progress = overallPct
-                b.overallText.text = getString(R.string.model_overall_progress, overallPct, formatBytes(state.bytesDownloaded), formatBytes(state.totalBytes))
                 b.statusText.text = getString(R.string.model_status_running_single, currentPct)
                 b.pauseButton.visibility = View.VISIBLE
                 b.cancelButton.visibility = View.VISIBLE
             }
             is DownloadState.Paused -> {
-                val overallPct = if (state.totalBytes > 0)
-                    (state.bytesDownloaded * 100 / state.totalBytes).toInt() else 0
-                b.progressBar.progress = if (state.currentFileTotalBytes > 0)
+                val pct = if (state.currentFileTotalBytes > 0)
                     (state.currentFileBytesDownloaded * 100 / state.currentFileTotalBytes).toInt() else 0
-                b.progressText.text = "${b.progressBar.progress}%"
-                b.progressBarOverall.progress = overallPct
-                b.overallText.text = getString(R.string.model_overall_progress, overallPct, formatBytes(state.bytesDownloaded), formatBytes(state.totalBytes))
+                b.progressBar.progress = pct
+                b.progressText.text = "$pct%"
                 b.statusText.text = getString(R.string.model_status_paused, formatBytes(state.bytesDownloaded), formatBytes(state.totalBytes))
                 b.resumeButton.visibility = View.VISIBLE
             }
@@ -155,8 +181,6 @@ class HyMt2DetailFragment : Fragment() {
                 b.statusText.text = getString(R.string.model_status_done)
                 b.progressBar.progress = 100
                 b.progressText.text = "100%"
-                b.progressBarOverall.progress = 100
-                b.overallText.text = "100%"
                 b.deleteButton.visibility = View.VISIBLE
             }
         }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -10,6 +11,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <!-- ========== 模型下载 ========== -->
         <TextView
             android:id="@+id/downloadTitle"
             android:layout_width="match_parent"
@@ -39,22 +41,10 @@
             android:layout_height="wrap_content"
             android:textSize="12sp" />
 
-        <ProgressBar
-            android:id="@+id/progressBarOverall"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:max="100" />
-
-        <TextView
-            android:id="@+id/overallText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal">
 
             <Button
@@ -102,6 +92,7 @@
             android:textColor="#999999"
             android:textSize="12sp" />
 
+        <!-- ========== 翻译参数 ========== -->
         <TextView
             android:id="@+id/paramsTitle"
             android:layout_width="match_parent"
@@ -111,114 +102,185 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hymt2_prompt_label" />
-
-        <EditText
-            android:id="@+id/promptEdit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="top"
-            android:inputType="textMultiLine"
-            android:minLines="4"
-            android:textSize="13sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hymt2_threads_label" />
-
-        <EditText
-            android:id="@+id/threadsEdit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="number"
-            android:textSize="13sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hymt2_context_label" />
-
+        <!-- 提示词模板 -->
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/promptInput"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+            android:hint="@string/hymt2_prompt_label"
+            app:endIconMode="custom"
+            app:endIconDrawable="@drawable/ic_param_info">
 
-            <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                android:id="@+id/contextSelect"
+            <EditText
+                android:id="@+id/promptEdit"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="none" />
+                android:gravity="top"
+                android:inputType="textMultiLine"
+                android:minLines="4" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- 推理线程数 | 上下文长度（双列） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/threadsInput"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:hint="@string/hymt2_threads_label"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_param_info">
+
+                <EditText
+                    android:id="@+id/threadsEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/contextInput"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/hymt2_context_label"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_param_info">
+
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/contextSelect"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <!-- 采样参数 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/hymt2_temp_label" />
+            android:paddingVertical="14dp"
+            android:text="@string/hymt2_sample_subtitle"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
-        <EditText
-            android:id="@+id/tempEdit"
+        <!-- temperature | top_p（双列） -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="numberDecimal"
-            android:textSize="13sp" />
+            android:orientation="horizontal">
 
-        <TextView
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tempInput"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:hint="@string/hymt2_temp_label"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_param_info">
+
+                <EditText
+                    android:id="@+id/tempEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/topPInput"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/hymt2_top_p_label"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_param_info">
+
+                <EditText
+                    android:id="@+id/topPEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <!-- top_k | repetition_penalty（双列） -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/hymt2_top_p_label" />
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/topPEdit"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/topKInput"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:hint="@string/hymt2_top_k_label"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_param_info">
+
+                <EditText
+                    android:id="@+id/topKEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/repPenaltyInput"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/hymt2_rep_penalty_label"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_param_info">
+
+                <EditText
+                    android:id="@+id/repPenaltyEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <!-- max_tokens（整行） -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/maxTokensInput"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="numberDecimal"
-            android:textSize="13sp" />
+            android:layout_marginTop="12dp"
+            android:hint="@string/hymt2_max_tokens_label"
+            app:endIconMode="custom"
+            app:endIconDrawable="@drawable/ic_param_info">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hymt2_top_k_label" />
-
-        <EditText
-            android:id="@+id/topKEdit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="number"
-            android:textSize="13sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hymt2_rep_penalty_label" />
-
-        <EditText
-            android:id="@+id/repPenaltyEdit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="numberDecimal"
-            android:textSize="13sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hymt2_max_tokens_label" />
-
-        <EditText
-            android:id="@+id/maxTokensEdit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="number"
-            android:textSize="13sp" />
+            <EditText
+                android:id="@+id/maxTokensEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number" />
+        </com.google.android.material.textfield.TextInputLayout>
 
         <Button
             android:id="@+id/saveButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="16dp"
             android:text="@string/hymt2_save_params" />
     </LinearLayout>
 </ScrollView>
