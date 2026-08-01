@@ -23,6 +23,10 @@
     <string name="nllb_not_download_content">It looks like you have selected NLLB as the translation model, but it seems that the NLLB model file has not been downloaded yet, so translation is not possible. Click Go to Download to enter the download page; of course, you can also choose other translation APIs to use the translation function.</string>
     <string name="go_to_download">Go to Download</string>
     <string name="nllb_not_download_title">NLLB model file not downloaded</string>
+    <string name="hymt2_not_download_translate">Hy-MT2 model is not downloaded. Translation is unavailable. Please download the model first.</string>
+    <string name="hymt2_model_loading">Hy-MT2 模型加载中…</string>
+    <string name="hymt2_loaded">Hy-MT2 模型已加载</string>
+    <string name="hymt2_init_failed">Hy-MT2 模型加载失败</string>
     <string name="user_cancel">Cancel</string>
     <string name="api_not_config_content">It looks like you have selected %s as the translation API, but it seems that you have not configured it yet, so translation is not possible. Click Config to enter the API settings page; of course, you can also select other translation APIs to use the translation function.</string>
     <string name="api_not_config_title">Translation API not configured</string>

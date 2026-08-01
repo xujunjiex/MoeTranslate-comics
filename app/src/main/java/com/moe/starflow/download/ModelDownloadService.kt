@@ -218,6 +218,7 @@ class ModelDownloadService : LifecycleService() {
 
     private fun ModelKey.displayName(): String = when (this) {
         ModelKey.NLLB_GROUP -> "NLLB"
+        ModelKey.HY_MT2_GROUP -> "Hy-MT2"
         ModelKey.MANGA_OCR_GROUP -> "manga-ocr"
         ModelKey.RT_DETR_V2 -> "RT-DETR-V2"
         ModelKey.PP_OCR_V5_DET -> "PP-OCRv5 DET"
@@ -426,6 +427,7 @@ class ModelDownloadService : LifecycleService() {
 
     private fun baseDirFor(modelKey: ModelKey): File = when (modelKey) {
         ModelKey.NLLB_GROUP -> File(applicationContext.getExternalFilesDir(null), "models")
+        ModelKey.HY_MT2_GROUP -> File(applicationContext.getExternalFilesDir(null), "models")
         ModelKey.MANGA_OCR_GROUP -> File(applicationContext.getExternalFilesDir(null), "manga_ocr_download")
         ModelKey.RT_DETR_V2 -> File(applicationContext.getExternalFilesDir(null), "rt_detr")
         ModelKey.PP_OCR_V6_MEDIUM_DET, ModelKey.PP_OCR_V6_MEDIUM_REC ->
