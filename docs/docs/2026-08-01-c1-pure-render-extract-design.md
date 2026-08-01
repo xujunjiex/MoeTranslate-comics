@@ -26,8 +26,8 @@
 | 3 | `renderPPOcrV5DebugWithMerge` | 5628-5768 | 141 | `prefs.getFloat("ppocr_text_score_thresh", 0.5f)`（1 处，line 5759） | A 渲染 |
 | 4 | `renderPPOcrV6DebugWithMerge` | 5771-5911 | 141 | `prefs.getFloat("ppocrv6_text_score", 0.5f)`（1 处，line 5902） | A 渲染 |
 | 5 | `applyCropDimmingIfNeeded` | 4253-4287 | 35 | 字段 `cropRect` + 方法 `getScreenSize()` | B 辅助 |
-| 6 | `createInfoPanelView` | 5237-5255 | 19 | 方法 `getScreenSize()`（`scrollable` 且未传 `maxHeight` 时） | B 辅助 |
-| 7 | `createToggleButton` | 5261-5278 | 18 | 默认分支读字段 `debugInfoPanelCollapsed` + 调 `expand/collapseDebugInfoPanel` | B 辅助 |
+| 6 | `createInfoPanelView` | 5237-5255 | 19 | 方法 `getScreenSize()`（`scrollable` 且未传 `maxHeight` 时）+ **`this`（作 Context 构造 `MaxHeightScrollView`）** | B 辅助 |
+| 7 | `createToggleButton` | 5261-5278 | 18 | 默认分支读字段 `debugInfoPanelCollapsed` + 调 `expand/collapseDebugInfoPanel` + **`this`（作 Context 构造 `TextView`）** | B 辅助 |
 | 8 | `MaxHeightScrollView`（内部类） | 6310-6316 | 7 | **无**（7 行 ScrollView 子类） | B 辅助 |
 | 9 | `createPPOcrParamSlidersView` | 4288-4664 | 376 | `prefs`（26 处读写）+ `resources`（1 处）+ `getString`（1 处） | C 滑块 |
 | 10 | `createPPOcrV6ParamSlidersView` | 4665-5236 | 572 | `prefs`（52 处读写）+ `resources`（2 处）+ `getString`（1 处） | C 滑块 |
@@ -79,8 +79,8 @@ object MangaDebugOverlays {
 
     // B 组：辅助（依赖全部参数化）
     fun applyCropDimming(debugBitmap: Bitmap, cropRect: RectF?, screenSize: Size): Bitmap
-    fun createInfoPanelView(lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): View
-    fun createToggleButton(onToggle: () -> Unit): TextView   // ← onToggle 必传
+    fun createInfoPanelView(context: Context, lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): View
+    fun createToggleButton(context: Context, onToggle: () -> Unit): TextView   // onToggle 必传
     class MaxHeightScrollView(context: Context, maxHeightPx: Int) : ScrollView  // 随迁
 }
 ```
@@ -94,7 +94,16 @@ object MangaDebugSliders {
 }
 ```
 
-内部 78 处 prefs 读写、seekbar 换算逻辑、`resources`/`getString` 用法一字不改，仅把访问路径从服务字段改为传入参数（`prefs` / `context.resources`）。
+内部 78 处 prefs 读写、seekbar 换算逻辑一字不改，仅访问路径从服务字段改为传入参数。**必须改的 5 处（除 prefs 外）：**
+
+| 原代码 | 位置 | 改为 |
+|--------|------|------|
+| `TextRegionMerger.refreshParams(this)` | V5 line 4509 | `TextRegionMerger.refreshParams(context)` |
+| `TextRegionMerger.refreshParams(this)` | V6 line 5089 | `TextRegionMerger.refreshParams(context)` |
+| `resources.displayMetrics.density` | V5 line 4289 / V6 line 4666 | `context.resources.displayMetrics.density` |
+| `resources.displayMetrics.heightPixels` | V6 line 5227 | `context.resources.displayMetrics.heightPixels` |
+
+（`DEF_*` 常量和 `SliderRef` 均为函数内部局部声明，随函数体搬运，无需单独处理；`PPOcrDefault`/`MergeParams` 公开可访问。）
 
 ## 4. 调用方改动（MangaFloatingService 内，共 8 处）
 
@@ -104,10 +113,10 @@ object MangaDebugSliders {
 | `showMLKitDebugView` | 5388 | → `MangaDebugOverlays.renderMLKitDebugOverlay(bitmap, result)` |
 | `showPPOcrV5DebugView` | 5615 | → `MangaDebugOverlays.renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet, prefs.getFloat("ppocr_text_score_thresh", 0.5f))` |
 | `showPPOcrV6DebugView` | 5621 | → `MangaDebugOverlays.renderPPOcrV6DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet, prefs.getFloat("ppocrv6_text_score", 0.5f))` |
-| `showRTDetrV2DebugResultOverlay` | 4018/4038/4049 | `applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`createInfoPanelView(infoLines)`；`createToggleButton(onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })` |
-| `showMLKitDebugResultOverlay` | 5480/5504/5515 | `applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`createInfoPanelView(infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)`；`createToggleButton(onToggle = { ... })` |
-| `showPPOcrV5DebugResultOverlay` | 5919/6010/6017/6038 | `applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`createInfoPanelView(infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)`；`createToggleButton(onToggle = { ... })`；`MangaDebugSliders.createPPOcrParamSlidersView(prefs, this)` |
-| `showPPOcrV6DebugResultOverlay` | 6097/6189/6194 | `applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`createInfoPanelView(infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)`；`MangaDebugSliders.createPPOcrV6ParamSlidersView(prefs, this)`。**注意：V6 不调 `createToggleButton`，其内联 📊/⚙ 按钮（6225-6268）原样保留、不动** |
+| `showRTDetrV2DebugResultOverlay` | 4018/4038/4049 | `MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`MangaDebugOverlays.createInfoPanelView(this, infoLines)`；`MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })` |
+| `showMLKitDebugResultOverlay` | 5480/5504/5515 | `MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)`；`MangaDebugOverlays.createToggleButton(this, onToggle = { ... })` |
+| `showPPOcrV5DebugResultOverlay` | 5919/6010/6017/6038 | `MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)`；`MangaDebugOverlays.createToggleButton(this, onToggle = { ... })`；`MangaDebugSliders.createPPOcrParamSlidersView(prefs, this)` |
+| `showPPOcrV6DebugResultOverlay` | 6097/6189/6194 | `MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())`；`MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)`；`MangaDebugSliders.createPPOcrV6ParamSlidersView(prefs, this)`。**注意：V6 不调 `createToggleButton`，其内联 📊/⚙ 按钮（6225-6268）原样保留、不动** |
 
 **必须保留的现状不对称（提取不修复）：**
 - `createToggleButton` 只有 3 个调用方（RTDetr / MLKit / V5），**V6 没有**
@@ -156,7 +165,7 @@ class MangaDebugOverlaysTest {
 
 | 风险 | 缓解 |
 |------|------|
-| 滑块 78 处 prefs 读写搬迁出错 | 纯机械替换：键名/默认值/换算逻辑一字不改，只改 `prefs` 引用路径为参数；编译 + 单测 + 设备验证三层把关 |
+| 滑块 78 处 prefs 读写 + 5 处 `this`/`resources` 搬迁出错 | 纯机械替换：键名/默认值/换算逻辑一字不改，仅改 prefs 引用路径、`refreshParams(this)`→`refreshParams(context)`、`resources`→`context.resources`（§3.2 已逐条列出）；编译 + 单测 + 设备验证三层把关 |
 | V6 overlay 的特殊结构（内联按钮）被误动 | 红线 3 明确"V6 内联按钮原样保留"；调用方改动表逐行列出，V6 只改 3 处 |
 | `onToggle` 语义变化 | 3 个调用方统一传 `{ if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() }`，与原默认分支逻辑一致 |
 | 类型可见性 | 2.2 已核实全部 public，跨子包无需改可见性 |
