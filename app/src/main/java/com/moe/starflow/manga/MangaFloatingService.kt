@@ -3950,7 +3950,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 应用框选外区域遮罩
-        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
 
         // 创建容器 FrameLayout
         val container = android.widget.FrameLayout(this)
@@ -3970,7 +3970,7 @@ class MangaFloatingService : LifecycleService() {
             "🔴 红色 = bubble（${debugResult.emptyBubbles.size}）压缩15%",
             "🟡 黄色 = 最终提交OCR（${debugResult.finalRegions.size}）"
         )
-        val infoPanel = createInfoPanelView(infoLines)
+        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines)
         val infoPanelParams = android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
@@ -3981,7 +3981,7 @@ class MangaFloatingService : LifecycleService() {
         debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
 
         // 添加右下角展开/折叠按钮
-        val toggleButton = createToggleButton()
+        val toggleButton = MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })
         val toggleParams = android.widget.FrameLayout.LayoutParams(
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
@@ -4185,41 +4185,6 @@ class MangaFloatingService : LifecycleService() {
      * 框选模式：创建全屏 bitmap，框选区域显示 debug 图片，框选外区域添加半透明黑色遮罩。
      * 全屏模式：直接返回原 debug bitmap。
      */
-    private fun applyCropDimmingIfNeeded(debugBitmap: Bitmap): Bitmap {
-        if (cropRect == null) return debugBitmap
-
-        val screenSize = getScreenSize()
-        val screenW = screenSize.width
-        val screenH = screenSize.height
-
-        // 创建全屏 bitmap
-        val fullBitmap = Bitmap.createBitmap(screenW, screenH, Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(fullBitmap)
-
-        // 绘制半透明黑色背景（全屏）
-        val dimPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(150, 0, 0, 0)
-        }
-        canvas.drawRect(0f, 0f, screenW.toFloat(), screenH.toFloat(), dimPaint)
-
-        // 将 debug bitmap 绘制到框选区域
-        val crop = cropRect!!
-        val srcRect = android.graphics.Rect(0, 0, debugBitmap.width, debugBitmap.height)
-        val dstRect = android.graphics.Rect(
-            crop.left.toInt(),
-            crop.top.toInt(),
-            crop.right.toInt(),
-            crop.bottom.toInt()
-        )
-        canvas.drawBitmap(debugBitmap, srcRect, dstRect, null)
-
-        return fullBitmap
-    }
-
-    /**
-     * 创建 PP-OCRv5 参数调节滑块面板（3 检测滑块 + 4 合并滑块 + 大框过滤开关 + 恢复默认按钮）
-     */
-    @SuppressLint("SetTextI18n")
     private fun createPPOcrParamSlidersView(): android.view.View {
         val dp = resources.displayMetrics.density
 
@@ -5169,49 +5134,6 @@ class MangaFloatingService : LifecycleService() {
      * 创建 info panel 视图（用于嵌入到 debug 图片窗口中）
      */
     @SuppressLint("SetTextI18n")
-    private fun createInfoPanelView(lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): android.view.View {
-        val tv = android.widget.TextView(this).apply {
-            text = lines.joinToString("\n")
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = if (scrollable) 11f else 13f
-            setPadding(24, 16, 24, 16)
-            setBackgroundColor(android.graphics.Color.argb(200, 0, 0, 0))
-        }
-
-        return if (scrollable) {
-            val limit = if (maxHeight > 0) maxHeight else (getScreenSize().height / 2)
-            MaxHeightScrollView(this, limit).apply {
-                addView(tv)
-                isVerticalScrollBarEnabled = true
-            }
-        } else {
-            tv
-        }
-    }
-
-    /**
-     * 创建展开/折叠按钮（用于嵌入到 debug 图片窗口中）
-     */
-    @SuppressLint("SetTextI18n")
-    private fun createToggleButton(onToggle: (() -> Unit)? = null): android.widget.TextView {
-        return android.widget.TextView(this).apply {
-            text = "▼"
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = 18f
-            gravity = android.view.Gravity.CENTER
-            setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0))
-            setOnClickListener {
-                onToggle?.invoke() ?: run {
-                    if (debugInfoPanelCollapsed) {
-                        expandDebugInfoPanel()
-                    } else {
-                        collapseDebugInfoPanel()
-                    }
-                }
-            }
-        }
-    }
-
     // ---------- Helpers ----------
 
     private fun isViewAdded(view: View): Boolean {
@@ -5330,7 +5252,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 应用框选外区域遮罩
-        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
 
         // 创建容器 FrameLayout
         val container = android.widget.FrameLayout(this)
@@ -5354,7 +5276,7 @@ class MangaFloatingService : LifecycleService() {
                 add("B${i}: \"$text\" ${block.language ?: ""}")
             }
         }
-        val infoPanel = createInfoPanelView(infoLines, scrollable = true)
+        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
         val infoPanelParams = android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
@@ -5365,7 +5287,7 @@ class MangaFloatingService : LifecycleService() {
         debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
 
         // 添加右下角展开/折叠按钮
-        val toggleButton = createToggleButton()
+        val toggleButton = MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })
         val toggleParams = android.widget.FrameLayout.LayoutParams(
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
@@ -5484,7 +5406,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 应用框选外区域遮罩
-        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
 
         // 创建容器 FrameLayout
         val container = android.widget.FrameLayout(this)
@@ -5575,7 +5497,7 @@ class MangaFloatingService : LifecycleService() {
                 }
             }
         }
-        val infoPanel = createInfoPanelView(infoLines, scrollable = true)
+        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
 
         // 创建可折叠内容容器：参数滑块 + 调试信息
         val foldableContent = android.widget.LinearLayout(this).apply {
@@ -5603,7 +5525,7 @@ class MangaFloatingService : LifecycleService() {
         debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
 
         // 添加右下角展开/折叠按钮
-        val toggleButton = createToggleButton()
+        val toggleButton = MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })
         val toggleParams = android.widget.FrameLayout.LayoutParams(
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
@@ -5662,7 +5584,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 应用框选外区域遮罩
-        val displayBitmap = applyCropDimmingIfNeeded(debugBitmap)
+        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
 
         // 创建容器 FrameLayout
         val container = android.widget.FrameLayout(this)
@@ -5754,7 +5676,7 @@ class MangaFloatingService : LifecycleService() {
                 }
             }
         }
-        val infoPanel = createInfoPanelView(infoLines, scrollable = true)
+        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
 
         // ============================================================
         // 参数面板（可折叠，初始隐藏）
@@ -5875,18 +5797,6 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /** 限制最大高度的 ScrollView，用于调试面板半屏约束 */
-    private class MaxHeightScrollView(context: android.content.Context, private val maxHeightPx: Int) :
-        android.widget.ScrollView(context) {
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val limitSpec = android.view.View.MeasureSpec.makeMeasureSpec(maxHeightPx, android.view.View.MeasureSpec.AT_MOST)
-            super.onMeasure(widthMeasureSpec, limitSpec)
-        }
-    }
-
-    /**
-     * 对 bitmap 运行检测+OCR，返回带位置信息的文字块列表。
-     * 根据当前 config.detEngine 和 config.ocrEngine 选择对应引擎。
-     */
     private suspend fun runOcrOnBitmap(bitmap: android.graphics.Bitmap): List<TextBlockInfo> {
         return withContext(Dispatchers.IO) {
             when (config.detEngine) {

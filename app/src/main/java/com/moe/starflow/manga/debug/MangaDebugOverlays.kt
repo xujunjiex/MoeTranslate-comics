@@ -1,6 +1,12 @@
 package com.moe.starflow.manga.debug
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
+import android.util.Size
+import android.view.View
+import android.widget.ScrollView
 import com.moe.starflow.manga.MLKitDebugResult
 import com.moe.starflow.manga.OcrResult
 import com.moe.starflow.manga.PPOcrV5Engine
@@ -447,5 +453,84 @@ object MangaDebugOverlays {
         }
 
         return output
+    }
+
+    /**
+     * 为 debug 图片添加框选外区域遮罩。
+     * cropRect 为 null（全屏模式）时直接返回原 bitmap。
+     */
+    fun applyCropDimming(debugBitmap: Bitmap, cropRect: RectF?, screenSize: Size): Bitmap {
+        if (cropRect == null) return debugBitmap
+
+        val screenW = screenSize.width
+        val screenH = screenSize.height
+
+        // 创建全屏 bitmap
+        val fullBitmap = Bitmap.createBitmap(screenW, screenH, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(fullBitmap)
+
+        // 绘制半透明黑色背景（全屏）
+        val dimPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(150, 0, 0, 0)
+        }
+        canvas.drawRect(0f, 0f, screenW.toFloat(), screenH.toFloat(), dimPaint)
+
+        // 将 debug bitmap 绘制到框选区域
+        val crop = cropRect!!
+        val srcRect = android.graphics.Rect(0, 0, debugBitmap.width, debugBitmap.height)
+        val dstRect = android.graphics.Rect(
+            crop.left.toInt(),
+            crop.top.toInt(),
+            crop.right.toInt(),
+            crop.bottom.toInt()
+        )
+        canvas.drawBitmap(debugBitmap, srcRect, dstRect, null)
+
+        return fullBitmap
+    }
+
+    /** 创建调试信息面板 view */
+    fun createInfoPanelView(context: Context, lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): View {
+        val tv = android.widget.TextView(context).apply {
+            text = lines.joinToString("\n")
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = if (scrollable) 11f else 13f
+            setPadding(24, 16, 24, 16)
+            setBackgroundColor(android.graphics.Color.argb(200, 0, 0, 0))
+        }
+
+        return if (scrollable) {
+            // 调用方负责传 maxHeight；此兜底仅在误用（scrollable 但未传）时触发
+            val limit = if (maxHeight > 0) maxHeight else (context.resources.displayMetrics.heightPixels / 2)
+            MaxHeightScrollView(context, limit).apply {
+                addView(tv)
+                isVerticalScrollBarEnabled = true
+            }
+        } else {
+            tv
+        }
+    }
+
+    /** 创建展开/折叠按钮（onToggle 必传，行为由调用方决定） */
+    @SuppressLint("SetTextI18n")
+    fun createToggleButton(context: Context, onToggle: () -> Unit): android.widget.TextView {
+        return android.widget.TextView(context).apply {
+            text = "▼"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0))
+            setOnClickListener {
+                onToggle()
+            }
+        }
+    }
+
+    /** 限制最大高度的 ScrollView */
+    class MaxHeightScrollView(context: Context, private val maxHeightPx: Int) : ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val limitSpec = android.view.View.MeasureSpec.makeMeasureSpec(maxHeightPx, android.view.View.MeasureSpec.AT_MOST)
+            super.onMeasure(widthMeasureSpec, limitSpec)
+        }
     }
 }
