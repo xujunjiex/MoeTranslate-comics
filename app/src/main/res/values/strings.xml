@@ -83,6 +83,11 @@
     <string name="mlkit_name">ML Kit</string>
     <string name="nllb_description">NLLB is a built-in machine translation model by the MoeTranslate author. It supports multiple languages with good translation quality. The model needs to be downloaded before use: about 1GB on first use, and the device needs at least 6GB of RAM. After the download is complete, it works offline. Click "Manage NLLB Model Files" below to download or delete the model files.</string>
     <string name="manage_nllb_models">Manage NLLB Model Files</string>
+    <string name="hymt2_name">Hy-MT2 Local Translation Model</string>
+    <string name="hymt2_description">Tencent Hy-MT2-1.8B on-device translation model (1.25-bit). ~440MB, fully offline. Download the model first, then select to translate. Click "Manage Hy-MT2 Model Files" below to download or delete.</string>
+    <string name="manage_hymt2_models">Manage Hy-MT2 Model Files</string>
+    <string name="hymt2_not_download_title">Hy-MT2 model file not downloaded</string>
+    <string name="hymt2_not_download_content">It looks like you have selected Hy-MT2 as the translation model, but the model file has not been downloaded yet, so translation is not possible. Click Go to Download to enter the download page, or choose another translation API.</string>
     <string name="baiduapi_name">Baidu Translate</string>
     <string name="baiduapi_description">Baidu Translate\'s API, click \"Manage Baidu Translate API\" below to set up the API, and you can also view the API application tutorial (there is a free call quota of 1 million characters per month).</string>
     <string name="tencentapi_description">Tencent Cloud\'s translation API, click \"Manage Tencent Cloud API\" below to set up the API, and you can also view the API application tutorial (there is a free call quota of 5 million characters per month).</string>

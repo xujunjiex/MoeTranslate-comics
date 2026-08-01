@@ -34,6 +34,7 @@ import com.moe.starflow.manga.MangaFloatingService
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.ServiceUtils
+import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.me.ManageActivity
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -48,7 +49,7 @@ class APIConfig : PreferenceFragmentCompat() {
         if(prefs.getInt("Translate_Mode", 0) == 0){
             setPreferencesFromResource(R.xml.preferences_ocr, rootKey)
             allTranslationKeys = listOf(
-                "nllb_translation",
+                "nllb_translation", "hymt2_translation",
                 "ui_bing_translation_text", "ui_niu_translation_text",
                 "ui_volc_translation_text", "ui_azure_translation_text", "ui_deepl_translation_text",
                 "ui_baidu_translation_text", "ui_tencent_translation_text"
@@ -84,6 +85,14 @@ class APIConfig : PreferenceFragmentCompat() {
             findPreference<Preference>("manage_nllb_model")?.setOnPreferenceClickListener {
                 val intent = Intent(requireContext(), ManageActivity::class.java).apply {
                     putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_NLLB)
+                }
+                startActivity(intent)
+                true
+            }
+
+            findPreference<Preference>("manage_hymt2_model")?.setOnPreferenceClickListener {
+                val intent = Intent(requireContext(), ManageActivity::class.java).apply {
+                    putExtra(ManageActivity.EXTRA_FRAGMENT_TYPE, ManageActivity.TYPE_FRAGMENT_MANAGE_HYMT2)
                 }
                 startActivity(intent)
                 true
@@ -199,6 +208,13 @@ class APIConfig : PreferenceFragmentCompat() {
                 prefs.setString("Target_Language", "zh")
                 Log.d("APIConfig", "nllb_translation")
             }
+            "hymt2_translation" -> {
+                prefs.setInt("Text_API", Constants.TextApi.AI.id)
+                prefs.setInt("Text_AI", Constants.TextAI.HYMT2.id)
+                prefs.setString("Source_Language", "ja")
+                prefs.setString("Target_Language", "zh")
+                LogCollector.d("APIConfig", "hymt2_translation")
+            }
             "ui_bing_translation_text"->{
                 prefs.setInt("Text_API", Constants.TextApi.BING.id)
                 prefs.setString("Source_Language", "ja")
@@ -279,9 +295,13 @@ class APIConfig : PreferenceFragmentCompat() {
         when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
-                    val key = "nllb_translation"
-                    findPreference<SwitchPreferenceCompat>(key)?.isChecked = true
-                    setKey(key)
+                    val textAi = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
+                    if (textAi == Constants.TextAI.HYMT2.id) {
+                        findPreference<SwitchPreferenceCompat>("hymt2_translation")?.isChecked = true
+                    } else {
+                        findPreference<SwitchPreferenceCompat>("nllb_translation")?.isChecked = true
+                    }
+                    setKey(if (textAi == Constants.TextAI.HYMT2.id) "hymt2_translation" else "nllb_translation")
                 }
                 Constants.TextApi.BING.id -> {
                     val key = "ui_bing_translation_text"

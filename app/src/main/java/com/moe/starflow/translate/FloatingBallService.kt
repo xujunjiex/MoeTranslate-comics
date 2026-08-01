@@ -74,6 +74,7 @@ import translationapi.customtranslation.CustomTranslationText
 import translationapi.deepltranslation.DeepLTranslation
 import translationapi.niutrans.NiuTranslation
 import translationapi.nllbtranslation.NLLBTranslation
+import translationapi.hymt2translation.HyMT2Translation
 import translationapi.openaitranslation.OpenAITranslation
 import translationapi.tencentcloud.TencentTranslationImage
 import translationapi.tencentcloud.TencentTranslationText
@@ -536,6 +537,10 @@ class FloatingBallService : LifecycleService() {
                         Constants.TextAI.NLLB.id, 1 -> {
                             translatorText = NLLBTranslation(this)
                             LogCollector.d(TAG, "翻译 API 初始化: NLLB Translation")
+                        }
+                        Constants.TextAI.HYMT2.id -> {
+                            translatorText = HyMT2Translation(this)
+                            LogCollector.d(TAG, "翻译 API 初始化: Hy-MT2 Translation")
                         }
                         else -> {
                             LogCollector.e(TAG, "Unknown AI Translator: ${prefs.getInt("Text_AI", 0)}")

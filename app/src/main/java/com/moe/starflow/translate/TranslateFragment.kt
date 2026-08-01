@@ -443,6 +443,8 @@ class TranslateFragment : Fragment() {
                     // 用磁盘文件检查 NLLB 是否已完整下载，替代旧的 Download_NLLB 布尔标记
                     val nllbDownloaded = ModelDownloadRepository.getInstance(requireContext())
                         .isFullyDownloaded(ModelKey.NLLB_GROUP)
+                    val hymt2Downloaded = ModelDownloadRepository.getInstance(requireContext())
+                        .isFullyDownloaded(ModelKey.HY_MT2_GROUP)
                     if (textAi == Constants.TextAI.NLLB.id && !nllbDownloaded) {
                         LogCollector.d(TAG, "NLLB fully downloaded: $nllbDownloaded")
                         val dialog = AlertDialog.Builder(requireContext())
@@ -455,6 +457,26 @@ class TranslateFragment : Fragment() {
                                         putExtra(
                                             ManageActivity.EXTRA_FRAGMENT_TYPE,
                                             ManageActivity.TYPE_FRAGMENT_MANAGE_NLLB
+                                        )
+                                    }
+                                startActivity(intent)
+                            }
+                            .setNegativeButton(R.string.user_cancel, null)
+                            .create()
+                        dialog.show()
+                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                        false
+                    } else if (textAi == Constants.TextAI.HYMT2.id && !hymt2Downloaded) {
+                        val dialog = AlertDialog.Builder(requireContext())
+                            .setTitle(R.string.hymt2_not_download_title)
+                            .setMessage(R.string.hymt2_not_download_content)
+                            .setCancelable(false)
+                            .setPositiveButton(R.string.go_to_download) { _, _ ->
+                                val intent =
+                                    Intent(requireContext(), ManageActivity::class.java).apply {
+                                        putExtra(
+                                            ManageActivity.EXTRA_FRAGMENT_TYPE,
+                                            ManageActivity.TYPE_FRAGMENT_MANAGE_HYMT2
                                         )
                                     }
                                 startActivity(intent)
