@@ -88,6 +88,8 @@ class TranslationStatusOverlay private constructor(private val context: Context)
                 top.isClickable = false
                 top.setOnClickListener(null)
                 rescheduleDismiss(top, autoDismiss)
+                // 确保窗口已附着：窗口可能已被系统移除而 isShowing 仍为 true（回归修复）
+                addToWindowIfNeeded()
             } else {
                 addChip(message, isError = false, autoDismiss = autoDismiss)
             }
@@ -117,6 +119,8 @@ class TranslationStatusOverlay private constructor(private val context: Context)
                 chip.isClickable = false
                 rescheduleDismiss(chip, true, 1000L)
             }
+            // 确保窗口已附着（与 showImmediate 同理）
+            addToWindowIfNeeded()
         }
     }
 
@@ -126,7 +130,11 @@ class TranslationStatusOverlay private constructor(private val context: Context)
     fun update(message: String) {
         if (!isEnabled()) return
         runOnMainThread {
-            topChip()?.text = message
+            topChip()?.let {
+                it.text = message
+                // 确保窗口已附着
+                addToWindowIfNeeded()
+            }
         }
     }
 
@@ -286,7 +294,14 @@ class TranslationStatusOverlay private constructor(private val context: Context)
             try {
                 wm.updateViewLayout(layout, getViewParams())
             } catch (e: Exception) {
-                LogCollector.e(TAG, "Failed to update overlay", e)
+                // isShowing 可能已过期（窗口被系统移除），尝试重新添加
+                LogCollector.w(TAG, "updateViewLayout 失败，尝试重新添加窗口: ${e.message}")
+                try {
+                    wm.addView(layout, getViewParams())
+                    LogCollector.d(TAG, "Overlay re-added to window")
+                } catch (e2: Exception) {
+                    LogCollector.e(TAG, "Failed to re-add overlay", e2)
+                }
             }
         } else {
             try {
