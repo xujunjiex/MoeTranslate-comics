@@ -2,6 +2,7 @@ package com.moe.starflow.translate
 
 import android.content.SharedPreferences
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
@@ -30,6 +31,6 @@ class HyMt2ParamsTest {
         assertEquals(20, s.topK)
         assertEquals(1.05f, s.repetitionPenalty, 0.001f)
         assertEquals(4096, s.maxTokens)
-        assert(s.promptTemplate.contains("{target_lang}"))
+        assertTrue(s.promptTemplate.contains("{target_lang}"))
     }
 }

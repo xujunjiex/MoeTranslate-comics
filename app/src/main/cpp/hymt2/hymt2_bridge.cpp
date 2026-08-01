@@ -98,9 +98,9 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
     // 每次按当前采样参数重建采样链
     llama_sampler_chain_params sp = llama_sampler_chain_default_params();
     llama_sampler* smpl = llama_sampler_chain_init(sp);
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, repetitionPenalty, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 

@@ -14,8 +14,8 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
     private val ctx = context.applicationContext
     private val statusOverlay = TranslationStatusOverlay.getInstance(ctx)
     private val initLock = Any()
-    private var handle: Long = 0L
-    private var currentTask: Thread? = null
+    @Volatile private var handle: Long = 0L
+    @Volatile private var currentTask: Thread? = null
 
     override fun getTranslation(
         text: String,
@@ -28,8 +28,14 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
             try {
                 val h = ensureLoaded()
                 if (h == 0L) {
-                    callback(TranslationResult.Error(
-                        Exception(ctx.getString(R.string.hymt2_not_download_translate))))
+                    val downloaded = ModelDownloadRepository.getInstance(ctx)
+                        .isFullyDownloaded(ModelKey.HY_MT2_GROUP)
+                    val msg = if (downloaded) {
+                        ctx.getString(R.string.hymt2_init_failed)
+                    } else {
+                        ctx.getString(R.string.hymt2_not_download_translate)
+                    }
+                    callback(TranslationResult.Error(Exception(msg)))
                     return@Thread
                 }
                 val s = HyMt2Params.read(CustomPreference.getInstance(ctx).getSharedPreferences())
@@ -76,6 +82,17 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
 
     override fun release() {
         cancelTranslation()
+        // 排空在途翻译：等当前线程退出 native 临界区再释放模型，避免 use-after-free
+        currentTask?.let { task ->
+            if (task.isAlive) {
+                try {
+                    task.join(2000)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+            }
+        }
+        currentTask = null
         synchronized(initLock) {
             if (handle != 0L) {
                 HyMt2Native.nativeRelease(handle)
