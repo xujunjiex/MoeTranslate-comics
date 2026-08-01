@@ -89,23 +89,25 @@ object MangaDebugOverlays {
 
 ```kotlin
 object MangaDebugSliders {
-    fun createPPOcrParamSlidersView(prefs: SharedPreferences, context: Context): View
-    fun createPPOcrV6ParamSlidersView(prefs: SharedPreferences, context: Context): View
+    fun createPPOcrParamSlidersView(prefs: CustomPreference, context: Context): View
+    fun createPPOcrV6ParamSlidersView(prefs: CustomPreference, context: Context): View
 }
 ```
 
-内部 78 处 prefs 读写、seekbar 换算逻辑一字不改，仅访问路径从服务字段改为传入参数。**必须改的 5 处（除 prefs 外）：**
+`prefs` 类型为 **`CustomPreference`**（服务 prefs 字段类型，`MangaFloatingService:213`，提供 `getFloat/setFloat/getString/setInt/setBoolean` 等），滑块内部 78 处 `prefs.X` 因参数同名直接解析到参数，**零改动**。
 
-| 原代码 | 位置 | 改为 |
-|--------|------|------|
-| `TextRegionMerger.refreshParams(this)` | V5 line 4509 | `TextRegionMerger.refreshParams(context)` |
-| `TextRegionMerger.refreshParams(this)` | V6 line 5089 | `TextRegionMerger.refreshParams(context)` |
-| `resources.displayMetrics.density` | V5 line 4289 / V6 line 4666 | `context.resources.displayMetrics.density` |
-| `resources.displayMetrics.heightPixels` | V6 line 5227 | `context.resources.displayMetrics.heightPixels` |
+**机械改写规则（滑块函数体内所有 `this`/`resources` 引用，共约 90 处）：**
 
-（`DEF_*` 常量和 `SliderRef` 均为函数内部局部声明，随函数体搬运，无需单独处理；`PPOcrDefault`/`MergeParams` 公开可访问。）
+| # | 替换 | 数量 | 说明 |
+|---|------|------|------|
+| 1 | `this@MangaFloatingService` → `context` | 22 处 | `PPOcrV5Engine.refreshParams` / `PPOcrV6Engine.refreshParams` / `TextRegionMerger.refreshParams` / `TextRegionMerger.resetParams` 的 Context 实参 |
+| 2 | `(this)` → `(context)` | ~70 处 | `LinearLayout(this)` / `TextView(this)` / `SeekBar(this)` / `Switch(this)` / `ScrollView(this)` 等 view 构造器 + 2 处 `refreshParams(this)` |
+| 3 | `resources.displayMetrics.density` → `context.resources.displayMetrics.density` | 2 处 | V5:4289 / V6:4666 |
+| 4 | `resources.displayMetrics.heightPixels` → `context.resources.displayMetrics.heightPixels` | 1 处 | V6:5227 |
 
-## 4. 调用方改动（MangaFloatingService 内，共 8 处）
+> 规则 1/2 **不误伤** `.apply {}` 接收者 `this`（接收者 `this` 不带括号、不用 `this@`，保持原样）。`DEF_*` 常量和 `SliderRef` 为函数内部局部声明，随函数体搬运；新增 import：`com.moe.starflow.manga.MergeParams`、`PPOcrDefault`、`PPOcrV5Engine`、`PPOcrV6Engine`、`TextRegionMerger`、`com.moe.starflow.utils.CustomPreference`。
+
+## 4. 调用方改动（MangaFloatingService 内，8 个调用方函数 / 17 处行级改动）
 
 | 调用方 | 行号 | 改动 |
 |--------|------|------|
@@ -165,7 +167,7 @@ class MangaDebugOverlaysTest {
 
 | 风险 | 缓解 |
 |------|------|
-| 滑块 78 处 prefs 读写 + 5 处 `this`/`resources` 搬迁出错 | 纯机械替换：键名/默认值/换算逻辑一字不改，仅改 prefs 引用路径、`refreshParams(this)`→`refreshParams(context)`、`resources`→`context.resources`（§3.2 已逐条列出）；编译 + 单测 + 设备验证三层把关 |
+| 滑块 90 处 `this`/`resources` 机械改写出错 | 改写规则 §3.2 逐条列出（`this@MangaFloatingService`→`context` 22 处、`(this)`→`(context)` ~70 处、`resources`→`context.resources` 3 处），纯机械替换不改任何逻辑；`prefs.X` 零改动；编译 + 单测 + 设备验证三层把关 |
 | V6 overlay 的特殊结构（内联按钮）被误动 | 红线 3 明确"V6 内联按钮原样保留"；调用方改动表逐行列出，V6 只改 3 处 |
 | `onToggle` 语义变化 | 3 个调用方统一传 `{ if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() }`，与原默认分支逻辑一致 |
 | 类型可见性 | 2.2 已核实全部 public，跨子包无需改可见性 |
