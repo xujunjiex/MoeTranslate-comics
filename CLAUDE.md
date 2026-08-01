@@ -355,6 +355,7 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 **核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextLineMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
 **工具类：** `GeometryUtils.kt`（凸包、点在多边形等几何算法）、`OnnxUtils.kt`（ONNX 张量提取、资源拷贝）
+**调试渲染子包 `manga/debug/`：** `MangaDebugOverlays.kt`（object：4 个 render*DebugOverlay 纯渲染函数 + applyCropDimming/createInfoPanelView/createToggleButton/MaxHeightScrollView 辅助）、`MangaDebugSliders.kt`（object：PP-OCRv5/v6 参数滑块面板构建器，注入 `CustomPreference` + `context`，无服务引用）。这些函数从 `MangaFloatingService` 提取（C1 重构），无状态、依赖全部参数化；`show*DebugResultOverlay`/`show*DebugView` 等编排函数仍在主服务里。
 
 **检测引擎（DetEngine）：**
 - `MLKIT(0)` — ML Kit 检测+识别一体化
