@@ -29,6 +29,10 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
     const char* path = env->GetStringUTFChars(jModelPath, nullptr);
     if (path == nullptr) return 0;
 
+    // 防御性钳位：非法入参不进入引擎
+    if (nCtx < 512) nCtx = 512;
+    if (nThreads < 1) nThreads = 1;
+
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = 0;
     llama_model* model = llama_model_load_from_file(path, mp);
@@ -60,16 +64,30 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
     auto* h = reinterpret_cast<HyMt2Handle*>(jHandle);
     if (h == nullptr || h->ctx == nullptr) return env->NewStringUTF("");
 
+    // 每次翻译前清空 KV 缓存/内存，防止上下文跨调用累积（prompt 污染 + 超 n_ctx）
+    llama_memory_clear(llama_get_memory(h->ctx), false);
+
     const char* prompt = env->GetStringUTFChars(jPrompt, nullptr);
     if (prompt == nullptr) return env->NewStringUTF("");
     const size_t text_len = strlen(prompt);
 
-    // 分词（缓冲按字符数 + 余量，翻译文本远小于上下文，一次够用）
+    // 分词（缓冲按字符数 + 余量；若缓冲不足返回负的"需要数量"，则按需扩容重试）
+    int32_t n_tokens = 0;
     std::vector<llama_token> tokens(text_len + 8);
-    const int32_t n_tokens = llama_tokenize(
-        h->vocab, prompt, -1, tokens.data(), static_cast<int32_t>(tokens.size()), false, false);
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        n_tokens = llama_tokenize(
+            h->vocab, prompt, -1, tokens.data(), static_cast<int32_t>(tokens.size()), false, false);
+        if (n_tokens < 0) {
+            // 返回值的绝对值是"本应写入的 token 数"，扩容后重试一次
+            const int32_t needed = -n_tokens;
+            if (needed <= static_cast<int32_t>(tokens.size())) break;
+            tokens.resize(static_cast<size_t>(needed) + 8);
+            continue;
+        }
+        break;
+    }
     env->ReleaseStringUTFChars(jPrompt, prompt);
-    if (n_tokens < 0) { LOGE("tokenize failed"); return env->NewStringUTF(""); }
+    if (n_tokens < 0) { LOGE("tokenize failed (needed %d, buffer %zu)", -n_tokens, tokens.size()); return env->NewStringUTF(""); }
     tokens.resize(n_tokens);
 
     const int32_t n_ctx = static_cast<int32_t>(llama_n_ctx(h->ctx));
