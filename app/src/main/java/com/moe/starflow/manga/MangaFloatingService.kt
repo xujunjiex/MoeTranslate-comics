@@ -81,6 +81,7 @@ import translationapi.baidutranslation.BaiduTranslationText
 import translationapi.tencentcloud.TencentTranslationText
 import translationapi.customtranslation.CustomTranslationText
 import translationapi.nllbtranslation.NLLBTranslation
+import translationapi.hymt2translation.HyMT2Translation
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.utils.PerceptualHash
@@ -524,6 +525,7 @@ class MangaFloatingService : LifecycleService() {
             when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
                 Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)) {
                     Constants.TextAI.NLLB.id, 1 -> translatorText = NLLBTranslation(this)  // 1 = 升级前 NLLB 旧值
+                    Constants.TextAI.HYMT2.id -> translatorText = HyMT2Translation(this)
                     else -> { showToast("Unknown Translator.") }
                 }
                 Constants.TextApi.BING.id -> translatorText = BingTranslation()

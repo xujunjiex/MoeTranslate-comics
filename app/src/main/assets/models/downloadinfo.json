@@ -180,6 +180,18 @@
           "checksum": "05c551ae7955b3980d5a9d044eb09d70"
         }
       ]
+    },
+    {
+      "model_key": "HY_MT2_GROUP",
+      "browser_url": "https://modelscope.cn/models/Tencent-Hunyuan/Hy-MT2-1.8B-1.25Bit-GGUF",
+      "files": [
+        {
+          "file_name": "Hy-MT2-1.8B-1.25Bit.gguf",
+          "download_url": "https://modelscope.cn/models/Tencent-Hunyuan/Hy-MT2-1.8B-1.25Bit-GGUF/resolve/master/Hy-MT2-1.8B-1.25Bit.gguf",
+          "file_size": 461860800,
+          "checksum": "9b96b598c36e9ffbfcafedd919b2fd54"
+        }
+      ]
     }
   ]
 }

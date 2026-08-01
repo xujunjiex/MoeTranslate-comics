@@ -384,6 +384,7 @@ class MangaViewerActivity : AppCompatActivity() {
         return when (textApi) {
             Constants.TextApi.AI.id -> when (textAI) {
                 Constants.TextAI.NLLB.id -> translationapi.nllbtranslation.NLLBTranslation(this)
+                Constants.TextAI.HYMT2.id -> translationapi.hymt2translation.HyMT2Translation(this)
                 else -> null
             }
             Constants.TextApi.BING.id -> translationapi.bingtranslation.BingTranslation()

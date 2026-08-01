@@ -38,5 +38,8 @@ enum class ModelKey(val stableId: Int) {
     PP_OCR_V6_MEDIUM_REC(1008),
 
     /** NLLB 翻译模型组（NLLB_encoder.onnx + NLLB_decoder.onnx + sentencepiece_bpe.model） */
-    NLLB_GROUP(2010);
+    NLLB_GROUP(2010),
+
+    /** Hy-MT2 本地翻译模型（Hy-MT2-1.8B-1.25Bit.gguf 单文件 ~440MB） */
+    HY_MT2_GROUP(2011);
 }

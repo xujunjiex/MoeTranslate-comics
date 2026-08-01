@@ -39,7 +39,8 @@ object Constants {
     }
 
     enum class TextAI(val id: Int) {
-        NLLB(0)
+        NLLB(0),
+        HYMT2(2)
     }
 
     enum class PicApi(val id: Int) {

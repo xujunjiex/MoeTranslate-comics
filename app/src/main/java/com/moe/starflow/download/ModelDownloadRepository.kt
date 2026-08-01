@@ -392,6 +392,7 @@ class ModelDownloadRepository private constructor(private val context: Context) 
 
     private fun baseDirFor(modelKey: ModelKey): File = when (modelKey) {
         ModelKey.NLLB_GROUP -> File(context.getExternalFilesDir(null), "models")
+        ModelKey.HY_MT2_GROUP -> File(context.getExternalFilesDir(null), "models")
         ModelKey.MANGA_OCR_GROUP -> File(context.getExternalFilesDir(null), "manga_ocr_download")
         ModelKey.RT_DETR_V2 -> File(context.getExternalFilesDir(null), "rt_detr")
         ModelKey.PP_OCR_V6_MEDIUM_DET, ModelKey.PP_OCR_V6_MEDIUM_REC ->
@@ -400,6 +401,9 @@ class ModelDownloadRepository private constructor(private val context: Context) 
         ModelKey.PP_OCR_V5_REC_EN, ModelKey.PP_OCR_V5_REC_KO,
         ModelKey.PP_OCR_V5_REC_RU -> File(context.getExternalFilesDir(null), "ppocrv5")
     }
+
+    /** 返回某模型的目标文件（未下载时为期望路径；仅用于已完整下载的模型）。 */
+    fun targetFilePath(modelKey: ModelKey): File = targetFileFor(modelKey)
 
     companion object {
         private const val TAG = "ModelDownloadRepo"
