@@ -26,7 +26,7 @@
 | 3 | `renderPPOcrV5DebugWithMerge` | 5628-5768 | 141 | `prefs.getFloat("ppocr_text_score_thresh", 0.5f)`（1 处，line 5759） | A 渲染 |
 | 4 | `renderPPOcrV6DebugWithMerge` | 5771-5911 | 141 | `prefs.getFloat("ppocrv6_text_score", 0.5f)`（1 处，line 5902） | A 渲染 |
 | 5 | `applyCropDimmingIfNeeded` | 4253-4287 | 35 | 字段 `cropRect` + 方法 `getScreenSize()` | B 辅助 |
-| 6 | `createInfoPanelView` | 5237-5255 | 19 | 方法 `getScreenSize()`（`scrollable` 且未传 `maxHeight` 时）+ **`this`（作 Context 构造 `MaxHeightScrollView`）** | B 辅助 |
+| 6 | `createInfoPanelView` | 5237-5255 | 19 | **`this`（作 Context 构造 `MaxHeightScrollView`）**；提取后 scrollable 分支 `require(maxHeight > 0)`，**无备用高度逻辑**（审查决策） | B 辅助 |
 | 7 | `createToggleButton` | 5261-5278 | 18 | 默认分支读字段 `debugInfoPanelCollapsed` + 调 `expand/collapseDebugInfoPanel` + **`this`（作 Context 构造 `TextView`）** | B 辅助 |
 | 8 | `MaxHeightScrollView`（内部类） | 6310-6316 | 7 | **无**（7 行 ScrollView 子类） | B 辅助 |
 | 9 | `createPPOcrParamSlidersView` | 4288-4664 | 376 | `prefs`（26 处读写）+ `resources`（1 处）+ `getString`（1 处） | C 滑块 |
@@ -79,7 +79,7 @@ object MangaDebugOverlays {
 
     // B 组：辅助（依赖全部参数化）
     fun applyCropDimming(debugBitmap: Bitmap, cropRect: RectF?, screenSize: Size): Bitmap
-    fun createInfoPanelView(context: Context, lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): View
+    fun createInfoPanelView(context: Context, lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0): View  // scrollable 时 require(maxHeight > 0)，无备用高度
     fun createToggleButton(context: Context, onToggle: () -> Unit): TextView   // onToggle 必传
     class MaxHeightScrollView(context: Context, maxHeightPx: Int) : ScrollView  // 随迁
 }

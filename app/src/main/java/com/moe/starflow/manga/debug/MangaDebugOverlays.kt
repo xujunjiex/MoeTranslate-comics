@@ -500,9 +500,9 @@ object MangaDebugOverlays {
         }
 
         return if (scrollable) {
-            // 调用方负责传 maxHeight；此兜底仅在误用（scrollable 但未传）时触发
-            val limit = if (maxHeight > 0) maxHeight else (context.resources.displayMetrics.heightPixels / 2)
-            MaxHeightScrollView(context, limit).apply {
+            // 调用方必须传 maxHeight（scrollable 面板没有备用高度逻辑）
+            require(maxHeight > 0) { "createInfoPanelView: scrollable 面板必须传 maxHeight" }
+            MaxHeightScrollView(context, maxHeight).apply {
                 addView(tv)
                 isVerticalScrollBarEnabled = true
             }
