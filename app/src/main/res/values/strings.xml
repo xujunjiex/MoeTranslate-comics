@@ -29,6 +29,17 @@
     <string name="hymt2_init_failed">Hy-MT2 模型加载失败</string>
     <string name="hymt2_section_download">模型下载</string>
     <string name="hymt2_section_params">翻译参数</string>
+    <string name="hymt2_section_intro">模型介绍</string>
+    <string name="hymt2_intro"><![CDATA[腾讯 Hy-MT2 1.8B 翻译模型，完全本地离线推理，文本不会上传网络。
+
+★ 支持流式输出：译文边生成边显示，无需等待全部完成。
+
+速度受以下因素限制：
+· 手机 CPU 性能与当前频率：高负载运行一段时间后，系统会自动降低 CPU 频率
+· 待翻译文本量：文本越多，「读取原文」阶段耗时越久
+· 推理线程数：生成（写译文）阶段可通过上方「推理线程数」调整
+
+本机实测：读原文约 17~20 token/秒，写译文约 13~14 token/秒（系统降频后更低）。整页漫画（约 14 个气泡）翻译约 15~25 秒属正常范围。]]></string>
     <string name="hymt2_download_help">手动下载说明（模型约 440MB，需用户手动下载，不自动下载）</string>
     <string name="hymt2_prompt_label">提示词模板</string>
     <string name="hymt2_threads_label">推理线程数</string>
@@ -93,7 +104,7 @@
     <string name="nllb_description">NLLB is a built-in machine translation model by the MoeTranslate author. It supports multiple languages with good translation quality. The model needs to be downloaded before use: about 1GB on first use, and the device needs at least 6GB of RAM. After the download is complete, it works offline. Click "Manage NLLB Model Files" below to download or delete the model files.</string>
     <string name="manage_nllb_models">Manage NLLB Model Files</string>
     <string name="hymt2_name">Hy-MT2 本地翻译模型</string>
-    <string name="hymt2_description">Hy-MT2 是腾讯混元团队开源的新一代多语言翻译模型，支持 33 种语言互译，在多项评测中超越主流商业翻译 API。本机运行 1.25-bit 版本（约 440MB），完全离线翻译。使用前需先下载模型文件，点击下方“管理 Hy-MT2 模型文件”进行下载或删除。</string>
+    <string name="hymt2_description">Hy-MT2 是腾讯混元团队开源的新一代多语言翻译模型，支持 33 种语言互译。本机运行 1.25-bit 版本（约 440MB），完全离线翻译。使用前需先下载模型文件，点击下方“管理 Hy-MT2 模型文件”进行下载或删除。</string>
     <string name="manage_hymt2_models">管理 Hy-MT2 模型文件</string>
     <string name="hymt2_not_download_title">Hy-MT2 模型文件未下载</string>
     <string name="hymt2_not_download_content">您已选择 Hy-MT2 作为翻译模型，但模型文件尚未下载，无法进行翻译。点击“前往下载”进入下载页面，或选择其他翻译 API。</string>

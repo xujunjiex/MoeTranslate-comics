@@ -11,6 +11,25 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <!-- ========== 模型介绍 ========== -->
+        <TextView
+            android:id="@+id/introTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/hymt2_section_intro"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/introText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="3dp"
+            android:text="@string/hymt2_intro"
+            android:textColor="#999999"
+            android:textSize="13sp" />
+
         <!-- ========== 模型下载 ========== -->
         <TextView
             android:id="@+id/downloadTitle"

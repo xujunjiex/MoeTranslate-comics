@@ -156,6 +156,9 @@ class MangaFloatingService : LifecycleService() {
     private var ballInitialTouchY = 0f
 
     private var isProcessing = false
+    private var translationCancelled = false  // 用户强制停止翻译：不保存结果
+    /** 流式渲染协程的 Job 跟踪：processMangaScreenshot 收尾 join 后再 recycle 截图，避免读取已回收 bitmap 崩溃 */
+    private val streamingRenderJobs = java.util.Collections.synchronizedList(mutableListOf<kotlinx.coroutines.Job>())
     private var isResultShowing = false
     private var isMenuShowing = false
 
@@ -1587,6 +1590,7 @@ class MangaFloatingService : LifecycleService() {
         config = loadConfig()
 
         isProcessing = true
+        translationCancelled = false  // 每次翻译开始重置取消标志
 
         // 先关闭所有overlay再截图，避免截到进度条/翻译结果
         dismissResultOverlay()
@@ -1908,14 +1912,19 @@ class MangaFloatingService : LifecycleService() {
                         stopAutoTranslate()
                     }
                 } catch (e: Exception) {
-                    LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
                     isProcessing = false
                     // 先 dismiss 进度条，再显示错误（错误会保持显示直到用户点击复制）
                     dismissProgressOverlay()
-                    statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
-                    ballStateManager?.setState(BallStateManager.State.Error)
-                    if (isAutoTranslating) {
-                        stopAutoTranslate()
+                    if (translationCancelled) {
+                        // 用户主动停止翻译：不按失败处理（已由 stopTranslationNow 显示"已停止翻译"）
+                        LogCollector.d(TAG, "Screenshot collector: 翻译已被用户停止（${e.message}）")
+                    } else {
+                        LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
+                        statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
+                        ballStateManager?.setState(BallStateManager.State.Error)
+                        if (isAutoTranslating) {
+                            stopAutoTranslate()
+                        }
                     }
                 }
             }
@@ -2103,6 +2112,11 @@ class MangaFloatingService : LifecycleService() {
      * @return true 如果执行了分批流程，false 如果不满足条件（应回退到原有流程）
      */
     private suspend fun incrementalTranslateFlow(bitmap: Bitmap): Boolean {
+        // Hy-MT2 本地引擎：不走分批渲染（合并一次翻译 + 流式逐个显示，避免多次 prefill 拖慢）
+        if (translatorText is HyMT2Translation) {
+            LogCollector.d(TAG, "incrementalTranslateFlow: Hy-MT2 禁用分批渲染，走普通一次翻译+流式")
+            return false
+        }
         val isIncrementalEnabled = prefs.getBoolean("Incremental_Render", true)
         if (!isIncrementalEnabled) return false
 
@@ -2174,14 +2188,24 @@ class MangaFloatingService : LifecycleService() {
                     )
                 }
 
-                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
+                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
+                    if (partialBubbles.isNotEmpty()) {
+                        launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
+                    }
+                }
                 if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
 
                 val secondTextBlocks = ocrJob.await()
                 LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
                     val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
-                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true)
+                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
+                        if (partialBubbles.isNotEmpty()) {
+                            lifecycleScope.launch {
+                                renderStreamingOverlay(bitmap, partialBubbles)
+                            }
+                        }
+                    }
                 } else result
             }
 
@@ -2298,7 +2322,11 @@ class MangaFloatingService : LifecycleService() {
                     recognizeBatch(secondBatch)
                 }
 
-                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
+                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
+                    if (partialBubbles.isNotEmpty()) {
+                        launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
+                    }
+                }
                 if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
 
                 val secondTextBlocks = ocrJob.await()
@@ -2306,7 +2334,13 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.d(TAG, "incrementalPPOcrV5: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
                     val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
-                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true)
+                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
+                        if (partialBubbles.isNotEmpty()) {
+                            lifecycleScope.launch {
+                                renderStreamingOverlay(bitmap, partialBubbles)
+                            }
+                        }
+                    }
                 } else {
                     result
                 }
@@ -2411,7 +2445,11 @@ class MangaFloatingService : LifecycleService() {
                     recognizeBatch(secondBatch)
                 }
 
-                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true)
+                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
+                    if (partialBubbles.isNotEmpty()) {
+                        launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
+                    }
+                }
                 if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
 
                 val secondTextBlocks = ocrJob.await()
@@ -2419,7 +2457,13 @@ class MangaFloatingService : LifecycleService() {
                 LogCollector.d(TAG, "incrementalPPOcrV6: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
                     val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
-                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true)
+                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
+                        if (partialBubbles.isNotEmpty()) {
+                            lifecycleScope.launch {
+                                renderStreamingOverlay(bitmap, partialBubbles)
+                            }
+                        }
+                    }
                 } else {
                     result
                 }
@@ -2442,6 +2486,10 @@ class MangaFloatingService : LifecycleService() {
     /**
      */
     private suspend fun finalizeIncremental(bitmap: Bitmap, allTranslated: List<TranslatedBubble>) {
+        if (translationCancelled) {
+            LogCollector.d(TAG, "finalizeIncremental: 翻译已取消，跳过保存")
+            return
+        }
         if (allTranslated.isNotEmpty()) {
             renderAndShowMergedOverlay(bitmap, allTranslated, saveCache = false)
             LogCollector.d(TAG, "finalizeIncremental: 最终渲染完成，共 ${allTranslated.size} 个气泡")
@@ -2820,7 +2868,11 @@ class MangaFloatingService : LifecycleService() {
             LogCollector.d(TAG, "processMangaScreenshot: Step 3 - Translate ${allBubbles.size} bubbles")
             // BUGFIX (2026-07-06): 调翻译函数之前立刻切 Translating 图标（之前遗漏，自动模式从 Idle 直接到翻译完成）。
             ballStateManager?.setState(BallStateManager.State.Translating)
-            val newTranslatedBubbles = incrementalTranslateBubbles(allBubbles)
+            val newTranslatedBubbles = incrementalTranslateBubbles(allBubbles) { partialBubbles ->
+                if (partialBubbles.isNotEmpty()) {
+                    launchPartialRender { renderAndShowMergedOverlay(bitmap, partialBubbles, saveCache = false, showCopyButton = false) }
+                }
+            }
             LogCollector.d(TAG, "processMangaScreenshot: Step 3 - done, got ${newTranslatedBubbles.size} results")
 
             // Step 4: 合并已缓存翻译 + 新翻译，渲染 overlay
@@ -2839,6 +2891,11 @@ class MangaFloatingService : LifecycleService() {
             }
 
         } finally {
+            // 等所有流式渲染协程完成，避免它们读取已 recycle 的截图 bitmap（在 Default 上 join，避免阻塞 Main 造成死锁）
+            withContext(Dispatchers.Default) {
+                synchronized(streamingRenderJobs) { streamingRenderJobs.toList() }.forEach { it.join() }
+            }
+            streamingRenderJobs.clear()
             bitmap.recycle()
             // 如果有独立的全屏 bitmap（不同于 OCR bitmap），一并释放
             if (pendingFullBitmap != null && pendingFullBitmap !== bitmap) {
@@ -2860,7 +2917,11 @@ class MangaFloatingService : LifecycleService() {
      * 增量翻译：基于合并后的气泡，先查文本缓存，再翻译未命中的。
      * 翻译完成后将结果加入 translatedRegions 缓存。
      */
-    private suspend fun incrementalTranslateBubbles(bubbles: List<BubbleRegion>, forceContext: Boolean = false): List<TranslatedBubble> {
+    private suspend fun incrementalTranslateBubbles(
+        bubbles: List<BubbleRegion>,
+        forceContext: Boolean = false,
+        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
+    ): List<TranslatedBubble> {
         if (bubbles.isEmpty()) return emptyList()
 
         LogCollector.d(TAG, "incrementalTranslateBubbles: ${bubbles.size} bubbles, forceContext=$forceContext, cacheSize=${translatedRegions.size}")
@@ -2933,7 +2994,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 用 translateBubbles 走和手动翻译完全相同的路径
-        val results = translateBubbles(needTranslation, forceContext)
+        val results = translateBubbles(needTranslation, forceContext, onPartialBubbles)
 
         // 缓存翻译结果
         for (result in results) {
@@ -3029,6 +3090,34 @@ class MangaFloatingService : LifecycleService() {
      * 合并已缓存翻译 + 新翻译，渲染并显示 overlay。
      * 跳开与新翻译重叠的缓存区域，避免重复覆盖。
      */
+    /**
+     * 流式渲染：渲染「当前已完成的」气泡并更新 overlay。
+     * 窗口已在 → showResultOverlay 原地换图（不闪烁）；窗口未在 → 首次显示。
+     */
+    private suspend fun renderStreamingOverlay(original: Bitmap, newBubbles: List<TranslatedBubble>) {
+        if (newBubbles.isEmpty()) return
+        val resultBitmap = withContext(Dispatchers.Default) {
+            OverlayRenderer.renderOverlay(
+                original = original,
+                regions = newBubbles,
+                fontSize = config.fontSize,
+                autoFit = config.autoFontSize,
+                textColor = config.textColor,
+                bgColor = config.bgColor
+            )
+        }
+        withContext(Dispatchers.Main) {
+            showResultOverlay(resultBitmap, showCopyButton = false)
+        }
+    }
+
+    /** 流式局部渲染：跟踪 Job，processMangaScreenshot 收尾 join，避免读取已 recycle 的截图 bitmap */
+    private fun launchPartialRender(block: suspend () -> Unit) {
+        val job = lifecycleScope.launch { block() }
+        streamingRenderJobs.add(job)
+        job.invokeOnCompletion { streamingRenderJobs.remove(job) }
+    }
+
     private suspend fun renderAndShowMergedOverlay(
         original: Bitmap,
         newBubbles: List<TranslatedBubble>,
@@ -3042,6 +3131,10 @@ class MangaFloatingService : LifecycleService() {
         cropBottom: Int = 0,
         showCopyButton: Boolean = true  // 分批中间结果不显示复制按钮
     ) {
+        if (translationCancelled) {
+            LogCollector.d(TAG, "renderAndShowMergedOverlay: 翻译已取消，跳过渲染")
+            return
+        }
         if (newBubbles.isEmpty()) {
             LogCollector.d(TAG, "renderAndShowMergedOverlay: no content to render")
             return
@@ -3201,23 +3294,44 @@ class MangaFloatingService : LifecycleService() {
 
     private suspend fun translateBubbles(
         bubbles: List<BubbleRegion>,
-        forceContext: Boolean = false
+        forceContext: Boolean = false,
+        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
     ): List<TranslatedBubble> {
         if (translatorText == null) throw RuntimeException("Translation API not initialized")
-        return TranslateUtils.translateBubbles(translatorText!!, bubbles, config.sourceLang, config.targetLang, prefs, contextHistory, forceContext)
+        return TranslateUtils.translateBubbles(
+            translatorText!!, bubbles, config.sourceLang, config.targetLang, prefs, contextHistory, forceContext,
+            onPhase = { phase ->
+                when (phase) {
+                    "prefill" -> showProgressOverlay("读取原文中…")
+                    "generate" -> showProgressOverlay(getString(R.string.manga_translating))
+                }
+            },
+            onPartialBubbles = onPartialBubbles
+        )
     }
 
     // ---------- Result overlay ----------
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showResultOverlay(bitmap: Bitmap, fromCache: Boolean = false, showCopyButton: Boolean = true) {
-        if (isResultShowing) {
-            dismissResultOverlay()
-        }
-
         if (fromCache) {
+            if (isResultShowing) dismissResultOverlay()
             showCacheOverlay(bitmap)
             return
+        }
+
+        if (isResultShowing && resultOverlayView.isAttachedToWindow) {
+            // 原地更新：窗口已在，直接换图，避免 dismiss+重新 add 造成的闪烁
+            val old = (resultOverlayImage.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+            resultOverlayImage.setImageBitmap(bitmap)
+            currentOverlayBitmapW = bitmap.width
+            currentOverlayBitmapH = bitmap.height
+            if (old != null && old !== bitmap) old.recycle()
+            return
+        }
+
+        if (isResultShowing) {
+            dismissResultOverlay()
         }
 
         currentOverlayBitmapW = bitmap.width
@@ -3230,7 +3344,12 @@ class MangaFloatingService : LifecycleService() {
                 false  // 复制模式穿透
             } else {
                 if (event.action == MotionEvent.ACTION_UP) {
-                    dismissResultOverlay()
+                    if (isProcessing && !translationCancelled) {
+                        // 翻译进行中点击 overlay → 询问是否停止
+                        showStopTranslationDialog()
+                    } else {
+                        dismissResultOverlay()
+                    }
                 }
                 true
             }
@@ -4030,6 +4149,31 @@ class MangaFloatingService : LifecycleService() {
     private fun showProgressOverlay(text: String = getString(R.string.manga_translating)) {
         LogCollector.d(TAG, "showProgressOverlay called: $text")
         statusOverlay.showImmediate(text, autoDismiss = false)
+    }
+
+    /**
+     * 翻译进行中点击 overlay 时弹窗：询问是否停止。停止 → 终止翻译且不保存结果。
+     */
+    private fun showStopTranslationDialog() {
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("翻译未完成")
+            .setMessage("当前翻译尚未完成，是否停止？停止后将不保存本次翻译结果。")
+            .setPositiveButton("停止") { _, _ -> stopTranslationNow() }
+            .setNegativeButton("继续", null)
+            .create()
+        // ⚠️ Service 无 Activity token：必须先把对话框窗口类型设为 OVERLAY，否则 show() 抛 BadTokenException
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+    }
+
+    private fun stopTranslationNow() {
+        translationCancelled = true
+        translatorText?.cancelTranslation()
+        dismissProgressOverlay()
+        dismissResultOverlay()
+        ballStateManager?.setState(BallStateManager.State.Idle)
+        statusOverlay.showImmediate("已停止翻译", autoDismiss = true)
     }
 
     private fun dismissProgressOverlay() {
