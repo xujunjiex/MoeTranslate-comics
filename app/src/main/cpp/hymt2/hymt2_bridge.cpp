@@ -35,6 +35,10 @@ struct HyMt2Handle {
     llama_model* model = nullptr;
     llama_context* ctx = nullptr;
     const llama_vocab* vocab = nullptr;
+    llama_token bos_token = 0;
+    llama_token user_token = -1;
+    llama_token asst_token = -1;
+    llama_token eot_token = -1;
 };
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -70,6 +74,24 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
         h->model = model;
         h->ctx = ctx;
         h->vocab = llama_model_get_vocab(model);
+
+        // 诊断 + 格式：读取模型要求的输入格式（chat template）与聊天特殊 token
+        {
+            char tbuf[2048];
+            const int tn = llama_model_meta_val_str(model, "tokenizer.ggml.chat_template", tbuf, sizeof(tbuf));
+            LOGI("chat_template[%d]=%s", tn, tn >= 0 ? tbuf : "(none)");
+            h->bos_token = llama_vocab_bos(h->vocab);
+            LOGI("bos=%d eos=%d vocab_n=%d", h->bos_token, llama_vocab_eos(h->vocab), llama_vocab_n_tokens(h->vocab));
+            for (llama_token t = 0; t < llama_vocab_n_tokens(h->vocab); ++t) {
+                const char* text = llama_vocab_get_text(h->vocab, t);
+                if (text == nullptr) continue;
+                if (strstr(text, "hy_User")) { if (h->user_token < 0) h->user_token = t; }
+                else if (strstr(text, "hy_Assistant")) { if (h->asst_token < 0) h->asst_token = t; }
+                else if (strstr(text, "hy_EOT")) { if (h->eot_token < 0) h->eot_token = t; }
+            }
+            LOGI("chat special tokens: user=%d asst=%d eot=%d",
+                 h->user_token, h->asst_token, h->eot_token);
+        }
 
         // 预热：解码一个 token 跑一次全前向，把 440MB 权重页调入内存（首次解码会 mmap 缺页 ~15s）
         // 把这段耗时并入"模型加载中…"，避免首次翻译时才卡 15 秒
@@ -143,7 +165,7 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         for (int attempt = 0; attempt < 2; ++attempt) {
             n_tokens = llama_tokenize(
                 h->vocab, prompt, static_cast<int32_t>(text_len),
-                tokens.data(), static_cast<int32_t>(tokens.size()), false, false);
+                tokens.data(), static_cast<int32_t>(tokens.size()), true, false);
             if (n_tokens < 0) {
                 // 返回值的绝对值是"本应写入的 token 数"，扩容后重试一次
                 const int32_t needed = -n_tokens;
@@ -160,6 +182,21 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         }
         tokens.resize(n_tokens);
 
+        // ⚠️ 按模型聊天格式构造输入: [BOS]<User>{prompt}<Assistant>
+        //    模型有 <｜hy_User｜>/<｜hy_Assistant｜> 角色 token，不包角色标记直接喂裸文本会退化输出垃圾
+        if (h->bos_token > 0 || h->user_token >= 0 || h->asst_token >= 0) {
+            std::vector<llama_token> seq;
+            seq.reserve(tokens.size() + 4);
+            if (h->bos_token > 0) seq.push_back(h->bos_token);
+            if (h->user_token >= 0) seq.push_back(h->user_token);
+            seq.insert(seq.end(), tokens.begin(), tokens.end());
+            if (h->asst_token >= 0) seq.push_back(h->asst_token);
+            tokens.swap(seq);
+            n_tokens = static_cast<int32_t>(tokens.size());
+            LOGI("translate: formatted chat input, total %d tokens (bos=%d user=%d asst=%d)",
+                 n_tokens, h->bos_token, h->user_token, h->asst_token);
+        }
+
         // 打印前几个 prompt token id（检查是否有 BOS / 特殊 token）
         {
             std::string ids;
@@ -171,8 +208,11 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         }
 
         const int32_t n_ctx = static_cast<int32_t>(llama_n_ctx(h->ctx));
+        // 输出长度上限：翻译通常 ≈ 源长度，防止模型过度生成（实测短句翻出 300+ token）
+        // effective = min(用户max_tokens, 源tokens*2+64, 上下文剩余)
+        const int gen_cap = n_tokens * 2 + 64;
         const int max_tokens = std::max(0, std::min(static_cast<int>(maxTokens),
-                                                    static_cast<int>(n_ctx - n_tokens)));
+                                                    std::min(gen_cap, static_cast<int>(n_ctx - n_tokens))));
         if (max_tokens == 0) {
             LOGE("translate: prompt longer than context (%d)", n_ctx);
             return env->NewStringUTF("");
@@ -247,8 +287,8 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         }
         llama_batch_free(batch);
         llama_sampler_free(smpl);
-        LOGI("translate: DONE generated=%d/%d eog=%d gen_elapsed=%lld ms total_elapsed=%lld ms result_len=%zu",
-             generated, max_tokens, hit_eog, now_ms() - t_gen0, now_ms() - t_entry, result.size());
+        LOGI("translate: DONE generated=%d/%d eog=%d gen_elapsed=%lld ms total_elapsed=%lld ms result_len=%zu preview=[%.120s]",
+             generated, max_tokens, hit_eog, now_ms() - t_gen0, now_ms() - t_entry, result.size(), result.c_str());
         return env->NewStringUTF(result.c_str());
     } catch (const std::exception& e) {
         LOGE("translate: C++ exception: %s", e.what());
