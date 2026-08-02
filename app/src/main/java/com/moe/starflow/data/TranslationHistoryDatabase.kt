@@ -8,13 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [HistoryEntity::class, PageCacheEntity::class],
-    version = 12,
+    entities = [HistoryEntity::class, PageCacheEntity::class, TextTranslateRecord::class],
+    version = 13,
     exportSchema = false
 )
 abstract class TranslationHistoryDatabase : RoomDatabase() {
 
     abstract fun historyDao(): TranslationHistoryDao
+
+    abstract fun textTranslateRecordDao(): TextTranslateRecordDao
 
     companion object {
         @Volatile
@@ -151,13 +153,28 @@ abstract class TranslationHistoryDatabase : RoomDatabase() {
             }
         }
 
+        // 版本 12 → 13：新增 text_translate_record 表（文本翻译页最近记录）。
+        // ⚠️ 纯新增、幂等，绝不 ALTER 现有表。fallbackToDestructiveMigration 已启用，
+        //    不提供此迁移会导致升级用户整库删除（数据丢失）——此迁移是数据安全的第一道保障。
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS text_translate_record (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "original_text TEXT NOT NULL, translated_text TEXT NOT NULL, " +
+                    "source_lang TEXT NOT NULL, target_lang TEXT NOT NULL, " +
+                    "engine_name TEXT NOT NULL, created_at INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): TranslationHistoryDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     TranslationHistoryDatabase::class.java,
                     "translation_history.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
             }
