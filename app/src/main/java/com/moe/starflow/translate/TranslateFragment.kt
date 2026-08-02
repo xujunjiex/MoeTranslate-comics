@@ -25,6 +25,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.net.Uri
@@ -71,6 +72,7 @@ class TranslateFragment : Fragment() {
     private lateinit var prefs: CustomPreference
     private lateinit var serviceStopReceiver: BroadcastReceiver
     private lateinit var mangaServiceStopReceiver: BroadcastReceiver
+    private var languagePrefsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     companion object {
         private var updateCheckedThisSession = false
@@ -121,6 +123,16 @@ class TranslateFragment : Fragment() {
             mangaServiceStopReceiver,
             IntentFilter(BroadcastAction.ACTION_MANGA_SERVICE_STOPPED)
         )
+
+        // 监听语言 prefs 变化：悬浮窗内循环切换源语言（cycleSourceLang）时实时刷新首页标签
+        if (languagePrefsListener == null) {
+            languagePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == "Source_Language" || key == "Target_Language") {
+                    refreshLanguageLabels()
+                }
+            }
+        }
+        prefs.getSharedPreferences().registerOnSharedPreferenceChangeListener(languagePrefsListener)
     }
 
     override fun onCreateView(
@@ -205,6 +217,22 @@ class TranslateFragment : Fragment() {
             }
         }
 
+        refreshLanguageLabels()
+
+        binding.oriLanguage.setOnClickListener {
+            showLanguageListDialog(1)
+        }
+
+        binding.tarLanguage.setOnClickListener {
+            showLanguageListDialog(2)
+        }
+    }
+
+    /**
+     * 刷新首页源/目标语言标签。从 prefs 读取当前值。
+     * 调用时机：onViewCreated 初始化、首页手动选择语言、prefs 变化（悬浮窗内切换语言）时。
+     */
+    private fun refreshLanguageLabels() {
         if ((prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id) && (prefs.getInt("Text_API", Constants.TextApi.BING.id) == Constants.TextApi.CUSTOM_TEXT.id)) {
             binding.SourceLanguageName.text =
                 CustomLocale.getInstance(prefs.getString("Source_Language", "ja")).getDisplayName()
@@ -217,14 +245,6 @@ class TranslateFragment : Fragment() {
                 CustomLocale.getInstance(prefs.getString("Source_Language", "ja")).getDisplayName()
             binding.TargetLanguageName.text =
                 CustomLocale.getInstance(prefs.getString("Target_Language", "zh")).getDisplayName()
-        }
-
-        binding.oriLanguage.setOnClickListener {
-            showLanguageListDialog(1)
-        }
-
-        binding.tarLanguage.setOnClickListener {
-            showLanguageListDialog(2)
         }
     }
 
@@ -1054,6 +1074,9 @@ class TranslateFragment : Fragment() {
             .unregisterReceiver(serviceStopReceiver)
         LocalBroadcastManager.getInstance(requireContext())
             .unregisterReceiver(mangaServiceStopReceiver)
+
+        // 注销语言 prefs 监听（onStart 注册，onStop 注销，与 binding 生命周期对齐）
+        languagePrefsListener?.let { prefs.getSharedPreferences().unregisterOnSharedPreferenceChangeListener(it) }
     }
 
     override fun onResume() {
@@ -1062,6 +1085,8 @@ class TranslateFragment : Fragment() {
         LogCollector.d(TAG, "onResume")
 
         showAPIName()
+        // 刷新语言标签：后台期间（onStop 未监听时）悬浮窗切换语言后回到首页，prefs 变化事件已错过
+        refreshLanguageLabels()
         setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))
         setMangaButtonState(ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
     }
