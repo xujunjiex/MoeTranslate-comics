@@ -12,6 +12,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import translationapi.hymt2translation.HyMT2Translation
 import translationapi.openaitranslation.OpenAITranslation
 import java.util.LinkedList
 import kotlin.coroutines.resume
@@ -69,9 +70,11 @@ object TranslateUtils {
         }
         if (preparedBubbles.isEmpty()) return symbolOnlyBubbles
 
-        // AI 翻译（OpenAI 兼容）用批量请求，机器翻译用逐个请求
+        // AI 翻译（OpenAI 兼容 / 本地 Hy-MT2）用批量请求，其余机器翻译用逐个请求
+        // Hy-MT2 走批量：输入 [N] 编号，模型按官方默认模板只输出译文并保持 [N] 编号，管线按编号解析
         val isAI = translator is OpenAITranslation
                 || translator.javaClass.simpleName.contains("Custom")
+                || translator is HyMT2Translation
 
         val translatedResults = if (isAI && preparedBubbles.size > 1) {
             translateBubblesBatch(translator, preparedBubbles, sourceLang, targetLang, prefs, contextHistory, forceContext)
@@ -120,7 +123,9 @@ object TranslateUtils {
         )
 
         // 用 suspendCancellableCoroutine 等待 callback：协程被 cancel 时立即返回，不再阻塞线程
-        val completed = withTimeoutOrNull(35_000L) {
+        // 批量超时：Hy-MT2 本地生成慢，放宽到 90s；网络 API 保持 35s
+        val batchTimeoutMs = if (translator is HyMT2Translation) 90_000L else 35_000L
+        val completed = withTimeoutOrNull(batchTimeoutMs) {
             suspendCancellableCoroutine<Unit> { cont ->
                 cont.invokeOnCancellation {
                     // 协程被取消时尝试主动取消翻译任务
