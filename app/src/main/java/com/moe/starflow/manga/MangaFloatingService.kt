@@ -2540,7 +2540,12 @@ class MangaFloatingService : LifecycleService() {
                         val scoreDisc = recDisc?.discardedReasons?.count { it == "score" } ?: 0
                         val contentDisc = recDisc?.discardedReasons?.count { it != "score" } ?: 0
                         LogCollector.d(TAG, "PP-OCRv6 Debug: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}, det丢弃=${debugDet.discardedBoxes.size}, 识别丢弃=$scoreDisc, 内容丢弃=$contentDisc")
-                        val allMerged = runTextLineMerge(ocrResult, bitmap.width, bitmap.height, isV6 = true)
+                        val allMerged = try {
+                            TextRegionMerger.enableDebugLogging(true)  // 合并判定详细日志（debug 模式）
+                            runTextLineMerge(ocrResult, bitmap.width, bitmap.height, isV6 = true)
+                        } finally {
+                            TextRegionMerger.enableDebugLogging(false)
+                        }
                         val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
                         LogCollector.d(TAG, "PP-OCRv6 Debug: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
                         showPPOcrV6DebugView(bitmap, ocrResult, mergedRegions, debugDet)
@@ -2612,8 +2617,13 @@ class MangaFloatingService : LifecycleService() {
                                     }
                                 }
                             }
-                            // 运行 TextLineMerger 合并
-                            val allMerged = runTextLineMerge(ocrResult, bitmap.width, bitmap.height)
+                            // 运行 TextLineMerger 合并（debug 模式开详细判定日志）
+                            val allMerged = try {
+                                TextRegionMerger.enableDebugLogging(true)
+                                runTextLineMerge(ocrResult, bitmap.width, bitmap.height)
+                            } finally {
+                                TextRegionMerger.enableDebugLogging(false)
+                            }
                             // 合并后内容过滤
                             val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
                             LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
