@@ -354,7 +354,7 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 ## 漫画模块
 
-**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextLineMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
+**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextRegionMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
 **工具类：** `GeometryUtils.kt`（凸包、点在多边形等几何算法）、`OnnxUtils.kt`（ONNX 张量提取、资源拷贝）
 **调试渲染子包 `manga/debug/`：** `MangaDebugOverlays.kt`（object：4 个 render*DebugOverlay 纯渲染函数 + applyCropDimming/createInfoPanelView/createToggleButton/MaxHeightScrollView 辅助）、`MangaDebugSliders.kt`（object：PP-OCRv5/v6 参数滑块面板构建器，注入 `CustomPreference` + `context`，无服务引用）。这些函数从 `MangaFloatingService` 提取（C1 重构），无状态、依赖全部参数化；`show*DebugResultOverlay`/`show*DebugView` 等编排函数仍在主服务里。
 
@@ -392,6 +392,11 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 **单字符噪声过滤：** `textBlocksToBubbleRegions` 过滤单字符纯标点（OTHER_PUNCTUATION、DASH_PUNCTUATION、START/END_PUNCTUATION、MATH_SYMBOL、OTHER_SYMBOL），避免标点符号被当作独立气泡翻译。
 
+**识别后合并（`TextRegionMerger`，V5/V6 独立路径 OCR 后调用，两阶段）：**
+- **阶段一 `canMergeRegion`（局部成对判定）**：AABB 间隙 < 1×字符宽 + 字号比/方向/对齐校验 → 构建相邻图 → 连通分量。判定参数可在调试面板滑块调（`merge_discard_gap` 粗筛 1.5×字号 / `merge_char_gap2`）
+- **阶段二 `splitTextRegion`（整体 MST 拆分）**：检测传递连接（A近B、B近C 但 A、C 是不同句首尾）造成的过度合并，按 MST 最长边切分。**2 元素组件直接信任 canMerge**——旧实现用中心距离 < 1.5×字号 重判，与阶段一 AABB 间隙指标矛盾，曾导致竖排相邻行（`[2][3]`/`[7][8]`）被错误拆开（`dd48f63` 修复）。给合并逻辑加/改判定时，必须保证两阶段指标一致
+- **调试日志**：PP-OCRv5/v6 调试模式自动 `TextRegionMerger.enableDebugLogging(true)` → 逐对 `canMerge [i]"文本" + [j]"文本" → REJECT/ACCEPT 原因`（tag `TextRegionMerger`，`[i]` 对得上调试面板「原始识别」编号）。`enableDebugLogging` 默认关闭，只该在调试路径开启
+
 **翻译流程：** 截图 → 检测 → OCR → 气泡合并（按需）→ 翻译（每气泡并行）→ 覆盖渲染
 
 **增量渲染（分批 OCR+翻译）：**
@@ -425,7 +430,7 @@ PP-OCRv5 检测框可能倾斜（QuadBox 4 顶点非正交），全链路处理�
 - **角度检测**：`atan2(topDy, topDx)` 计算顶部边与水平线夹角，±3° 内视为正交（angle=0）
 - **方向判断**：用 QuadBox 真实边长（左高 vs 顶宽×1.5），不用 AABB（倾斜时 AABB 会误判）
 - **fontSize**：用真实边长（横排=leftLen，竖排=topLen），不用 AABB 短边（倾斜时 AABB 会放大）
-- **合并**：`TextLineMerger.canMergeTilted()` — 角度差 < 3° 时用中心距离+沿倾斜角投影判断，perpDist < charSize×1.5，alongDist < charSize×3
+- **合并**：`TextRegionMerger.canMergeRegion` 两分支——**AA 分支**（正交框）AABB 间隙 < 1×字符宽 + 边/中心对齐；**Tilted 分支**（倾斜框）角度差 < 15°、字号差 < 0.25、AABB 距离 < 3×字号
 - **渲染**：`canvas.rotate(angle, centerX, centerY)` 旋转背景+文字，正常 overlay 和调试 overlay 均支持
 - **增量路径**：`recResultsToTextLines` 只有 AABB（裁剪后），无角度信息，沿用 AABB 启发式
 
