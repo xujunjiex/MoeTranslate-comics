@@ -2,6 +2,7 @@
 // 引擎: llama.cpp f8b355a9e (build 9521)，链接预编译 libllama.so
 #include <jni.h>
 #include <android/log.h>
+#include <chrono>
 #include <exception>
 #include <mutex>
 #include <string>
@@ -16,6 +17,12 @@
 
 // 串行化所有解码调用，防止并发访问同一 context（漫画模式多气泡并行翻译时排队）
 static std::mutex g_mutex;
+
+// 诊断用：相对毫秒时间
+static long long now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 // 把 C++ 异常转成 Java 异常抛出，避免 JNI 边界未捕获异常直接 abort 进程
 static void throw_java_exception(JNIEnv* env, const char* msg) {
@@ -78,7 +85,13 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
     jfloat temperature, jfloat topP, jint topK,
     jfloat repetitionPenalty, jint maxTokens) {
     try {
+        const long long t_entry = now_ms();
+        LOGI("translate: ENTER handle=%lld temp=%.3f top_p=%.3f top_k=%d rep=%.3f max_tokens=%d",
+             jHandle, temperature, topP, topK, repetitionPenalty, maxTokens);
+
         std::lock_guard<std::mutex> lock(g_mutex);
+        LOGI("translate: mutex acquired (+%lld ms)", now_ms() - t_entry);
+
         auto* h = reinterpret_cast<HyMt2Handle*>(jHandle);
         if (h == nullptr || h->ctx == nullptr) return env->NewStringUTF("");
 
@@ -88,6 +101,10 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         const char* prompt = env->GetStringUTFChars(jPrompt, nullptr);
         if (prompt == nullptr) return env->NewStringUTF("");
         const size_t text_len = strlen(prompt);
+        LOGI("translate: prompt chars=%zu preview=[%.100s]", text_len, prompt);
+        // 把含 {source_text} 的尾部单独打出来，确认识别文本确实进了 prompt
+        const size_t tail_len = std::min<size_t>(text_len, 80);
+        LOGI("translate: prompt tail=[%s]", prompt + (text_len - tail_len));
 
         // 分词（缓冲按字符数 + 余量；若缓冲不足返回负的"需要数量"，则按需扩容重试）
         // ⚠️ f8b355a9e 版 llama_vocab::tokenize 内部是 std::string(text, text_len)，不处理 text_len=-1，
@@ -109,16 +126,26 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         }
         env->ReleaseStringUTFChars(jPrompt, prompt);
         if (n_tokens < 0) {
-            LOGE("tokenize failed (needed %d, buffer %zu)", -n_tokens, tokens.size());
+            LOGE("translate: tokenize failed (needed %d, buffer %zu)", -n_tokens, tokens.size());
             return env->NewStringUTF("");
         }
         tokens.resize(n_tokens);
+
+        // 打印前几个 prompt token id（检查是否有 BOS / 特殊 token）
+        {
+            std::string ids;
+            for (int k = 0; k < std::min<int>(n_tokens, 10); ++k) {
+                if (k) ids += ",";
+                ids += std::to_string(tokens[k]);
+            }
+            LOGI("translate: prompt tokens=%d, first=[%s]", n_tokens, ids.c_str());
+        }
 
         const int32_t n_ctx = static_cast<int32_t>(llama_n_ctx(h->ctx));
         const int max_tokens = std::max(0, std::min(static_cast<int>(maxTokens),
                                                     static_cast<int>(n_ctx - n_tokens)));
         if (max_tokens == 0) {
-            LOGE("prompt longer than context (%d)", n_ctx);
+            LOGE("translate: prompt longer than context (%d)", n_ctx);
             return env->NewStringUTF("");
         }
 
@@ -131,36 +158,75 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeTranslate(
         llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, repetitionPenalty, 0.0f, 0.0f));
         llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-        // prompt 一次性解码（f8b355a9e 版 llama_batch_get_one 只取 tokens+n_tokens，位置由 llama_decode 自动跟踪）
-        llama_batch batch = llama_batch_get_one(tokens.data(), n_tokens);
-        if (llama_decode(h->ctx, batch) != 0) {
-            LOGE("prompt decode failed");
+        // prompt 一次性解码（用显式位置数组，与 llama-bench 一致）
+        // ⚠️ 不要用 llama_batch_get_one（pos=nullptr 自动跟踪）：f8b355a9e 实测单 token 解码慢 ~175×
+        LOGI("translate: decoding prompt (%d tokens)...", n_tokens);
+        llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+        if (batch.token == nullptr) {
+            LOGE("translate: batch alloc failed");
             llama_sampler_free(smpl);
             return env->NewStringUTF("");
         }
+        batch.n_tokens = n_tokens;
+        for (int32_t i = 0; i < n_tokens; ++i) {
+            batch.token[i]    = tokens[i];
+            batch.pos[i]      = i;
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i][0] = 0;
+        }
+        // ⚠️ llama_batch_init 的 logits 数组默认全 false：必须为"需要采样"的最后一个 token 置 true，
+        //    否则模型不算 logits，llama_sampler_sample 会 ggml_abort 崩溃。
+        batch.logits[n_tokens - 1] = true;
+        const long long t_decode0 = now_ms();
+        if (llama_decode(h->ctx, batch) != 0) {
+            LOGE("translate: prompt decode failed");
+            llama_batch_free(batch);
+            llama_sampler_free(smpl);
+            return env->NewStringUTF("");
+        }
+        LOGI("translate: prompt decoded (+%lld ms), starting generation", now_ms() - t_decode0);
 
         std::string result;
         char piece_buf[512];
+        int32_t n_cur = n_tokens;
+        const long long t_gen0 = now_ms();
+        bool hit_eog = false;
+        int generated = 0;
         for (int i = 0; i < max_tokens; ++i) {
+            if ((i % 8) == 0) {
+                LOGI("translate: gen progress token %d/%d (+%lld ms)", i, max_tokens, now_ms() - t_gen0);
+            }
             const llama_token id = llama_sampler_sample(smpl, h->ctx, -1);
             llama_sampler_accept(smpl, id);
-            if (llama_vocab_is_eog(h->vocab, id)) break;
+            generated = i + 1;
+            if (llama_vocab_is_eog(h->vocab, id)) {
+                LOGI("translate: EOG at token %d (+%lld ms), token_id=%d", i, now_ms() - t_gen0, id);
+                hit_eog = true;
+                break;
+            }
             const int32_t n_piece = llama_token_to_piece(
                 h->vocab, id, piece_buf, static_cast<int32_t>(sizeof(piece_buf)), 0, false);
             if (n_piece > 0) result.append(piece_buf, n_piece);
-            // 解码新 token 供下一步采样（位置自动跟踪）
-            llama_token next[1] = { id };
-            llama_batch nb = llama_batch_get_one(next, 1);
-            if (llama_decode(h->ctx, nb) != 0) { LOGE("decode failed at step %d", i); break; }
+            // 解码新 token（显式位置；logits 置 true 供下一轮采样）
+            batch.n_tokens    = 1;
+            batch.token[0]    = id;
+            batch.pos[0]      = n_cur++;
+            batch.n_seq_id[0] = 1;
+            batch.seq_id[0][0] = 0;
+            batch.logits[0]   = true;
+            if (llama_decode(h->ctx, batch) != 0) { LOGE("translate: decode failed at step %d", i); break; }
         }
+        llama_batch_free(batch);
         llama_sampler_free(smpl);
+        LOGI("translate: DONE generated=%d/%d eog=%d gen_elapsed=%lld ms total_elapsed=%lld ms result_len=%zu",
+             generated, max_tokens, hit_eog, now_ms() - t_gen0, now_ms() - t_entry, result.size());
         return env->NewStringUTF(result.c_str());
     } catch (const std::exception& e) {
-        LOGE("nativeTranslate exception: %s", e.what());
+        LOGE("translate: C++ exception: %s", e.what());
         throw_java_exception(env, e.what());
         return nullptr;
     } catch (...) {
-        LOGE("nativeTranslate unknown exception");
+        LOGE("translate: unknown C++ exception");
         throw_java_exception(env, "unknown native exception");
         return nullptr;
     }
@@ -175,6 +241,7 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeRelease(JNIEnv*, jclass, 
         if (h->ctx != nullptr) llama_free(h->ctx);
         if (h->model != nullptr) llama_model_free(h->model);
         delete h;
+        LOGI("model released");
     } catch (const std::exception& e) {
         LOGE("nativeRelease exception: %s", e.what());
     } catch (...) {
