@@ -314,16 +314,12 @@ object TextRegionMerger {
         if (indices.size == 1) return listOf(setOf(indices[0]))
 
         if (indices.size == 2) {
-            val a = regions[indices[0]]
-            val b = regions[indices[1]]
-            val fs = max(a.quad.fontSize, b.quad.fontSize)
-            val dist = quadCenterDistance(a, b)
-            val angleDiff = abs(quadTopEdgeAngle(a.quad) - quadTopEdgeAngle(b.quad))
-            if (dist < (1 + gamma) * fs && angleDiff < 0.2f * PI.toFloat()) {
-                return listOf(setOf(indices[0], indices[1]))
-            }
-            if (debugEnabled) LogCollector.d(TAG, "splitTextRegion[2]: split")
-            return listOf(setOf(indices[0]), setOf(indices[1]))
+            // 2 元素组件无传递性：能组成连通分量说明 canMergeRegion 已认可这对
+            // （AABB 间隙 < 1×字符宽 + 字号/方向/对齐校验）。阶段二在此没有"防过度合并"
+            // 职责，直接保留——旧实现用中心距离 < 1.5×字号 重判，与 canMerge 的 AABB 间隙
+            // 指标矛盾，导致竖排相邻行（如 [2][3]、[7][8]）被错误拆开。
+            if (debugEnabled) LogCollector.d(TAG, "splitTextRegion[2]: keep（canMerge 已认可）")
+            return listOf(setOf(indices[0], indices[1]))
         }
 
         // case 3+: MST
