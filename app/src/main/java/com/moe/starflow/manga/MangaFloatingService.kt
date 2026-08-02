@@ -82,6 +82,7 @@ import translationapi.tencentcloud.TencentTranslationText
 import translationapi.customtranslation.CustomTranslationText
 import translationapi.nllbtranslation.NLLBTranslation
 import translationapi.hymt2translation.HyMT2Translation
+import translationapi.TranslatorFactory
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.utils.PerceptualHash
@@ -525,64 +526,10 @@ class MangaFloatingService : LifecycleService() {
     private fun initTranslator() {
         LogCollector.d(TAG, "initTranslator: Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
         try {
-            when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
-                Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)) {
-                    Constants.TextAI.NLLB.id, 1 -> translatorText = NLLBTranslation(this)  // 1 = 升级前 NLLB 旧值
-                    Constants.TextAI.HYMT2.id -> translatorText = HyMT2Translation(this)
-                    else -> { showToast("Unknown Translator.") }
-                }
-                Constants.TextApi.BING.id -> translatorText = BingTranslation()
-                Constants.TextApi.NIUTRANS.id -> translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
-                Constants.TextApi.OPENAI.id -> {
-                    val providerList = ConfigurationStorage.loadAllProviders(prefs)
-                    val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
-                    if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
-                        val provider = providerList[selectedIndex]
-                        // 用户自定义 API：continuationType 不准确，禁用 prefill 避免服务端 hang
-                        // 用户自定义 API：漫画 prompt 未配置时回退到游戏 prompt，避免空 prompt 导致模型返回聊天回复
-                        val effectiveContinuationType = if (provider.isBuiltin) {
-                            provider.continuationType
-                        } else {
-                            OpenAIProviderConfig.CONTINUATION_NONE
-                        }
-                        val effectiveSystemPrompt = if (provider.isBuiltin) {
-                            provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
-                        } else {
-                            provider.mangaSystemPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_SYSTEM_PROMPT }
-                        }
-                        val effectiveUserPrompt = if (provider.isBuiltin) {
-                            provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
-                        } else {
-                            provider.mangaUserPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_USER_PROMPT }
-                        }
-                        translatorText = OpenAITranslation(
-                            apiKey = provider.apiKey,
-                            baseUrl = provider.baseUrl,
-                            model = provider.modelName,
-                            systemPrompt = effectiveSystemPrompt,
-                            userPrompt = effectiveUserPrompt,
-                            continuationType = effectiveContinuationType,
-                            prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
-                            autoAppendPath = provider.autoAppendPath
-                        )
-                    } else {
-                        showToast("No OpenAI Provider Config Found.")
-                    }
-                }
-                Constants.TextApi.VOLC.id -> translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)
-                Constants.TextApi.AZURE.id -> translatorText = AzureTranslation(KeystoreManager.retrieveKey(this, "Azure")!!)
-                Constants.TextApi.DEEPL.id -> translatorText = DeepLTranslation(KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST")!!, KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY")!!)
-                Constants.TextApi.BAIDU.id -> translatorText = BaiduTranslationText(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
-                Constants.TextApi.TENCENT.id -> translatorText = TencentTranslationText(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
-                Constants.TextApi.CUSTOM_TEXT.id -> {
-                    val textConfig = ConfigurationStorage.loadTextConfig(prefs, prefs.getInt("Custom_Text_API", 0))
-                    if (textConfig != null) {
-                        translatorText = CustomTranslationText(textConfig)
-                    } else {
-                        showToast("No Custom Text API Config Found.")
-                    }
-                }
-                else -> { showToast("Unknown Translator.") }
+            translatorText = TranslatorFactory.create(this, prefs, TranslatorFactory.Mode.MANGA)
+            if (translatorText == null) {
+                LogCollector.e(TAG, "initTranslator: 引擎创建失败")
+                showToast("翻译引擎初始化失败")
             }
         } catch (e: Exception) {
             LogCollector.e(TAG, "initTranslator: Exception", e)
@@ -1255,13 +1202,14 @@ class MangaFloatingService : LifecycleService() {
     private fun showFontSizeDialog() {
         val sizes = arrayOf(
             getString(R.string.manga_font_size_auto),
-            "12", "14", "16", "18", "20", "24", "28", "32"
+            "8", "10", "12", "14", "16", "18", "20", "24", "28", "32", "40", "48"
         )
         val currentIndex = if (config.autoFontSize) {
             0
         } else {
             val idx = sizes.indexOf(config.fontSize.toInt().toString())
-            if (idx < 0) 3 else idx
+            // 自定义值（不在列表）时指向默认 16
+            if (idx < 0) sizes.indexOf("16").coerceAtLeast(0) else idx
         }
 
         val dialog = AlertDialog.Builder(this)

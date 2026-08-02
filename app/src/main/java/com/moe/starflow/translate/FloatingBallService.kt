@@ -78,6 +78,7 @@ import translationapi.hymt2translation.HyMT2Translation
 import translationapi.openaitranslation.OpenAITranslation
 import translationapi.tencentcloud.TencentTranslationImage
 import translationapi.tencentcloud.TencentTranslationText
+import translationapi.TranslatorFactory
 import translationapi.volctranslation.VolcTranslation
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -532,86 +533,10 @@ class FloatingBallService : LifecycleService() {
         LogCollector.d(TAG, "开始初始化翻译 API, Text_API=${prefs.getInt("Text_API", Constants.TextApi.BING.id)}")
         try {
             if (prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id){
-                when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
-                    Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)){
-                        Constants.TextAI.NLLB.id, 1 -> {
-                            translatorText = NLLBTranslation(this)
-                            LogCollector.d(TAG, "翻译 API 初始化: NLLB Translation")
-                        }
-                        Constants.TextAI.HYMT2.id -> {
-                            translatorText = HyMT2Translation(this)
-                            LogCollector.d(TAG, "翻译 API 初始化: Hy-MT2 Translation")
-                        }
-                        else -> {
-                            LogCollector.e(TAG, "Unknown AI Translator: ${prefs.getInt("Text_AI", 0)}")
-                            showToast("Unknown Translator.")
-                        }
-                    }
-                    Constants.TextApi.BING.id -> {
-                        translatorText = BingTranslation()
-                        LogCollector.d(TAG, "翻译 API 初始化: Bing Translation")
-                    }
-                    Constants.TextApi.NIUTRANS.id -> {
-                        translatorText = NiuTranslation(KeystoreManager.retrieveKey(this, "Niutrans")!!)
-                        LogCollector.d(TAG, "翻译 API 初始化: NiuTrans")
-                    }
-                    Constants.TextApi.OPENAI.id -> {
-                        val providerList = ConfigurationStorage.loadAllProviders(prefs)
-                        val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
-                        if (providerList.isNotEmpty() && selectedIndex < providerList.size) {
-                            val provider = providerList[selectedIndex]
-                            val effectiveSystemPrompt = if (provider.isBuiltin) {
-                                provider.systemPrompt.ifEmpty { provider.defaultSystemPrompt }
-                            } else {
-                                provider.systemPrompt.ifEmpty { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
-                            }
-                            val effectiveUserPrompt = if (provider.isBuiltin) {
-                                provider.userPrompt.ifEmpty { provider.defaultUserPrompt }
-                            } else {
-                                provider.userPrompt.ifEmpty { BuiltinProviders.DEFAULT_USER_PROMPT }
-                            }
-                            translatorText = OpenAITranslation(apiKey = provider.apiKey, baseUrl = provider.baseUrl, model = provider.modelName, systemPrompt = effectiveSystemPrompt, userPrompt = effectiveUserPrompt, autoAppendPath = provider.autoAppendPath)
-                            LogCollector.d(TAG, "翻译 API 初始化: OpenAI (${provider.modelName})")
-                        } else {
-                            LogCollector.e(TAG, "No OpenAI Provider Config Found")
-                            showToast("No OpenAI Provider Config Found.")
-                        }
-                    }
-                    Constants.TextApi.VOLC.id -> {
-                        translatorText = VolcTranslation(KeystoreManager.retrieveKey(this, "Volc_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Volc_SECRETKEY")!!)
-                        LogCollector.d(TAG, "翻译 API 初始化: Volc Translation")
-                    }
-                    Constants.TextApi.AZURE.id -> {
-                        translatorText = AzureTranslation(KeystoreManager.retrieveKey(this, "Azure")!!)
-                        LogCollector.d(TAG, "翻译 API 初始化: Azure Translation")
-                    }
-                    Constants.TextApi.DEEPL.id -> {
-                        translatorText = DeepLTranslation(KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST")!!, KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY")!!)
-                        LogCollector.d(TAG, "翻译 API 初始化: DeepL Translation")
-                    }
-                    Constants.TextApi.BAIDU.id -> {
-                        translatorText = BaiduTranslationText(KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY")!!)
-                        LogCollector.d(TAG, "翻译 API 初始化: Baidu Translation")
-                    }
-                    Constants.TextApi.TENCENT.id -> {
-                        translatorText = TencentTranslationText(KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT")!!, KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY")!!)
-                        LogCollector.d(TAG, "翻译 API 初始化: Tencent Translation")
-                    }
-                    Constants.TextApi.CUSTOM_TEXT.id -> {
-                        val apiList = ConfigurationStorage.loadTextConfigList(prefs)
-                        val selectedIndex = prefs.getInt("Custom_Text_API", 0)
-                        if (apiList.isEmpty() || selectedIndex >= apiList.size) {
-                            LogCollector.e(TAG, "No Custom Text API Config Found")
-                            showToast("No Custom Text API Config Found.")
-                        } else {
-                            translatorText = CustomTranslationText(apiList[selectedIndex].config)
-                            LogCollector.d(TAG, "翻译 API 初始化: Custom Text API")
-                        }
-                    }
-                    else -> {
-                        LogCollector.e(TAG, "Unknown Text API: ${prefs.getInt("Text_API", 0)}")
-                        showToast("Unknown Translator.")
-                    }
+                translatorText = TranslatorFactory.create(this, prefs, TranslatorFactory.Mode.GAME)
+                if (translatorText == null) {
+                    LogCollector.e(TAG, "翻译 API 初始化失败")
+                    showToast("翻译引擎初始化失败")
                 }
             }else{
                 when (prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)){
