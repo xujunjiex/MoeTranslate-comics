@@ -69,7 +69,8 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
             if (handle == 0L) {
                 statusOverlay.showError(ctx.getString(R.string.hymt2_init_failed))
             } else {
-                statusOverlay.show(ctx.getString(R.string.hymt2_loaded))
+                // 复用顶部"模型加载中…"消息更新为"已加载"，避免堆叠一条盖不住
+                statusOverlay.showImmediate(ctx.getString(R.string.hymt2_loaded), autoDismiss = true)
             }
             return handle
         }

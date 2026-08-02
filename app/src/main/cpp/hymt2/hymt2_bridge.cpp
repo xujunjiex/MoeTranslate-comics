@@ -13,6 +13,7 @@
 
 #define TAG "HyMT2Bridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 // 串行化所有解码调用，防止并发访问同一 context（漫画模式多气泡并行翻译时排队）
@@ -50,6 +51,9 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
 
         llama_model_params mp = llama_model_default_params();
         mp.n_gpu_layers = 0;
+        // ⚠️ 必须 use_mmap=false：mmap 的权重页会被系统在内存压力下回收，导致解码时反复从存储读 440MB
+        //    （实测 15-17s/次）。直接读入堆内存，加载慢一次但之后解码稳定快。
+        mp.use_mmap = false;
         llama_model* model = llama_model_load_from_file(path, mp);
         env->ReleaseStringUTFChars(jModelPath, path);
         if (model == nullptr) { LOGE("llama_model_load_from_file failed"); return 0; }
@@ -66,6 +70,31 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
         h->model = model;
         h->ctx = ctx;
         h->vocab = llama_model_get_vocab(model);
+
+        // 预热：解码一个 token 跑一次全前向，把 440MB 权重页调入内存（首次解码会 mmap 缺页 ~15s）
+        // 把这段耗时并入"模型加载中…"，避免首次翻译时才卡 15 秒
+        const long long t_warm = now_ms();
+        llama_token warm_tokens[4];
+        const int32_t n_warm = llama_tokenize(h->vocab, "a", 1, warm_tokens, 4, false, false);
+        if (n_warm > 0) {
+            llama_batch wb = llama_batch_init(n_warm, 0, 1);
+            wb.n_tokens = n_warm;
+            for (int32_t i = 0; i < n_warm; ++i) {
+                wb.token[i]     = warm_tokens[i];
+                wb.pos[i]       = i;
+                wb.n_seq_id[i]  = 1;
+                wb.seq_id[i][0] = 0;
+            }
+            wb.logits[n_warm - 1] = true;
+            if (llama_decode(h->ctx, wb) == 0) {
+                LOGI("warmup decode ok (%lld ms)", now_ms() - t_warm);
+            } else {
+                LOGW("warmup decode failed");
+            }
+            llama_batch_free(wb);
+            llama_memory_clear(llama_get_memory(h->ctx), false);
+        }
+
         LOGI("model loaded: nCtx=%d nThreads=%d", nCtx, nThreads);
         return reinterpret_cast<jlong>(h);
     } catch (const std::exception& e) {
