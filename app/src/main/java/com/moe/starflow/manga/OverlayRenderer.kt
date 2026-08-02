@@ -44,7 +44,14 @@ object OverlayRenderer {
             } else {
                 baseFontSize
             }
-            val neededRect = calculateExpandedRect(region.rect, displayText, region.direction, fitFontSize)
+            val neededRect = if (autoFit) {
+                // 自动模式：fitFontSize 已尽量填满气泡，保持原"只在文字超出时扩展"语义
+                calculateExpandedRect(region.rect, displayText, region.direction, fitFontSize)
+            } else {
+                // 非自动模式：文字按用户字号绘制，不一定填满气泡。
+                // 收缩到文字实际所需并居中，避免小字号时气泡内大片空白
+                calculateCompactRect(region.rect, displayText, region.direction, fitFontSize)
+            }
             val drawRect = if (hasOverlap(neededRect, usedRects)) {
                 region.rect
             } else {
@@ -90,6 +97,68 @@ object OverlayRenderer {
         }
 
         return result
+    }
+
+    /**
+     * 非自动模式专用：计算文字实际所需矩形并居中于气泡内。
+     *
+     * 背景问题：小字号时文字不填满气泡，若 drawRect 用整个气泡 rect，背景色块会覆盖
+     * 大片空白。这里把 drawRect 收缩到「文字实际尺寸 + 小 padding」，视觉上白底贴合文字。
+     *
+     * 文字超出气泡（长译文）时保持原 `calculateExpandedRect` 的扩展语义，保证文字完整显示。
+     */
+    private fun calculateCompactRect(
+        rect: Rect,
+        text: String,
+        direction: TextDirection,
+        fontSize: Float
+    ): Rect {
+        val charHeight = fontSize * 1.4f
+        val columnSpacing = fontSize * 1.2f
+        val padding = (fontSize * 0.4f).toInt()
+
+        val textW: Float
+        val textH: Float
+        when (direction) {
+            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> {
+                val charsPerColumn = maxOf(1, (rect.height() / charHeight).toInt())
+                val columns = (text.length + charsPerColumn - 1) / charsPerColumn
+                textW = columns * columnSpacing
+                textH = minOf(text.length, charsPerColumn) * charHeight
+            }
+            TextDirection.HORIZONTAL -> {
+                val paint = Paint().apply { textSize = fontSize }
+                val maxLineWidth = rect.width().toFloat()
+                var lines = 0
+                var maxLineW = 0f
+                for (paragraph in text.split("\n")) {
+                    if (paragraph.isEmpty()) { lines++; continue }
+                    var remaining = paragraph
+                    while (remaining.isNotEmpty()) {
+                        val count = paint.breakText(remaining, true, maxLineWidth, null)
+                        if (count <= 0) break
+                        val line = remaining.substring(0, count)
+                        maxLineW = maxOf(maxLineW, paint.measureText(line))
+                        remaining = remaining.substring(count)
+                        lines++
+                    }
+                }
+                textW = maxLineW
+                textH = lines * charHeight
+            }
+        }
+
+        // 文字本体超出气泡 → 保持原扩展语义（文字完整显示，重叠检测兜底）
+        if (textW > rect.width() || textH > rect.height()) {
+            return calculateExpandedRect(rect, text, direction, fontSize)
+        }
+
+        // 收缩居中：背景贴合文字，气泡内其余区域露出原图（避免大片空白）
+        val w = (textW + 2 * padding).toInt().coerceIn(1, rect.width())
+        val h = (textH + 2 * padding).toInt().coerceIn(1, rect.height())
+        val left = rect.centerX() - w / 2
+        val top = rect.centerY() - h / 2
+        return Rect(left, top, left + w, top + h)
     }
 
     private fun hasOverlap(rect: Rect, existing: List<Rect>): Boolean {

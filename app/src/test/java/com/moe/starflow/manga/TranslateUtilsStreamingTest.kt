@@ -47,8 +47,9 @@ class TranslateUtilsStreamingTest {
 
     @Test
     fun skippedNumber_preservedForAlignment() {
-        // 模型跳号输出 [1] [3] [4]：编号保留，调用方按编号对位，不会把 [3] 的文本贴到第 2 个气泡上
-        val parsed = parseNumberedTranslationsPartial("[1] a [3] c [4] d")
+        // 模型跳号输出 [1] [3] [4]：编号保留，调用方按编号对位，不会把 [3] 的文本贴到第 2 个气泡上。
+        // 末尾给一个未完整的 [5] 占位，让 [4] 成为「已完整」条目被保留（最后一条未确认完整会被跳过）
+        val parsed = parseNumberedTranslationsPartial("[1] a [3] c [4] d [5]")
         assertEquals(listOf(1 to "a", 3 to "c", 4 to "d"), parsed)
     }
 

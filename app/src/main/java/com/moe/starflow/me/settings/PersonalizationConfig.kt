@@ -322,7 +322,8 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
     }
 
     private fun updateFontSizeSummary() {
-        resultFontSize.summary = getString(R.string.font_size_summary, prefs.getFloat("Custom_Result_Font_Size", 16f).toString())
+        resultFontSize.summary = getString(R.string.font_size_summary, prefs.getFloat("Custom_Result_Font_Size", 16f).toString()) + "\n" +
+            getString(R.string.font_size_range, Dialogs.FONT_SIZE_MIN.toInt().toString(), Dialogs.FONT_SIZE_MAX.toInt().toString())
     }
 
     // 手势 key 列表，用于互换逻辑

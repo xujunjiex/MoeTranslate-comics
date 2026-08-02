@@ -165,8 +165,9 @@
     <string name="set_success">设置成功</string>
     <string name="font_failed">字体设置失败：%s</string>
     <string name="font_size_float">可以输入小数</string>
+    <string name="font_size_range">范围：%1$s-%2$s</string>
     <string name="font_size_setting">设置字体大小</string>
-    <string name="font_size_invalid">请输入有效的数字</string>
+    <string name="font_size_invalid">请输入有效数字（%1$s-%2$s）</string>
     <string name="font_size_summary">当前大小：%s\n可以输入小数</string>
     <string name="font_size_title">字体大小</string>
     <string name="font_size_hint">当前大小：%s</string>

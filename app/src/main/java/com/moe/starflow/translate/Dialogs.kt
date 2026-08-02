@@ -46,6 +46,13 @@ data class DialogResult(
 
 object Dialogs {
     /**
+     * 游戏模式结果字号范围（sp）。
+     * 悬浮窗填字号对话框校验 + 个性化页 summary 共用，strings 用占位符引用保持一致。
+     */
+    const val FONT_SIZE_MIN = 4f
+    const val FONT_SIZE_MAX = 100f
+
+    /**
      * 根据屏幕宽度 dp 计算菜单缩放因子。
      * 360dp → 0.825, 480dp+ → 1.0（不缩放）。
      */
@@ -357,7 +364,8 @@ object Dialogs {
         // 布局文件方式
         val layout = LayoutInflater.from(context).inflate(R.layout.dialog_message_edittext, null)
         layout.findViewById<TextView>(R.id.dialog_top_message).apply {
-            text = context.getString(R.string.font_size_float)
+            text = context.getString(R.string.font_size_float) + "\n" +
+                context.getString(R.string.font_size_range, FONT_SIZE_MIN.toInt().toString(), FONT_SIZE_MAX.toInt().toString())
         }
         val editText = layout.findViewById<EditText>(R.id.dialog_bottom_edittext).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -372,8 +380,8 @@ object Dialogs {
                 val sizeText = editText.text.toString()
                 try {
                     val size = sizeText.toFloat()
-                    // 字号范围限制：8sp-72sp。太小看不见，太大溢出屏幕
-                    if (size in 8f..72f) {
+                    // 字号范围限制：太小看不见，太大溢出屏幕
+                    if (size in FONT_SIZE_MIN..FONT_SIZE_MAX) {
                         // 保存字体大小
                         prefs.setFloat("Custom_Result_Font_Size", size)
                         if (view != null){
@@ -384,10 +392,10 @@ object Dialogs {
                         // 回调通知设置完成
                         onSizeSet?.invoke(size)
                     } else {
-                        Toast.makeText(context, context.getString(R.string.font_size_invalid), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.font_size_invalid, FONT_SIZE_MIN.toInt().toString(), FONT_SIZE_MAX.toInt().toString()), Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, context.getString(R.string.font_size_invalid), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.font_size_invalid, FONT_SIZE_MIN.toInt().toString(), FONT_SIZE_MAX.toInt().toString()), Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton(R.string.user_cancel, null)
