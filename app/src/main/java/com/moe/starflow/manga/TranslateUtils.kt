@@ -5,13 +5,17 @@ import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import translationapi.hymt2translation.HyMT2Translation
 import translationapi.openaitranslation.OpenAITranslation
 import java.util.LinkedList
 import kotlin.coroutines.resume
@@ -25,6 +29,15 @@ object TranslateUtils {
 
     private const val TAG = "TranslateUtils"
 
+    // 带编号翻译结果的行匹配：`[N] 文本`（N 可为任意数字，前缀 [N]、N.、N、 也兼容）。两个解析器共用，避免行为漂移。
+    private val NUMBERED_TRANSLATION_REGEX = Regex("""\[(\d+)]\s*([\s\S]*?)(?=\[\d+]|$)""")
+
+    // 批量翻译超时策略：
+    //  - 网络 API：请求发出起 35s 内必须返回（无响应即超时）
+    //  - 本地引擎（Hy-MT2）：不设总时长（本地总会翻完），改为「30s 无任何新输出」的卡死看门狗
+    private const val API_TIMEOUT_MS = 35_000L
+    private const val LOCAL_STALL_TIMEOUT_MS = 30_000L
+
     // ========== 对外入口 ==========
 
     /**
@@ -37,7 +50,9 @@ object TranslateUtils {
         targetLang: String,
         prefs: CustomPreference,
         contextHistory: LinkedList<Pair<String, String>> = LinkedList(),
-        forceContext: Boolean = false
+        forceContext: Boolean = false,
+        onPhase: (String) -> Unit = {},
+        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
     ): List<TranslatedBubble> {
         LogCollector.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translator=${translator.javaClass.simpleName}")
 
@@ -69,12 +84,15 @@ object TranslateUtils {
         }
         if (preparedBubbles.isEmpty()) return symbolOnlyBubbles
 
-        // AI 翻译（OpenAI 兼容）用批量请求，机器翻译用逐个请求
+        // AI 翻译（OpenAI 兼容 / 本地 Hy-MT2）用批量请求，其余机器翻译用逐个请求
+        // Hy-MT2 走批量：输入 [N] 编号，模型按官方默认模板只输出译文并保持 [N] 编号，管线按编号解析
         val isAI = translator is OpenAITranslation
                 || translator.javaClass.simpleName.contains("Custom")
+                || translator is HyMT2Translation
 
-        val translatedResults = if (isAI && preparedBubbles.size > 1) {
-            translateBubblesBatch(translator, preparedBubbles, sourceLang, targetLang, prefs, contextHistory, forceContext)
+        val translatedResults = if (isAI && (preparedBubbles.size > 1 || translator is HyMT2Translation)) {
+            // Hy-MT2 即使只有 1 个气泡也走批量编号+流式路径：统一享受「30s 无输出卡死检测」，避免 sequential 的 30s 总时限误杀
+            translateBubblesBatch(translator, preparedBubbles, sourceLang, targetLang, prefs, contextHistory, forceContext, onPhase, onPartialBubbles)
         } else {
             translateBubblesSequential(translator, preparedBubbles, sourceLang, targetLang)
         }
@@ -94,7 +112,9 @@ object TranslateUtils {
         targetLang: String,
         prefs: CustomPreference,
         contextHistory: LinkedList<Pair<String, String>> = LinkedList(),
-        forceContext: Boolean = false
+        forceContext: Boolean = false,
+        onPhase: (String) -> Unit = {},
+        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
     ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
         LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles, forceContext=$forceContext")
 
@@ -119,33 +139,97 @@ object TranslateUtils {
             currentContextEnabled
         )
 
-        // 用 suspendCancellableCoroutine 等待 callback：协程被 cancel 时立即返回，不再阻塞线程
-        val completed = withTimeoutOrNull(35_000L) {
-            suspendCancellableCoroutine<Unit> { cont ->
+        // 等待翻译结果。超时策略：
+        //  - 网络 API：请求发出起 API_TIMEOUT_MS 内必须返回（无响应即超时）
+        //  - 本地引擎（Hy-MT2）：不设总时长（本地总会翻完），由看门狗按「30s 无新输出」判卡死——有输出就一直等
+        val isLocalEngine = translator is HyMT2Translation
+        val lastProgressAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
+        val translationFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+        val contRef = java.util.concurrent.atomic.AtomicReference<CancellableContinuation<Unit>?>(null)
+
+        val watchdogJob = if (isLocalEngine) launch {
+            while (!translationFinished.get()) {
+                delay(500)
+                if (System.currentTimeMillis() - lastProgressAt.get() > LOCAL_STALL_TIMEOUT_MS) {
+                    timedOut.set(true)
+                    translationFinished.set(true)
+                    translator.cancelTranslation()  // 中止引擎，释放 g_mutex
+                    // 强制结束等待：即使 native 彻底卡死不回调，也解除阻塞向上抛错
+                    contRef.get()?.let { if (it.isActive) it.resume(Unit) }
+                    break
+                }
+            }
+        } else null
+
+        val waitForResult: suspend () -> Unit = {
+            suspendCancellableCoroutine { cont ->
+                contRef.set(cont)
                 cont.invokeOnCancellation {
                     // 协程被取消时尝试主动取消翻译任务
                     translator.cancelTranslation()
                 }
-                translator.getTranslation(
+                var lastRenderedCount = 0
+                translator.getTranslationStreaming(
                     numberedText,
                     sourceLang,
-                    targetLang
-                ) { result ->
-                    when (result) {
-                        is TranslationResult.Success -> {
-                            resultText = result.translatedText
+                    targetLang,
+                    onPhase = { phase ->
+                        if (isLocalEngine) lastProgressAt.set(System.currentTimeMillis())
+                        onPhase(phase)
+                    },
+                    onPartial = { partialText ->
+                        if (isLocalEngine) lastProgressAt.set(System.currentTimeMillis())
+                        // 流式：解析已完整的气泡条目并回调渲染（每完成一个气泡渲染一次）
+                        val completed = parseNumberedTranslationsPartial(partialText)
+                        if (completed.size > lastRenderedCount && completed.isNotEmpty()) {
+                            lastRenderedCount = completed.size
+                            // 按 [N] 编号匹配气泡；越界/幻觉编号（如超出输入条数）跳过，防止 IndexOutOfBounds 与错位
+                            val partialBubbles = completed.mapNotNull { (number, translated) ->
+                                val index = number - 1
+                                if (index !in bubbles.indices) return@mapNotNull null
+                                val (bubble, originalText) = bubbles[index]
+                                TranslatedBubble(
+                                    rect = bubble.rect,
+                                    originalText = originalText,
+                                    translatedText = translated,
+                                    backgroundColor = Color.TRANSPARENT,
+                                    fontSize = bubble.fontSize,
+                                    direction = bubble.direction,
+                                    angle = bubble.angle,
+                                    centerX = bubble.centerX,
+                                    centerY = bubble.centerY
+                                )
+                            }
+                            if (partialBubbles.isNotEmpty()) onPartialBubbles(partialBubbles)
                         }
-                        is TranslationResult.Error -> {
-                            errorMsg = result.error.message ?: "Unknown error"
+                    },
+                    callback = { result ->
+                        translationFinished.set(true)
+                        watchdogJob?.cancel()
+                        contRef.set(null)
+                        when (result) {
+                            is TranslationResult.Success -> {
+                                resultText = result.translatedText
+                            }
+                            is TranslationResult.Error -> {
+                                errorMsg = result.error.message ?: "Unknown error"
+                            }
                         }
+                        if (cont.isActive) cont.resume(Unit)
                     }
-                    if (cont.isActive) cont.resume(Unit)
-                }
+                )
             }
+        }
+        val completed = if (isLocalEngine) waitForResult() else withTimeoutOrNull(API_TIMEOUT_MS) { waitForResult() }
+        watchdogJob?.cancel()
+        if (timedOut.get()) {
+            translator.cancelTranslation()
+            throw RuntimeException("本地翻译引擎无响应（${LOCAL_STALL_TIMEOUT_MS / 1000}s 无新输出）")
         }
         if (completed == null) {
             translator.cancelTranslation()
-            throw RuntimeException("AI batch translation timeout (35s)")
+            throw RuntimeException("AI batch translation timeout (${API_TIMEOUT_MS / 1000}s)")
         }
         if (errorMsg != null) {
             throw RuntimeException("AI batch translation failed: $errorMsg")
@@ -247,6 +331,9 @@ object TranslateUtils {
 
                 val completed = latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
                 if (!completed) {
+                    // 超时：主动取消翻译任务。Hy-MT2 等本地引擎取消后解码循环提前退出，释放占用的引擎，
+                    // 否则该线程会继续生成并阻塞后续所有翻译。
+                    translator.cancelTranslation()
                     errorMsg = "Translation timeout (30s)"
                 }
 
@@ -331,8 +418,7 @@ object TranslateUtils {
     fun parseNumberedTranslations(text: String, expectedCount: Int): List<String> {
         val results = mutableListOf<String>()
         // 匹配 [N] 或 N. 或 N、开头的行
-        val pattern = Regex("""\[(\d+)]\s*([\s\S]*?)(?=\[\d+]|$)""")
-        val matches = pattern.findAll(text).toList()
+        val matches = NUMBERED_TRANSLATION_REGEX.findAll(text).toList()
 
         if (matches.size >= expectedCount) {
             for (match in matches.take(expectedCount)) {
@@ -354,6 +440,22 @@ object TranslateUtils {
             results.add("")
         }
         return results.take(expectedCount)
+    }
+
+    /**
+     * 解析带编号翻译结果中「已完整」的条目（仅流式显示用）。
+     * 一条目后跟有下一个 [N] 才视为完整；最后一条可能仍在生成中，跳过不渲染。
+     * 返回 (编号, 文本) 对，调用方按编号匹配气泡，可跳过越界/幻觉编号，防止错位与崩溃。
+     */
+    fun parseNumberedTranslationsPartial(text: String): List<Pair<Int, String>> {
+        val results = mutableListOf<Pair<Int, String>>()
+        val matches = NUMBERED_TRANSLATION_REGEX.findAll(text).toList()
+        for (idx in 0 until matches.size - 1) {
+            val number = matches[idx].groupValues[1].toIntOrNull()
+            val content = matches[idx].groupValues[2].trim()
+            if (number != null) results.add(number to content)
+        }
+        return results
     }
 
     // ========== 文字处理 ==========

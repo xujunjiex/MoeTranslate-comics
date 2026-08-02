@@ -9,10 +9,14 @@ object HyMt2Native {
     /** 加载模型 + 建 context。返回句柄，0 = 失败。 */
     external fun nativeInit(modelPath: String, nThreads: Int, nCtx: Int): Long
 
-    /** 翻译一段已拼装好提示词的文本，返回译文。 */
+    /**
+     * 翻译一段已拼装好提示词的文本，返回译文。
+     * @param prefix 固定指令前缀（不含待翻译文本），用于前缀 KV 缓存；传空串则每次都全量 prefill。
+     */
     external fun nativeTranslate(
         handle: Long,
         prompt: String,
+        prefix: String,
         temperature: Float,
         topP: Float,
         topK: Int,
@@ -20,6 +24,35 @@ object HyMt2Native {
         maxTokens: Int
     ): String
 
+    /**
+     * 流式翻译：生成过程中回调阶段与译文片段（后台线程）。返回完整译文。
+     * @param prefix 固定指令前缀（不含待翻译文本），用于前缀 KV 缓存；传空串则每次都全量 prefill。
+     */
+    external fun nativeTranslateStreaming(
+        handle: Long,
+        prompt: String,
+        prefix: String,
+        temperature: Float,
+        topP: Float,
+        topK: Int,
+        repetitionPenalty: Float,
+        maxTokens: Int,
+        callback: HyMt2StreamCallback
+    ): String
+
     /** 释放模型与 context。 */
     external fun nativeRelease(handle: Long)
+
+    /** 中止当前翻译（原子置位，解码循环提前退出）。 */
+    external fun nativeAbort(handle: Long)
+}
+
+/**
+ * 流式翻译回调：
+ * - [onPhase]：阶段通知，phase = "prefill"（读取原文中）/ "generate"（生成译文中）
+ * - [onToken]：每生成一段译文回调，text 为「累积到当前的完整译文」
+ */
+interface HyMt2StreamCallback {
+    fun onPhase(phase: String)
+    fun onToken(text: String)
 }

@@ -1657,7 +1657,25 @@ class FloatingBallService : LifecycleService() {
             contextEnabled
         )
 
-        translatorText?.getTranslation(str, sourceLang, targetLang) { result ->
+        translatorText?.getTranslationStreaming(
+            str, sourceLang, targetLang,
+            onPhase = { phase ->
+                // 阶段提示：读取原文中 → 生成译文中
+                lifecycleScope.launch(Dispatchers.Main) {
+                    when (phase) {
+                        "prefill" -> statusOverlay.showImmediate("读取原文中…", autoDismiss = false)
+                        "generate" -> statusOverlay.showImmediate("翻译中…", autoDismiss = false)
+                    }
+                }
+            },
+            onPartial = { partial ->
+                // 流式显示：Hy-MT2 等本地引擎边生成边更新悬浮窗，不等翻译完成
+                lifecycleScope.launch(Dispatchers.Main) {
+                    if (!isResultViewShowing) showResultView()
+                    translationResultView.setText(partial)
+                }
+            },
+            callback = { result ->
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
@@ -1713,7 +1731,8 @@ class FloatingBallService : LifecycleService() {
                 }
                 isTranslating.set(false)
             }
-        }
+            }
+        )
     }
 
     private fun translateByPic(bitmap: Bitmap){

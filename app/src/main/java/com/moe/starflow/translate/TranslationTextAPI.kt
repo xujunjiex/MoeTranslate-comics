@@ -36,6 +36,23 @@ interface TranslationTextAPI {
         callback: (TranslationResult) -> Unit
     )
 
+    /**
+     * 流式翻译：支持边生成边回调部分译文的实现覆盖此方法；不支持的实现用默认实现（= 一次性翻译，onPhase/onPartial 不会被调用）。
+     * onPhase / onPartial 在后台线程回调，调用方需自行切到主线程更新 UI。
+     * @param onPhase 阶段回调："prefill"（读取原文）/ "generate"（生成译文）
+     * @param onPartial 部分译文回调（累积到当前的完整译文）
+     */
+    fun getTranslationStreaming(
+        text: String,
+        sourceLanguage: String,
+        targetLanguage: String,
+        onPhase: (String) -> Unit,
+        onPartial: (String) -> Unit,
+        callback: (TranslationResult) -> Unit
+    ) {
+        getTranslation(text, sourceLanguage, targetLanguage, callback)
+    }
+
     // 用于取消正在进行的翻译任务
     fun cancelTranslation()
 
