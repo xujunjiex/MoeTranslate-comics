@@ -42,4 +42,10 @@
         android:label="fragment_about_me"
         tools:layout="@layout/fragment_about_me" />
 
+    <fragment
+        android:id="@+id/text_translate_fragment"
+        android:name="com.moe.starflow.translate.TextTranslateFragment"
+        android:label="fragment_text_translate"
+        tools:layout="@layout/fragment_text_translate" />
+
 </navigation>
