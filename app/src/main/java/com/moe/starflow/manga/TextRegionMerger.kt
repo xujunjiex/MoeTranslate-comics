@@ -183,12 +183,13 @@ object TextRegionMerger {
      *
      * @return true 表示应合并
      */
-    private fun canMergeRegion(a: TextRegion, b: TextRegion): Boolean {
+    private fun canMergeRegion(a: TextRegion, b: TextRegion, aIndex: Int, bIndex: Int): Boolean {
         val charSize = min(a.quad.fontSize, b.quad.fontSize)
         if (charSize <= 0f) return false
 
-        val tagA = "\"${(a.text ?: "").take(8)}\""
-        val tagB = "\"${(b.text ?: "").take(8)}\""
+        // 编号 = 输入框索引（与调试面板「原始识别」的 [i] 对应）
+        val tagA = "[$aIndex]\"${(a.text ?: "").take(8)}\""
+        val tagB = "[$bIndex]\"${(b.text ?: "").take(8)}\""
 
         val aAA = isApproxAxisAligned(a.quad)
         val bAA = isApproxAxisAligned(b.quad)
@@ -457,7 +458,7 @@ object TextRegionMerger {
             val adjacency = Array(n) { mutableSetOf<Int>() }
             for (i in 0 until n) {
                 for (j in i + 1 until n) {
-                    if (canMergeRegion(regions[i], regions[j])) {
+                    if (canMergeRegion(regions[i], regions[j], i, j)) {
                         adjacency[i].add(j)
                         adjacency[j].add(i)
                     }
