@@ -66,14 +66,31 @@ class TextTranslateFragment : Fragment() {
         val prefs = CustomPreference.getInstance(requireContext()).getSharedPreferences()
         // 显示名带语言码后缀（如"中文（zh）"），避免中文各变体混淆
         val labels = languages.map { nameOf(it) }
-        val adapter = android.widget.ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, labels)
-        b.srcLangSelect.setAdapter(adapter)
-        b.tgtLangSelect.setAdapter(adapter)
+        b.srcLangSelect.setAdapter(langAdapter(labels))
+        b.tgtLangSelect.setAdapter(langAdapter(labels))
         val srcIdx = languages.indexOf(prefs.getString("Source_Language", "ja")).coerceAtLeast(0)
         val tgtIdx = languages.indexOf(prefs.getString("Target_Language", "zh")).coerceAtLeast(0)
         b.srcLangSelect.setText(labels[srcIdx], false)
         b.tgtLangSelect.setText(labels[tgtIdx], false)
     }
+
+    /**
+     * 语言下拉适配器：Filter 恒返回全部列表。
+     * ⚠️ MaterialAutoCompleteTextView 展开时默认按当前文本过滤（如"中文"→只剩中文/中文台湾），
+     *    必须禁用过滤，否则其他语言从下拉里消失。
+     */
+    private fun langAdapter(labels: List<String>): android.widget.ArrayAdapter<String> =
+        object : android.widget.ArrayAdapter<String>(requireContext(), android.R.layout.simple_list_item_1, labels) {
+            override fun getFilter(): android.widget.Filter = object : android.widget.Filter() {
+                override fun performFiltering(constraint: CharSequence?): android.widget.Filter.FilterResults =
+                    android.widget.Filter.FilterResults().apply { values = labels; count = labels.size }
+                override fun publishResults(constraint: CharSequence?, results: android.widget.Filter.FilterResults?) {
+                    clear()
+                    addAll(labels)
+                    notifyDataSetChanged()
+                }
+            }
+        }
 
     private fun setupEngine(b: FragmentTextTranslateBinding) {
         val prefs = CustomPreference.getInstance(requireContext())
