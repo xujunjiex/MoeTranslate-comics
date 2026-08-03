@@ -23,7 +23,7 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import android.view.MotionEvent
 import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.ui.setupWithNavController
+import com.moe.starflow.translate.TextTranslateFragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
 class MainActivity : BaseActivity() {
@@ -44,7 +44,22 @@ class MainActivity : BaseActivity() {
         val navHost = supportFragmentManager.findFragmentById(R.id.fragment_view) as NavHostFragment
         val navController = navHost.navController
         val bottomNavigation:BottomNavigationView=findViewById(R.id.bottomNavigation)
-        bottomNavigation.setupWithNavController(navController)
+        // 自定义选中监听：文本翻译页翻译中切换 → 弹确认框（强制终止/不记录）
+        bottomNavigation.setOnItemSelectedListener { item ->
+            val destId = item.itemId
+            val currentId = navController.currentDestination?.id
+            if (currentId != destId) {
+                if (currentId == R.id.text_translate_fragment && destId != R.id.text_translate_fragment) {
+                    val frag = navHost.childFragmentManager.fragments.firstOrNull() as? TextTranslateFragment
+                    if (frag?.isTranslating == true) {
+                        frag.confirmLeave { navController.navigate(destId) }
+                        return@setOnItemSelectedListener false
+                    }
+                }
+                navController.navigate(destId)
+            }
+            true
+        }
 
         // Android 13+ 请求通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

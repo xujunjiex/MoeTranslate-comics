@@ -33,7 +33,11 @@ class TextTranslateFragment : Fragment() {
     private var binding: FragmentTextTranslateBinding? = null
     private var translator: TranslationTextAPI? = null
     private var lastEngineKey: String? = null
-    private var translating = false
+    /** 是否正在翻译（MainActivity 拦截底部导航切换用） */
+    @Volatile var isTranslating = false
+    private var leaveDialogShowing = false
+    private var pendingLeave: (() -> Unit)? = null
+    private var forceLeaveCancelled = false
 
     // 当前源/目标语言码（语言选择对话框更新；⇄ 互换时对调）
     private var srcCode = "ja"
@@ -130,7 +134,7 @@ class TextTranslateFragment : Fragment() {
 
     private fun translate() {
         val b = binding ?: return
-        if (translating) return  // 翻译中忽略再次点击
+        if (isTranslating) return  // 翻译中忽略再次点击
         val text = b.inputEdit.text?.toString()?.trim().orEmpty()
         if (text.isEmpty()) {
             b.outputText.text = getString(R.string.text_translate_input_hint)
@@ -155,7 +159,8 @@ class TextTranslateFragment : Fragment() {
             b.outputText.text = getString(R.string.text_translate_engine_init_failed)
             return
         }
-        translating = true
+        forceLeaveCancelled = false
+        isTranslating = true
         b.translateButton.isEnabled = false
         b.outputText.text = getString(R.string.manga_translating)
         lifecycleScope.launch {
@@ -174,21 +179,66 @@ class TextTranslateFragment : Fragment() {
                 },
                 callback = { result ->
                     lifecycleScope.launch {
-                        translating = false
+                        isTranslating = false
                         b.translateButton.isEnabled = true
                         when (result) {
                             is TranslationResult.Success -> {
                                 b.outputText.text = result.translatedText
-                                saveRecord(text, result.translatedText, srcCode, tgtCode)
+                                if (forceLeaveCancelled) {
+                                    // 已确认强制切换：不记录
+                                } else if (pendingLeave != null) {
+                                    // 切换确认弹窗期间正常完成：正常记录 + 执行待定切换
+                                    saveRecord(text, result.translatedText, srcCode, tgtCode)
+                                    val leave = pendingLeave
+                                    pendingLeave = null
+                                    leaveDialogShowing = false
+                                    leave?.invoke()
+                                } else {
+                                    saveRecord(text, result.translatedText, srcCode, tgtCode)
+                                }
                             }
                             is TranslationResult.Error -> {
-                                b.outputText.text = getString(R.string.translation_failed, result.error.message ?: "")
+                                if (!forceLeaveCancelled) {
+                                    b.outputText.text = getString(R.string.translation_failed, result.error.message ?: "")
+                                }
                             }
                         }
                     }
                 }
             )
         }
+    }
+
+    /**
+     * MainActivity 拦截底部导航切换时调用：翻译中弹确认框。
+     * - 「切换页面」→ 强制终止翻译、不记录，执行切换
+     * - 「继续翻译」→ 留在本页
+     * - 弹窗期间翻译正常完成 → 正常记录并自动执行切换
+     */
+    fun confirmLeave(onLeave: () -> Unit) {
+        if (!isTranslating || leaveDialogShowing) { onLeave(); return }
+        leaveDialogShowing = true
+        pendingLeave = onLeave
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setMessage(R.string.text_translate_leave_confirm)
+            .setPositiveButton(R.string.text_translate_leave_button) { _, _ ->
+                leaveDialogShowing = false
+                pendingLeave = null
+                forceLeaveCancelled = true
+                translator?.cancelTranslation()
+                onLeave()
+            }
+            .setNegativeButton(R.string.text_translate_stay_button) { _, _ ->
+                leaveDialogShowing = false
+                pendingLeave = null
+            }
+            .setOnCancelListener {
+                leaveDialogShowing = false
+                pendingLeave = null
+            }
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun swapLanguages() {
@@ -290,13 +340,14 @@ class TextTranslateFragment : Fragment() {
     private fun showLimitDialog() {
         val prefs = CustomPreference.getInstance(requireContext())
         val current = prefs.getInt("text_translate_record_limit", 100).coerceIn(0, 200)
-        val input = android.widget.EditText(requireContext()).apply {
+        val view = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_record_limit, null, false)
+        val input = view.findViewById<android.widget.EditText>(R.id.limitInput).apply {
             setText(current.toString())
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setSelection(text.length)
         }
         val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle(R.string.text_translate_limit_title)
-            .setView(input)
+            .setView(view)
             .setPositiveButton(R.string.user_known) { _, _ ->
                 val v = input.text?.toString()?.toIntOrNull()?.coerceIn(0, 200) ?: current
                 prefs.setInt("text_translate_record_limit", v)
