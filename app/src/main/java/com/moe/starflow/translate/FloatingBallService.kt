@@ -1090,19 +1090,19 @@ class FloatingBallService : LifecycleService() {
                     var histDialog: android.app.AlertDialog? = null
                     histDialog = Dialogs.historyDialog(this@FloatingBallService, items,
                         onItemClick = { position ->
-                            // 点击：复制译文 + 关闭历史菜单（Toast 不被遮挡）
+                            // 点击：复制译文，菜单保持打开（遮挡由列表限高解决）
                             val selected = historyList[position]
                             selected.translatedText?.let { text ->
                                 (getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager)
                                     ?.setPrimaryClip(ClipData.newPlainText("translation", text))
                                 UiUtils.showToast(this@FloatingBallService, "已复制译文", isShort = true)
                             }
-                            histDialog?.dismiss()
                         },
                         onItemLongClick = { position ->
-                            // 长按：关闭历史菜单 + 重新翻译（结果显示在悬浮窗不被遮挡；
+                            // 长按：关闭菜单 + 重新翻译（提示"重新翻译中"，结果显示在悬浮窗不被遮挡；
                             // 数据库同源记录由 refreshGameCache 替换，不新增重复条目）
                             histDialog?.dismiss()
+                            statusOverlay.showImmediate("重新翻译中…", autoDismiss = false)
                             val selected = historyList[position]
                             if (!selected.sourceText.isNullOrEmpty()) {
                                 translateByText(selected.sourceText)
@@ -1112,7 +1112,13 @@ class FloatingBallService : LifecycleService() {
                     histDialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
                     histDialog.show()
                     histDialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                    histDialog.window?.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    // 限制菜单尺寸（最大 80% 屏宽 × 60% 屏高）：历史多时 ListView 滚动而非占满整页，
+                    // 底部系统 Toast / 悬浮窗下层内容可见
+                    val screenSize = getScreenSize()
+                    histDialog.window?.setLayout(
+                        (screenSize.width * 0.8).toInt(),
+                        (screenSize.height * 0.6).toInt()
+                    )
                 }
             } catch (e: Exception) {
                 LogCollector.e("FloatingBallService", "显示翻译历史失败", e)
