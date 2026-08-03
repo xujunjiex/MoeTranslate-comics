@@ -141,6 +141,9 @@ object Dialogs {
         welcome.text = ctx.getString(R.string.game_translation_history)
         img.setImageResource(R.drawable.ic_history)
         lv.adapter = HistoryListAdapter(ctx, items)
+        // 防止 item 内子 View 抢焦点导致首次点击被消耗（首次触摸聚焦、第二次才触发 click）
+        lv.isFocusableInTouchMode = false
+        lv.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         lv.setOnItemClickListener { _, _, position, _ ->
             onItemClick(position)
         }

@@ -61,6 +61,7 @@ import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.KeystoreManager
 import com.moe.starflow.utils.TranslationStatusOverlay
+import com.moe.starflow.utils.UiUtils
 import com.moe.starflow.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -1088,12 +1089,12 @@ class FloatingBallService : LifecycleService() {
                 withContext(Dispatchers.Main) {
                     val histDialog = Dialogs.historyDialog(this@FloatingBallService, items,
                         onItemClick = { position ->
-                            // 点击：直接复制译文到剪贴板
+                            // 点击：直接复制译文到剪贴板（复制是一次性操作反馈 → 系统 Toast，避免 overlay 提示首帧不显示）
                             val selected = historyList[position]
                             selected.translatedText?.let { text ->
                                 (getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager)
                                     ?.setPrimaryClip(ClipData.newPlainText("translation", text))
-                                showToast("已复制译文", true)
+                                UiUtils.showToast(this@FloatingBallService, "已复制译文", isShort = true)
                             }
                         },
                         onItemLongClick = { position ->
