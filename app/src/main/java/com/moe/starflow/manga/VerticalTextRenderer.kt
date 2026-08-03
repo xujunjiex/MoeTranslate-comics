@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Typeface
 
 object VerticalTextRenderer {
 
@@ -15,13 +16,15 @@ object VerticalTextRenderer {
         fontSize: Float = 16f,
         textColor: Int = Color.BLACK,
         centered: Boolean = false,
-        columnSpacingOverride: Float? = null
+        columnSpacingOverride: Float? = null,
+        fontTypeface: Typeface? = null
     ) {
         val paint = Paint().apply {
             color = textColor
             textSize = fontSize
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
+            typeface = fontTypeface ?: Typeface.DEFAULT
         }
 
         val charHeight = fontSize * 1.2f
@@ -67,13 +70,15 @@ object VerticalTextRenderer {
         fontSize: Float = 16f,
         textColor: Int = Color.BLACK,
         centered: Boolean = false,
-        columnSpacingOverride: Float? = null
+        columnSpacingOverride: Float? = null,
+        fontTypeface: Typeface? = null
     ) {
         val paint = Paint().apply {
             color = textColor
             textSize = fontSize
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
+            typeface = fontTypeface ?: Typeface.DEFAULT
         }
 
         val charHeight = fontSize * 1.2f
@@ -116,12 +121,14 @@ object VerticalTextRenderer {
         text: String,
         region: Rect,
         fontSize: Float = 16f,
-        textColor: Int = Color.BLACK
+        textColor: Int = Color.BLACK,
+        fontTypeface: Typeface? = null
     ) {
         val paint = Paint().apply {
             color = textColor
             textSize = fontSize
             isAntiAlias = true
+            typeface = fontTypeface ?: Typeface.DEFAULT
         }
 
         val lineHeight = fontSize * 1.2f
@@ -157,16 +164,17 @@ object VerticalTextRenderer {
         textColor: Int = Color.BLACK,
         autoFit: Boolean = true,
         centered: Boolean = false,
-        columnSpacingOverride: Float? = null
+        columnSpacingOverride: Float? = null,
+        fontTypeface: Typeface? = null
     ) {
         var actualFontSize = fontSize
         if (autoFit) {
             actualFontSize = calculateFitFontSize(text, region, direction, fontSize)
         }
         when (direction) {
-            TextDirection.VERTICAL_RL -> drawVerticalTextRL(canvas, text, region, actualFontSize, textColor, centered, columnSpacingOverride)
-            TextDirection.VERTICAL_LR -> drawVerticalTextLR(canvas, text, region, actualFontSize, textColor, centered, columnSpacingOverride)
-            TextDirection.HORIZONTAL -> drawHorizontalText(canvas, text, region, actualFontSize, textColor)
+            TextDirection.VERTICAL_RL -> drawVerticalTextRL(canvas, text, region, actualFontSize, textColor, centered, columnSpacingOverride, fontTypeface)
+            TextDirection.VERTICAL_LR -> drawVerticalTextLR(canvas, text, region, actualFontSize, textColor, centered, columnSpacingOverride, fontTypeface)
+            TextDirection.HORIZONTAL -> drawHorizontalText(canvas, text, region, actualFontSize, textColor, fontTypeface)
         }
     }
 

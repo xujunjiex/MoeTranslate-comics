@@ -1,12 +1,30 @@
 package com.moe.starflow.manga
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Typeface
+import com.moe.starflow.utils.CustomPreference
 
 object OverlayRenderer {
+
+    /**
+     * 加载自定义结果字体（`Custom_Result_Font`，文件在 `getExternalFilesDir/font/`）。
+     * 无设置/文件缺失/加载失败返回 null（调用方用默认字体）。游戏与漫画模式共用。
+     */
+    fun loadResultTypeface(context: Context, prefs: CustomPreference): Typeface? {
+        val name = prefs.getString("Custom_Result_Font", "")
+        if (name.isEmpty()) return null
+        return try {
+            val file = java.io.File(context.getExternalFilesDir(null), "font/$name")
+            if (file.exists()) Typeface.createFromFile(file) else null
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** 合并 overlay 的分隔记号：竖排组间 / 横排组间 */
     private const val VERTICAL_SEPARATOR = "◇"
@@ -74,7 +92,8 @@ object OverlayRenderer {
         textColor: Int = Color.BLACK,
         bgColor: Int = Color.argb(200, 255, 255, 255),
         useOriginalText: Boolean = false,
-        verticalDirection: TextDirection? = null
+        verticalDirection: TextDirection? = null,
+        fontTypeface: Typeface? = null
     ): Bitmap {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
@@ -197,7 +216,8 @@ object OverlayRenderer {
                 autoFit = false,
                 // 竖排列组水平居中：避免文字从右缘开始导致左侧整片空白
                 centered = true,
-                columnSpacingOverride = columnSpacing
+                columnSpacingOverride = columnSpacing,
+                fontTypeface = fontTypeface
             )
             canvas.restore()
             canvas.restore()

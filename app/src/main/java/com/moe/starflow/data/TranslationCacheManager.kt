@@ -223,6 +223,9 @@ class TranslationCacheManager(private val context: Context) {
         val translations = parseIndexedTextList(history.translatedText)
         val bubbles = rebuildBubblesFromCache(originals, translations, history.bubbleRects, config.fontSize, config.bgColor)
 
+        // 自定义字体（游戏/漫画共用 Custom_Result_Font），无则默认字体
+        val fontTypeface = OverlayRenderer.loadResultTypeface(context, com.moe.starflow.utils.CustomPreference.getInstance(context))
+
         // 3. 根据 forFullImage 决定渲染策略
         return@withContext if (forFullImage) {
             // MangaViewerActivity：在全屏原图上渲染，气泡坐标需映射
@@ -246,7 +249,8 @@ class TranslationCacheManager(private val context: Context) {
                         textColor = config.textColor,
                         bgColor = config.bgColor,
                         useOriginalText = (mode == OverlayMode.ORIGINAL),
-                        verticalDirection = config.textDirection
+                        verticalDirection = config.textDirection,
+                        fontTypeface = fontTypeface
                     )
                 } finally {
                     // fullBitmap 由 OverlayRenderer 内部 copy 后返回，需要 recycle 原图
@@ -280,7 +284,8 @@ class TranslationCacheManager(private val context: Context) {
                         textColor = config.textColor,
                         bgColor = config.bgColor,
                         useOriginalText = (mode == OverlayMode.ORIGINAL),
-                        verticalDirection = config.textDirection
+                        verticalDirection = config.textDirection,
+                        fontTypeface = fontTypeface
                     )
                 }
             } catch (e: Exception) {

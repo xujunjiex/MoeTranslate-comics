@@ -3063,7 +3063,8 @@ class MangaFloatingService : LifecycleService() {
                 autoFit = config.autoFontSize,
                 textColor = config.textColor,
                 bgColor = config.bgColor,
-                verticalDirection = config.textDirection
+                verticalDirection = config.textDirection,
+                fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs)
             )
         }
         withContext(Dispatchers.Main) {
@@ -3114,7 +3115,8 @@ class MangaFloatingService : LifecycleService() {
                 autoFit = config.autoFontSize,
                 textColor = config.textColor,
                 bgColor = config.bgColor,
-                verticalDirection = config.textDirection
+                verticalDirection = config.textDirection,
+                fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs)
             )
         }
 
@@ -3738,7 +3740,8 @@ class MangaFloatingService : LifecycleService() {
                     textColor = config.textColor,
                     bgColor = config.bgColor,
                     useOriginalText = copyOriginalMode,
-                    verticalDirection = config.textDirection
+                    verticalDirection = config.textDirection,
+                    fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs)
                 )
             }
             withContext(Dispatchers.Main) {
