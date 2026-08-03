@@ -13,7 +13,8 @@ object VerticalTextRenderer {
         text: String,
         region: Rect,
         fontSize: Float = 16f,
-        textColor: Int = Color.BLACK
+        textColor: Int = Color.BLACK,
+        centered: Boolean = false
     ) {
         val paint = Paint().apply {
             color = textColor
@@ -24,8 +25,21 @@ object VerticalTextRenderer {
 
         val charHeight = fontSize * 1.2f
         val columnSpacing = fontSize * 1.2f
-        var currentX = region.right - columnSpacing / 2
-        var currentY = region.top + fontSize
+        val charsPerColumn = maxOf(1, ((region.height() - fontSize) / charHeight).toInt() + 1)
+        val columns = (text.length + charsPerColumn - 1) / charsPerColumn
+        // 水平居中：列组中心对齐 region 中心（最右列中心）；否则从右缘开始
+        var currentX = if (centered) {
+            region.centerX() + (columns * columnSpacing) / 2f - columnSpacing / 2
+        } else {
+            region.right - columnSpacing / 2
+        }
+        // 垂直：单列短文字时文字块垂直居中（避免一列占满高但只有几个字）；多列从顶部开始（每列填满）
+        val textHeight = minOf(text.length, charsPerColumn) * charHeight
+        var currentY = if (centered && columns <= 1) {
+            (region.top + region.bottom - textHeight) / 2 + fontSize
+        } else {
+            region.top + fontSize
+        }
 
         // 裁剪到区域内，防止文字溢出
         canvas.save()
@@ -50,7 +64,8 @@ object VerticalTextRenderer {
         text: String,
         region: Rect,
         fontSize: Float = 16f,
-        textColor: Int = Color.BLACK
+        textColor: Int = Color.BLACK,
+        centered: Boolean = false
     ) {
         val paint = Paint().apply {
             color = textColor
@@ -61,8 +76,21 @@ object VerticalTextRenderer {
 
         val charHeight = fontSize * 1.2f
         val columnSpacing = fontSize * 1.2f
-        var currentX = region.left + columnSpacing / 2
-        var currentY = region.top + fontSize
+        val charsPerColumn = maxOf(1, ((region.height() - fontSize) / charHeight).toInt() + 1)
+        val columns = (text.length + charsPerColumn - 1) / charsPerColumn
+        // 水平居中：列组中心对齐 region 中心（最左列中心）；否则从左缘开始
+        var currentX = if (centered) {
+            region.centerX() - (columns * columnSpacing) / 2f + columnSpacing / 2
+        } else {
+            region.left + columnSpacing / 2
+        }
+        // 垂直：单列短文字时文字块垂直居中；多列从顶部开始
+        val textHeight = minOf(text.length, charsPerColumn) * charHeight
+        var currentY = if (centered && columns <= 1) {
+            (region.top + region.bottom - textHeight) / 2 + fontSize
+        } else {
+            region.top + fontSize
+        }
 
         // 裁剪到区域内，防止文字溢出
         canvas.save()
@@ -125,15 +153,16 @@ object VerticalTextRenderer {
         direction: TextDirection,
         fontSize: Float = 16f,
         textColor: Int = Color.BLACK,
-        autoFit: Boolean = true
+        autoFit: Boolean = true,
+        centered: Boolean = false
     ) {
         var actualFontSize = fontSize
         if (autoFit) {
             actualFontSize = calculateFitFontSize(text, region, direction, fontSize)
         }
         when (direction) {
-            TextDirection.VERTICAL_RL -> drawVerticalTextRL(canvas, text, region, actualFontSize, textColor)
-            TextDirection.VERTICAL_LR -> drawVerticalTextLR(canvas, text, region, actualFontSize, textColor)
+            TextDirection.VERTICAL_RL -> drawVerticalTextRL(canvas, text, region, actualFontSize, textColor, centered)
+            TextDirection.VERTICAL_LR -> drawVerticalTextLR(canvas, text, region, actualFontSize, textColor, centered)
             TextDirection.HORIZONTAL -> drawHorizontalText(canvas, text, region, actualFontSize, textColor)
         }
     }

@@ -157,7 +157,9 @@ object OverlayRenderer {
                 direction = item.direction,
                 fontSize = item.fitFontSize,
                 textColor = textColor,
-                autoFit = false
+                autoFit = false,
+                // 竖排列组水平居中：避免文字从右缘开始导致左侧整片空白
+                centered = true
             )
             canvas.restore()
             canvas.restore()
