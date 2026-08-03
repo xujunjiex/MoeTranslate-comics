@@ -314,9 +314,13 @@ class TranslateFragment : Fragment() {
         when {
             translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
                 Constants.TextApi.AI.id -> {
+                    val name = when (textAi) {
+                        Constants.TextAI.HYMT2.id -> getString(R.string.hymt2_name)
+                        else -> getString(R.string.nllb_name)  // NLLB + 升级前旧值 1
+                    }
                     binding.selectedAPI.text = getString(
                         R.string.api_name,
-                        getString(R.string.nllb_name)
+                        name
                     ) + "（${getString(R.string.ocr)}）"
                 }
 
