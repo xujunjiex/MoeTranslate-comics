@@ -50,7 +50,7 @@ object Dialogs {
      * 悬浮窗填字号对话框校验 + 个性化页 summary 共用，strings 用占位符引用保持一致。
      */
     const val FONT_SIZE_MIN = 4f
-    const val FONT_SIZE_MAX = 100f
+    const val FONT_SIZE_MAX = 80f
 
     /**
      * 根据屏幕宽度 dp 计算菜单缩放因子。
