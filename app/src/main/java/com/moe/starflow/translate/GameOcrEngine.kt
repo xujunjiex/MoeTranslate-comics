@@ -33,7 +33,7 @@ class GameOcrEngine(
      * @return 识别出的文字
      */
     suspend fun recognize(bitmap: Bitmap): String {
-        val engine = prefs.getInt("Game_OCR_Engine", 0)
+        val engine = com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences()).gameEngine
         val language = prefs.getString("Source_Language", "ja")
 
         return when (engine) {
