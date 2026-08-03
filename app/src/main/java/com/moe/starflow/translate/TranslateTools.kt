@@ -155,4 +155,19 @@ object TranslateTools {
                 CustomLocale.getInstance(it)
             }
         }
+
+    /**
+     * 当前翻译模型不支持的目标语言集合（30 种池内）。
+     * Hy-MT2 仅 38 种，30 种池内缺 sv/da/no/fi/hu/ro/ne/ca/af；NLLB 与各 API 视为全支持。
+     */
+    fun getDisabledTargetLangs(prefs: com.moe.starflow.utils.CustomPreference): Set<String> {
+        val api = prefs.getInt("Text_API", Constants.TextApi.BING.id)
+        return if (api == Constants.TextApi.AI.id &&
+            prefs.getInt("Text_AI", Constants.TextAI.NLLB.id) == Constants.TextAI.HYMT2.id
+        ) {
+            setOf("sv", "da", "no", "fi", "hu", "ro", "ne", "ca", "af")
+        } else {
+            emptySet()
+        }
+    }
 }

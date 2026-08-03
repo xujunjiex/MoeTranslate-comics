@@ -1083,11 +1083,16 @@ class TranslateFragment : Fragment() {
             dialog.show()
             dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         } else {
-            // 源语言(type=1)：按当前 OCR 组排序（支持的前、不支持的自动下移置灰）
+            // 源语言(type=1)：按当前 OCR 组排序置灰；目标语言(type=2)：按翻译模型过滤
             val ocrGroup = if (type == 1) com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences()) else null
             val locales = TranslateTools.getLanguagesList(requireContext(), type, ocrGroup) ?: return
             LogCollector.d(TAG, locales.toString())
-            val enabled = if (type == 1) locales.map { ocrGroup!!.sourceLangs.contains(it.getOriCode()) } else null
+            val disabledTargets = if (type == 2) TranslateTools.getDisabledTargetLangs(prefs) else emptySet()
+            val enabled = when (type) {
+                1 -> locales.map { ocrGroup!!.sourceLangs.contains(it.getOriCode()) }
+                2 -> locales.map { it.getOriCode() !in disabledTargets }
+                else -> null
+            }
             LanguageSelectionDialog(
                 requireContext(),
                 type,
@@ -1108,20 +1113,29 @@ class TranslateFragment : Fragment() {
                     }
                 },
                 enabled = enabled,
-                onDisabledClick = if (type == 1) { locale ->
-                    val supportedNames = com.moe.starflow.manga.OcrEngineGroup.entries
-                        .filter { it.sourceLangs.contains(locale.getOriCode()) }
-                        .joinToString(" / ") { getString(it.labelRes) }
-                    val msg = if (supportedNames.isEmpty()) {
-                        "该语言当前 OCR 模型不支持"
-                    } else {
-                        "该语言当前 OCR 模型不支持，请使用 $supportedNames"
+                onDisabledClick = when (type) {
+                    1 -> { locale ->
+                        val supportedNames = com.moe.starflow.manga.OcrEngineGroup.entries
+                            .filter { it.sourceLangs.contains(locale.getOriCode()) }
+                            .joinToString(" / ") { getString(it.labelRes) }
+                        val msg = if (supportedNames.isEmpty()) {
+                            "该语言当前 OCR 模型不支持"
+                        } else {
+                            "该语言当前 OCR 模型不支持，请使用 $supportedNames"
+                        }
+                        AlertDialog.Builder(requireContext())
+                            .setMessage(msg)
+                            .setPositiveButton(R.string.user_known, null)
+                            .create().also { it.window?.setBackgroundDrawableResource(R.drawable.dialog_background) }.show()
                     }
-                    AlertDialog.Builder(requireContext())
-                        .setMessage(msg)
-                        .setPositiveButton(R.string.user_known, null)
-                        .create().also { it.window?.setBackgroundDrawableResource(R.drawable.dialog_background) }.show()
-                } else null
+                    2 -> { locale ->
+                        AlertDialog.Builder(requireContext())
+                            .setMessage("该语言当前翻译模型不支持，请使用 NLLB 或 API 翻译")
+                            .setPositiveButton(R.string.user_known, null)
+                            .create().also { it.window?.setBackgroundDrawableResource(R.drawable.dialog_background) }.show()
+                    }
+                    else -> null
+                }
             ).show()
         }
     }
