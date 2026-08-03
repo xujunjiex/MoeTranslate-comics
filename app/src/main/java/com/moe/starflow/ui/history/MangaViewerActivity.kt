@@ -120,6 +120,33 @@ class MangaViewerActivity : AppCompatActivity() {
         loadData(clickedEntryId, entryIds)
     }
 
+    override fun onContentChanged() {
+        super.onContentChanged()
+        applyCustomFont()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyCustomFont()
+    }
+
+    /** 自定义字体（Custom_Result_Font）应用到本页面 UI（BaseActivity 已覆盖，本类直接继承 AppCompatActivity 故单独处理） */
+    private fun applyCustomFont() {
+        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(this, com.moe.starflow.utils.CustomPreference.getInstance(this)) ?: return
+        findViewById<View>(android.R.id.content)?.let { applyTypefaceRecursively(it, typeface) }
+    }
+
+    private fun applyTypefaceRecursively(view: View, typeface: android.graphics.Typeface) {
+        if (view is android.widget.TextView) {
+            view.typeface = typeface
+        }
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                applyTypefaceRecursively(view.getChildAt(i), typeface)
+            }
+        }
+    }
+
     private fun setupViews() {
         // 关闭按钮
         binding.btnClose.setOnClickListener { finish() }
@@ -832,27 +859,32 @@ class MangaViewerActivity : AppCompatActivity() {
                         val bubbles = DetectionBridge.ocrToBubbleRegions(ocrResults, textDirection)
                         if (bubbles.isEmpty()) throw Exception("无有效文字区域")
                         val translator = createTranslator(prefs) ?: throw Exception("翻译器创建失败")
-                        val translatedBubbles = com.moe.starflow.manga.TranslateUtils.translateBubbles(
-                            translator, bubbles, sourceLang, targetLang, prefs)
-                        if (translatedBubbles.isEmpty()) throw Exception("翻译失败")
-                        val ocrTexts = bubbles.map { it.texts.first() }
-                        val numberedText = ocrTexts.mapIndexed { i, t -> "[${i + 1}] $t" }.joinToString("\n")
-                        val transText = translatedBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
-                        val translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs)
+                        try {
+                            val translatedBubbles = com.moe.starflow.manga.TranslateUtils.translateBubbles(
+                                translator, bubbles, sourceLang, targetLang, prefs)
+                            if (translatedBubbles.isEmpty()) throw Exception("翻译失败")
+                            val ocrTexts = bubbles.map { it.texts.first() }
+                            val numberedText = ocrTexts.mapIndexed { i, t -> "[${i + 1}] $t" }.joinToString("\n")
+                            val transText = translatedBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
+                            val translatorName = buildRetranslateName(translator, detEngine, ocrEngine, prefs)
 
-                        // 原地更新：保留 historyId，crop 不变，仅替换原文/译文/bubbleRects/translatorName
-                        val ok = cacheManager.refreshCacheInPlace(
-                            historyId = entry.id,
-                            newSourceText = numberedText,
-                            newTranslatedText = transText,
-                            newBubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles),
-                            newCropLeft = cropLeftPx,
-                            newCropTop = cropTopPx,
-                            newCropRight = cropRightPx,
-                            newCropBottom = cropBottomPx,
-                            newTranslatorName = translatorName
-                        )
-                        if (!ok) throw Exception("原地更新失败：historyId=${entry.id} 不存在或 cache 缺失")
+                            // 原地更新：保留 historyId，crop 不变，仅替换原文/译文/bubbleRects/translatorName
+                            val ok = cacheManager.refreshCacheInPlace(
+                                historyId = entry.id,
+                                newSourceText = numberedText,
+                                newTranslatedText = transText,
+                                newBubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles),
+                                newCropLeft = cropLeftPx,
+                                newCropTop = cropTopPx,
+                                newCropRight = cropRightPx,
+                                newCropBottom = cropBottomPx,
+                                newTranslatorName = translatorName
+                            )
+                            if (!ok) throw Exception("原地更新失败：historyId=${entry.id} 不存在或 cache 缺失")
+                        } finally {
+                            // 每次重译新建的本地模型实例（Hy-MT2 440MB / NLLB）用完即释放，否则泄漏常驻内存
+                            translator.release()
+                        }
                     } finally {
                         cropped.recycle()
                     }

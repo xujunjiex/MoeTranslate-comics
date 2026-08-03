@@ -42,6 +42,37 @@ abstract class BaseActivity : AppCompatActivity() {
         window.isNavigationBarContrastEnforced = false
     }
 
+    override fun onContentChanged() {
+        super.onContentChanged()
+        applyCustomFont()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // onResume 覆盖 Fragment 内容（onContentChanged 时 Fragment 可能尚未 attach）
+        applyCustomFont()
+    }
+
+    /**
+     * 自定义字体（Custom_Result_Font，游戏/漫画共用）应用到整个 UI。
+     * 递归设置 content view 树中所有 TextView 的 typeface。
+     */
+    private fun applyCustomFont() {
+        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(this, com.moe.starflow.utils.CustomPreference.getInstance(this)) ?: return
+        findViewById<View>(android.R.id.content)?.let { applyTypefaceRecursively(it, typeface) }
+    }
+
+    private fun applyTypefaceRecursively(view: View, typeface: android.graphics.Typeface) {
+        if (view is android.widget.TextView) {
+            view.typeface = typeface
+        }
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                applyTypefaceRecursively(view.getChildAt(i), typeface)
+            }
+        }
+    }
+
     /**
      * 为指定 View 应用系统栏 padding
      * @param view 需要应用 padding 的 View
