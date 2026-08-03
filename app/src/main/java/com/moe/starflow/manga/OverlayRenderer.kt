@@ -39,13 +39,13 @@ object OverlayRenderer {
                 region.translatedText
             }
             val baseFontSize = if (autoFit) region.fontSize else fontSize
-            val fitFontSize = if (autoFit) {
-                VerticalTextRenderer.calculateFitFontSize(
-                    displayText, region.rect, region.direction, baseFontSize
-                )
-            } else {
-                baseFontSize
-            }
+            // 两种模式都走 calculateFitFontSize（maxFontSize = baseFontSize）：
+            // - 自动：尽量放大填满气泡
+            // - 非自动：用户字号为上限，超出气泡时缩小到刚好能放下——保证不截断、不重叠
+            //   （用户字号能放下时返回原值，不缩放）
+            val fitFontSize = VerticalTextRenderer.calculateFitFontSize(
+                displayText, region.rect, region.direction, baseFontSize
+            )
             val neededRect = if (autoFit) {
                 // 自动模式：fitFontSize 已尽量填满气泡，保持原"只在文字超出时扩展"语义
                 calculateExpandedRect(region.rect, displayText, region.direction, fitFontSize)

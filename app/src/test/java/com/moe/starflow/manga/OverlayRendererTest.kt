@@ -20,8 +20,10 @@ class OverlayRendererTest {
         Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { it.eraseColor(color) }
 
     @Test
-    fun largeFontNonAuto_extendedDrawRectDoesNotIntrudeNeighborBubble() {
-        // 原图绿色背景，两个水平相邻气泡（间隙 x∈(80,90)），大字号 + VERTICAL_LR（向右扩展）
+    fun largeFontNonAuto_shrinksToFit_noOverlap() {
+        // 原图绿色背景，两个水平相邻气泡（间隙 x∈(80,90)），大字号 + VERTICAL_LR。
+        // 非自动模式：用户字号超出气泡时缩小到能放下 → 文字完整、drawRect 不扩展出气泡，
+        // 气泡间间隙不被白色覆盖（不截断、不重叠）。
         val green = Color.rgb(0, 255, 0)
         val bitmap = solidBitmap(200, 100, green)
 
@@ -51,8 +53,7 @@ class OverlayRendererTest {
             bgColor = Color.WHITE
         )
 
-        // 修复前：A 扩展矩形 (10,20,250,80) 侵入 B 区域，(85,50) 被白色覆盖。
-        // 修复后：A 回退原气泡，(85,50) 保持原图绿色（间隙不被吃掉）。
+        // 若 drawRect 扩展出气泡，A 白块会覆盖 (85,50)；缩小后 drawRect 在各自气泡内，(85,50) 保持绿色
         assertEquals("气泡间间隙不应被扩展白块覆盖", green, out.getPixel(85, 50))
         bitmap.recycle()
         out.recycle()
