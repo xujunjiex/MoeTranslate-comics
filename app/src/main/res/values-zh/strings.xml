@@ -166,6 +166,7 @@
     <string name="font_failed">字体设置失败：%s</string>
     <string name="ui_apply_custom_font_title">UI 同步字体</string>
     <string name="ui_apply_custom_font_summary">将所选字体应用到整个 app 界面；关闭时字体只用于翻译结果</string>
+    <string name="ui_apply_custom_font_restart_hint">UI 同步字体将在重启应用后生效</string>
     <string name="font_size_float">可以输入小数</string>
     <string name="font_size_range">范围：%1$s-%2$s</string>
     <string name="font_size_setting">设置字体大小</string>

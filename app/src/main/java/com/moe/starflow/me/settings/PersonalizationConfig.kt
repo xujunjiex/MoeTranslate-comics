@@ -127,6 +127,17 @@ class PersonalizationConfig : PreferenceFragmentCompat() {
             true
         }
 
+        // UI 同步字体：切换后需重启应用生效，弹窗提示
+        findPreference<SwitchPreference>("ui_apply_custom_font")?.setOnPreferenceChangeListener { _, _ ->
+            val dialog = android.app.AlertDialog.Builder(requireContext())
+                .setMessage(getString(R.string.ui_apply_custom_font_restart_hint))
+                .setPositiveButton(R.string.user_known, null)
+                .create()
+            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+            dialog.show()
+            true  // 允许更改（系统写 prefs）
+        }
+
         // 字体颜色
         findPreference<ColorPreferenceCompat>("result_view_font_color")?.apply {
             setOnPreferenceChangeListener { _, newValue ->

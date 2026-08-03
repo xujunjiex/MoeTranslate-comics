@@ -240,6 +240,7 @@
     <string name="font_failed">Font setting failed：%s</string>
     <string name="ui_apply_custom_font_title">Apply Font to App UI</string>
     <string name="ui_apply_custom_font_summary">Use the selected font for the whole app interface. When off, font applies to translation results only.</string>
+    <string name="ui_apply_custom_font_restart_hint">The app UI font will take effect after restarting the app</string>
     <string name="font_size_float">You can enter decimals</string>
     <string name="font_size_range">Range：%1$s-%2$s</string>
     <string name="font_size_setting">Set font size</string>
