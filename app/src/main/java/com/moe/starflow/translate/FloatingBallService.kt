@@ -39,6 +39,7 @@ import androidx.core.app.NotificationCompat
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.TranslationCacheManager
 import com.moe.starflow.utils.LogCollector
+import com.moe.starflow.utils.OcrEngineManager
 import com.moe.starflow.utils.TextSimilarity
 import android.view.*
 import android.widget.AdapterView
@@ -54,6 +55,7 @@ import com.moe.starflow.me.apiconfig.ConfigurationStorage
 import com.moe.starflow.manga.MangaOcrBridge
 import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.MangaOcrRecognizer
+import com.moe.starflow.manga.OcrEngineGroup
 import com.moe.starflow.manga.PPOcrModelFiles
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
@@ -388,7 +390,11 @@ class FloatingBallService : LifecycleService() {
     private fun isGameDebugEnabled(): Boolean =
         prefs.getBoolean("Game_Translate_Debug_View", false)
 
-    private fun getOcrEngineName(): String = engineLabel(prefs.getInt("Game_OCR_Engine", 0))
+    /** 当前游戏 OCR 引擎值（从共享 Ocr_Engine_Group 读取；Game_OCR_Engine 仅兼容保留，不再作为事实来源） */
+    private fun currentGameOcrEngineValue(): Int =
+        OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences()).gameEngine
+
+    private fun getOcrEngineName(): String = engineLabel(currentGameOcrEngineValue())
 
     private fun showDebugOverlay() {
         if (!isGameDebugEnabled()) return
@@ -470,6 +476,7 @@ class FloatingBallService : LifecycleService() {
         val watchedKeys = setOf(
             "Source_Language",
             "Game_OCR_Engine",
+            OcrEngineManager.PREF_KEY,
             "game_context_enabled",
             "game_context_count"
         )
@@ -880,7 +887,7 @@ class FloatingBallService : LifecycleService() {
     }
 
     private fun getOcrEngineLabel(): String {
-        val engineVal = prefs.getInt("Game_OCR_Engine", 0)
+        val engineVal = currentGameOcrEngineValue()
         val label = engineLabel(engineVal)
         LogCollector.d(TAG, "getOcrEngineLabel: raw=$engineVal → label=$label")
         return label
@@ -913,7 +920,7 @@ class FloatingBallService : LifecycleService() {
      * 检查指定语言的 OCR 模型是否可用
      */
     private fun isOcrLangAvailable(lang: String): Boolean {
-        val ocrEngine = prefs.getInt("Game_OCR_Engine", 0)
+        val ocrEngine = currentGameOcrEngineValue()
         if (ocrEngine != 1) return true  // 非 PP-OCRv5 不需要检查
         return when (lang) {
             "zh", "zh-TW", "ja" -> true  // 内置模型
@@ -935,7 +942,7 @@ class FloatingBallService : LifecycleService() {
 
     /** 循环切换 OCR 引擎：v5 → v6 → MLKit → manga → v5 */
     private fun cycleOcrEngine() {
-        val current = prefs.getInt("Game_OCR_Engine", 0)
+        val current = currentGameOcrEngineValue()
         val currentIdx = engineCycle.indexOf(current).coerceAtLeast(0)
 
         // 循环查找下一个可用引擎（跳过未下载的）
@@ -951,7 +958,9 @@ class FloatingBallService : LifecycleService() {
             return
         }
 
-        prefs.setIntSync("Game_OCR_Engine", next)
+        prefs.setIntSync("Game_OCR_Engine", next)   // 兼容保留（不再作为事实来源）
+        val group = OcrEngineGroup.entries.firstOrNull { it.gameEngine == next } ?: OcrEngineGroup.MLKIT
+        OcrEngineManager.setOcrEngineGroup(prefs.getSharedPreferences(), group)
         val label = engineLabel(next)
         val fromLabel = engineLabel(current)
 
@@ -1039,7 +1048,7 @@ class FloatingBallService : LifecycleService() {
      * 4. 俄文 + PP引擎 + RU未下载 → 提示下载
      */
     private fun checkLanguageHints() {
-        val currentOcr = prefs.getInt("Game_OCR_Engine", 0)
+        val currentOcr = currentGameOcrEngineValue()
         val isPPv5 = currentOcr == 1   // PP-OCRv5
         val isPPv6 = currentOcr == 3   // PP-OCRv6
         val isAnyPP = isPPv5 || isPPv6
