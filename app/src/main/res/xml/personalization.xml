@@ -250,6 +250,13 @@
             android:title="@string/font_title"
             app:iconSpaceReserved="false" />
 
+        <SwitchPreference
+            android:key="ui_apply_custom_font"
+            android:title="@string/ui_apply_custom_font_title"
+            android:summary="@string/ui_apply_custom_font_summary"
+            android:defaultValue="false"
+            app:iconSpaceReserved="false" />
+
         <ListPreference
             android:key="app_language"
             app:iconSpaceReserved="false"

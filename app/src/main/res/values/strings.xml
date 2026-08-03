@@ -30,19 +30,14 @@
     <string name="hymt2_section_download">模型下载</string>
     <string name="hymt2_section_params">翻译参数</string>
     <string name="hymt2_section_intro">模型介绍</string>
-    <string name="hymt2_intro"><![CDATA[腾讯 Hy-MT2 1.8B 翻译模型，完全本地离线推理，文本不会上传网络。
+    <string name="hymt2_intro"><![CDATA[腾讯 Hy-MT2 1.8B 多语言翻译模型，完全本地离线推理，文本不会上传网络，无需联网即可翻译。
 
 ★ 支持流式输出：译文边生成边显示，无需等待全部完成。
-
-速度受以下因素限制：
-· 手机 CPU 性能与当前频率：高负载运行一段时间后，系统会自动降低 CPU 频率
-· 待翻译文本量：文本越多，「读取原文」阶段耗时越久
-· 推理线程数：生成（写译文）阶段可通过上方「推理线程数」调整
-
-本机实测：读原文约 17~20 token/秒，写译文约 13~14 token/秒（系统降频后更低）。整页漫画（约 14 个气泡）翻译约 15~25 秒属正常范围。]]></string>
+★ 翻译分「读取原文」与「生成译文」两个阶段：读取原文阶段批量处理待翻译文本（prefill），生成译文阶段逐字输出结果。两个阶段的线程数等参数可在下方设置中调整。]]></string>
     <string name="hymt2_download_help">手动下载说明（模型约 440MB，需用户手动下载，不自动下载）</string>
     <string name="hymt2_prompt_label">提示词模板</string>
-    <string name="hymt2_threads_label">推理线程数</string>
+    <string name="hymt2_threads_label">生成线程数</string>
+    <string name="hymt2_batch_threads_label">批量线程数</string>
     <string name="hymt2_context_label">上下文长度</string>
     <string name="hymt2_temp_label">temperature</string>
     <string name="hymt2_top_p_label">top_p</string>
@@ -53,7 +48,8 @@
     <string name="hymt2_params_saved">参数已保存</string>
     <string name="hymt2_sample_subtitle">采样参数</string>
     <string name="hymt2_help_prompt">官方默认翻译提示词。翻译时 {target_lang} 会被替换为目标语言的完整名称（如“日语”），{source_text} 会被替换为待翻译文本。</string>
-    <string name="hymt2_help_threads">模型推理使用的 CPU 线程数。Hy-MT2 在手机上实测 6 线程最优（约 12 tok/s）。</string>
+    <string name="hymt2_help_threads">生成译文阶段使用的 CPU 线程数（llama.cpp 的 n_threads）。默认按设备核心数自动设置（不超过核心数）。线程数太少算力用不满，超过核心数则线程相互抢占反而变慢，可自行调整到合适值。</string>
+    <string name="hymt2_help_batch_threads">读取原文（批量处理 / prefill）阶段使用的 CPU 线程数（llama.cpp 的 n_threads_batch）。默认用满设备全部核心。与「生成线程数」相互独立，可分开调整；线程数不应超过核心数。</string>
     <string name="hymt2_help_context">最大上下文长度。1024≈500-700 中文字，2048≈1000-1400 中文字，4096≈2000-2800 中文字。</string>
     <string name="hymt2_help_temperature">随机性温度。控制生成文本的创造力与多样性。对于翻译任务，建议取值在 0.1（严格直译、极其稳定）到 0.7（适合意译、语言更流畅自然）之间。</string>
     <string name="hymt2_help_top_p">核采样阈值。仅从累积概率达到 60% 的候选词中筛选。设置较低的 top_p（如 0.6）能有效过滤低概率的非主流词汇，使翻译语法更严谨。</string>
@@ -87,6 +83,7 @@
     <string name="text_translate_detail_model">模型：%s</string>
     <string name="text_translate_detail_close">关闭</string>
     <string name="text_translate_confirm">确认</string>
+    <string name="text_translate_translating">翻译中…</string>
     <string name="text_translate_local_badge">本地</string>
     <string name="text_translate_api_badge">API</string>
     <string name="clear">清除</string>
@@ -241,6 +238,8 @@
     <string name="font_choose">Select font（ttf）</string>
     <string name="set_success">Setup successfully</string>
     <string name="font_failed">Font setting failed：%s</string>
+    <string name="ui_apply_custom_font_title">Apply Font to App UI</string>
+    <string name="ui_apply_custom_font_summary">Use the selected font for the whole app interface. When off, font applies to translation results only.</string>
     <string name="font_size_float">You can enter decimals</string>
     <string name="font_size_range">Range：%1$s-%2$s</string>
     <string name="font_size_setting">Set font size</string>

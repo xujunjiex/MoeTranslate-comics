@@ -36,40 +36,38 @@ abstract class BaseActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // 启用 Edge-to-Edge，一定要在super.onCreate之前调用
         enableEdgeToEdge()
-
+        // 自定义 UI 字体（开关开启时）：LayoutInflater Factory2，inflate 即应用，
+        // 覆盖动态创建/列表项/弹窗等（比遍历 View 树稳定）
+        setupFontInflater()
         super.onCreate(savedInstanceState)
 
         window.isNavigationBarContrastEnforced = false
     }
 
-    override fun onContentChanged() {
-        super.onContentChanged()
-        applyCustomFont()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // onResume 覆盖 Fragment 内容（onContentChanged 时 Fragment 可能尚未 attach）
-        applyCustomFont()
-    }
-
     /**
-     * 自定义字体（Custom_Result_Font，游戏/漫画共用）应用到整个 UI。
-     * 递归设置 content view 树中所有 TextView 的 typeface。
+     * UI 同步字体开关开启时，给 LayoutInflater 挂 Factory2：
+     * inflate 出的 TextView 自动用自定义字体（Custom_Result_Font）。
+     * 开关默认关闭——字体只用于翻译结果。
      */
-    private fun applyCustomFont() {
-        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(this, com.moe.starflow.utils.CustomPreference.getInstance(this)) ?: return
-        findViewById<View>(android.R.id.content)?.let { applyTypefaceRecursively(it, typeface) }
-    }
-
-    private fun applyTypefaceRecursively(view: View, typeface: android.graphics.Typeface) {
-        if (view is android.widget.TextView) {
-            view.typeface = typeface
-        }
-        if (view is android.view.ViewGroup) {
-            for (i in 0 until view.childCount) {
-                applyTypefaceRecursively(view.getChildAt(i), typeface)
-            }
+    private fun setupFontInflater() {
+        val prefs = com.moe.starflow.utils.CustomPreference.getInstance(this)
+        if (!prefs.getBoolean("ui_apply_custom_font", false)) return
+        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(this, prefs) ?: return
+        try {
+            androidx.core.view.LayoutInflaterCompat.setFactory2(
+                layoutInflater,
+                object : android.view.LayoutInflater.Factory2 {
+                    override fun onCreateView(parent: View?, name: String, context: Context, attrs: android.util.AttributeSet): View? {
+                        val view = delegate.createView(parent, name, context, attrs)
+                        if (view is android.widget.TextView) view.typeface = typeface
+                        return view
+                    }
+                    override fun onCreateView(name: String, context: Context, attrs: android.util.AttributeSet): View? =
+                        onCreateView(null, name, context, attrs)
+                }
+            )
+        } catch (e: Exception) {
+            // AppCompat 已设 Factory2 时忽略（保持默认字体）
         }
     }
 

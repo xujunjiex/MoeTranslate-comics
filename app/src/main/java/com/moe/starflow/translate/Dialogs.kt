@@ -103,6 +103,7 @@ object Dialogs {
         val menuScale = calculateMenuScale(ctx)
 
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
+        applyCustomFontToTree(ctx, view)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
@@ -133,17 +134,31 @@ object Dialogs {
 
     data class HistoryItem(val time: String, val source: String, val translated: String)
 
+    /**
+     * UI 同步字体开关开启时，对 view 树递归应用自定义字体（Custom_Result_Font）。
+     * Service 悬浮菜单/对话框用（Activity 已由 BaseActivity 的 LayoutInflater Factory2 覆盖）。
+     * 开关关闭或无字体时为空操作。
+     */
+    fun applyCustomFontToTree(ctx: Context, view: View) {
+        val prefs = com.moe.starflow.utils.CustomPreference.getInstance(ctx)
+        if (!prefs.getBoolean("ui_apply_custom_font", false)) return
+        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(ctx, prefs) ?: return
+        fun apply(v: View) {
+            if (v is android.widget.TextView) v.typeface = typeface
+            if (v is ViewGroup) for (i in 0 until v.childCount) apply(v.getChildAt(i))
+        }
+        apply(view)
+    }
+
     fun historyDialog(ctx: Context, items: List<HistoryItem>, onItemClick: (Int) -> Unit, onItemLongClick: ((Int) -> Unit)? = null): AlertDialog {
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_floating_menu, null, false)
+        applyCustomFontToTree(ctx, view)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
         welcome.text = ctx.getString(R.string.game_translation_history)
         img.setImageResource(R.drawable.ic_history)
         lv.adapter = HistoryListAdapter(ctx, items)
-        // 防止 item 内子 View 抢焦点导致首次点击被消耗（首次触摸聚焦、第二次才触发 click）
-        lv.isFocusableInTouchMode = false
-        lv.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         lv.setOnItemClickListener { _, _, position, _ ->
             onItemClick(position)
         }
@@ -229,6 +244,7 @@ object Dialogs {
             )
         }
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_manga_menu, null, false)
+        applyCustomFontToTree(ctx, view)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
@@ -295,6 +311,7 @@ object Dialogs {
         val menuScale = calculateMenuScale(ctx)
 
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_manga_menu, null, false)
+        applyCustomFontToTree(ctx, view)
         val img = view.findViewById<ImageView>(R.id.TitleIcon)
         val welcome = view.findViewById<TextView>(R.id.welcome)
         val lv = view.findViewById<ListView>(R.id.menu_list)
@@ -366,6 +383,7 @@ object Dialogs {
 //        }
         // 布局文件方式
         val layout = LayoutInflater.from(context).inflate(R.layout.dialog_message_edittext, null)
+        applyCustomFontToTree(context, layout)
         layout.findViewById<TextView>(R.id.dialog_top_message).apply {
             text = context.getString(R.string.font_size_float) + "\n" +
                 context.getString(R.string.font_size_range, FONT_SIZE_MIN.toInt().toString(), FONT_SIZE_MAX.toInt().toString())
