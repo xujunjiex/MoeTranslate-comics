@@ -1083,26 +1083,46 @@ class TranslateFragment : Fragment() {
             dialog.show()
             dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         } else {
-            LogCollector.d(TAG, TranslateTools.getLanguagesList(requireContext(), type)!!.toString())
+            // 源语言(type=1)：按当前 OCR 组排序（支持的前、不支持的自动下移置灰）
+            val ocrGroup = if (type == 1) com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences()) else null
+            val locales = TranslateTools.getLanguagesList(requireContext(), type, ocrGroup) ?: return
+            LogCollector.d(TAG, locales.toString())
+            val enabled = if (type == 1) locales.map { ocrGroup!!.sourceLangs.contains(it.getOriCode()) } else null
             LanguageSelectionDialog(
                 requireContext(),
                 type,
-                TranslateTools.getLanguagesList(requireContext(), type)!!
-            ) { selectedLocale ->
-                if (type == 1) {
-                    LogCollector.d(TAG, "Source_Language：" + selectedLocale.getOriCode())
-                    prefs.setString("Source_Language", selectedLocale.getOriCode())
-                    binding.SourceLanguageName.text =
-                        CustomLocale.getInstance(prefs.getString("Source_Language", "ja"))
-                            .getDisplayName()
-                } else {
-                    LogCollector.d(TAG, "Target_Language：" + selectedLocale.getOriCode())
-                    prefs.setString("Target_Language", selectedLocale.getOriCode())
-                    binding.TargetLanguageName.text =
-                        CustomLocale.getInstance(prefs.getString("Target_Language", "zh"))
-                            .getDisplayName()
-                }
-            }.show()
+                locales,
+                onLanguageSelected = { selectedLocale ->
+                    if (type == 1) {
+                        LogCollector.d(TAG, "Source_Language：" + selectedLocale.getOriCode())
+                        prefs.setString("Source_Language", selectedLocale.getOriCode())
+                        binding.SourceLanguageName.text =
+                            CustomLocale.getInstance(prefs.getString("Source_Language", "ja"))
+                                .getDisplayName()
+                    } else {
+                        LogCollector.d(TAG, "Target_Language：" + selectedLocale.getOriCode())
+                        prefs.setString("Target_Language", selectedLocale.getOriCode())
+                        binding.TargetLanguageName.text =
+                            CustomLocale.getInstance(prefs.getString("Target_Language", "zh"))
+                                .getDisplayName()
+                    }
+                },
+                enabled = enabled,
+                onDisabledClick = if (type == 1) { locale ->
+                    val supportedNames = com.moe.starflow.manga.OcrEngineGroup.entries
+                        .filter { it.sourceLangs.contains(locale.getOriCode()) }
+                        .joinToString(" / ") { getString(it.labelRes) }
+                    val msg = if (supportedNames.isEmpty()) {
+                        "该语言当前 OCR 模型不支持"
+                    } else {
+                        "该语言当前 OCR 模型不支持，请使用 $supportedNames"
+                    }
+                    AlertDialog.Builder(requireContext())
+                        .setMessage(msg)
+                        .setPositiveButton(R.string.user_known, null)
+                        .create().also { it.window?.setBackgroundDrawableResource(R.drawable.dialog_background) }.show()
+                } else null
+            ).show()
         }
     }
 

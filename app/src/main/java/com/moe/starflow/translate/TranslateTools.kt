@@ -20,13 +20,27 @@ package com.moe.starflow.translate
 import android.content.Context
 import android.util.Log
 import com.moe.starflow.R
+import com.moe.starflow.manga.OcrEngineGroup
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import org.w3c.dom.NodeList
 import javax.xml.parsers.DocumentBuilderFactory
 
 object TranslateTools {
-    fun getLanguagesList(context: Context, type: Int): List<CustomLocale>? = runCatching {
+    /**
+     * @param ocrGroup 当前 OCR 引擎组（仅源语言 type=1 生效）：30 种语言池按组排序，支持的前、不支持的自动下移；null=全量（文本翻译不经 OCR，源语言不受影响）
+     */
+    fun getLanguagesList(context: Context, type: Int, ocrGroup: OcrEngineGroup? = null): List<CustomLocale>? = runCatching {
+        // 源语言动态化：不再读固定 ocr_support_languages.xml（6 种），改为 30 种池按 OCR 组排序
+        if (type == 1) {
+            val langs = if (ocrGroup != null) {
+                OcrEngineGroup.ALL_LANGS.filter { ocrGroup.sourceLangs.contains(it) } +
+                    OcrEngineGroup.ALL_LANGS.filterNot { ocrGroup.sourceLangs.contains(it) }
+            } else {
+                OcrEngineGroup.ALL_LANGS
+            }
+            return@runCatching langs.map { CustomLocale.getInstance(it) }
+        }
         // 获取当前设置
         val prefs = CustomPreference.getInstance(context)
         val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)

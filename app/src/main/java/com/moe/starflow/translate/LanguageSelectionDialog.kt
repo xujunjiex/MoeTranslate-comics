@@ -31,6 +31,8 @@ class LanguageSelectionDialog(
     private val context: Context,
     private val type: Int,
     private val locales: List<CustomLocale>,
+    private val enabled: List<Boolean>? = null,
+    private val onDisabledClick: ((CustomLocale) -> Unit)? = null,
     private val onLanguageSelected: (CustomLocale) -> Unit)
 {
     companion object {
@@ -53,6 +55,10 @@ class LanguageSelectionDialog(
                 val locale = locales[position]
                 val tip = if (type == 1) LANGUAGE_TIPS[locale.getOriCode()] else null
                 textView.text = if (tip != null) "${locale.getDisplayName()} $tip" else locale.getDisplayName()
+                // 置灰：当前 OCR/翻译模型不支持的语言（enabled[position]=false）
+                val isEnabled = enabled?.getOrNull(position) ?: true
+                textView.isEnabled = isEnabled
+                view.alpha = if (isEnabled) 1f else 0.4f
                 return view
             }
         }
@@ -65,8 +71,15 @@ class LanguageSelectionDialog(
         val dialog = builder.create()
 
         listView.setOnItemClickListener { _, _, position, _ ->
-            onLanguageSelected(locales[position])
-            dialog.dismiss()
+            val locale = locales[position]
+            val isEnabled = enabled?.getOrNull(position) ?: true
+            if (isEnabled) {
+                onLanguageSelected(locale)
+                dialog.dismiss()
+            } else {
+                // 点击置灰语言 → 弹提示（不关闭对话框）
+                onDisabledClick?.invoke(locale)
+            }
         }
 
         dialog.show()
