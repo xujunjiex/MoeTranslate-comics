@@ -25,6 +25,7 @@ import android.os.Looper
 import android.util.Log
 import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.utils.LogCollector
+import com.moe.starflow.utils.OcrEngineManager
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -255,8 +256,10 @@ class MangaFloatingService : LifecycleService() {
     /** 应用组合：更新 config + 持久化 + 初始化引擎 */
     private fun applyCombo(combo: ComboDef) {
         config = config.copy(detEngine = combo.detEngine, ocrEngine = combo.ocrEngine)
-        prefs.setInt("Manga_Det_Model", combo.detEngine.value)
-        prefs.setInt("Manga_Rec_Model", combo.ocrEngine.value)
+        val group = OcrEngineGroup.entries.firstOrNull {
+            it.mangaDet == combo.detEngine && it.mangaOcr == combo.ocrEngine
+        } ?: OcrEngineGroup.MLKIT
+        OcrEngineManager.setOcrEngineGroup(prefs.getSharedPreferences(), group)
         showToast(getString(combo.labelRes), true)
         when (combo.key) {
             "ppocr" -> lifecycleScope.launch { initPPOcrV5("检测器+识别器") }
@@ -361,6 +364,7 @@ class MangaFloatingService : LifecycleService() {
 
         // 监听源语言、引擎、结果样式变化，实时检查语言/模型提示并刷新 config
         val watchedKeys = setOf(
+            "Ocr_Engine_Group",
             "Source_Language",
             "Manga_Det_Model",
             "Manga_Rec_Model",
@@ -720,7 +724,9 @@ class MangaFloatingService : LifecycleService() {
     }
 
     private fun loadConfig(): MangaModeConfig {
-        val detEngine = DetEngine.fromValue(prefs.getInt("Manga_Det_Model", DetEngine.PP_OCR_V6.value))
+        // det/ocr 统一从 Ocr_Engine_Group 读（旧 Manga_Det_Model/Manga_Rec_Model 仅作为一次迁移输入，见 OcrEngineManager）
+        val group = OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences())
+        val detEngine = group.mangaDet
         // RT-DETR-V2 检测器已输出气泡/区域级结果，不需要 BubbleDetector 再次聚类
         val autoDetectBubble = if (detEngine == DetEngine.RT_DETR_V2) {
             false
@@ -738,7 +744,7 @@ class MangaFloatingService : LifecycleService() {
             targetLang = prefs.getString("Target_Language", "zh"),
             textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK),
             bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255)),
-            ocrEngine = OcrEngine.fromValue(prefs.getInt("Manga_Rec_Model", OcrEngine.PPOcrV5.value)),
+            ocrEngine = group.mangaOcr,
             detEngine = detEngine,
             keepTextFree = prefs.getBoolean("Manga_Keep_Text_Free", true)
         )
