@@ -120,6 +120,15 @@
         android:title="@string/manga_result_setting_title"
         app:iconSpaceReserved="false">
 
+        <ListPreference
+            android:key="Manga_Text_Direction"
+            app:iconSpaceReserved="false"
+            android:defaultValue="0"
+            android:title="@string/manga_text_direction_title"
+            android:summary="@string/manga_text_direction_summary"
+            android:entries="@array/manga_text_direction_entries"
+            android:entryValues="@array/manga_text_direction_values"/>
+
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             android:key="manga_text_color"
             app:iconSpaceReserved="false"

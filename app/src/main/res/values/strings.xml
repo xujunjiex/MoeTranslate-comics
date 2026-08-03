@@ -514,6 +514,10 @@
     <string name="manga_bg_color">Manga Background Color</string>
     <string name="manga_text_color_summary">Text color for manga translation results</string>
     <string name="manga_bg_color_summary">Background color for manga translation results</string>
+    <string name="manga_text_direction_title">Vertical Text Direction</string>
+    <string name="manga_text_direction_summary">Column order of vertical manga text</string>
+    <string name="manga_text_direction_rl">Vertical (columns right to left)</string>
+    <string name="manga_text_direction_lr">Vertical (columns left to right)</string>
     <string name="incremental_render_title">Incremental Render</string>
     <string name="incremental_render_summary">When more than 6 bubbles detected, translate in two batches to show first results earlier, but total translation time may slightly increase. Only works with PP-OCRv5 standalone and RT-DETR-V2+MangaOcr combinations.</string>
     <string name="manga_keep_text_free_title">Recognize Free Text</string>

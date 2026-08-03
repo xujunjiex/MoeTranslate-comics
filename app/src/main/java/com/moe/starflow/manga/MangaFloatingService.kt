@@ -366,7 +366,8 @@ class MangaFloatingService : LifecycleService() {
             "Manga_Rec_Model",
             "Manga_Keep_Text_Free",
             "Manga_Text_Color",
-            "Manga_BG_Color"
+            "Manga_BG_Color",
+            "Manga_Text_Direction"
         )
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key in watchedKeys) {
@@ -728,7 +729,7 @@ class MangaFloatingService : LifecycleService() {
         }
         return MangaModeConfig(
             enabled = true,
-            textDirection = TextDirection.VERTICAL_RL,
+            textDirection = if (prefs.getString("Manga_Text_Direction", "0") == "1") TextDirection.VERTICAL_LR else TextDirection.VERTICAL_RL,
             smartBackground = prefs.getBoolean("Manga_Smart_Background", true),
             autoDetectBubble = autoDetectBubble,
             fontSize = prefs.getFloat("Manga_Font_Size", 16f),
@@ -1984,7 +1985,7 @@ class MangaFloatingService : LifecycleService() {
                 rect = rect,
                 texts = listOf(block.text),
                 fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                direction = if (isVertical) config.textDirection else TextDirection.HORIZONTAL,
                 angle = block.angle,
                 centerX = block.centerX,
                 centerY = block.centerY
@@ -2231,7 +2232,7 @@ class MangaFloatingService : LifecycleService() {
             // TextLineMerger 识别后合并
             val mergedInput = PPOcrV5Engine.recResultsToTextLines(recResults, rects, angles, centers)
             TextRegionMerger.refreshParams(this@MangaFloatingService)
-            val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() })
+            val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() }, verticalDirection = config.textDirection)
             // 合并后内容过滤
             val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
             LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
@@ -2240,7 +2241,7 @@ class MangaFloatingService : LifecycleService() {
                     text = region.texts.joinToString("\n"),
                     boundingBox = region.rect,
                     cornerPoints = null,
-                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR,
                     angle = region.angle,
                     centerX = region.center.x,
                     centerY = region.center.y
@@ -2357,7 +2358,7 @@ class MangaFloatingService : LifecycleService() {
             crops.forEach { it.recycle() }
             val mergedInput = PPOcrV6Engine.recResultsToTextLines(recResults, rects, angles, centers)
             TextRegionMerger.refreshParams(this@MangaFloatingService)
-            val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() })
+            val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() }, verticalDirection = config.textDirection)
             val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
             LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
             return mergedRegions.map { region ->
@@ -2365,7 +2366,7 @@ class MangaFloatingService : LifecycleService() {
                     text = region.texts.joinToString("\n"),
                     boundingBox = region.rect,
                     cornerPoints = null,
-                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR,
                     angle = region.angle,
                     centerX = region.center.x,
                     centerY = region.center.y
@@ -2625,7 +2626,7 @@ class MangaFloatingService : LifecycleService() {
                             LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
                             // 合并区域详情
                             for ((idx, region) in mergedRegions.withIndex()) {
-                                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
+                                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "竖排" else "横排"
                                 val r = region.rect
                                 val merged = region.texts.joinToString("｜")
                                 val angleStr = if (abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
@@ -2813,7 +2814,7 @@ class MangaFloatingService : LifecycleService() {
                         rect = rect,
                         texts = listOf(block.text),
                         fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                        direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                        direction = if (isVertical) config.textDirection else TextDirection.HORIZONTAL,
                         angle = block.angle,
                         centerX = block.centerX,
                         centerY = block.centerY
@@ -4499,7 +4500,7 @@ class MangaFloatingService : LifecycleService() {
         val textLines = if (isV6) PPOcrV6Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
         else PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
         TextRegionMerger.refreshParams(this)
-        return TextRegionMerger.merge(textLines.map { it.toTextRegion() })
+        return TextRegionMerger.merge(textLines.map { it.toTextRegion() }, verticalDirection = config.textDirection)
     }
 
     /**
@@ -4597,7 +4598,7 @@ class MangaFloatingService : LifecycleService() {
                 "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
             add("━━━ 合并结果 ━━━")
             for ((idx, region) in mergedRegions.withIndex()) {
-                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
+                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "竖排" else "横排"
                 val srcCount = region.texts.size
                 val merged = region.texts.joinToString("｜")
                 val r = region.rect
@@ -4776,7 +4777,7 @@ class MangaFloatingService : LifecycleService() {
                 "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
             add("━━━ 合并结果 ━━━")
             for ((idx, region) in mergedRegions.withIndex()) {
-                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "竖排" else "横排"
+                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "竖排" else "横排"
                 val srcCount = region.texts.size
                 val merged = region.texts.joinToString("｜")
                 val r = region.rect

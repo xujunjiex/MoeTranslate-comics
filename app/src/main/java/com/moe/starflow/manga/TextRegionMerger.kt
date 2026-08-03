@@ -411,7 +411,8 @@ object TextRegionMerger {
      */
     fun merge(
         regions: List<TextRegion>,
-        params: MergeParams = MergeParams(discardConnectionGap, charGapTolerance2)
+        params: MergeParams = MergeParams(discardConnectionGap, charGapTolerance2),
+        verticalDirection: TextDirection = TextDirection.VERTICAL_RL
     ): List<TextRegionGroup> {
         if (regions.isEmpty()) return emptyList()
 
@@ -431,7 +432,7 @@ object TextRegionMerger {
                     PointF(rect.right.toFloat(), rect.bottom.toFloat()),
                     PointF(rect.left.toFloat(), rect.bottom.toFloat())
                 )
-                val direction = if (region.quad.isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+                val direction = if (region.quad.isVertical) verticalDirection else TextDirection.HORIZONTAL
                 return listOf(
                     TextRegionGroup(
                         rect = rect,
@@ -501,7 +502,7 @@ object TextRegionMerger {
                 val voters = if (directionalMembers.isNotEmpty()) directionalMembers else members
                 val directionCounts = voters.groupBy { it.quad.isVertical }.mapValues { it.value.size }
                 val majorityVertical = (directionCounts[true] ?: 0) > (directionCounts[false] ?: 0)
-                val direction = if (majorityVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+                val direction = if (majorityVertical) verticalDirection else TextDirection.HORIZONTAL
 
                 // 按方向排序（同行/列时用 x/y 坐标做二级排序，保证稳定性）
                 val sortedNodes = if (direction == TextDirection.HORIZONTAL) {

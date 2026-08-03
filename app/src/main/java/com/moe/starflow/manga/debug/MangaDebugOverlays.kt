@@ -230,7 +230,7 @@ object MangaDebugOverlays {
             canvas.drawRect(r, mergedPaint)
 
             // 标签：序号 + 方向 + 文字数 + 倾斜角
-            val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "V" else "H"
+            val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "V" else "H"
             val angleStr = if (hasTilt) " ∠${String.format("%.0f°", region.angle)}" else ""
             val label = "[$idx]$dirLabel ×${region.texts.size}$angleStr"
             canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)
@@ -373,7 +373,7 @@ object MangaDebugOverlays {
             canvas.drawRect(r, mergedPaint)
 
             // 标签：序号 + 方向 + 文字数 + 倾斜角
-            val dirLabel = if (region.direction == TextDirection.VERTICAL_RL) "V" else "H"
+            val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "V" else "H"
             val angleStr = if (hasTilt) " ∠${String.format("%.0f°", region.angle)}" else ""
             val label = "[$idx]$dirLabel ×${region.texts.size}$angleStr"
             canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)

@@ -793,7 +793,10 @@ object DetectionBridge {
     /**
      * 将 OCR 结果转换为 BubbleRegion 列表（正常翻译和重翻共用）。
      */
-    fun ocrToBubbleRegions(ocrResults: List<TextBlockInfo>): List<BubbleRegion> {
+    fun ocrToBubbleRegions(
+        ocrResults: List<TextBlockInfo>,
+        textDirection: TextDirection = TextDirection.VERTICAL_RL
+    ): List<BubbleRegion> {
         return ocrResults.filter { it.boundingBox != null }.map { block ->
             val rect = block.boundingBox!!
             val isVertical = block.isVertical ?: (rect.height() > rect.width())
@@ -801,7 +804,7 @@ object DetectionBridge {
                 rect = rect,
                 texts = listOf(block.text),
                 fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                direction = if (isVertical) TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL,
+                direction = if (isVertical) textDirection else TextDirection.HORIZONTAL,
                 angle = block.angle,
                 centerX = block.centerX,
                 centerY = block.centerY
@@ -1013,7 +1016,10 @@ object DetectionBridge {
 
             // 识别后合并（对齐参考项目 merge_bboxes_text_region）
             TextRegionMerger.refreshParams(context)
-            val allMerged = TextRegionMerger.merge(textLines.map { TextRegion(quad = QuadBox(it.quadPoints), text = it.text, score = it.score) })
+            // 竖排方向遵循用户配置（Manga_Text_Direction）
+            val textDirection = if (com.moe.starflow.utils.CustomPreference.getInstance(context).getString("Manga_Text_Direction", "0") == "1")
+                TextDirection.VERTICAL_LR else TextDirection.VERTICAL_RL
+            val allMerged = TextRegionMerger.merge(textLines.map { TextRegion(quad = QuadBox(it.quadPoints), text = it.text, score = it.score) }, verticalDirection = textDirection)
             // 合并后内容过滤：丢弃空白、单字符、纯符号、短数字
             val mergedRegions = allMerged.filter { region ->
                 val text = region.texts.joinToString("").trim()
@@ -1031,7 +1037,7 @@ object DetectionBridge {
                     text = region.texts.joinToString("\n"),
                     boundingBox = region.rect,
                     cornerPoints = null,
-                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR,
                     angle = region.angle,
                     centerX = region.center.x,
                     centerY = region.center.y
@@ -1124,7 +1130,10 @@ object DetectionBridge {
 
             // 识别后合并（对齐参考项目 merge_bboxes_text_region）
             TextRegionMerger.refreshParams(context)
-            val allMerged = TextRegionMerger.merge(textLines.map { TextRegion(quad = QuadBox(it.quadPoints), text = it.text, score = it.score) })
+            // 竖排方向遵循用户配置（Manga_Text_Direction）
+            val textDirection = if (com.moe.starflow.utils.CustomPreference.getInstance(context).getString("Manga_Text_Direction", "0") == "1")
+                TextDirection.VERTICAL_LR else TextDirection.VERTICAL_RL
+            val allMerged = TextRegionMerger.merge(textLines.map { TextRegion(quad = QuadBox(it.quadPoints), text = it.text, score = it.score) }, verticalDirection = textDirection)
             // 合并后内容过滤：丢弃空白、单字符、纯符号、短数字
             val mergedRegions = allMerged.filter { region ->
                 val text = region.texts.joinToString("").trim()
@@ -1142,7 +1151,7 @@ object DetectionBridge {
                     text = region.texts.joinToString("\n"),
                     boundingBox = region.rect,
                     cornerPoints = null,
-                    isVertical = region.direction == TextDirection.VERTICAL_RL,
+                    isVertical = region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR,
                     angle = region.angle,
                     centerX = region.center.x,
                     centerY = region.center.y

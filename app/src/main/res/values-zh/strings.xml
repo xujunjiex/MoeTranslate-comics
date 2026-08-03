@@ -437,6 +437,10 @@
     <string name="manga_bg_color">漫画翻译背景颜色</string>
     <string name="manga_text_color_summary">当前漫画翻译结果的文字颜色</string>
     <string name="manga_bg_color_summary">当前漫画翻译结果的背景颜色</string>
+    <string name="manga_text_direction_title">竖排方向</string>
+    <string name="manga_text_direction_summary">竖排文字的列排列方向</string>
+    <string name="manga_text_direction_rl">竖排（列从右到左）</string>
+    <string name="manga_text_direction_lr">竖排（列从左到右）</string>
     <string name="incremental_render_title">分批渲染</string>
     <string name="incremental_render_summary">气泡超过6个时分两批翻译，提前显示首批结果，但可能造成总翻译时长略微增加。仅对PP-OCRv5独立模式和RT-DETR-V2+MangaOcr组合生效。</string>
     <string name="manga_keep_text_free_title">识别自由文字</string>

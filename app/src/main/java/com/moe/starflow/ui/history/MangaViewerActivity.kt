@@ -31,8 +31,8 @@ import com.moe.starflow.manga.OcrEngine
 import com.moe.starflow.manga.OcrLock
 import com.moe.starflow.manga.OverlayRenderer
 import com.moe.starflow.manga.PPOcrV5Engine
-import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.manga.TextDirection
+import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.manga.TranslatedBubble
 import com.moe.starflow.manga.TranslateUtils
 import com.moe.starflow.translate.ScreenshotManager
@@ -827,7 +827,9 @@ class MangaViewerActivity : AppCompatActivity() {
 
                         val ocrResults = DetectionBridge.runOCR(cropped, sourceLang, detEngine.value, ocrEngine.value, this@MangaViewerActivity)
                         if (ocrResults.isEmpty()) throw Exception("OCR 未识别到文字")
-                        val bubbles = DetectionBridge.ocrToBubbleRegions(ocrResults)
+                        // 重翻遵循用户配置的竖排方向
+                        val textDirection = if (prefs.getString("Manga_Text_Direction", "0") == "1") TextDirection.VERTICAL_LR else TextDirection.VERTICAL_RL
+                        val bubbles = DetectionBridge.ocrToBubbleRegions(ocrResults, textDirection)
                         if (bubbles.isEmpty()) throw Exception("无有效文字区域")
                         val translator = createTranslator(prefs) ?: throw Exception("翻译器创建失败")
                         val translatedBubbles = com.moe.starflow.manga.TranslateUtils.translateBubbles(

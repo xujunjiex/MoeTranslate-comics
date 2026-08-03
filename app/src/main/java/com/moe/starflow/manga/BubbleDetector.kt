@@ -364,7 +364,7 @@ object BubbleDetector {
             TextLine(rect = rect, fontSize = fontSize, isVertical = isVertical, text = block.text)
         }
 
-        return doDetect(textLines)
+        return doDetect(textLines, config.verticalTextDirection)
     }
 
     /**
@@ -394,8 +394,9 @@ object BubbleDetector {
 
     /**
      * 核心检测逻辑（两个 detectBubbles 重载共用）。
+     * @param verticalDirection 竖排时的列方向（RL 或 LR），由调用方根据 config 传入
      */
-    private fun doDetect(textLines: List<TextLine>): List<BubbleRegion> {
+    private fun doDetect(textLines: List<TextLine>, verticalDirection: TextDirection = TextDirection.VERTICAL_RL): List<BubbleRegion> {
         val n = textLines.size
 
         // Step 2: canMergeRegion 构建图 → connected components
@@ -474,7 +475,7 @@ object BubbleDetector {
             // L199: font_size = min
             val minFontSize = lines.minOf { it.fontSize }
 
-            val textDirection = if (majorityDir == 'v') TextDirection.VERTICAL_RL else TextDirection.HORIZONTAL
+            val textDirection = if (majorityDir == 'v') verticalDirection else TextDirection.HORIZONTAL
 
             val unionRectInt = Rect(
                 unionRect.left.toInt(), unionRect.top.toInt(),
