@@ -12,12 +12,12 @@ import org.robolectric.RuntimeEnvironment
 class OcrEngineManagerTest {
     private fun prefs() = PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication())
 
-    @Test fun default_noLegacyPrefs_returnsMlkitAndMigrates() {
+    @Test fun default_noLegacyPrefs_returnsV6() {
         val p = prefs()
         p.edit().clear().commit()
-        assertEquals(OcrEngineGroup.MLKIT, OcrEngineManager.getOcrEngineGroup(p))
+        assertEquals(OcrEngineGroup.PP_OCR_V6, OcrEngineManager.getOcrEngineGroup(p))
         // 迁移已写共享值
-        assertEquals("mlkit", p.getString(OcrEngineManager.PREF_KEY, ""))
+        assertEquals("ppocrv6", p.getString(OcrEngineManager.PREF_KEY, ""))
     }
     @Test fun legacy_mangaV6_migratesToV6() {
         val p = prefs()
