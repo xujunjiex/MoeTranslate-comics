@@ -28,6 +28,24 @@ object OverlayRenderer {
         return maxOf(1, ((height - fontSize) / step).toInt() + 1)
     }
 
+    /** 竖排布局结果：列数 + 拉伸后的列距 */
+    private data class VerticalLayout(val columns: Int, val spacing: Float)
+
+    /**
+     * 竖排布局：列数由每列容量决定；列距在小范围 [1.0fs, 1.8fs] 内拉伸，
+     * 让文字列宽尽量填满 region 宽。
+     *
+     * 背景：列数是整数离散的（3 字要么 1 列要么 2 列），fit 字号无法精确填满气泡宽，
+     * 导致左侧空白列；拉伸列距（气泡宽/列数，clamp 到合理范围）可消除该空白。
+     */
+    private fun verticalLayout(textLength: Int, region: Rect, fontSize: Float): VerticalLayout {
+        val charsPerColumn = capacityForHeight(region.height(), fontSize)
+        val columns = (textLength + charsPerColumn - 1) / charsPerColumn
+        val target = region.width().toFloat() / columns.coerceAtLeast(1)
+        val spacing = target.coerceIn(fontSize, fontSize * 1.8f)
+        return VerticalLayout(columns, spacing)
+    }
+
     /** 单气泡的绘制参数（Phase 1 产物） */
     private data class Param(
         val region: TranslatedBubble,
@@ -80,10 +98,13 @@ object OverlayRenderer {
             } else {
                 baseFontSize
             }
-            // drawRect 贴合文字实际所需（收缩居中/平衡扩展），自动与非自动统一。
-            // 自动模式 fit 已尽量放大字号；气泡宽于竖排文字时，文字列宽填不满气泡是几何
-            // 必然（列数受气泡宽限制），drawRect 贴合文字列宽可避免左侧大片空白。
-            val neededRect = calculateCompactRect(region.rect, displayText, region.direction, fitFontSize)
+            // 自动模式：drawRect 用原始气泡（覆盖原文区域），文字靠 fit 字号 + 列距填满气泡宽
+            // 非自动模式：drawRect 贴合文字（收缩居中/平衡扩展）
+            val neededRect = if (autoFit) {
+                region.rect
+            } else {
+                calculateCompactRect(region.rect, displayText, region.direction, fitFontSize)
+            }
             Param(region, displayText, fitFontSize, neededRect)
         }
 
@@ -146,6 +167,15 @@ object OverlayRenderer {
             } else {
                 item.displayTexts[0]
             }
+            // 竖排列距在小范围拉伸填满 drawRect 宽（列数是整数离散的，字号无法精确填满，
+            // 调列距可消除左侧空白列）
+            val columnSpacing = if (text.isNotEmpty() &&
+                (item.direction == TextDirection.VERTICAL_RL || item.direction == TextDirection.VERTICAL_LR)
+            ) {
+                verticalLayout(text.length, item.drawRect, item.fitFontSize).spacing
+            } else {
+                null
+            }
             VerticalTextRenderer.drawText(
                 canvas = canvas,
                 text = text,
@@ -155,7 +185,8 @@ object OverlayRenderer {
                 textColor = textColor,
                 autoFit = false,
                 // 竖排列组水平居中：避免文字从右缘开始导致左侧整片空白
-                centered = true
+                centered = true,
+                columnSpacingOverride = columnSpacing
             )
             canvas.restore()
             canvas.restore()
@@ -320,10 +351,10 @@ object OverlayRenderer {
         val textH: Float
         when (direction) {
             TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> {
-                // 每列容量与绘制一致，避免列数高估导致 drawRect 宽出空白列
+                // 列距拉伸填满气泡宽（列数离散，fit 字号无法精确填满，调列距消除左侧空白）
+                val layout = verticalLayout(text.length, rect, fontSize)
                 val charsPerColumn = capacityForHeight(rect.height(), fontSize)
-                val columns = (text.length + charsPerColumn - 1) / charsPerColumn
-                textW = columns * columnSpacing
+                textW = layout.columns * layout.spacing
                 textH = minOf(text.length, charsPerColumn) * charHeight
             }
             TextDirection.HORIZONTAL -> {

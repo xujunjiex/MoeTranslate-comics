@@ -14,7 +14,8 @@ object VerticalTextRenderer {
         region: Rect,
         fontSize: Float = 16f,
         textColor: Int = Color.BLACK,
-        centered: Boolean = false
+        centered: Boolean = false,
+        columnSpacingOverride: Float? = null
     ) {
         val paint = Paint().apply {
             color = textColor
@@ -24,7 +25,7 @@ object VerticalTextRenderer {
         }
 
         val charHeight = fontSize * 1.2f
-        val columnSpacing = fontSize * 1.2f
+        val columnSpacing = columnSpacingOverride ?: (fontSize * 1.2f)
         val charsPerColumn = maxOf(1, ((region.height() - fontSize) / charHeight).toInt() + 1)
         val columns = (text.length + charsPerColumn - 1) / charsPerColumn
         // 水平居中：列组中心对齐 region 中心（最右列中心）；否则从右缘开始
@@ -65,7 +66,8 @@ object VerticalTextRenderer {
         region: Rect,
         fontSize: Float = 16f,
         textColor: Int = Color.BLACK,
-        centered: Boolean = false
+        centered: Boolean = false,
+        columnSpacingOverride: Float? = null
     ) {
         val paint = Paint().apply {
             color = textColor
@@ -75,7 +77,7 @@ object VerticalTextRenderer {
         }
 
         val charHeight = fontSize * 1.2f
-        val columnSpacing = fontSize * 1.2f
+        val columnSpacing = columnSpacingOverride ?: (fontSize * 1.2f)
         val charsPerColumn = maxOf(1, ((region.height() - fontSize) / charHeight).toInt() + 1)
         val columns = (text.length + charsPerColumn - 1) / charsPerColumn
         // 水平居中：列组中心对齐 region 中心（最左列中心）；否则从左缘开始
@@ -154,15 +156,16 @@ object VerticalTextRenderer {
         fontSize: Float = 16f,
         textColor: Int = Color.BLACK,
         autoFit: Boolean = true,
-        centered: Boolean = false
+        centered: Boolean = false,
+        columnSpacingOverride: Float? = null
     ) {
         var actualFontSize = fontSize
         if (autoFit) {
             actualFontSize = calculateFitFontSize(text, region, direction, fontSize)
         }
         when (direction) {
-            TextDirection.VERTICAL_RL -> drawVerticalTextRL(canvas, text, region, actualFontSize, textColor, centered)
-            TextDirection.VERTICAL_LR -> drawVerticalTextLR(canvas, text, region, actualFontSize, textColor, centered)
+            TextDirection.VERTICAL_RL -> drawVerticalTextRL(canvas, text, region, actualFontSize, textColor, centered, columnSpacingOverride)
+            TextDirection.VERTICAL_LR -> drawVerticalTextLR(canvas, text, region, actualFontSize, textColor, centered, columnSpacingOverride)
             TextDirection.HORIZONTAL -> drawHorizontalText(canvas, text, region, actualFontSize, textColor)
         }
     }
