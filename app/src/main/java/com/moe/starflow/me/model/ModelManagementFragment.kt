@@ -17,7 +17,14 @@ import com.moe.starflow.download.DownloadState
 import com.moe.starflow.download.ModelDownloadRepository
 import com.moe.starflow.download.ModelKey
 import com.moe.starflow.download.ModelDownloadService
+import com.moe.starflow.manga.MangaOcrModelFiles
+import com.moe.starflow.manga.OcrEngineGroup
+import com.moe.starflow.manga.PPOcrModelFiles
+import com.moe.starflow.manga.RTDetrModelFiles
+import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
+import com.moe.starflow.utils.OcrEngineManager
+import com.moe.starflow.utils.UiUtils
 import android.content.Intent
 import android.net.Uri
 import kotlinx.coroutines.launch
@@ -127,6 +134,48 @@ class ModelManagementFragment : Fragment() {
             fullPath
         }
         pathText.text = genericPath
+
+        refreshOcrGroupSelection()
+    }
+
+    /** 4 组：OcrEngineGroup → (组标题 View, 状态角标 View) */
+    private val groupViews = listOf(
+        OcrEngineGroup.MLKIT to (R.id.mlkit_group_title to R.id.mlkit_group_selected),
+        OcrEngineGroup.PP_OCR_V6 to (R.id.ppocrv6_group_title to R.id.ppocrv6_group_selected),
+        OcrEngineGroup.PP_OCR_V5 to (R.id.ppocrv5_group_title to R.id.ppocrv5_group_selected),
+        OcrEngineGroup.RT_MANGA to (R.id.rt_manga_group_title to R.id.rt_manga_group_selected)
+    )
+
+    /** 刷新 OCR 组选择状态：高亮当前组、未下载组置灰、点击选择/弹提示 */
+    private fun refreshOcrGroupSelection() {
+        val prefs = CustomPreference.getInstance(requireContext())
+        val current = OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences())
+        for ((group, ids) in groupViews) {
+            val title = rootView.findViewById<View>(ids.first)
+            val badge = rootView.findViewById<TextView>(ids.second)
+            title.isSelected = (group == current)
+            badge.visibility = if (group == current) View.VISIBLE else View.GONE
+            // 未下载组置灰：PP-OCRv5 需 det+rec_zh，RT-MANGA 需 RT-DETR+manga-ocr
+            val available = when (group) {
+                OcrEngineGroup.PP_OCR_V5 -> PPOcrModelFiles.isV5DetDownloaded(requireContext()) && PPOcrModelFiles.isV5RecZhDownloaded(requireContext())
+                OcrEngineGroup.RT_MANGA -> RTDetrModelFiles.isModelAvailable(requireContext()) && MangaOcrModelFiles.isModelDownloaded(requireContext())
+                else -> true
+            }
+            title.isEnabled = available
+            title.alpha = if (available) 1f else 0.4f
+            title.setOnClickListener {
+                if (available) {
+                    OcrEngineManager.setOcrEngineGroup(prefs.getSharedPreferences(), group)
+                    UiUtils.showToast(requireContext(), getString(group.labelRes), isShort = true)
+                    refreshOcrGroupSelection()
+                } else {
+                    AlertDialog.Builder(requireContext())
+                        .setMessage(getString(group.requiredModelsRes))
+                        .setPositiveButton(R.string.user_known, null)
+                        .create().also { it.window?.setBackgroundDrawableResource(R.drawable.dialog_background) }.show()
+                }
+            }
+        }
     }
 
     /** 渲染所有模型行（数据驱动，遍历 [modelRows]） */

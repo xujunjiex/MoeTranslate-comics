@@ -24,10 +24,10 @@ enum class OcrEngineGroup(
         needsDownload = false, requiredModelsRes = 0),
     PP_OCR_V5("ppocrv5", R.string.model_group_ppocrv5, 1, DetEngine.PP_OCR_V5, OcrEngine.PPOcrV5,
         setOf("zh","zh-TW","en","ja","ko","ru"),
-        needsDownload = true, requiredModelsRes = 0),
+        needsDownload = true, requiredModelsRes = R.string.ocr_group_v5_required),
     RT_MANGA("rtmanga", R.string.model_group_rt_manga, 2, DetEngine.RT_DETR_V2, OcrEngine.MangaOcr,
         setOf("ja"),
-        needsDownload = true, requiredModelsRes = 0);
+        needsDownload = true, requiredModelsRes = R.string.ocr_group_manga_required);
 
     companion object {
         /** 30 种语言池（全组并集），顺序即首页源语言列表顺序 */

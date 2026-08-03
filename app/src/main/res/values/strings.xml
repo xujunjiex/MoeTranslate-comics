@@ -798,6 +798,10 @@
     <string name="model_browser_encoder">encoder</string>
     <string name="model_browser_decoder">decoder</string>
     <string name="model_browser_vocab">vocab</string>
+    <string name="ocr_group_v5_required">This group is not downloaded yet. Required: PP-OCRv5 detector + PP-OCRv5 recognizer (rec_zh)</string>
+    <string name="ocr_group_manga_required">This group is not downloaded yet. Required: RT-DETR-V2 detector + manga-ocr recognizer</string>
+    <string name="ocr_group_selected">In use</string>
+    <string name="ocr_group_choose">Select as current OCR model</string>
 
     <!-- 模型管理 UI 润色 v2 -->
     <string name="model_built_in_label">Built-in</string>

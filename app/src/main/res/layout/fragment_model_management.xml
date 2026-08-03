@@ -13,12 +13,24 @@
              1. ML Kit（内置）
              ════════════════════════════════════════════════════════ -->
         <TextView
+            android:id="@+id/mlkit_group_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/model_group_mlkit"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:layout_marginTop="8dp"/>
+            android:padding="4dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/ocr_group_selector"
+            android:clickable="true"/>
+        <TextView
+            android:id="@+id/mlkit_group_selected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ocr_group_selected"
+            android:textColor="#4CAF50"
+            android:textSize="12sp"
+            android:visibility="gone"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -54,12 +66,24 @@
              2. PP-OCRv6（small 内置 + medium 可下载）
              ════════════════════════════════════════════════════════ -->
         <TextView
+            android:id="@+id/ppocrv6_group_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/model_group_ppocrv6"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:layout_marginTop="16dp"/>
+            android:padding="4dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/ocr_group_selector"
+            android:clickable="true"/>
+        <TextView
+            android:id="@+id/ppocrv6_group_selected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ocr_group_selected"
+            android:textColor="#4CAF50"
+            android:textSize="12sp"
+            android:visibility="gone"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -301,12 +325,24 @@
              3. PP-OCRv5（全部需下载：检测器在前，识别器多语言在后）
              ════════════════════════════════════════════════════════ -->
         <TextView
+            android:id="@+id/ppocrv5_group_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/model_group_ppocrv5"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:layout_marginTop="16dp"/>
+            android:padding="4dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/ocr_group_selector"
+            android:clickable="true"/>
+        <TextView
+            android:id="@+id/ppocrv5_group_selected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ocr_group_selected"
+            android:textColor="#4CAF50"
+            android:textSize="12sp"
+            android:visibility="gone"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -754,12 +790,24 @@
              4. RT-DETR-V2 + manga-ocr（均需下载）
              ════════════════════════════════════════════════════════ -->
         <TextView
+            android:id="@+id/rt_manga_group_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/model_group_rt_manga"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:layout_marginTop="16dp"/>
+            android:padding="4dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/ocr_group_selector"
+            android:clickable="true"/>
+        <TextView
+            android:id="@+id/rt_manga_group_selected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ocr_group_selected"
+            android:textColor="#4CAF50"
+            android:textSize="12sp"
+            android:visibility="gone"/>
 
         <LinearLayout
             android:layout_width="match_parent"
