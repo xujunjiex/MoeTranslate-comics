@@ -1087,18 +1087,22 @@ class FloatingBallService : LifecycleService() {
                     )
                 }
                 withContext(Dispatchers.Main) {
-                    val histDialog = Dialogs.historyDialog(this@FloatingBallService, items,
+                    var histDialog: android.app.AlertDialog? = null
+                    histDialog = Dialogs.historyDialog(this@FloatingBallService, items,
                         onItemClick = { position ->
-                            // 点击：直接复制译文到剪贴板（复制是一次性操作反馈 → 系统 Toast，避免 overlay 提示首帧不显示）
+                            // 点击：复制译文 + 关闭历史菜单（Toast 不被遮挡）
                             val selected = historyList[position]
                             selected.translatedText?.let { text ->
                                 (getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager)
                                     ?.setPrimaryClip(ClipData.newPlainText("translation", text))
                                 UiUtils.showToast(this@FloatingBallService, "已复制译文", isShort = true)
                             }
+                            histDialog?.dismiss()
                         },
                         onItemLongClick = { position ->
-                            // 长按：重新翻译
+                            // 长按：关闭历史菜单 + 重新翻译（结果显示在悬浮窗不被遮挡；
+                            // 数据库同源记录由 refreshGameCache 替换，不新增重复条目）
+                            histDialog?.dismiss()
                             val selected = historyList[position]
                             if (!selected.sourceText.isNullOrEmpty()) {
                                 translateByText(selected.sourceText)
