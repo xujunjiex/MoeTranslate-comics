@@ -180,12 +180,13 @@ class TranslationCacheManager(private val context: Context) {
 
     // ========== 共享渲染层 ==========
 
-    /** 渲染配置（字体、颜色等）*/
+    /** 渲染配置（字体、颜色、竖排方向等）*/
     data class OverlayConfig(
         val fontSize: Float = 16f,
         val autoFit: Boolean = true,
         val textColor: Int = android.graphics.Color.BLACK,
-        val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255)
+        val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255),
+        val textDirection: com.moe.starflow.manga.TextDirection = com.moe.starflow.manga.TextDirection.VERTICAL_RL
     )
 
     /**
@@ -244,7 +245,8 @@ class TranslationCacheManager(private val context: Context) {
                         autoFit = config.autoFit,
                         textColor = config.textColor,
                         bgColor = config.bgColor,
-                        useOriginalText = (mode == OverlayMode.ORIGINAL)
+                        useOriginalText = (mode == OverlayMode.ORIGINAL),
+                        verticalDirection = config.textDirection
                     )
                 } finally {
                     // fullBitmap 由 OverlayRenderer 内部 copy 后返回，需要 recycle 原图
@@ -277,7 +279,8 @@ class TranslationCacheManager(private val context: Context) {
                         autoFit = config.autoFit,
                         textColor = config.textColor,
                         bgColor = config.bgColor,
-                        useOriginalText = (mode == OverlayMode.ORIGINAL)
+                        useOriginalText = (mode == OverlayMode.ORIGINAL),
+                        verticalDirection = config.textDirection
                     )
                 }
             } catch (e: Exception) {
@@ -295,7 +298,9 @@ class TranslationCacheManager(private val context: Context) {
         val autoFit = prefs.getBoolean("Manga_Auto_Font_Size", true)
         val textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK)
         val bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
-        return OverlayConfig(fontSize, autoFit, textColor, bgColor)
+        val textDirection = if (prefs.getString("Manga_Text_Direction", "0") == "1")
+            com.moe.starflow.manga.TextDirection.VERTICAL_LR else com.moe.starflow.manga.TextDirection.VERTICAL_RL
+        return OverlayConfig(fontSize, autoFit, textColor, bgColor, textDirection)
     }
 
     // ========== 缓存操作 ==========

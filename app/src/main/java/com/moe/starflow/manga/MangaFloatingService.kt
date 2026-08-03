@@ -3062,7 +3062,8 @@ class MangaFloatingService : LifecycleService() {
                 fontSize = config.fontSize,
                 autoFit = config.autoFontSize,
                 textColor = config.textColor,
-                bgColor = config.bgColor
+                bgColor = config.bgColor,
+                verticalDirection = config.textDirection
             )
         }
         withContext(Dispatchers.Main) {
@@ -3112,7 +3113,8 @@ class MangaFloatingService : LifecycleService() {
                 fontSize = config.fontSize,
                 autoFit = config.autoFontSize,
                 textColor = config.textColor,
-                bgColor = config.bgColor
+                bgColor = config.bgColor,
+                verticalDirection = config.textDirection
             )
         }
 
@@ -3735,7 +3737,8 @@ class MangaFloatingService : LifecycleService() {
                     autoFit = config.autoFontSize,
                     textColor = config.textColor,
                     bgColor = config.bgColor,
-                    useOriginalText = copyOriginalMode
+                    useOriginalText = copyOriginalMode,
+                    verticalDirection = config.textDirection
                 )
             }
             withContext(Dispatchers.Main) {

@@ -245,7 +245,7 @@
     <string name="font_size_range">Range：%1$s-%2$s</string>
     <string name="font_size_setting">Set font size</string>
     <string name="font_size_invalid">Please enter a number within %1$s-%2$s</string>
-    <string name="font_size_summary">Current size：%s\nYou can enter decimals</string>
+    <string name="font_size_summary">Current size：%1$s（Range：%2$s-%3$s）\nYou can enter decimals</string>
     <string name="font_size_title">Font Size</string>
     <string name="font_size_hint">Current size：%s</string>
     <string name="model_hasbeen_download_title">The model file has been downloaded</string>

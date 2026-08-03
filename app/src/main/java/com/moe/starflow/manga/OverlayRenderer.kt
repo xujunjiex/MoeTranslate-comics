@@ -73,13 +73,24 @@ object OverlayRenderer {
         autoFit: Boolean = true,
         textColor: Int = Color.BLACK,
         bgColor: Int = Color.argb(200, 255, 255, 255),
-        useOriginalText: Boolean = false
+        useOriginalText: Boolean = false,
+        verticalDirection: TextDirection? = null
     ): Bitmap {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
 
+        // 竖排方向覆盖：所有竖排气泡（RL 或 LR）统一用当前配置方向，横排保持。
+        // 保证历史/缓存命中的气泡（方向可能是旧设置时存的）也按当前设置实时渲染。
+        val effectiveRegions = if (verticalDirection != null) {
+            regions.map { r ->
+                if (r.direction == TextDirection.VERTICAL_RL || r.direction == TextDirection.VERTICAL_LR) {
+                    r.copy(direction = verticalDirection)
+                } else r
+            }
+        } else regions
+
         // Phase 1: 每气泡的绘制参数（文字、字号、所需矩形）
-        val params = regions.map { region ->
+        val params = effectiveRegions.map { region ->
             // 实际显示的文字：原文模式用 originalText，否则用译文
             // 注意：⚡ 标志只用于翻译进程中的内存缓存命中（isInMemoryCache），数据库反序列化的 bubbles 永远不显示 ⚡
             val displayText = if (useOriginalText) {
