@@ -12,6 +12,22 @@ object OverlayRenderer {
     private const val VERTICAL_SEPARATOR = "◇"
     private const val HORIZONTAL_SEPARATOR = "──"
 
+    /**
+     * 竖排字符步距系数，必须与 VerticalTextRenderer 绘制一致（其内部用 fontSize*1.2f）。
+     * 尺寸计算若用更大的系数（如 1.4）会高估每列容量不足 → 列数算多 → drawRect 宽出 1-2 列空白。
+     */
+    private const val CHAR_RATIO = 1.2f
+
+    /**
+     * 竖排每列可容纳字符数，与 VerticalTextRenderer 绘制逻辑一致：
+     * 起点 y = top + fontSize，每字步进 fontSize*CHAR_RATIO，超出 bottom 换列。
+     */
+    private fun capacityForHeight(height: Int, fontSize: Float): Int {
+        if (height <= 0) return 1
+        val step = fontSize * CHAR_RATIO
+        return maxOf(1, ((height - fontSize) / step).toInt() + 1)
+    }
+
     /** 单气泡的绘制参数（Phase 1 产物） */
     private data class Param(
         val region: TranslatedBubble,
@@ -201,7 +217,7 @@ object OverlayRenderer {
         val rightAll = members.maxOf { it.neededRect.right }
         val height = (bottom - top).coerceAtLeast(1)
 
-        val charHeight = fontSize * 1.4f
+        val charHeight = fontSize * CHAR_RATIO
         val padding = (fontSize * 0.4f).toInt()
 
         val drawRect = when (direction) {
@@ -262,12 +278,12 @@ object OverlayRenderer {
         regionHeight: Int,
         regionWidth: Int
     ): Pair<Int, Int> {
-        val charHeight = fontSize * 1.4f
-        val columnSpacing = fontSize * 1.2f
+        val charHeight = fontSize * CHAR_RATIO
+        val columnSpacing = fontSize * CHAR_RATIO
         // 最多列数：至少 4 列，宽区域可更多
         val maxColumns = maxOf(4, (regionWidth / columnSpacing).toInt()).coerceAtLeast(1)
-        // 自然列数：优先利用区域高度（每列尽量多字）
-        val baseCharsPerCol = maxOf(1, (regionHeight / charHeight).toInt())
+        // 自然列数：优先利用区域高度（每列尽量多字），容量与绘制函数一致
+        val baseCharsPerCol = capacityForHeight(regionHeight, fontSize)
         val naturalColumns = (textLength + baseCharsPerCol - 1) / baseCharsPerCol
         return if (naturalColumns <= maxColumns) {
             // 区域高度足够 → 保持自然列数
@@ -298,15 +314,16 @@ object OverlayRenderer {
         direction: TextDirection,
         fontSize: Float
     ): Rect {
-        val charHeight = fontSize * 1.4f
-        val columnSpacing = fontSize * 1.2f
+        val charHeight = fontSize * CHAR_RATIO
+        val columnSpacing = fontSize * CHAR_RATIO
         val padding = (fontSize * 0.4f).toInt()
 
         val textW: Float
         val textH: Float
         when (direction) {
             TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> {
-                val charsPerColumn = maxOf(1, (rect.height() / charHeight).toInt())
+                // 每列容量与绘制一致，避免列数高估导致 drawRect 宽出空白列
+                val charsPerColumn = capacityForHeight(rect.height(), fontSize)
                 val columns = (text.length + charsPerColumn - 1) / charsPerColumn
                 textW = columns * columnSpacing
                 textH = minOf(text.length, charsPerColumn) * charHeight
@@ -364,8 +381,8 @@ object OverlayRenderer {
         direction: TextDirection,
         fontSize: Float
     ): Rect {
-        val charHeight = fontSize * 1.4f
-        val columnSpacing = fontSize * 1.2f
+        val charHeight = fontSize * CHAR_RATIO
+        val columnSpacing = fontSize * CHAR_RATIO
 
         val expanded = when (direction) {
             TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> {
