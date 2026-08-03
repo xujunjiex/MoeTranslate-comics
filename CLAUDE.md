@@ -82,8 +82,20 @@ adb devices
 每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`、`doubaotranslation/`、`hymt2translation/`
 - `hymt2translation/` — **Hy-MT2 本地翻译引擎**（llama.cpp 设备端推理，需下载模型，非联网 API）；`nllbtranslation/` 同属本地引擎类
 
+**Hy-MT2 关键机制（`hymt2translation/` + `cpp/hymt2/`）：**
+- **引擎兼容**：仅 f8b355a9e（build 9521）可加载 1.25-bit 模型，链接预编译 `jniLibs/arm64-v8a/libllama.so`，CMake 只编 `hymt2_bridge.cpp`。2-bit 模型需 PR #19357 引擎，两者互不兼容
+- **流式契约**：`getTranslationStreaming` 回调 `onPhase`（`"prefill"` 读取原文 / `"generate"` 生成译文）+ `onPartial`（**累积到当前的完整译文**，非单片段）。其他翻译 API 的 `getTranslationStreaming` 是默认实现 = 一次性 `getTranslation`，不触发回调
+- **聊天格式**：输入必须包 `[BOS]<hy_User>指令<hy_Assistant>` 角色 token，裸文本会退化输出垃圾
+- **前缀 KV 缓存**：固定翻译指令（模板 `{source_text}` 之前的部分）只 prefill 一次进 KV，跨翻译复用（`HyMt2Prompt.buildPrefix` + 桥接 `prefix_key`/`prefix_n`），跳过重复读指令（约省 1s/次）
+- **线程分离**：prefill 用满全部核心（`n_threads_batch=hardware_concurrency`），生成用用户"推理线程数"（默认 6）。实测 prefill 8 线程比 6 线程快 ~22%
+- **超时语义**：本地引擎**不设总时长超时**，改「30s 无任何新输出」卡死看门狗（`TranslateUtils` 的 `LOCAL_STALL_TIMEOUT_MS`）；网络 API 保持请求发出起 35s 总超时（`API_TIMEOUT_MS`）。勿改回 `withTimeoutOrNull(总时长)` 一刀切
+- **漫画跳过分批**：`incrementalTranslateFlow` 对 `HyMT2Translation` 直接返回 false，走"一次翻译全部气泡 + 流式逐个显示"，不分两批
+- **单气泡也走批量**：`translateBubbles` 对 Hy-MT2 即使 1 个气泡也走编号批量流式路径（统一享受卡死看门狗）
+- **手机实测性能**：读原文 ~17-20 tok/s、写译文 ~13-14 tok/s（8 核限频 ~1.5GHz）。生成是 CPU 硬上限；**KV 缓存量化、2-bit 在手机实测反而更慢，勿再试**
+
 **关键接口：**
 - `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — 文本翻译
+- `TranslationTextAPI.getTranslationStreaming(text, sourceLanguage, targetLanguage, onPhase, onPartial, callback)` — 流式文本翻译（Hy-MT2 实现；onPartial 每次回调累积到当前的完整译文，在后台线程调用，UI 需自行切主线程）
 - `TranslationPicAPI.getTranslation(bitmap, sourceLanguage, targetLanguage, callback)` — 图片翻译
 
 **截图流程：** `ScreenshotProvider`（双模式）→ `ScreenshotManager.screenshotFlow`（SharedFlow）→ `FloatingBallService` / `MangaFloatingService` 接收处理
@@ -399,6 +411,18 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 **翻译流程：** 截图 → 检测 → OCR → 气泡合并（按需）→ 翻译（每气泡并行）→ 覆盖渲染
 
+**竖排方向（可配置，`Manga_Text_Direction`）：**
+- 个性化页「漫画翻译结果设置」→ 竖排方向：`0`=VERTICAL_RL（列从右到左，默认，传统日漫）/ `1`=VERTICAL_LR（列从左到右）
+- `MangaModeConfig.textDirection` 从 prefs 读；扩展属性 `verticalTextDirection` 统一竖排方向判断（`MangaModeConfig.kt`）
+- 检测/合并路径读方向：`BubbleDetector.doDetect`、`DetectionBridge.ocrToBubbleRegions`、`TextRegionMerger.merge`（均带方向参数，默认 RL）
+- ⚠️ **渲染时实时覆盖**：`OverlayRenderer.renderOverlay(verticalDirection)` 把所有竖排气泡（RL/LR）方向统一为当前配置，横排保持 HORIZONTAL——**历史/缓存命中数据的气泡 direction 存的是旧设置值，渲染时仍按当前设置显示**。所有渲染入口都传方向（MangaFloatingService 直接渲染 3 处 + `TranslationCacheManager.renderOverlay` 2 处，经 `OverlayConfig.textDirection`）
+- `Manga_Text_Direction` 加入 `watchedKeys`，设置实时生效
+
+**竖排渲染布局（`OverlayRenderer` + `VerticalTextRenderer`）：**
+- **列距填满**：列数是整数离散的（3 字要么 1 列要么 2 列），fit 字号无法精确填满气泡宽 → 竖排列距 `clamp(气泡宽/列数, 1.0fs, 1.8fs)` 拉伸填满（`verticalLayout()`），消除左侧空白列；`calculateCompactRect` 与绘制同步用拉伸列距
+- **绘制函数参数**：`VerticalTextRenderer.drawVerticalTextRL/LR` 支持 `centered`（列组水平居中 + 单列短文字垂直居中）和 `columnSpacingOverride`（填满列距）
+- **重叠合并**：非自动大字号扩展后 `neededRect` 重叠的相邻气泡合并成一个白块（union-find），组间用记号分隔（竖排 `◇` / 横排 `──`），顺序按阅读流（RL 右列先、LR 左列先）；异方向/倾斜/字号不一致 fallback 独立绘制
+
 **增量渲染（分批 OCR+翻译）：**
 超过 6 个气泡时自动分批处理，首批翻译完立即渲染，减少用户等待时间。
 - 触发条件：`Incremental_Render` 开启 + 气泡数 > 6
@@ -407,6 +431,7 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 - 上下文仅批次间使用：`forceContext=true` 强制开启，第二批能看到第一批译文；两批翻译完后回滚 contextHistory，不污染后续页面
 - 正常漫画翻译不使用上下文（`forceContext=false` 时直接关闭）
 - MangaOcr encoder 是批处理瓶颈（~3s），分批可提前显示部分结果
+- ⚠️ **Hy-MT2 例外**：`incrementalTranslateFlow` 对 `HyMT2Translation` 直接返回 false——本地引擎不分批，走「一次翻译全部气泡 + 流式逐个显示」（避免多次 prefill 拖慢）。改增量渲染逻辑时不要破坏这个早退分支
 
 **Debug 系统：** 关于页面可开启 4 个独立 debug 开关（RT-DETR-V2 / MLKit / PP-OCRv5 / PP-OCRv6），按当前 `config.detEngine` 决定走哪条 debug 路径。调试菜单为二级结构（一级标题带图标，二级开关无图标）。
 
@@ -820,6 +845,38 @@ $pid = & $adb shell pidof com.moe.starflow
 ```
 
 用 `run_in_background: true` 执行，让 app 运行后再查看日志文件。
+
+### 获取闪退（crash）详细信息
+
+**闪退时主 logcat 可能看不到栈，必须读崩溃专用缓冲区：**
+
+```bash
+# 最可靠：崩溃缓冲区（含 tombstone / backtrace / 信号 / 寄存器）
+adb logcat -d -b crash
+# 只看本 app 相关：grep 包名或崩溃特征
+adb logcat -d -b crash | grep -A40 "com.moe.starflow"
+```
+
+主缓冲区搜索兜底（`-d` 只读转储，不阻塞）：
+```bash
+adb logcat -d | grep -E "FATAL|Abort message|SIGABRT|libhymt2|AndroidRuntime|tombstone"
+# 指定 pid（app 崩溃后 pid 失效，需要崩溃前抓；崩溃后搜进程名即可）
+adb logcat -d --pid=<pid>
+```
+
+**读 backtrace 的要点：**
+1. **Abort message / signal** 是根因入口（如 `std::length_error: basic_string`、`CheckJNI::NewStringUTF` abort、`SIGSEGV`）
+2. **栈帧里的 `.so` 和函数名**定位代码：`base.apk!libhymt2.so (Java_..._nativeTranslate+516)` 说明崩在桥的哪个函数；`DEBUG: backtrace:` 下从 #00 往上读
+3. **Java 层崩溃**（`FATAL EXCEPTION`）在 main 缓冲区，栈在 `AndroidRuntime` tag 下
+
+**核对崩溃是否来自当前构建（重要，避免被旧日志误导）：**
+```bash
+# 崩溃日志里的 .so BuildId 形如 8c851a1e...，与当前构建比对：
+readelf -n app/build/intermediates/merged_native_libs/debug/mergeDebugNativeLibs/out/lib/arm64-v8a/libhymt2.so | grep -i "build id"
+# BuildId 不一致 = 崩溃日志是旧构建的，不是当前代码的问题
+```
+
+⚠️ 剪贴板里的"崩溃内容"（`adb shell dumpsys clipboard`）**不可靠**（Android 13+ 常返回空），优先用 `-b crash` 缓冲区。
 
 ### 常见错误
 
