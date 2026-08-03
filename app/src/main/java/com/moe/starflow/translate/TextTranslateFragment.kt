@@ -64,14 +64,15 @@ class TextTranslateFragment : Fragment() {
 
     private fun setupLanguageSelectors(b: FragmentTextTranslateBinding) {
         val prefs = CustomPreference.getInstance(requireContext()).getSharedPreferences()
-        val names = languages.map { CustomLocale.getInstance(it).getDisplayName() }
-        val adapter = android.widget.ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, names)
+        // 显示名带语言码后缀（如"中文（zh）"），避免中文各变体混淆
+        val labels = languages.map { nameOf(it) }
+        val adapter = android.widget.ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, labels)
         b.srcLangSelect.setAdapter(adapter)
         b.tgtLangSelect.setAdapter(adapter)
         val srcIdx = languages.indexOf(prefs.getString("Source_Language", "ja")).coerceAtLeast(0)
         val tgtIdx = languages.indexOf(prefs.getString("Target_Language", "zh")).coerceAtLeast(0)
-        b.srcLangSelect.setText(names[srcIdx], false)
-        b.tgtLangSelect.setText(names[tgtIdx], false)
+        b.srcLangSelect.setText(labels[srcIdx], false)
+        b.tgtLangSelect.setText(labels[tgtIdx], false)
     }
 
     private fun setupEngine(b: FragmentTextTranslateBinding) {
@@ -83,7 +84,7 @@ class TextTranslateFragment : Fragment() {
         translator = TranslatorFactory.create(requireContext(), prefs, TranslatorFactory.Mode.TEXT)
         val t = translator
         if (t != null) {
-            b.engineDisplay.text = t::class.simpleName ?: "?"
+            b.engineDisplay.text = TranslatorFactory.engineLabel(requireContext(), prefs)
             b.engineBadge.text = if (TranslatorFactory.isLocal(t))
                 getString(R.string.text_translate_local_badge) else getString(R.string.text_translate_api_badge)
             b.engineBadge.setBackgroundColor(
@@ -131,6 +132,10 @@ class TextTranslateFragment : Fragment() {
         }
         val srcCode = codeOf(b.srcLangSelect.text?.toString().orEmpty())
         val tgtCode = codeOf(b.tgtLangSelect.text?.toString().orEmpty())
+        if (srcCode == tgtCode) {
+            b.outputText.text = getString(R.string.text_translate_same_language)
+            return
+        }
         translating = true
         b.translateButton.isEnabled = false
         b.outputText.text = getString(R.string.manga_translating)
@@ -294,9 +299,14 @@ class TextTranslateFragment : Fragment() {
 
     // ========== 语言码 ↔ 显示名 ==========
 
-    private fun codeOf(name: String): String =
-        languages.firstOrNull { CustomLocale.getInstance(it).getDisplayName() == name } ?: name
+    /** 显示名带代码后缀：`中文（zh）`，避免中文各变体在标签里混淆。 */
+    private fun nameOf(code: String): String = languages.firstOrNull { it == code }
+        ?.let { "${CustomLocale.getInstance(it).getDisplayName()}（$it）" } ?: code
 
-    private fun nameOf(code: String): String =
-        languages.firstOrNull { it == code }?.let { CustomLocale.getInstance(it).getDisplayName() } ?: code
+    private fun codeOf(label: String): String {
+        languages.forEach { c ->
+            if ("${CustomLocale.getInstance(c).getDisplayName()}（$c）" == label) return c
+        }
+        return label
+    }
 }

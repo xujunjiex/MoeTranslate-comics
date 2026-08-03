@@ -72,6 +72,7 @@
     <string name="text_translate_copy_translated">复制译文</string>
     <string name="text_translate_retranslate">重新翻译</string>
     <string name="text_translate_service_running">游戏/漫画翻译正在运行，请先关闭后再使用文本翻译</string>
+    <string name="text_translate_same_language">源语言和目标语言不能相同</string>
     <string name="text_translate_limit_title">最近记录条数上限（0-500）</string>
     <string name="text_translate_local_badge">本地</string>
     <string name="text_translate_api_badge">API</string>

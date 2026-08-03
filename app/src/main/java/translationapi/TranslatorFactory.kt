@@ -148,4 +148,27 @@ object TranslatorFactory {
     /** 本地引擎判定：NLLB / Hy-MT2 为本地离线推理，其余为联网 API。 */
     fun isLocal(translator: TranslationTextAPI): Boolean =
         translator is NLLBTranslation || translator is HyMT2Translation
+
+    /** 引擎展示名：OpenAI 兼容显示实际模型名，其余显示厂商名。用于页面引擎指示条。 */
+    fun engineLabel(context: Context, prefs: CustomPreference): String = when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
+        Constants.TextApi.AI.id -> when (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)) {
+            Constants.TextAI.NLLB.id, 1 -> "NLLB"
+            Constants.TextAI.HYMT2.id -> "Hy-MT2 1.8B"
+            else -> "AI 引擎"
+        }
+        Constants.TextApi.BING.id -> "必应翻译"
+        Constants.TextApi.NIUTRANS.id -> "小牛翻译"
+        Constants.TextApi.OPENAI.id -> {
+            val providers = ConfigurationStorage.loadAllProviders(prefs)
+            val idx = prefs.getInt("OpenAI_Selected_Provider", 0)
+            providers.getOrNull(idx)?.modelName ?: "OpenAI"
+        }
+        Constants.TextApi.VOLC.id -> "火山翻译"
+        Constants.TextApi.AZURE.id -> "Azure"
+        Constants.TextApi.DEEPL.id -> "DeepL"
+        Constants.TextApi.BAIDU.id -> "百度翻译"
+        Constants.TextApi.TENCENT.id -> "腾讯翻译"
+        Constants.TextApi.CUSTOM_TEXT.id -> "自定义 API"
+        else -> "翻译引擎"
+    }
 }
