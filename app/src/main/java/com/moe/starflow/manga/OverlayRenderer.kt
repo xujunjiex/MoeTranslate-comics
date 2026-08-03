@@ -25,6 +25,8 @@ object OverlayRenderer {
         val sortedRegions = regions.sortedByDescending { it.rect.width() * it.rect.height() }
         val usedRects = mutableListOf<Rect>()
         val drawInfoMap = mutableMapOf<TranslatedBubble, DrawInfo>()
+        // 所有气泡原 rect：扩展的 drawRect 不得侵入任何相邻气泡区域（避免大字号白块相互覆盖）
+        val allRegionRects = regions.map { it.rect }
 
         for (region in sortedRegions) {
             // 实际显示的文字：原文模式用 originalText，否则用译文
@@ -52,10 +54,14 @@ object OverlayRenderer {
                 // 收缩到文字实际所需并居中，避免小字号时气泡内大片空白
                 calculateCompactRect(region.rect, displayText, region.direction, fitFontSize)
             }
-            val drawRect = if (hasOverlap(neededRect, usedRects)) {
-                region.rect
-            } else {
+            // 收缩/扩展矩形（≠ 原气泡）与已画区域或其他气泡原区域重叠时回退到原气泡 rect。
+            // 回退安全的前提：所有已画的扩展矩形也经过此检测，不侵入其他气泡原区域。
+            val drawRect = if (neededRect == region.rect ||
+                (!hasOverlap(neededRect, usedRects) && !intrudesOtherBubble(neededRect, region.rect, allRegionRects))
+            ) {
                 neededRect
+            } else {
+                region.rect
             }
             usedRects.add(drawRect)
             drawInfoMap[region] = DrawInfo(region, drawRect, fitFontSize, displayText)
@@ -163,6 +169,14 @@ object OverlayRenderer {
 
     private fun hasOverlap(rect: Rect, existing: List<Rect>): Boolean {
         return existing.any { Rect.intersects(rect, it) }
+    }
+
+    /**
+     * rect 是否与除 self 外任一气泡原区域相交。
+     * 扩展 drawRect（大字号文字超出气泡时）不可盖住相邻气泡区域，否则白块相互覆盖。
+     */
+    private fun intrudesOtherBubble(rect: Rect, self: Rect, allRegionRects: List<Rect>): Boolean {
+        return allRegionRects.any { it != self && Rect.intersects(rect, it) }
     }
 
     private fun calculateExpandedRect(
