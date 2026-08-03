@@ -124,11 +124,14 @@ class TranslateFragment : Fragment() {
             IntentFilter(BroadcastAction.ACTION_MANGA_SERVICE_STOPPED)
         )
 
-        // 监听语言 prefs 变化：悬浮窗内循环切换源语言（cycleSourceLang）时实时刷新首页标签
+        // 监听语言/OCR组/翻译引擎 prefs 变化：实时刷新首页语言标签 + 顶部双行状态栏
         if (languagePrefsListener == null) {
             languagePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                 if (key == "Source_Language" || key == "Target_Language") {
                     refreshLanguageLabels()
+                }
+                if (key == "Ocr_Engine_Group" || key == "Text_API" || key == "Text_AI") {
+                    refreshEngineStatusBar()
                 }
             }
         }
@@ -218,6 +221,7 @@ class TranslateFragment : Fragment() {
         }
 
         refreshLanguageLabels()
+        refreshEngineStatusBar()
 
         binding.oriLanguage.setOnClickListener {
             showLanguageListDialog(1)
@@ -245,6 +249,44 @@ class TranslateFragment : Fragment() {
                 CustomLocale.getInstance(prefs.getString("Source_Language", "ja")).getDisplayName()
             binding.TargetLanguageName.text =
                 CustomLocale.getInstance(prefs.getString("Target_Language", "zh")).getDisplayName()
+        }
+    }
+
+    /**
+     * 刷新首页顶部双行状态栏：上=当前 OCR 模型，下=当前翻译模型。
+     * 调用时机：onViewCreated 初始化、OCR组/翻译引擎 prefs 变化。
+     */
+    private fun refreshEngineStatusBar() {
+        val group = com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences())
+        binding.welcomeTitle.text = getString(group.labelRes)
+        binding.welcomeTitle.textSize = 14f
+        binding.welcomeTitle.maxLines = 1
+        binding.welcomeTitle.ellipsize = android.text.TextUtils.TruncateAt.END
+        binding.welcomeSubtitle.text = getCurrentTranslatorName()
+        binding.welcomeSubtitle.textSize = 13f
+        binding.welcomeSubtitle.maxLines = 1
+        binding.welcomeSubtitle.ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
+    /** 当前翻译模型名（NLLB/Hy-MT2/各 API），从 Text_API/Text_AI 判断，不带「（OCR）」后缀 */
+    private fun getCurrentTranslatorName(): String {
+        return when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {
+            Constants.TextApi.AI.id ->
+                if (prefs.getInt("Text_AI", Constants.TextAI.NLLB.id) == Constants.TextAI.HYMT2.id) "Hy-MT2" else "NLLB"
+            Constants.TextApi.BING.id -> getString(R.string.bingapi_name)
+            Constants.TextApi.NIUTRANS.id -> getString(R.string.niuapi_name)
+            Constants.TextApi.OPENAI.id -> {
+                val list = com.moe.starflow.me.apiconfig.ConfigurationStorage.loadAllProviders(prefs)
+                val i = prefs.getInt("OpenAI_Selected_Provider", 0)
+                if (i < list.size) list[i].name else getString(R.string.uniaiapi_name)
+            }
+            Constants.TextApi.VOLC.id -> getString(R.string.volcapi_name)
+            Constants.TextApi.AZURE.id -> getString(R.string.azureapi_name)
+            Constants.TextApi.DEEPL.id -> getString(R.string.deeplapi_name)
+            Constants.TextApi.BAIDU.id -> getString(R.string.baiduapi_name)
+            Constants.TextApi.TENCENT.id -> getString(R.string.tencentapi_name)
+            Constants.TextApi.CUSTOM_TEXT.id -> getString(R.string.custom)
+            else -> getString(R.string.bingapi_name)
         }
     }
 
