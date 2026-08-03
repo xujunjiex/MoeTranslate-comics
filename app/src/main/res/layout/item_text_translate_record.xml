@@ -4,68 +4,62 @@
     android:layout_height="wrap_content"
     android:layout_marginTop="6dp"
     android:background="@drawable/dialog_background"
-    android:orientation="horizontal"
-    android:padding="10dp">
+    android:orientation="vertical"
+    android:padding="12dp">
 
-    <!-- 左侧：文本 + 元信息 -->
-    <LinearLayout
-        android:layout_width="0dp"
+    <TextView
+        android:id="@+id/recordOriginal"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:textSize="14sp" />
 
-        <TextView
-            android:id="@+id/recordOriginal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:textSize="14sp" />
+    <TextView
+        android:id="@+id/recordTranslated"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="3"
+        android:textSize="15sp"
+        android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/recordTranslated"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:ellipsize="end"
-            android:maxLines="3"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+    <!-- 底部行：元信息 + 快速复制按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
         <TextView
             android:id="@+id/recordMeta"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_weight="1"
             android:textColor="#999999"
             android:textSize="11sp" />
-    </LinearLayout>
-
-    <!-- 右侧：快速复制原文 / 译文 -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical"
-        android:orientation="vertical">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/copyOriginalButton"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
             android:minHeight="0dp"
-            android:paddingHorizontal="8dp"
+            android:paddingHorizontal="10dp"
             android:paddingVertical="4dp"
             android:text="@string/text_translate_copy_original"
             android:textSize="11sp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/copyTranslatedButton"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minHeight="0dp"
-            android:paddingHorizontal="8dp"
+            android:paddingHorizontal="10dp"
             android:paddingVertical="4dp"
             android:text="@string/text_translate_copy_translated"
             android:textSize="11sp" />

@@ -11,6 +11,7 @@ import translationapi.baidutranslation.BaiduTranslationText
 import translationapi.bingtranslation.BingTranslation
 import translationapi.customtranslation.CustomTranslationText
 import translationapi.deepltranslation.DeepLTranslation
+import translationapi.hymt2translation.HyMT2SharedHolder
 import translationapi.hymt2translation.HyMT2Translation
 import translationapi.niutrans.NiuTranslation
 import translationapi.nllbtranslation.NLLBTranslation
@@ -148,6 +149,16 @@ object TranslatorFactory {
     /** 本地引擎判定：NLLB / Hy-MT2 为本地离线推理，其余为联网 API。 */
     fun isLocal(translator: TranslationTextAPI): Boolean =
         translator is NLLBTranslation || translator is HyMT2Translation
+
+    /**
+     * 文本翻译页专用：Hy-MT2 走进程级共享实例（跨页面切换不释放、不重载 440MB），其余引擎同 create(TEXT)。
+     */
+    fun createForText(context: Context, prefs: CustomPreference): TranslationTextAPI? {
+        val t = create(context, prefs, Mode.TEXT) ?: return null
+        return if (t is HyMT2Translation) {
+            HyMT2SharedHolder.get(context, prefs)
+        } else t
+    }
 
     /** 引擎展示名：OpenAI 兼容显示实际模型名，其余显示厂商名。用于页面引擎指示条。 */
     fun engineLabel(context: Context, prefs: CustomPreference): String = when (prefs.getInt("Text_API", Constants.TextApi.BING.id)) {

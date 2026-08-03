@@ -62,7 +62,10 @@ class TextTranslateFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        translator?.release()   // Hy-MT2 释放 440MB
+        // Hy-MT2 走进程级共享实例（HyMT2SharedHolder）：跨页面切换保留模型，避免每次重载 440MB
+        if (translator != null && translator !is translationapi.hymt2translation.HyMT2Translation) {
+            translator?.release()
+        }
         translator = null
         super.onDestroyView()
         binding = null
@@ -104,7 +107,7 @@ class TextTranslateFragment : Fragment() {
         if (key == lastEngineKey && translator != null) return
         lastEngineKey = key
         translator?.release()
-        translator = TranslatorFactory.create(requireContext(), prefs, TranslatorFactory.Mode.TEXT)
+        translator = TranslatorFactory.createForText(requireContext(), prefs)
         val t = translator
         if (t != null) {
             b.engineDisplay.text = TranslatorFactory.engineLabel(requireContext(), prefs)

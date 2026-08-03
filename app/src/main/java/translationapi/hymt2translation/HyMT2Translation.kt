@@ -21,6 +21,8 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
     @Volatile private var currentEpoch = 0L
     /** 正在 native 调用中的任务数：release() 等待其归零后才释放模型，杜绝 use-after-free */
     @Volatile private var inFlight = 0
+    /** 是否已 release（共享持有器据此判断是否需重建实例） */
+    @Volatile var released = false
 
     override fun getTranslation(
         text: String,
@@ -183,6 +185,7 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                 HyMt2Native.nativeRelease(oldHandle)
             }
         }
+        released = true
         statusOverlay.release()
     }
 
