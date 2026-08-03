@@ -25,7 +25,8 @@ import translationapi.TranslatorFactory
 /**
  * 文本翻译页：粘贴文本 → 翻译，上下双栏。
  * 引擎用全局配置（TranslatorFactory.Mode.TEXT），页面显示引擎名 + 本地/API 徽标。
- * Hy-MT2 等本地模型流式输出（onPartial 累积更新）；最近记录存 text_translate_record 表。
+ * 语言选择用 app 自带的 LanguageSelectionDialog（无下拉过滤问题）。
+ * Hy-MT2 等本地模型流式输出；最近记录存 text_translate_record 表。
  */
 class TextTranslateFragment : Fragment() {
 
@@ -34,8 +35,9 @@ class TextTranslateFragment : Fragment() {
     private var lastEngineKey: String? = null
     private var translating = false
 
-    // 文本翻译页语言集（CustomLocale 驱动显示名，可扩展）
-    private val languages = arrayOf("ja", "en", "zh", "zh-TW", "ko", "ru", "fr", "de", "es", "pt", "it", "th", "vi", "id", "ar")
+    // 当前源/目标语言码（语言选择对话框更新；⇄ 互换时对调）
+    private var srcCode = "ja"
+    private var tgtCode = "zh"
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         FragmentTextTranslateBinding.inflate(inflater, container, false).also { binding = it }.root
@@ -62,35 +64,35 @@ class TextTranslateFragment : Fragment() {
         binding = null
     }
 
+    // ========== 语言选择 ==========
+
     private fun setupLanguageSelectors(b: FragmentTextTranslateBinding) {
         val prefs = CustomPreference.getInstance(requireContext()).getSharedPreferences()
-        // 显示名带语言码后缀（如"中文（zh）"），避免中文各变体混淆
-        val labels = languages.map { nameOf(it) }
-        b.srcLangSelect.setAdapter(langAdapter(labels))
-        b.tgtLangSelect.setAdapter(langAdapter(labels))
-        val srcIdx = languages.indexOf(prefs.getString("Source_Language", "ja")).coerceAtLeast(0)
-        val tgtIdx = languages.indexOf(prefs.getString("Target_Language", "zh")).coerceAtLeast(0)
-        b.srcLangSelect.setText(labels[srcIdx], false)
-        b.tgtLangSelect.setText(labels[tgtIdx], false)
+        srcCode = prefs.getString("Source_Language", "ja") ?: "ja"
+        tgtCode = prefs.getString("Target_Language", "zh") ?: "zh"
+        updateLangLabels(b)
+        b.srcLangButton.setOnClickListener { showLanguageDialog(1) }
+        b.tgtLangButton.setOnClickListener { showLanguageDialog(2) }
     }
 
-    /**
-     * 语言下拉适配器：Filter 恒返回全部列表。
-     * ⚠️ MaterialAutoCompleteTextView 展开时默认按当前文本过滤（如"中文"→只剩中文/中文台湾），
-     *    必须禁用过滤，否则其他语言从下拉里消失。
-     */
-    private fun langAdapter(labels: List<String>): android.widget.ArrayAdapter<String> =
-        object : android.widget.ArrayAdapter<String>(requireContext(), android.R.layout.simple_list_item_1, labels) {
-            override fun getFilter(): android.widget.Filter = object : android.widget.Filter() {
-                override fun performFiltering(constraint: CharSequence?): android.widget.Filter.FilterResults =
-                    android.widget.Filter.FilterResults().apply { values = labels; count = labels.size }
-                override fun publishResults(constraint: CharSequence?, results: android.widget.Filter.FilterResults?) {
-                    clear()
-                    addAll(labels)
-                    notifyDataSetChanged()
-                }
+    private fun updateLangLabels(b: FragmentTextTranslateBinding) {
+        b.srcLangButton.text = CustomLocale.getInstance(srcCode).getDisplayName()
+        b.tgtLangButton.text = CustomLocale.getInstance(tgtCode).getDisplayName()
+    }
+
+    private fun showLanguageDialog(type: Int) {
+        val list = TranslateTools.getLanguagesList(requireContext(), type) ?: return
+        LanguageSelectionDialog(requireContext(), type, list) { locale ->
+            if (type == 1) {
+                srcCode = locale.getOriCode()
+                if (srcCode == tgtCode) tgtCode = "zh"
+            } else {
+                tgtCode = locale.getOriCode()
+                if (tgtCode == srcCode) srcCode = "ja"
             }
-        }
+            updateLangLabels(binding ?: return@LanguageSelectionDialog)
+        }.show()
+    }
 
     private fun setupEngine(b: FragmentTextTranslateBinding) {
         val prefs = CustomPreference.getInstance(requireContext())
@@ -134,23 +136,23 @@ class TextTranslateFragment : Fragment() {
             b.outputText.text = getString(R.string.text_translate_input_hint)
             return
         }
+        if (srcCode == tgtCode) {
+            b.outputText.text = getString(R.string.text_translate_same_language)
+            return
+        }
         // 运行服务 guard：游戏/漫画翻译运行中 → 提示先关闭
         if (ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java) ||
             ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java)) {
-            android.app.AlertDialog.Builder(requireContext())
+            val dialog = android.app.AlertDialog.Builder(requireContext())
                 .setMessage(R.string.text_translate_service_running)
                 .setPositiveButton(R.string.user_known, null)
-                .show()
+                .create()
+            dialog.show()
+            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
             return
         }
         val t = translator ?: run {
             b.outputText.text = getString(R.string.text_translate_engine_init_failed)
-            return
-        }
-        val srcCode = codeOf(b.srcLangSelect.text?.toString().orEmpty())
-        val tgtCode = codeOf(b.tgtLangSelect.text?.toString().orEmpty())
-        if (srcCode == tgtCode) {
-            b.outputText.text = getString(R.string.text_translate_same_language)
             return
         }
         translating = true
@@ -191,10 +193,10 @@ class TextTranslateFragment : Fragment() {
 
     private fun swapLanguages() {
         val b = binding ?: return
-        val srcName = b.srcLangSelect.text?.toString().orEmpty()
-        val tgtName = b.tgtLangSelect.text?.toString().orEmpty()
-        b.srcLangSelect.setText(tgtName, false)
-        b.tgtLangSelect.setText(srcName, false)
+        val tmp = srcCode
+        srcCode = tgtCode
+        tgtCode = tmp
+        updateLangLabels(b)
         // 译文回填输入框，清空输出
         val out = b.outputText.text?.toString().orEmpty()
         if (out.isNotBlank()) b.inputEdit.setText(out)
@@ -203,9 +205,12 @@ class TextTranslateFragment : Fragment() {
 
     // ========== 最近记录 ==========
 
+    /** 记录条数上限（0-200；0 = 不记录） */
+    private fun recordLimit(): Int =
+        CustomPreference.getInstance(requireContext()).getInt("text_translate_record_limit", 100).coerceIn(0, 200)
+
     private fun saveRecord(original: String, translated: String, src: String, tgt: String) {
-        val limit = CustomPreference.getInstance(requireContext())
-            .getInt("text_translate_record_limit", 100).coerceIn(0, 500)
+        val limit = recordLimit()
         if (limit <= 0) return
         lifecycleScope.launch {
             val dao = TranslationHistoryDatabase.getInstance(requireContext()).textTranslateRecordDao()
@@ -224,8 +229,8 @@ class TextTranslateFragment : Fragment() {
 
     private fun reloadRecent() {
         val b = binding ?: return
-        val limit = CustomPreference.getInstance(requireContext())
-            .getInt("text_translate_record_limit", 100).coerceIn(0, 500)
+        val limit = recordLimit()
+        b.recentLimitButton.text = getString(R.string.text_translate_recent_limit_format, limit)
         if (limit <= 0) {
             b.recentContainer.removeAllViews()
             return
@@ -275,33 +280,36 @@ class TextTranslateFragment : Fragment() {
 
     private fun retranslate(rec: TextTranslateRecord) {
         val b = binding ?: return
-        b.srcLangSelect.setText(nameOf(rec.sourceLang), false)
-        b.tgtLangSelect.setText(nameOf(rec.targetLang), false)
+        srcCode = rec.sourceLang
+        tgtCode = rec.targetLang
+        updateLangLabels(b)
         b.inputEdit.setText(rec.originalText)
         b.outputText.text = rec.translatedText
     }
 
     private fun showLimitDialog() {
         val prefs = CustomPreference.getInstance(requireContext())
-        val current = prefs.getInt("text_translate_record_limit", 100)
+        val current = prefs.getInt("text_translate_record_limit", 100).coerceIn(0, 200)
         val input = android.widget.EditText(requireContext()).apply {
             setText(current.toString())
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
         }
-        android.app.AlertDialog.Builder(requireContext())
+        val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle(R.string.text_translate_limit_title)
             .setView(input)
             .setPositiveButton(R.string.user_known) { _, _ ->
-                val v = input.text?.toString()?.toIntOrNull()?.coerceIn(0, 500) ?: current
+                val v = input.text?.toString()?.toIntOrNull()?.coerceIn(0, 200) ?: current
                 prefs.setInt("text_translate_record_limit", v)
                 reloadRecent()
             }
             .setNegativeButton(R.string.user_cancel, null)
-            .show()
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
     private fun confirmClearRecent() {
-        android.app.AlertDialog.Builder(requireContext())
+        val dialog = android.app.AlertDialog.Builder(requireContext())
             .setMessage(R.string.text_translate_clear_history_confirm)
             .setPositiveButton(R.string.user_known) { _, _ ->
                 lifecycleScope.launch {
@@ -311,19 +319,8 @@ class TextTranslateFragment : Fragment() {
                 }
             }
             .setNegativeButton(R.string.user_cancel, null)
-            .show()
-    }
-
-    // ========== 语言码 ↔ 显示名 ==========
-
-    /** 显示名带代码后缀：`中文（zh）`，避免中文各变体在标签里混淆。 */
-    private fun nameOf(code: String): String = languages.firstOrNull { it == code }
-        ?.let { "${CustomLocale.getInstance(it).getDisplayName()}（$it）" } ?: code
-
-    private fun codeOf(label: String): String {
-        languages.forEach { c ->
-            if ("${CustomLocale.getInstance(c).getDisplayName()}（$c）" == label) return c
-        }
-        return label
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 }

@@ -37,28 +37,21 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- 语言条：源 ⇄ 目标 -->
+        <!-- 语言条：源 ⇄ 目标（点击弹语言选择对话框，避免 AutoCompleteTextView 过滤问题） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:orientation="horizontal">
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/srcLangInput"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/srcLangButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
                 android:layout_weight="1"
-                android:hint="@string/select_source_language">
-
-                <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                    android:id="@+id/srcLangSelect"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="none" />
-            </com.google.android.material.textfield.TextInputLayout>
+                android:text="@string/select_source_language" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/swapButton"
@@ -67,20 +60,13 @@
                 android:minWidth="48dp"
                 android:text="⇄" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tgtLangInput"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tgtLangButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="@string/select_target_language">
-
-                <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                    android:id="@+id/tgtLangSelect"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="none" />
-            </com.google.android.material.textfield.TextInputLayout>
+                android:text="@string/select_target_language" />
         </LinearLayout>
 
         <!-- 输入 -->
@@ -142,6 +128,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
@@ -152,19 +139,24 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/recentLimitButton"
-                style="?android:attr/borderlessButtonStyle"
+                style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/text_translate_recent_limit" />
+                android:minHeight="0dp"
+                android:paddingHorizontal="8dp"
+                android:textSize="13sp" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/recentClearButton"
-                style="?android:attr/borderlessButtonStyle"
+                style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/clear" />
+                android:minHeight="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="@string/text_translate_clear_recent"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <LinearLayout
