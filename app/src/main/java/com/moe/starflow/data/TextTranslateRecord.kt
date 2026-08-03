@@ -1,5 +1,6 @@
 package com.moe.starflow.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -7,10 +8,10 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "text_translate_record")
 data class TextTranslateRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val originalText: String,
-    val translatedText: String,
-    val sourceLang: String,
-    val targetLang: String,
-    val engineName: String,
-    val createdAt: Long
+    @ColumnInfo(name = "original_text") val originalText: String,
+    @ColumnInfo(name = "translated_text") val translatedText: String,
+    @ColumnInfo(name = "source_lang") val sourceLang: String,
+    @ColumnInfo(name = "target_lang") val targetLang: String,
+    @ColumnInfo(name = "engine_name") val engineName: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long
 )

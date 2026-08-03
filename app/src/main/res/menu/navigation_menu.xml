@@ -40,7 +40,7 @@
     <item
         android:id="@+id/text_translate_fragment"
         android:title="@string/text_translate_tab"
-        android:icon="@drawable/translate_icon"
+        android:icon="@drawable/text_translate_icon"
         android:orderInCategory="4"/>
 
 </menu>
