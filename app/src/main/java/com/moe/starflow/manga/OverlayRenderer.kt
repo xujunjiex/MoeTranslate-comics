@@ -80,14 +80,10 @@ object OverlayRenderer {
             } else {
                 baseFontSize
             }
-            val neededRect = if (autoFit) {
-                // 自动模式：fitFontSize 已填满气泡，保持原"只在文字超出时扩展"语义
-                calculateExpandedRect(region.rect, displayText, region.direction, fitFontSize)
-            } else {
-                // 非自动模式：文字按用户字号绘制。fits 时收缩居中（减少小字号空白），
-                // 超出时扩展 drawRect 完整容纳文字（贴合形状，绝不截断）
-                calculateCompactRect(region.rect, displayText, region.direction, fitFontSize)
-            }
+            // drawRect 贴合文字实际所需（收缩居中/平衡扩展），自动与非自动统一。
+            // 自动模式 fit 已尽量放大字号；气泡宽于竖排文字时，文字列宽填不满气泡是几何
+            // 必然（列数受气泡宽限制），drawRect 贴合文字列宽可避免左侧大片空白。
+            val neededRect = calculateCompactRect(region.rect, displayText, region.direction, fitFontSize)
             Param(region, displayText, fitFontSize, neededRect)
         }
 
@@ -375,56 +371,6 @@ object OverlayRenderer {
         val left = rect.centerX() - w / 2
         val top = rect.centerY() - h / 2
         return Rect(left, top, left + w, top + h)
-    }
-
-    private fun calculateExpandedRect(
-        rect: Rect,
-        text: String,
-        direction: TextDirection,
-        fontSize: Float
-    ): Rect {
-        val charHeight = fontSize * CHAR_RATIO
-        val columnSpacing = fontSize * CHAR_RATIO
-
-        val expanded = when (direction) {
-            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> {
-                val charsPerColumn = maxOf(1, (rect.height() / charHeight).toInt())
-                val neededColumns = (text.length + charsPerColumn - 1) / charsPerColumn
-                val neededWidth = (neededColumns * columnSpacing).toInt()
-                val expandX = maxOf(0, neededWidth - rect.width())
-                if (direction == TextDirection.VERTICAL_RL) {
-                    Rect(rect.left - expandX, rect.top, rect.right, rect.bottom)
-                } else {
-                    Rect(rect.left, rect.top, rect.right + expandX, rect.bottom)
-                }
-            }
-            TextDirection.HORIZONTAL -> {
-                val paint = Paint().apply { textSize = fontSize }
-                val maxLineWidth = rect.width().toFloat()
-                var lines = 0
-                val paragraphs = text.split("\n")
-                for (paragraph in paragraphs) {
-                    if (paragraph.isEmpty()) { lines++; continue }
-                    var remaining = paragraph
-                    while (remaining.isNotEmpty()) {
-                        val count = paint.breakText(remaining, true, maxLineWidth, null)
-                        if (count <= 0) break
-                        remaining = remaining.substring(count)
-                        lines++
-                    }
-                }
-                val neededHeight = (lines * charHeight).toInt()
-                val expandY = maxOf(0, neededHeight - rect.height())
-                Rect(rect.left, rect.top, rect.right, rect.bottom + expandY)
-            }
-        }
-
-        return Rect(
-            minOf(expanded.left, rect.left),
-            minOf(expanded.top, rect.top),
-            maxOf(expanded.right, rect.right),
-            maxOf(expanded.bottom, rect.bottom)
-        )
     }
 }
 
