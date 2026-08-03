@@ -1132,42 +1132,21 @@ class MangaFloatingService : LifecycleService() {
      * 跳过 OCR 模型不可用的语言（PP-OCRv5 的 KO/RU 需要检查是否已下载）
      */
     private fun cycleSourceLang() {
-        val langCycle = arrayOf("ja", "en", "zh", "zh-TW", "ko", "ru")
+        // 只循环当前 OCR 组适配的语言（不适配的不在切换范围）
+        val cycle = com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences()).sourceLangs.toList()
         val current = prefs.getString("Source_Language", "ja")
-        val currentIdx = langCycle.indexOf(current).coerceAtLeast(0)
+        val currentIdx = cycle.indexOf(current).coerceAtLeast(0)
 
-        for (i in 1..langCycle.size) {
-            val nextIdx = (currentIdx + i) % langCycle.size
-            val nextLang = langCycle[nextIdx]
-            if (isOcrLangAvailable(nextLang)) {
-                prefs.setString("Source_Language", nextLang)
-                config = loadConfig()  // 重新加载配置
-                val langName = com.moe.starflow.translate.CustomLocale.getInstance(nextLang).getDisplayName()
-                showToast(getString(R.string.language_switched_to, langName), true)
-                checkLanguageHints()
-                return
-            }
+        for (i in 1..cycle.size) {
+            val next = cycle[(currentIdx + i) % cycle.size]
+            prefs.setString("Source_Language", next)
+            config = loadConfig()  // 重新加载配置
+            val langName = com.moe.starflow.translate.CustomLocale.getInstance(next).getDisplayName()
+            showToast(getString(R.string.language_switched_to, langName), true)
+            checkLanguageHints()
+            return
         }
         showToast(getString(R.string.no_available_ocr_model), true)
-    }
-
-    /**
-     * 检查指定语言的 OCR 模型是否可用
-     */
-    private fun isOcrLangAvailable(lang: String): Boolean {
-        val isPPv5 = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
-        val isPPv6 = config.ocrEngine == OcrEngine.PPOcrV6 || config.detEngine == DetEngine.PP_OCR_V6
-        if (!isPPv5 && !isPPv6) return true  // 非 PP 不需要检查
-        // PP-OCRv6：多语言模型内置，所有语言都支持
-        if (isPPv6) return true
-        // PP-OCRv5：需要检查 KO/RU/EN 模型是否已下载
-        return when (lang) {
-            "zh", "zh-TW", "ja" -> true  // 内置模型
-            "en" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.EN)
-            "ko" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.KO)
-            "ru" -> PPOcrV5Engine.isRecModelAvailable(this, PPOcrV5Engine.RecLang.RU)
-            else -> true
-        }
     }
 
     /**
