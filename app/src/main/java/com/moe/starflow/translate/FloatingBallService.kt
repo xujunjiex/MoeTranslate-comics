@@ -20,6 +20,8 @@ package com.moe.starflow.translate
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
@@ -1086,15 +1088,13 @@ class FloatingBallService : LifecycleService() {
                 withContext(Dispatchers.Main) {
                     val histDialog = Dialogs.historyDialog(this@FloatingBallService, items,
                         onItemClick = { position ->
-                            // 点击：显示翻译结果
+                            // 点击：直接复制译文到剪贴板
                             val selected = historyList[position]
-                            composeResultText(selected.sourceText, selected.translatedText)
-                                ?.let {
-                                    translationResultView.setText(it)
-                                    if (!isResultViewShowing) {
-                                        showResultView()
-                                    }
-                                }
+                            selected.translatedText?.let { text ->
+                                (getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager)
+                                    ?.setPrimaryClip(ClipData.newPlainText("translation", text))
+                                showToast("已复制译文", true)
+                            }
                         },
                         onItemLongClick = { position ->
                             // 长按：重新翻译
