@@ -478,17 +478,13 @@ private fun refreshOcrGroupSelection() {
 ### Task 6: 首页双行状态栏
 
 **Files:**
-- Modify: `app/src/main/res/layout/fragment_translate.xml`
 - Modify: `app/src/main/java/com/moe/starflow/translate/TranslateFragment.kt`
+- ⚠️ **不改 `fragment_translate.xml`**（并行会话占用该文件；`welcome_title`/`welcome_subtitle` 已存在，字号在代码里 `setTextSize` 设置，避免布局冲突）
 
 **Interfaces:**
 - Consumes: `OcrEngineGroup` / `OcrEngineManager`（Task 1/2）
 
-- [ ] **Step 1: 布局改双行**
-
-`fragment_translate.xml`：`welcome_title` 文本改为运行期设置（布局保留 id），`welcome_subtitle` 保留 id；字号调到 13sp、`maxLines=1` + `ellipsize="end"`。
-
-- [ ] **Step 2: TranslateFragment 设置两行**
+- [ ] **Step 1: TranslateFragment 设置两行（代码设字号，不改布局）**
 
 新增方法并加入现有 prefs 监听（`onStart` 的 `languagePrefsListener` 扩展）：
 ```kotlin
@@ -496,7 +492,13 @@ private fun refreshEngineStatusBar() {
     val prefs = CustomPreference.getInstance(requireContext())
     val group = com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences())
     binding.welcomeTitle.text = getString(group.labelRes)          // 上：OCR 模型
+    binding.welcomeTitle.textSize = 14f                            // 字号，避免遮挡
+    binding.welcomeTitle.maxLines = 1
+    binding.welcomeTitle.ellipsize = android.text.TextUtils.TruncateAt.END
     binding.welcomeSubtitle.text = getCurrentTranslatorName()      // 下：翻译模型
+    binding.welcomeSubtitle.textSize = 13f
+    binding.welcomeSubtitle.maxLines = 1
+    binding.welcomeSubtitle.ellipsize = android.text.TextUtils.TruncateAt.END
 }
 
 /** 当前翻译模型名（NLLB/Hy-MT2/各 API），从 Text_API/Text_AI 判断，不带「（OCR）」后缀 */
@@ -520,7 +522,7 @@ private fun getCurrentTranslatorName(): String {
 ```
 `onViewCreated` 调 `refreshEngineStatusBar()`；prefs listener 里 `Source_Language`/`Target_Language`/`Ocr_Engine_Group`/`Text_API`/`Text_AI` 变化时刷新。
 
-- [ ] **Step 3: 编译验证 + 提交**
+- [ ] **Step 2: 编译验证 + 提交**
 
 ```powershell
 .\gradlew.bat --no-daemon :app:compileDebugKotlin
@@ -534,7 +536,7 @@ private fun getCurrentTranslatorName(): String {
 - Modify: `app/src/main/java/com/moe/starflow/translate/TranslateTools.kt`
 - Modify: `app/src/main/java/com/moe/starflow/translate/LanguageSelectionDialog.kt`
 - Modify: `app/src/main/java/com/moe/starflow/translate/TranslateFragment.kt`
-- Modify: `app/src/main/java/com/moe/starflow/translate/TextTranslateFragment.kt`（仅确认不受 OCR 影响）
+- ⚠️ **不改 `TextTranslateFragment.kt`**（并行会话占用；它已调 `getLanguagesList(requireContext(), 1)` 不传 ocrGroup，天然全量不受 OCR 影响，仅确认）
 
 **Interfaces:**
 - Consumes: `OcrEngineGroup.ALL_LANGS` / `sourceLangs`（Task 1）
