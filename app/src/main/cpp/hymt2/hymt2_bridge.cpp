@@ -11,6 +11,10 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <cerrno>
+#include <unistd.h>
+#include <sched.h>
+#include <sys/mman.h>
 #include "llama.h"
 
 #define TAG "HyMT2Bridge"
@@ -25,6 +29,47 @@ static std::mutex g_mutex;
 static long long now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// 把当前线程亲和性放宽到全部核。
+// llama 每次 llama_decode 都会新建一次性线程池，worker 线程继承创建线程的亲和性
+// （ggml_threadpool_params_default 的 cpumask 全零 = 不设置，直接继承）。
+// 若 leader 被（厂商调度器）钉在部分核上（本机实测 4-6，只有 3 个中核），
+// 6 个 worker 一起被锁 → 每核 2 倍超订 + STQ 层间 barrier 打架 → 解码慢 ~200 倍。
+// 这里强制回到 0-7，让新建的 worker 继承全核亲和性。
+static void pin_to_all_cores() {
+    // 用在线核数（_ONLN）而非配置核数（_CONF 可能含离线核），且与进程允许的 cpuset 求交集：
+    // 直接设置到进程被排除的核会 EINVAL 静默失败，导致 worker 仍被钉在受限亲和性上（解码慢 ~200 倍）。
+    int n = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
+    if (n <= 0) n = 8;
+    if (n > CPU_SETSIZE) n = CPU_SETSIZE;
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) return;
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (int i = 0; i < n; ++i) {
+        if (CPU_ISSET(i, &allowed)) CPU_SET(i, &cpuset);
+    }
+    if (CPU_COUNT(&cpuset) == 0) return;  // 空交集（进程被限制在非常规核），保持现状
+    if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0) {
+        LOGW("pin_to_all_cores failed: %s", strerror(errno));
+    }
+}
+
+// 探测 mlock 能力：Android 普通 app 的 RLIMIT_MEMLOCK 通常为 0，mlock 大内存必然失败。
+// 先锁一个小页探测，失败则直接不用 use_mlock —— 否则每次冷加载都会先带 mlock 读 440MB、
+// 失败后再回退重读一遍（双重加载）。探测通过但大锁仍失败时由调用方回退重试。
+static bool mlock_capable() {
+    const long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) return false;
+    void* p = mmap(nullptr, static_cast<size_t>(page_size), PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) return false;
+    const bool ok = (mlock(p, static_cast<size_t>(page_size)) == 0);
+    if (ok) munlock(p, static_cast<size_t>(page_size));
+    munmap(p, static_cast<size_t>(page_size));
+    return ok;
 }
 
 // logcat 单条日志上限约 1023 字符；超长字符串分块输出，避免被截断（用于完整打印 prompt/结果/token 序列）
@@ -93,33 +138,46 @@ struct HyMt2Handle {
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
-    JNIEnv* env, jclass, jstring jModelPath, jint nThreads, jint nCtx) {
+    JNIEnv* env, jclass, jstring jModelPath, jint nThreads, jint nBatchThreads, jint nCtx) {
     try {
         std::lock_guard<std::mutex> lock(g_mutex);
+        // worker 继承 leader 亲和性：确保模型加载/预热解码不被钉在小核簇
+        pin_to_all_cores();
         const char* path = env->GetStringUTFChars(jModelPath, nullptr);
         if (path == nullptr) return 0;
 
         // 防御性钳位：非法入参不进入引擎
         if (nCtx < 512) nCtx = 512;
         if (nThreads < 1) nThreads = 1;
+        if (nBatchThreads < 1) nBatchThreads = 1;
 
         llama_model_params mp = llama_model_default_params();
         mp.n_gpu_layers = 0;
         // ⚠️ 必须 use_mmap=false：mmap 的权重页会被系统在内存压力下回收，导致解码时反复从存储读 440MB
         //    （实测 15-17s/次）。直接读入堆内存，加载慢一次但之后解码稳定快。
         mp.use_mmap = false;
+        // use_mlock：把模型页锁进物理内存，防止系统在内存压力下把堆页换到 ZRAM（实测单 token 14s 慢 180 倍）。
+        // 先探测 mlock 能力：非 root Android app 的 RLIMIT_MEMLOCK 通常为 0 → 直接跳过，避免带 mlock 读 440MB
+        // 失败后再回退重读一遍（双重加载）。系统允许锁定才启用。
+        mp.use_mlock = mlock_capable();
+        if (!mp.use_mlock) LOGW("mlock unavailable, load without mlock");
         llama_model* model = llama_model_load_from_file(path, mp);
+        if (model == nullptr && mp.use_mlock) {
+            // 探测通过但大内存锁定失败 → 回退不锁定重试
+            LOGE("mlock load failed, retry without mlock");
+            mp.use_mlock = false;
+            model = llama_model_load_from_file(path, mp);
+        }
         env->ReleaseStringUTFChars(jModelPath, path);
         if (model == nullptr) { LOGE("llama_model_load_from_file failed"); return 0; }
 
         llama_context_params cp = llama_context_default_params();
         cp.n_ctx = nCtx;
         cp.n_threads = nThreads;
-        // ⚠️ prefill（读原文）与生成（写译文）线程数分开：
-        //    手机实测（1.25-bit, 8核限频）prefill 用满 8 核比 6 核快 ~22%，生成 8 核反而略慢。
-        //    所以批量解码吃满全部核心提速「读」，生成保持用户设置（默认 6）。
+        // 输入线程（prefill/批量解码）独立可配：Java 侧默认传设备全核（保持"读取用满全核"原策略），
+        // 用户可在详情页调整对比速度。
         const unsigned hw_threads = std::thread::hardware_concurrency();
-        cp.n_threads_batch = std::max<int>(nThreads, static_cast<int>(hw_threads));
+        cp.n_threads_batch = nBatchThreads;
         LOGI("nativeInit: threads=%d batch_threads=%d hw=%u", nThreads, cp.n_threads_batch, hw_threads);
         cp.n_batch = std::min<int>(nCtx, 2048);
         llama_context* ctx = llama_init_from_model(model, cp);
@@ -197,6 +255,11 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
 
         std::lock_guard<std::mutex> lock(g_mutex);
         LOGI("translate: mutex acquired (+%lld ms)", now_ms() - t_entry);
+
+        // llama 每次 decode 新建一次性线程池，worker 继承本线程亲和性。
+        // 若被钉在部分核上（本机实测 4-6），6 worker 挤 3 核 → 解码慢 ~200 倍。
+        // 强制放宽到全部核，让 worker 继承 0-7。
+        pin_to_all_cores();
 
         auto* h = reinterpret_cast<HyMt2Handle*>(jHandle);
         if (h == nullptr || h->ctx == nullptr) return env->NewStringUTF("");
@@ -419,6 +482,7 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
                 LOGI("translate: ABORTED at token %d", i);
                 break;
             }
+            const long long t_s0 = now_ms();
             const llama_token id = llama_sampler_sample(smpl, h->ctx, -1);
             llama_sampler_accept(smpl, id);
             generated = i + 1;
@@ -433,12 +497,14 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
                 result.append(piece_buf, n_piece);
                 // 流式显示：回调「当前完整译文」（累积），UI 逐段增长显示，而不是只发单个片段
                 if (onTokenId != nullptr) {
+                    const long long t_cb0 = now_ms();
                     jstring js = safe_new_string_utf8(env, result.c_str(), result.size());
                     if (js != nullptr) {
                         env->CallVoidMethod(jCallback, onTokenId, js);
                         env->DeleteLocalRef(js);
                         if (env->ExceptionCheck()) env->ExceptionClear();
                     }
+                    if ((i % 4) == 0) LOGI("translate: gen[%d] sample=%lldms cb=%lldms", i, t_cb0 - t_s0, now_ms() - t_cb0);
                 }
             }
             // 解码新 token（显式位置；logits 置 true 供下一轮采样）
@@ -448,7 +514,9 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             batch.n_seq_id[0] = 1;
             batch.seq_id[0][0] = 0;
             batch.logits[0]   = true;
+            const long long t_d0 = now_ms();
             if (llama_decode(h->ctx, batch) != 0) { LOGE("translate: decode failed at step %d", i); break; }
+            if ((i % 4) == 0) LOGI("translate: gen[%d] decode=%lldms", i, now_ms() - t_d0);
         }
         llama_batch_free(batch);
         llama_sampler_free(smpl);

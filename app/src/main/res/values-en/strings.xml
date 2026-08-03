@@ -238,13 +238,9 @@
 <string name="error_occurred">An error occurred：%s</string>
     <string name="send">Send</string>
     <string name="say_something">Say something...</string>
-    <string name="ocr">OCR</string>
-    <string name="pic">Pic</string>
     <string name="custom">Custom</string>
     <string name="welcome_home_title">Ready to start translation</string>
     <string name="welcome_home_subtitle">Please configure the following options to start your translation journey</string>
-    <string name="welcome_home_title_2">Translation Has Started！</string>
-    <string name="welcome_home_subtitle_2">You can change the \"source/target\" language or stop the translation at any time</string>
     <string name="start_ball">Game/Video Translate</string>
     <string name="stop_ball">I want to stop！</string>
     <string name="stop_success">Stop successfully</string>
@@ -605,9 +601,9 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="ppocr_rec_ru_desc">Russian/Cyrillic recognition, optional download (~8MB)</string>
     <string name="ppocr_section_title">PP-OCRv5</string>
     <string name="ppocr_section_desc">PP-OCRv5 multilingual text recognition engine</string>
-    <string name="ru_need_ppocrv5_engine">Russian recognition requires PP-OCR engine (v5 or v6), please switch to PP-OCR in manga settings</string>
-    <string name="ru_need_download_model">PP-OCRv5 cannot recognize Russian, please download the Russian model or switch to PP-OCRv6</string>
-    <string name="ko_need_download_model">Please download PP-OCRv5 Korean model from model management page</string>
+    <string name="ru_need_ppocrv5_engine">Russian recognition requires PP-OCRv5 engine, please switch to PP-OCRv5</string>
+    <string name="ru_need_download_model">PP-OCRv5 cannot recognize Russian, please download the Russian model</string>
+    <string name="ko_need_download_model">PP-OCRv5 cannot recognize Korean, please download the Korean model or switch to ML Kit</string>
     <string name="manga_ocr_non_ja_hint">manga-ocr model is optimized for Japanese, current source language may affect recognition, consider switching to PP-OCRv5</string>
     <string name="model_download_in_browser">🔗 Browser</string>
     <string name="model_storage_path_label">Model storage path:</string>

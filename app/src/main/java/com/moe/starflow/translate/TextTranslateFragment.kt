@@ -38,6 +38,8 @@ class TextTranslateFragment : Fragment() {
     private var leaveDialogShowing = false
     private var pendingLeave: (() -> Unit)? = null
     private var forceLeaveCancelled = false
+    /** 流式 UI 节流：最多每 80ms 更新一次输出框，避免 Main 布局工作抢占解码线程 CPU/内存带宽 */
+    @Volatile private var lastUiUpdate = 0L
 
     // 当前源/目标语言码（语言选择对话框更新；⇄ 互换时对调）
     private var srcCode = "ja"
@@ -62,7 +64,9 @@ class TextTranslateFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        // Hy-MT2 走进程级共享实例（HyMT2SharedHolder）：跨页面切换保留模型，避免每次重载 440MB
+        // Hy-MT2 走进程级共享实例（HyMT2SharedHolder）：跨页面切换保留模型，避免每次重载 440MB。
+        // 共享实例页面销毁不调 release()（keepAlive 模型常驻）→ 不在 Main 线程 join/nativeRelease 阻塞、
+        // 也不清掉游戏/漫画服务正在显示的共享状态浮层。
         if (translator != null && translator !is translationapi.hymt2translation.HyMT2Translation) {
             translator?.release()
         }
@@ -74,12 +78,28 @@ class TextTranslateFragment : Fragment() {
     // ========== 语言选择 ==========
 
     private fun setupLanguageSelectors(b: FragmentTextTranslateBinding) {
-        val prefs = CustomPreference.getInstance(requireContext()).getSharedPreferences()
-        srcCode = prefs.getString("Source_Language", "ja") ?: "ja"
-        tgtCode = prefs.getString("Target_Language", "zh") ?: "zh"
+        val prefs = CustomPreference.getInstance(requireContext())
+        // 优先用文本页自己保存的语言选择（跨页面切换持久，不恢复默认），从未设置过则跟随全局语言设置
+        srcCode = resolveTextLang(
+            prefs.getString(KEY_TEXT_SOURCE_LANG, ""),
+            prefs.getString("Source_Language", "ja"),
+            "ja"
+        )
+        tgtCode = resolveTextLang(
+            prefs.getString(KEY_TEXT_TARGET_LANG, ""),
+            prefs.getString("Target_Language", "zh"),
+            "zh"
+        )
         updateLangLabels(b)
         b.srcLangButton.setOnClickListener { showLanguageDialog(1) }
         b.tgtLangButton.setOnClickListener { showLanguageDialog(2) }
+    }
+
+    /** 持久化文本页自己的语言选择：切换页面后不恢复默认 */
+    private fun persistLangSelection() {
+        val prefs = CustomPreference.getInstance(requireContext())
+        prefs.setString(KEY_TEXT_SOURCE_LANG, srcCode)
+        prefs.setString(KEY_TEXT_TARGET_LANG, tgtCode)
     }
 
     private fun updateLangLabels(b: FragmentTextTranslateBinding) {
@@ -97,6 +117,7 @@ class TextTranslateFragment : Fragment() {
                 tgtCode = locale.getOriCode()
                 if (tgtCode == srcCode) srcCode = "ja"
             }
+            persistLangSelection()
             updateLangLabels(binding ?: return@LanguageSelectionDialog)
         }.show()
     }
@@ -170,24 +191,41 @@ class TextTranslateFragment : Fragment() {
         }
         forceLeaveCancelled = false
         isTranslating = true
+        lastUiUpdate = 0L  // 重置节流计时：上一次翻译的残留时间戳不吞掉本次首段输出
+        val tStart = System.currentTimeMillis()
+        // 内存诊断：确认是否因可用内存不足导致模型堆页被换出（解码极慢）
+        logMemory("translate 前")
+        LogCollector.d(TAG, "translate: 开始 src=$srcCode→$tgtCode 引擎=${t::class.simpleName} text='${text.take(50)}'")
         b.translateButton.isEnabled = false
-        b.outputText.text = getString(R.string.manga_translating)
+        b.outputText.text = getString(R.string.text_translate_translating)
+        // 预捕获字符串：回调可能在 fragment 脱离后触发，直接 getString 会抛 not attached
+        val readingText = getString(R.string.manga_reading)
+        val translatingText = getString(R.string.text_translate_translating)
+        val failedText = getString(R.string.translation_failed, "%s")
         lifecycleScope.launch {
-            t.getTranslationStreaming(
-                text, srcCode, tgtCode,
-                onPhase = { phase ->
-                    lifecycleScope.launch {
-                        when (phase) {
-                            "prefill" -> b.outputText.text = getString(R.string.manga_reading)
-                            "generate" -> b.outputText.text = getString(R.string.manga_translating)
+            try {
+                t.getTranslationStreaming(
+                    text, srcCode, tgtCode,
+                    onPhase = { phase ->
+                        lifecycleScope.launch {
+                            LogCollector.d(TAG, "translate: phase=$phase (+${System.currentTimeMillis() - tStart}ms)")
+                            when (phase) {
+                                "prefill" -> b.outputText.text = readingText
+                                "generate" -> b.outputText.text = translatingText
+                            }
                         }
-                    }
-                },
-                onPartial = { partial ->
-                    lifecycleScope.launch { b.outputText.text = partial }
-                },
-                callback = { result ->
+                    },
+                    onPartial = { partial ->
+                        val now = android.os.SystemClock.elapsedRealtime()  // 单调时钟：系统改时间/NTP 校准不会冻结输出
+                        if (now - lastUiUpdate >= UI_THROTTLE_MS) {
+                            lastUiUpdate = now
+                            lifecycleScope.launch { b.outputText.text = partial }
+                        }
+                    },
+                    callback = { result ->
                     lifecycleScope.launch {
+                        val elapsed = System.currentTimeMillis() - tStart
+                        LogCollector.d(TAG, "translate: 回调=${result.javaClass.simpleName} 总耗时=${elapsed}ms")
                         isTranslating = false
                         b.translateButton.isEnabled = true
                         when (result) {
@@ -208,13 +246,21 @@ class TextTranslateFragment : Fragment() {
                             }
                             is TranslationResult.Error -> {
                                 if (!forceLeaveCancelled) {
-                                    b.outputText.text = getString(R.string.translation_failed, result.error.message ?: "")
+                                    b.outputText.text = failedText.replace("%s", result.error.message ?: "")
                                 }
                             }
                         }
                     }
                 }
             )
+            } catch (e: Exception) {
+                // 引擎同步抛异常（如自定义 API 配置非法、JSON 构建失败）：callback 永远不会触发，
+                // 手动恢复 UI 状态，否则 isTranslating 卡 true、按钮禁用、confirmLeave 无限拦截
+                LogCollector.e(TAG, "translate: 引擎调用异常 ${e.message}", e)
+                isTranslating = false
+                b.translateButton.isEnabled = true
+                b.outputText.text = failedText.replace("%s", e.message ?: "")
+            }
         }
     }
 
@@ -255,10 +301,13 @@ class TextTranslateFragment : Fragment() {
         val tmp = srcCode
         srcCode = tgtCode
         tgtCode = tmp
+        persistLangSelection()
         updateLangLabels(b)
-        // 译文回填输入框，清空输出
+        // 只互换语言，绝不清空输入框；仅当输入框为空时把上次译文回填进去
         val out = b.outputText.text?.toString().orEmpty()
-        if (out.isNotBlank()) b.inputEdit.setText(out)
+        if (out.isNotBlank() && b.inputEdit.text?.toString().isNullOrBlank()) {
+            b.inputEdit.setText(out)
+        }
         b.outputText.text = ""
     }
 
@@ -266,6 +315,10 @@ class TextTranslateFragment : Fragment() {
 
     private companion object {
         const val PAGE_SIZE = 5  // 每页最多显示 5 条，超过需翻页
+        const val UI_THROTTLE_MS = 80L  // 流式输出框节流间隔：避免 Main 布局工作抢占解码线程
+        const val KEY_TEXT_SOURCE_LANG = "text_translate_source_lang"
+        const val KEY_TEXT_TARGET_LANG = "text_translate_target_lang"
+        const val TAG = "TextTranslateFragment"
     }
 
     private var currentPage = 0
@@ -388,6 +441,22 @@ class TextTranslateFragment : Fragment() {
         UiUtils.showToast(requireContext(), getString(R.string.text_copied), isShort = true)
     }
 
+    /** 内存诊断：可用内存 + 进程实际驻留(VmRSS)，判断模型页是否被换出 */
+    private fun logMemory(where: String) {
+        try {
+            val am = requireContext().getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val mi = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            val rssKb = try {
+                java.io.File("/proc/self/status").readLines()
+                    .firstOrNull { it.startsWith("VmRSS:") }?.substringAfter(":")?.trim()
+                    ?.substringBefore("kB")?.trim()?.toLong() ?: 0L
+            } catch (_: Throwable) { 0L }
+            LogCollector.d(TAG, "内存[$where]: 可用=${mi.availMem / 1024 / 1024}MB VmRSS=${rssKb / 1024}MB 低内存=${mi.lowMemory}")
+        } catch (_: Exception) {
+        }
+    }
+
     private fun showLimitDialog() {
         val prefs = CustomPreference.getInstance(requireContext())
         val current = prefs.getInt("text_translate_record_limit", 100).coerceIn(0, 200)
@@ -426,3 +495,10 @@ class TextTranslateFragment : Fragment() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 }
+
+/**
+ * 文本页语言解析：优先页面自有选择（own），其次全局设置（global），最后回退默认值。
+ * 纯函数，供单测覆盖三条 fallback 分支。
+ */
+fun resolveTextLang(own: String, global: String, default: String): String =
+    if (own.isNotEmpty()) own else if (global.isNotEmpty()) global else default

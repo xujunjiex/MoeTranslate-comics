@@ -35,13 +35,6 @@ class LanguageSelectionDialog(
     private val onDisabledClick: ((CustomLocale) -> Unit)? = null,
     private val onLanguageSelected: (CustomLocale) -> Unit)
 {
-    companion object {
-        // 语言附加描述（源语言选择时显示在名称后面）
-        private val LANGUAGE_TIPS = mapOf(
-            "ru" to "（需要 PP-OCR 引擎）"
-        )
-    }
-
     fun show() {
         val builder = AlertDialog.Builder(context)
         val inflater = LayoutInflater.from(context)
@@ -53,8 +46,7 @@ class LanguageSelectionDialog(
                 val view = convertView ?: inflater.inflate(android.R.layout.simple_list_item_1, parent, false)
                 val textView = view.findViewById<TextView>(android.R.id.text1)
                 val locale = locales[position]
-                val tip = if (type == 1) LANGUAGE_TIPS[locale.getOriCode()] else null
-                textView.text = if (tip != null) "${locale.getDisplayName()} $tip" else locale.getDisplayName()
+                textView.text = locale.getDisplayName()
                 // 置灰：当前 OCR/翻译模型不支持的语言（enabled[position]=false）
                 val isEnabled = enabled?.getOrNull(position) ?: true
                 textView.isEnabled = isEnabled

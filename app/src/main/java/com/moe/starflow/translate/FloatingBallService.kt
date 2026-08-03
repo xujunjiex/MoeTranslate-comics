@@ -491,6 +491,13 @@ class FloatingBallService : LifecycleService() {
             when {
                 key == "game_context_enabled" -> contextEnabled = prefs.getBoolean("game_context_enabled", false)
                 key == "game_context_count" -> contextMaxCount = prefs.getString("game_context_count", "5").toIntOrNull() ?: 5
+                // 翻译模型切换：重建 translator（共享 Hy-MT2 实例由 Holder 换出/重建，无需重启服务）
+                key == "Text_API" || key == "Text_AI" -> {
+                    if (prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id) == Constants.TranslateMode.TEXT.id) {
+                        translatorText = TranslatorFactory.create(this, prefs, TranslatorFactory.Mode.GAME)
+                        if (translatorText == null) LogCollector.e(TAG, "翻译引擎重建失败")
+                    }
+                }
                 key in watchedKeys -> checkLanguageHints()
                 key in styleKeys -> {
                     // 设置页改了字号/字体/颜色 → 立即应用到翻译结果 view
@@ -1033,13 +1040,11 @@ class FloatingBallService : LifecycleService() {
     private fun checkLanguageHints() {
         val currentOcr = currentGameOcrEngineValue()
         val isPPv5 = currentOcr == 1   // PP-OCRv5
-        val isPPv6 = currentOcr == 3   // PP-OCRv6
-        val isAnyPP = isPPv5 || isPPv6
         val isMangaOcr = currentOcr == 2  // manga-ocr
         val src = prefs.getString("Source_Language", "ja")
 
-        // 俄文：需要 PP 引擎（v5 或 v6）
-        if (src == "ru" && !isAnyPP) {
+        // 俄文：仅 PP-OCRv5 支持（v6 / ML Kit / manga-ocr 均不支持西里尔文）
+        if (src == "ru" && !isPPv5) {
             Toast.makeText(this, getString(R.string.ru_need_ppocrv5_engine), Toast.LENGTH_SHORT).show()
             return
         }

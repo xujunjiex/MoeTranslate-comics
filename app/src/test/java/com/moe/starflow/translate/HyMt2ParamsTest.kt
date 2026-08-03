@@ -24,7 +24,9 @@ class HyMt2ParamsTest {
     @Test
     fun defaultsWhenEmpty() {
         val s = HyMt2Params.read(emptyPrefs())
-        assertEquals(6, s.threads)
+        // 生成线程数默认 = 核心数钳位到 1..6（低核设备/CI 上不固定为 6）
+        assertTrue(s.threads in 1..6)
+        assertEquals(Runtime.getRuntime().availableProcessors().coerceAtLeast(1), s.batchThreads)
         assertEquals(2048, s.contextSize)
         assertEquals(0.7f, s.temperature, 0.001f)
         assertEquals(0.6f, s.topP, 0.001f)

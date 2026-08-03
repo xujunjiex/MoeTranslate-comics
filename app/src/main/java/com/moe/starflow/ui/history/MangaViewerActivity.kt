@@ -413,7 +413,7 @@ class MangaViewerActivity : AppCompatActivity() {
         return when (textApi) {
             Constants.TextApi.AI.id -> when (textAI) {
                 Constants.TextAI.NLLB.id -> translationapi.nllbtranslation.NLLBTranslation(this)
-                Constants.TextAI.HYMT2.id -> translationapi.hymt2translation.HyMT2Translation(this)
+                Constants.TextAI.HYMT2.id -> translationapi.hymt2translation.HyMT2SharedHolder.get(this, prefs)  // 共享热实例，避免重翻加载第二份 440MB
                 else -> null
             }
             Constants.TextApi.BING.id -> translationapi.bingtranslation.BingTranslation()

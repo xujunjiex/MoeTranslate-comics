@@ -7,7 +7,7 @@ object HyMt2Native {
     }
 
     /** 加载模型 + 建 context。返回句柄，0 = 失败。 */
-    external fun nativeInit(modelPath: String, nThreads: Int, nCtx: Int): Long
+    external fun nativeInit(modelPath: String, nThreads: Int, nBatchThreads: Int, nCtx: Int): Long
 
     /**
      * 翻译一段已拼装好提示词的文本，返回译文。

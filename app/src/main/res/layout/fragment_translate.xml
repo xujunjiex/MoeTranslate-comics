@@ -85,18 +85,41 @@
 
                 <TextView
                     android:id="@+id/selected_API"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginHorizontal="16dp"
                     android:ellipsize="end"
+                    android:gravity="center_horizontal"
+                    android:letterSpacing="0.12"
                     android:maxLines="1"
-                    android:text="API：Loading..."
                     android:textColor="#333333"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    app:layout_constraintBottom_toTopOf="@id/engine_subtitle"
+                    app:layout_constraintEnd_toStartOf="@id/help"
+                    app:layout_constraintStart_toEndOf="@id/notice"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintVertical_chainStyle="packed"
+                    tools:text="OCR模型：PP-OCRv6" />
+
+                <TextView
+                    android:id="@+id/engine_subtitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginTop="6dp"
+                    android:ellipsize="end"
+                    android:gravity="center_horizontal"
+                    android:letterSpacing="0.12"
+                    android:maxLines="1"
+                    android:textColor="#333333"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
                     app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintEnd_toStartOf="@id/help"
                     app:layout_constraintStart_toEndOf="@id/notice"
-                    app:layout_constraintTop_toTopOf="parent" />
+                    app:layout_constraintTop_toBottomOf="@id/selected_API"
+                    tools:text="翻译模型：NLLB" />
 
                 <ImageView
                     android:id="@+id/help"

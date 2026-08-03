@@ -157,7 +157,6 @@ class TranslateFragment : Fragment() {
             checkForUpdate()
         }
         checkNotification()
-        showAPIName()
         setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))
         setMangaButtonState(ServiceUtils.isServiceRunning(requireContext(), MangaFloatingService::class.java))
 
@@ -169,10 +168,6 @@ class TranslateFragment : Fragment() {
         binding.notice.setOnClickListener {
             UiUtils.showToast(requireContext(), getString(R.string.getting_notification), isShort = false)
             checkNotification(true)
-        }
-
-        binding.selectedAPI.setOnClickListener {
-            UiUtils.showToast(requireContext(), getString(R.string.more_api), isShort = false)
         }
 
         binding.startButton.setOnClickListener {
@@ -253,19 +248,13 @@ class TranslateFragment : Fragment() {
     }
 
     /**
-     * 刷新首页顶部双行状态栏：上=当前 OCR 模型，下=当前翻译模型。
+     * 刷新首页 top_bar 双行状态栏：上=OCR 模型，下=翻译模型（位于通知/问号图标之间）。
      * 调用时机：onViewCreated 初始化、OCR组/翻译引擎 prefs 变化。
      */
     private fun refreshEngineStatusBar() {
         val group = com.moe.starflow.utils.OcrEngineManager.getOcrEngineGroup(prefs.getSharedPreferences())
-        binding.welcomeTitle.text = getString(group.labelRes)
-        binding.welcomeTitle.textSize = 14f
-        binding.welcomeTitle.maxLines = 1
-        binding.welcomeTitle.ellipsize = android.text.TextUtils.TruncateAt.END
-        binding.welcomeSubtitle.text = getCurrentTranslatorName()
-        binding.welcomeSubtitle.textSize = 13f
-        binding.welcomeSubtitle.maxLines = 1
-        binding.welcomeSubtitle.ellipsize = android.text.TextUtils.TruncateAt.END
+        binding.selectedAPI.text = getString(R.string.engine_status_ocr, getString(group.labelRes))
+        binding.engineSubtitle.text = getString(R.string.engine_status_translator, getCurrentTranslatorName())
     }
 
     /** 当前翻译模型名（NLLB/Hy-MT2/各 API），从 Text_API/Text_AI 判断，不带「（OCR）」后缀 */
@@ -340,129 +329,15 @@ class TranslateFragment : Fragment() {
             true
         }
 
-    private fun showAPIName() {
-        val translateMode = prefs.getInt("Translate_Mode", Constants.TranslateMode.TEXT.id)
-        val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAi = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
-        val picApi = prefs.getInt("Pic_API", Constants.PicApi.BAIDU.id)
-        val customTextApi = prefs.getInt("Custom_Text_API", 0)
-        val customPicApi = prefs.getInt("Custom_Pic_API", 0)
-
-        LogCollector.d(
-            TAG,
-            "translatemode$translateMode，textapi:$textApi，textAI:$textAi，picapi:$picApi，customtextapi:$customTextApi，custompicapi:$customPicApi"
-        )
-
-        when {
-            translateMode == Constants.TranslateMode.TEXT.id -> when (textApi) {
-                Constants.TextApi.AI.id -> {
-                    val name = when (textAi) {
-                        Constants.TextAI.HYMT2.id -> getString(R.string.hymt2_name)
-                        else -> getString(R.string.nllb_name)  // NLLB + 升级前旧值 1
-                    }
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        name
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.BING.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.bingapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.NIUTRANS.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.niuapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.OPENAI.id -> {
-                    val providerList = ConfigurationStorage.loadAllProviders(prefs)
-                    val selectedProvider = prefs.getInt("OpenAI_Selected_Provider", 0)
-                    val name = if (selectedProvider < providerList.size) providerList[selectedProvider].name else getString(R.string.uniaiapi_name)
-                    binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.VOLC.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.volcapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.AZURE.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.azureapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.DEEPL.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.deeplapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.BAIDU.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.baiduapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                Constants.TextApi.TENCENT.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.tencentapi_name)
-                    ) + "（${getString(R.string.ocr)}）"
-                }
-
-                else -> {
-                    val apiList = ConfigurationStorage.loadTextConfigList(prefs)
-                    val name = if (customTextApi < apiList.size) apiList[customTextApi].name else getString(R.string.custom)
-                    binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.ocr)}）"
-                }
-            }
-
-            else -> when (picApi) {
-                Constants.PicApi.BAIDU.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.baiduapi_name)
-                    ) + "（${getString(R.string.pic)}）"
-                }
-
-                Constants.PicApi.TENCENT.id -> {
-                    binding.selectedAPI.text = getString(
-                        R.string.api_name,
-                        getString(R.string.tencentapi_name)
-                    ) + "（${getString(R.string.pic)}）"
-                }
-
-                else -> {
-                    val apiList = ConfigurationStorage.loadPicConfigList(prefs)
-                    val name = if (customPicApi < apiList.size) apiList[customPicApi].name else getString(R.string.custom)
-                    binding.selectedAPI.text = getString(R.string.api_name, name) + "（${getString(R.string.pic)}）"
-                }
-            }
-        }
-    }
-
     private fun setTitleAndButton(isRunning: Boolean) {
+        // selectedAPI/engineSubtitle 双行状态栏（OCR 模型/翻译模型）由 refreshEngineStatusBar() 统一管理，
+        // 服务启停广播不覆盖（否则双行会被欢迎文案冲掉）
+        refreshEngineStatusBar()
         if (!isRunning) {
-            binding.welcomeTitle.text = getString(R.string.welcome_home_title)
-            binding.welcomeSubtitle.text = getString(R.string.welcome_home_subtitle)
             binding.startButton.text = getString(R.string.start_ball)
             binding.startButton.backgroundTintList =
                 ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.primary))
         } else {
-            binding.welcomeTitle.text = getString(R.string.welcome_home_title_2)
-            binding.welcomeSubtitle.text = getString(R.string.welcome_home_subtitle_2)
             binding.startButton.text = getString(R.string.stop_ball)
             binding.startButton.backgroundTintList =
                 ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.red))
@@ -1164,7 +1039,6 @@ class TranslateFragment : Fragment() {
 
         LogCollector.d(TAG, "onResume")
 
-        showAPIName()
         // 刷新语言标签：后台期间（onStop 未监听时）悬浮窗切换语言后回到首页，prefs 变化事件已错过
         refreshLanguageLabels()
         setTitleAndButton(ServiceUtils.isServiceRunning(requireContext(), FloatingBallService::class.java))

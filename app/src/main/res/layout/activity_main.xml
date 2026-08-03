@@ -39,13 +39,15 @@
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNavigation"
+        style="@style/CompactBottomNav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/white"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:itemActiveIndicatorStyle="@null"
+        app:itemActiveIndicatorStyle="@style/CompactBottomNavIndicator"
+        app:itemRippleColor="@android:color/transparent"
         app:menu="@menu/navigation_menu">
     </com.google.android.material.bottomnavigation.BottomNavigationView>
 

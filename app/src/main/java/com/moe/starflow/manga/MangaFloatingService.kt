@@ -374,9 +374,13 @@ class MangaFloatingService : LifecycleService() {
             "Manga_Text_Direction"
         )
         prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in watchedKeys) {
-                config = loadConfig()
-                checkLanguageHints()
+            when {
+                // 翻译模型切换：重建 translator（共享 Hy-MT2 实例由 Holder 换出/重建，无需重启服务）
+                key == "Text_API" || key == "Text_AI" -> initTranslator()
+                key in watchedKeys -> {
+                    config = loadConfig()
+                    checkLanguageHints()
+                }
             }
         }
         prefs.getSharedPreferences().registerOnSharedPreferenceChangeListener(prefChangeListener)
@@ -1097,13 +1101,11 @@ class MangaFloatingService : LifecycleService() {
      */
     private fun checkLanguageHints() {
         val isPPv5 = config.ocrEngine == OcrEngine.PPOcrV5 || config.detEngine == DetEngine.PP_OCR_V5
-        val isPPv6 = config.ocrEngine == OcrEngine.PPOcrV6 || config.detEngine == DetEngine.PP_OCR_V6
-        val isAnyPP = isPPv5 || isPPv6
         val isMangaOcr = config.ocrEngine == OcrEngine.MangaOcr
         val src = config.sourceLang
 
-        // 俄文：需要 PP 引擎（v5 或 v6）
-        if (src == "ru" && !isAnyPP) {
+        // 俄文：仅 PP-OCRv5 支持（v6 / ML Kit / manga-ocr 均不支持西里尔文）
+        if (src == "ru" && !isPPv5) {
             showSystemToast(getString(R.string.ru_need_ppocrv5_engine))
             return
         }

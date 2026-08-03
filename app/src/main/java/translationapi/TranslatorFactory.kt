@@ -37,6 +37,9 @@ object TranslatorFactory {
     enum class Mode { GAME, MANGA, TEXT }
 
     fun create(context: Context, prefs: CustomPreference, mode: Mode): TranslationTextAPI? {
+        // 引擎切换后换出旧共享 Hy-MT2 模型：切到 NLLB/API 等非 Hy-MT2 引擎时，
+        // 缓存的共享实例不再有调用方（get() 只在 Hy-MT2 分支被调），立即释放 440MB
+        HyMT2SharedHolder.releaseIfNotCurrent(prefs)
         val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
         return try {
             when (textApi) {

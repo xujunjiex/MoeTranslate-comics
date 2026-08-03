@@ -46,6 +46,10 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 #   $env:PATH='C:\Windows\System32;C:\Windows;'+$env:JAVA_HOME+'\bin'
 #   .\gradlew.bat --no-daemon :app:testDebugUnitTest --tests com.moe.starflow.data.XxxTest
 
+# Robolectric 测试：app/src/test/resources/robolectric.properties 全局 sdk=34（Robolectric 4.11
+# 最高支持 targetSdk 34，项目是 35——不加会在初始化报 "targetSdkVersion=35 > maxSdkVersion=34"）；
+# app/build.gradle 的 unitTests.includeAndroidResources=true 已开启（UI 交互测试需 inflate XML 布局）
+
 # 实时查看应用日志
 adb logcat --pid=$(adb shell pidof com.moe.starflow)
 
@@ -87,11 +91,14 @@ adb devices
 - **流式契约**：`getTranslationStreaming` 回调 `onPhase`（`"prefill"` 读取原文 / `"generate"` 生成译文）+ `onPartial`（**累积到当前的完整译文**，非单片段）。其他翻译 API 的 `getTranslationStreaming` 是默认实现 = 一次性 `getTranslation`，不触发回调
 - **聊天格式**：输入必须包 `[BOS]<hy_User>指令<hy_Assistant>` 角色 token，裸文本会退化输出垃圾
 - **前缀 KV 缓存**：固定翻译指令（模板 `{source_text}` 之前的部分）只 prefill 一次进 KV，跨翻译复用（`HyMt2Prompt.buildPrefix` + 桥接 `prefix_key`/`prefix_n`），跳过重复读指令（约省 1s/次）
-- **线程分离**：prefill 用满全部核心（`n_threads_batch=hardware_concurrency`），生成用用户"推理线程数"（默认 6）。实测 prefill 8 线程比 6 线程快 ~22%
+- **线程分离**：prefill（读原文）与生成（写译文）线程数独立可配（`HyMt2Params.threads`/`batchThreads`，默认 `availableProcessors().coerceIn(1,6)` / 全核），详情页可调对比速度。实测 prefill 8 线程比 6 线程快 ~22%
 - **超时语义**：本地引擎**不设总时长超时**，改「30s 无任何新输出」卡死看门狗（`TranslateUtils` 的 `LOCAL_STALL_TIMEOUT_MS`）；网络 API 保持请求发出起 35s 总超时（`API_TIMEOUT_MS`）。勿改回 `withTimeoutOrNull(总时长)` 一刀切
 - **漫画跳过分批**：`incrementalTranslateFlow` 对 `HyMT2Translation` 直接返回 false，走"一次翻译全部气泡 + 流式逐个显示"，不分两批
 - **单气泡也走批量**：`translateBubbles` 对 Hy-MT2 即使 1 个气泡也走编号批量流式路径（统一享受卡死看门狗）
 - **手机实测性能**：读原文 ~17-20 tok/s、写译文 ~13-14 tok/s（8 核限频 ~1.5GHz）。生成是 CPU 硬上限；**KV 缓存量化、2-bit 在手机实测反而更慢，勿再试**
+- **进程级共享实例**：全 app（游戏/漫画/文本）共享**同一个热模型实例**（`HyMT2SharedHolder`，`keepAlive=true`）。各页面/服务 `release()` 只取消在途任务、**不释放模型**；`MainActivity` 启动后台 `warmUp()` 预加载。引擎设置（Text_API/Text_AI）变化时重建实例；**切换到非 Hy-MT2 引擎（NLLB/API）时 `TranslatorFactory.create` 调 `releaseIfNotCurrent()` 释放旧模型、把 440MB 换出内存**（get() 只在 Hy-MT2 分支被调，切走后不会自动触发）
+- **use_mlock 探测**：`hymt2_bridge.cpp` 的 `mlock_capable()` 先锁小页探测系统是否允许 mlock。非 root Android app 的 `RLIMIT_MEMLOCK` 通常为 0 → 跳过锁定（避免每次冷加载双重读 440MB）；系统允许则锁住模型页防换出（防解码慢 180 倍）
+- **CPU 亲和性（`pin_to_all_cores`）**：厂商调度器可能把 JNI 调用线程钉在部分小核，llama 一次性 worker 继承该亲和性 → 解码慢 ~200 倍。桥接在 `nativeInit`/`translate` 前把当前线程放宽到全核（`sched_setaffinity`）
 
 **关键接口：**
 - `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — 文本翻译
@@ -378,6 +385,19 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 **OCR 引擎（OcrEngine）：**
 - `MLKit(0)`、`MangaOcr(1)`、`PPOcrV5(4)`、`PPOcrV6(5)`（**默认**）
+
+**OCR 统一引擎选择层（OCR 统一计划的源头，重要）：**
+
+游戏/漫画引擎不再是两套独立 prefs，统一到单一共享源 **`Ocr_Engine_Group`**：
+
+- `OcrEngineManager`（utils/）— `getOcrEngineGroup()`/`setOcrEngineGroup()`：首次升级迁移（漫画 legacy 键优先、游戏兜底），新装默认 `PP_OCR_V6`
+- `OcrEngineGroup`（manga/）— 4 组固定组合：`MLKIT`/`PP_OCR_V6`/`PP_OCR_V5`/`RT_MANGA`（RT-DETR+manga-ocr），每组合定义 `gameEngine`/`mangaDet`/`mangaOcr`/`sourceLangs`/`needsDownload`/`requiredModelsRes`
+- 引擎读取统一：`MangaFloatingService.loadConfig()`、`GameOcrEngine.recognize()`、`FloatingBallService` 均从 `OcrEngineManager` 读；`applyCombo`/`cycleOcrEngine` 改动写回共享
+- **模型管理页选择**：点 4 组标题选 OCR 引擎（当前组高亮「当前使用」；未下载模型组置灰，点击弹提示需要哪些模型）；与悬浮窗同步
+- **首页 top_bar 双行状态栏**：🔔通知 与 ❓帮助 之间两行——`OCR模型：xxx` + `翻译模型：xxx`（`refreshEngineStatusBar()`，OCR 组/翻译引擎变化实时刷新）
+- **源语言动态（首页/悬浮窗）**：30 种语言池按当前 OCR 组排序（支持在前），不支持的下移置灰，点击弹「该语言当前 OCR 模型不支持，请使用 X」；悬浮窗语言循环只循环组适配语言
+- **目标语言过滤**：`TranslateTools.getDisabledTargetLangs(prefs)`——Hy-MT2 下 9 种（sv/da/no/fi/hu/ro/ne/ca/af）置灰（Hy-MT2 仅 38 种目标语言）；NLLB/API 全支持
+- **文本翻译源语言不受 OCR 影响**：`getLanguagesList(type=1, ocrGroup=null)` 全量 30 种
 
 **引擎切换架构（重要）：**
 

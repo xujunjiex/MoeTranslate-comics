@@ -50,6 +50,9 @@ interface TranslationTextAPI {
         onPartial: (String) -> Unit,
         callback: (TranslationResult) -> Unit
     ) {
+        // 不流式的引擎（所有 API + NLLB）也上报"生成译文"阶段，
+        // 让文本翻译页等调用方在结果返回前显示状态，与 Hy-MT2 流式引擎行为一致。
+        onPhase("generate")
         getTranslation(text, sourceLanguage, targetLanguage, callback)
     }
 

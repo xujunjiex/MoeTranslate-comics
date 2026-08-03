@@ -26,20 +26,6 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
     /** 共享常驻标志：release() 只取消在途任务、不释放模型（供全 app 复用同一热模型） */
     @Volatile var keepAlive = false
 
-    /** 后台预加载模型（共享常驻场景），把冷加载挪到后台，避免首次翻译时才卡 14s */
-    fun warmUp() {
-        if (handle != 0L) return
-        Thread {
-            try {
-                val t0 = System.currentTimeMillis()
-                val h = ensureLoaded()
-                LogCollector.d(TAG, "Hy-MT2 warmUp 完成 h=$h 耗时=${System.currentTimeMillis() - t0}ms")
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "Hy-MT2 warmUp 失败: ${e.message}", e)
-            }
-        }.start()
-    }
-
     override fun getTranslation(
         text: String,
         sourceLanguage: String,
@@ -76,10 +62,10 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                 if (h == 0L) {
                     val downloaded = ModelDownloadRepository.getInstance(ctx)
                         .isFullyDownloaded(ModelKey.HY_MT2_GROUP)
-                    val msg = if (downloaded) {
-                        ctx.getString(R.string.hymt2_init_failed)
-                    } else {
-                        ctx.getString(R.string.hymt2_not_download_translate)
+                    val msg = when {
+                        released -> ctx.getString(R.string.hymt2_released_translate)  // 实例已被换出/重建，服务需重建 translator
+                        downloaded -> ctx.getString(R.string.hymt2_init_failed)
+                        else -> ctx.getString(R.string.hymt2_not_download_translate)
                     }
                     callback(TranslationResult.Error(Exception(msg)))
                     return@Thread
@@ -134,13 +120,21 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                 LogCollector.e(TAG, "Hy-MT2 翻译异常: ${e.message}", e)
                 callback(TranslationResult.Error(e))
             }
-        }.apply { start() }
+        }.apply {
+            // 高优先级：解码线程在系统高负载时不被前台饿死（否则 decode 慢 280 倍）
+            priority = Thread.MAX_PRIORITY
+            start()
+        }
     }
 
     /** 懒加载：首次翻译才初始化模型。失败返回 0。 */
     private fun ensureLoaded(): Long {
+        // 已 release 的实例（共享持有器换出/重建）绝不再重载模型：
+        // 否则服务缓存的旧实例会在 handle=0 时绕过持有器重新 nativeInit 一个 440MB 僵尸模型
+        if (released) return 0L
         if (handle != 0L) return handle
         synchronized(initLock) {
+            if (released) return 0L
             if (handle != 0L) return handle
             if (!ModelDownloadRepository.getInstance(ctx).isFullyDownloaded(ModelKey.HY_MT2_GROUP)) {
                 statusOverlay.showError(ctx.getString(R.string.hymt2_not_download_translate))
@@ -150,7 +144,7 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
             val modelFile = ModelDownloadRepository.getInstance(ctx).targetFilePath(ModelKey.HY_MT2_GROUP)
             // 不占用共享状态浮层：加载约 2s，由游戏/漫画流程自己的"翻译中"提示覆盖，避免把进度提示顶掉
             val epochAtEntry = currentEpoch
-            handle = HyMt2Native.nativeInit(modelFile.absolutePath, s.threads, s.contextSize)
+            handle = HyMt2Native.nativeInit(modelFile.absolutePath, s.threads, s.batchThreads, s.contextSize)
             if (handle == 0L) {
                 statusOverlay.showError(ctx.getString(R.string.hymt2_init_failed))
                 return 0L
@@ -178,7 +172,7 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
 
     override fun release() {
         if (keepAlive) {
-            // 共享常驻：取消在途任务但保留模型，供后续复用（避免冷加载慢）
+            // 共享常驻：取消在途任务但保留模型，供后续复用（避免每次页面切换重载 440MB 冷模型）
             LogCollector.d(TAG, "Hy-MT2 release(keepAlive)：保留模型，仅取消在途任务")
             cancelTranslation()
             val t = currentTask
@@ -217,6 +211,20 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
         }
         released = true
         statusOverlay.release()
+    }
+
+    /** 后台预加载模型（共享常驻场景），把加载挪到后台，避免首次翻译时才等模型就绪 */
+    fun warmUp() {
+        if (handle != 0L) return
+        Thread {
+            try {
+                val t0 = System.currentTimeMillis()
+                val h = ensureLoaded()
+                LogCollector.d(TAG, "Hy-MT2 warmUp 完成 h=$h 耗时=${System.currentTimeMillis() - t0}ms")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Hy-MT2 warmUp 失败: ${e.message}", e)
+            }
+        }.start()
     }
 
     companion object {

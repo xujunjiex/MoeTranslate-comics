@@ -88,6 +88,9 @@ class HyMt2DetailFragment : Fragment() {
         b.threadsInput.setEndIconOnClickListener {
             showParamHelp(R.string.hymt2_threads_label, R.string.hymt2_help_threads)
         }
+        b.batchThreadsInput.setEndIconOnClickListener {
+            showParamHelp(R.string.hymt2_batch_threads_label, R.string.hymt2_help_batch_threads)
+        }
         b.contextInput.setEndIconOnClickListener {
             showParamHelp(R.string.hymt2_context_label, R.string.hymt2_help_context)
         }
@@ -122,6 +125,7 @@ class HyMt2DetailFragment : Fragment() {
         val s = HyMt2Params.read(CustomPreference.getInstance(requireContext()).getSharedPreferences())
         b.promptEdit.setText(s.promptTemplate)
         b.threadsEdit.setText(s.threads.toString())
+        b.batchThreadsEdit.setText(s.batchThreads.toString())
         b.contextSelect.setText(s.contextSize.toString(), false)
         b.tempEdit.setText(s.temperature.toString())
         b.topPEdit.setText(s.topP.toString())
@@ -133,7 +137,8 @@ class HyMt2DetailFragment : Fragment() {
     private fun saveParams(b: FragmentHymt2DetailBinding) {
         val prefs = CustomPreference.getInstance(requireContext())
         prefs.setString(HyMt2Params.KEY_PROMPT, b.promptEdit.text?.toString()?.takeIf { it.isNotBlank() } ?: HyMt2Params.DEFAULT_PROMPT)
-        prefs.setInt(HyMt2Params.KEY_THREADS, b.threadsEdit.text?.toString()?.toIntOrNull()?.coerceIn(1, 16) ?: HyMt2Params.DEFAULT_THREADS)
+        prefs.setInt(HyMt2Params.KEY_THREADS, b.threadsEdit.text?.toString()?.toIntOrNull()?.coerceIn(1, 16) ?: HyMt2Params.defaultThreads)
+        prefs.setInt(HyMt2Params.KEY_BATCH_THREADS, b.batchThreadsEdit.text?.toString()?.toIntOrNull()?.coerceIn(1, 16) ?: HyMt2Params.defaultBatchThreads)
         prefs.setInt(HyMt2Params.KEY_CONTEXT, b.contextSelect.text?.toString()?.toIntOrNull() ?: HyMt2Params.DEFAULT_CONTEXT)
         prefs.setFloat(HyMt2Params.KEY_TEMP, b.tempEdit.text?.toString()?.toFloatOrNull() ?: HyMt2Params.DEFAULT_TEMP)
         prefs.setFloat(HyMt2Params.KEY_TOP_P, b.topPEdit.text?.toString()?.toFloatOrNull() ?: HyMt2Params.DEFAULT_TOP_P)

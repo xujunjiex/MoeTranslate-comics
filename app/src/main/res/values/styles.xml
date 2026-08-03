@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 底部导航选中指示器：Material3 默认 ActiveIndicator 是 64×32dp 大圆角块，超出菜单观感难看。
+         改成紧凑尺寸（44×24dp）贴合菜单栏，保留默认形状/颜色与选中动画 -->
+    <style name="CompactBottomNavIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:width">44dp</item>
+        <item name="android:height">24dp</item>
+    </style>
+
+    <!-- 底部导航整体：收紧高度与图标-标签间距（默认 80dp 高 + 28dp 垂直 padding → 间距过大） -->
+    <style name="CompactBottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:minHeight">64dp</item>
+        <item name="itemPaddingTop">10dp</item>
+        <item name="itemPaddingBottom">12dp</item>
+    </style>
+</resources>
