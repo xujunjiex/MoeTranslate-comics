@@ -72,11 +72,6 @@
         app:iconSpaceReserved="false">
 
         <Preference
-            android:key="result_font"
-            android:title="@string/font_title"
-            app:iconSpaceReserved="false" />
-
-        <Preference
             android:key="result_font_size"
             android:title="@string/font_size_title"
             app:iconSpaceReserved="false"/>
@@ -248,6 +243,12 @@
     <PreferenceCategory
         android:title="@string/other_setting"
         app:iconSpaceReserved="false">
+
+        <!-- 字体是游戏/漫画通用设置（Custom_Result_Font 两个模式共用），故放在"其他"而非游戏分类 -->
+        <Preference
+            android:key="result_font"
+            android:title="@string/font_title"
+            app:iconSpaceReserved="false" />
 
         <ListPreference
             android:key="app_language"
