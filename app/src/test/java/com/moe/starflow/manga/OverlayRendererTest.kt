@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -20,10 +21,10 @@ class OverlayRendererTest {
         Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { it.eraseColor(color) }
 
     @Test
-    fun largeFontNonAuto_shrinksToFit_noOverlap() {
+    fun largeFontNonAuto_overlappingBubbles_mergeWithSeparator() {
         // 原图绿色背景，两个水平相邻气泡（间隙 x∈(80,90)），大字号 + VERTICAL_LR。
-        // 非自动模式：用户字号超出气泡时缩小到能放下 → 文字完整、drawRect 不扩展出气泡，
-        // 气泡间间隙不被白色覆盖（不截断、不重叠）。
+        // 非自动大字号：文字超出气泡扩展后 neededRect 重叠 → 合并成一个白块，
+        // 组内用记号 ◇ 分隔（不截断、白块不叠白块）。
         val green = Color.rgb(0, 255, 0)
         val bitmap = solidBitmap(200, 100, green)
 
@@ -53,8 +54,9 @@ class OverlayRendererTest {
             bgColor = Color.WHITE
         )
 
-        // 若 drawRect 扩展出气泡，A 白块会覆盖 (85,50)；缩小后 drawRect 在各自气泡内，(85,50) 保持绿色
-        assertEquals("气泡间间隙不应被扩展白块覆盖", green, out.getPixel(85, 50))
+        // 合并白块覆盖扩展区域与两气泡之间的间隙（合并成一个白块，文字完整不截断）
+        assertNotEquals("合并白块覆盖扩展区域（不截断）", green, out.getPixel(150, 50))
+        assertNotEquals("相邻气泡合并成一个白块（间隙被覆盖）", green, out.getPixel(85, 50))
         bitmap.recycle()
         out.recycle()
     }
