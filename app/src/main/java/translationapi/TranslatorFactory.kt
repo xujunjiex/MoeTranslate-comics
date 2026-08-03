@@ -48,7 +48,8 @@ object TranslatorFactory {
                         }
                         Constants.TextAI.HYMT2.id -> {
                             LogCollector.d(TAG, "引擎初始化: Hy-MT2 Translation")
-                            HyMT2Translation(context)
+                            // 全 app 共享同一 Hy-MT2 热模型实例：避免各自冷加载（冷加载后解码慢 42 倍）
+                            HyMT2SharedHolder.get(context, prefs)
                         }
                         else -> {
                             LogCollector.e(TAG, "Unknown AI Translator: ${prefs.getInt("Text_AI", 0)}")

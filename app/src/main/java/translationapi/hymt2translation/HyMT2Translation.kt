@@ -23,6 +23,22 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
     @Volatile private var inFlight = 0
     /** 是否已 release（共享持有器据此判断是否需重建实例） */
     @Volatile var released = false
+    /** 共享常驻标志：release() 只取消在途任务、不释放模型（供全 app 复用同一热模型） */
+    @Volatile var keepAlive = false
+
+    /** 后台预加载模型（共享常驻场景），把冷加载挪到后台，避免首次翻译时才卡 14s */
+    fun warmUp() {
+        if (handle != 0L) return
+        Thread {
+            try {
+                val t0 = System.currentTimeMillis()
+                val h = ensureLoaded()
+                LogCollector.d(TAG, "Hy-MT2 warmUp 完成 h=$h 耗时=${System.currentTimeMillis() - t0}ms")
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Hy-MT2 warmUp 失败: ${e.message}", e)
+            }
+        }.start()
+    }
 
     override fun getTranslation(
         text: String,
@@ -53,7 +69,10 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
         val targetName = HyMt2Languages.getTargetName(targetLanguage)
         currentTask = Thread {
             try {
+                val tLoad0 = System.currentTimeMillis()
                 val h = ensureLoaded()
+                LogCollector.d(TAG, "Hy-MT2 ensureLoaded 耗时=${System.currentTimeMillis() - tLoad0}ms (h=$h)")
+                logMemory("ensureLoaded 后")
                 if (h == 0L) {
                     val downloaded = ModelDownloadRepository.getInstance(ctx)
                         .isFullyDownloaded(ModelKey.HY_MT2_GROUP)
@@ -85,6 +104,7 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                     val prompt = HyMt2Prompt.build(s.promptTemplate, targetName, text)
                     val prefix = HyMt2Prompt.buildPrefix(s.promptTemplate, targetName)  // 固定指令前缀，用于前缀 KV 缓存
                     LogCollector.d(TAG, "Hy-MT2 翻译开始: $sourceLanguage→$targetLanguage, text=$text")
+                    val tNative0 = System.currentTimeMillis()
                     val result = if (onPartial != null) {
                         val cb = object : HyMt2StreamCallback {
                             override fun onPhase(phase: String) { onPhase?.invoke(phase) }
@@ -98,6 +118,7 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                             nativeHandle, prompt, prefix, s.temperature, s.topP, s.topK, s.repetitionPenalty, s.maxTokens
                         )
                     }.trim()
+                    LogCollector.d(TAG, "Hy-MT2 native 调用耗时=${System.currentTimeMillis() - tNative0}ms")
                     LogCollector.d(TAG, "Hy-MT2 翻译完成: result=$result")
                     if (cancelled || currentEpoch != epoch) {
                         // 本任务已取消/被后续任务取代：丢弃结果
@@ -156,6 +177,15 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
     }
 
     override fun release() {
+        if (keepAlive) {
+            // 共享常驻：取消在途任务但保留模型，供后续复用（避免冷加载慢）
+            LogCollector.d(TAG, "Hy-MT2 release(keepAlive)：保留模型，仅取消在途任务")
+            cancelTranslation()
+            val t = currentTask
+            if (t?.isAlive == true) runCatching { t.join(2000) }
+            currentTask = null
+            return
+        }
         // 先捕获在途线程再取消：cancelTranslation() 会置空 currentTask，必须先捕获才能 join
         val task = currentTask
         cancelTranslation()
@@ -191,5 +221,22 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
 
     companion object {
         private const val TAG = "HyMT2Translation"
+    }
+
+    /** 内存诊断：可用内存 + 进程实际驻留(RSS)，判断模型页是否被换出 */
+    private fun logMemory(where: String) {
+        try {
+            val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val mi = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            // 读 /proc/self/status 的 VmRSS（进程实际驻留内存，换出的页不计入）
+            val rssKb = try {
+                java.io.File("/proc/self/status").readLines()
+                    .firstOrNull { it.startsWith("VmRSS:") }?.substringAfter(":")?.trim()
+                    ?.substringBefore("kB")?.trim()?.toLong() ?: 0L
+            } catch (_: Throwable) { 0L }
+            LogCollector.d(TAG, "内存[$where]: 可用=${mi.availMem / 1024 / 1024}MB VmRSS=${rssKb / 1024}MB 低内存=${mi.lowMemory}")
+        } catch (_: Exception) {
+        }
     }
 }

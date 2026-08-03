@@ -69,6 +69,12 @@ class MainActivity : BaseActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+
+        // Hy-MT2 后台预热：冷加载挪到用户翻译前，避免首次翻译卡 14s + 冷模型解码慢
+        translationapi.hymt2translation.HyMT2SharedHolder.warmUp(
+            applicationContext,
+            com.moe.starflow.utils.CustomPreference.getInstance(this)
+        )
     }
 
 }
