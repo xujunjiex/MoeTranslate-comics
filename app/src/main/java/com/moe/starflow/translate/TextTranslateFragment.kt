@@ -128,6 +128,12 @@ class TextTranslateFragment : Fragment() {
         b.swapButton.setOnClickListener { swapLanguages() }
         b.recentLimitButton.setOnClickListener { showLimitDialog() }
         b.recentClearButton.setOnClickListener { confirmClearRecent() }
+        b.prevPageButton.setOnClickListener {
+            if (currentPage > 0) { currentPage--; reloadRecent() }
+        }
+        b.nextPageButton.setOnClickListener {
+            if (currentPage < totalPages - 1) { currentPage++; reloadRecent() }
+        }
     }
 
     // ========== 翻译 ==========
@@ -255,6 +261,13 @@ class TextTranslateFragment : Fragment() {
 
     // ========== 最近记录 ==========
 
+    private companion object {
+        const val PAGE_SIZE = 5  // 每页最多显示 5 条，超过需翻页
+    }
+
+    private var currentPage = 0
+    private var totalPages = 0
+
     /** 记录条数上限（0-200；0 = 不记录） */
     private fun recordLimit(): Int =
         CustomPreference.getInstance(requireContext()).getInt("text_translate_record_limit", 100).coerceIn(0, 200)
@@ -273,6 +286,7 @@ class TextTranslateFragment : Fragment() {
                 createdAt = System.currentTimeMillis()
             ))
             dao.trimTo(limit)
+            currentPage = 0  // 新记录 → 回第 1 页
             reloadRecent()
         }
     }
@@ -283,13 +297,21 @@ class TextTranslateFragment : Fragment() {
         b.recentLimitButton.text = getString(R.string.text_translate_recent_limit_format, limit)
         if (limit <= 0) {
             b.recentContainer.removeAllViews()
+            b.pagerRow.visibility = View.GONE
             return
         }
         lifecycleScope.launch {
-            val records = TranslationHistoryDatabase.getInstance(requireContext())
-                .textTranslateRecordDao().queryRecent(limit)
+            val dao = TranslationHistoryDatabase.getInstance(requireContext()).textTranslateRecordDao()
+            val total = dao.count().coerceAtMost(limit)
+            totalPages = ((total + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)
+            currentPage = currentPage.coerceIn(0, totalPages - 1)
+            val records = dao.queryPage(PAGE_SIZE, currentPage * PAGE_SIZE)
             b.recentContainer.removeAllViews()
             records.forEach { rec -> b.recentContainer.addView(buildRecordItem(rec)) }
+            b.pageIndicator.text = getString(R.string.text_translate_page_indicator, currentPage + 1, totalPages)
+            b.prevPageButton.isEnabled = currentPage > 0
+            b.nextPageButton.isEnabled = currentPage < totalPages - 1
+            b.pagerRow.visibility = if (totalPages > 1) View.VISIBLE else View.GONE
         }
     }
 
@@ -300,23 +322,58 @@ class TextTranslateFragment : Fragment() {
         item.findViewById<android.widget.TextView>(R.id.recordTranslated).text = rec.translatedText
         item.findViewById<android.widget.TextView>(R.id.recordMeta).text =
             "${CustomLocale.getInstance(rec.sourceLang).getDisplayName()} → ${CustomLocale.getInstance(rec.targetLang).getDisplayName()} · ${rec.engineName}"
+        // 点击 → 详情面板（长按选择复制）
         item.setOnClickListener { showRecordDetail(rec) }
+        // 长按 → 快速删除
+        item.setOnLongClickListener {
+            confirmDeleteRecord(rec)
+            true
+        }
+        // 右侧快速复制按钮（按钮消费点击，不触发条目点击）
+        item.findViewById<com.google.android.material.button.MaterialButton>(R.id.copyOriginalButton)
+            .setOnClickListener { copyToClipboard(rec.originalText) }
+        item.findViewById<com.google.android.material.button.MaterialButton>(R.id.copyTranslatedButton)
+            .setOnClickListener { copyToClipboard(rec.translatedText) }
         return item
     }
 
     private fun showRecordDetail(rec: TextTranslateRecord) {
+        val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(rec.createdAt))
+        val view = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_record_detail, null, false)
+        // textIsSelectable=true 支持长按选择框选复制
+        view.findViewById<android.widget.TextView>(R.id.detailOriginal).apply {
+            text = rec.originalText
+            setTextIsSelectable(true)
+        }
+        view.findViewById<android.widget.TextView>(R.id.detailTranslated).apply {
+            text = rec.translatedText
+            setTextIsSelectable(true)
+        }
+        view.findViewById<android.widget.TextView>(R.id.detailMeta).text =
+            "${CustomLocale.getInstance(rec.sourceLang).getDisplayName()} → ${CustomLocale.getInstance(rec.targetLang).getDisplayName()}\n" +
+            getString(R.string.text_translate_detail_time, time) + "\n" +
+            getString(R.string.text_translate_detail_model, rec.engineName)
         val dialog = android.app.AlertDialog.Builder(requireContext())
-            .setTitle("${CustomLocale.getInstance(rec.sourceLang).getDisplayName()} → ${CustomLocale.getInstance(rec.targetLang).getDisplayName()}")
-            .setMessage("【原文】\n${rec.originalText}\n\n【译文】\n${rec.translatedText}")
-            .setPositiveButton(R.string.text_translate_copy_original) { _, _ ->
-                copyToClipboard(rec.originalText)
+            .setTitle(R.string.text_translate_recent)
+            .setView(view)
+            .setNegativeButton(R.string.text_translate_detail_close, null)
+            .create()
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+    }
+
+    private fun confirmDeleteRecord(rec: TextTranslateRecord) {
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setMessage(R.string.text_translate_delete_record)
+            .setPositiveButton(R.string.text_translate_confirm) { _, _ ->
+                lifecycleScope.launch {
+                    TranslationHistoryDatabase.getInstance(requireContext())
+                        .textTranslateRecordDao().deleteById(rec.id)
+                    reloadRecent()
+                }
             }
-            .setNeutralButton(R.string.text_translate_copy_translated) { _, _ ->
-                copyToClipboard(rec.translatedText)
-            }
-            .setNegativeButton(R.string.text_translate_retranslate) { _, _ ->
-                retranslate(rec)
-            }
+            .setNegativeButton(R.string.user_cancel, null)
             .create()
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
@@ -326,15 +383,6 @@ class TextTranslateFragment : Fragment() {
         val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("translation", text))
         UiUtils.showToast(requireContext(), getString(R.string.text_copied), isShort = true)
-    }
-
-    private fun retranslate(rec: TextTranslateRecord) {
-        val b = binding ?: return
-        srcCode = rec.sourceLang
-        tgtCode = rec.targetLang
-        updateLangLabels(b)
-        b.inputEdit.setText(rec.originalText)
-        b.outputText.text = rec.translatedText
     }
 
     private fun showLimitDialog() {

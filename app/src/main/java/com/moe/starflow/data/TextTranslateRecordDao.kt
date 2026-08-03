@@ -14,6 +14,13 @@ interface TextTranslateRecordDao {
     @Query("SELECT * FROM text_translate_record ORDER BY id DESC LIMIT :limit")
     suspend fun queryRecent(limit: Int): List<TextTranslateRecord>
 
+    /** 分页查询：最新在前，从 offset 起取 limit 条。 */
+    @Query("SELECT * FROM text_translate_record ORDER BY id DESC LIMIT :limit OFFSET :offset")
+    suspend fun queryPage(limit: Int, offset: Int): List<TextTranslateRecord>
+
+    @Query("DELETE FROM text_translate_record WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     @Query("SELECT COUNT(*) FROM text_translate_record")
     suspend fun count(): Int
 

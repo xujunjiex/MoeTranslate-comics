@@ -52,7 +52,11 @@ class MainActivity : BaseActivity() {
                 if (currentId == R.id.text_translate_fragment && destId != R.id.text_translate_fragment) {
                     val frag = navHost.childFragmentManager.fragments.firstOrNull() as? TextTranslateFragment
                     if (frag?.isTranslating == true) {
-                        frag.confirmLeave { navController.navigate(destId) }
+                        frag.confirmLeave {
+                            navController.navigate(destId)
+                            // 确认切换后手动同步底部导航选中项（监听返回 false 不会自动勾选）
+                            bottomNavigation.menu.findItem(destId)?.isChecked = true
+                        }
                         return@setOnItemSelectedListener false
                     }
                 }
