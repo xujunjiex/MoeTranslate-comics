@@ -963,9 +963,16 @@ class TranslateFragment : Fragment() {
             val locales = TranslateTools.getLanguagesList(requireContext(), type, ocrGroup) ?: return
             LogCollector.d(TAG, locales.toString())
             val disabledTargets = if (type == 2) TranslateTools.getDisabledTargetLangs(prefs) else emptySet()
+            // Hy-MT2 只支持官方 38 种目标语言：用白名单（supportedCodes）置灰其余 ~30 种，避免选了模型不支持的语种输出垃圾
+            val isHyMt2 = prefs.getInt("Text_API", Constants.TextApi.BING.id) == Constants.TextApi.AI.id &&
+                prefs.getInt("Text_AI", Constants.TextAI.NLLB.id) == Constants.TextAI.HYMT2.id
             val enabled = when (type) {
                 1 -> locales.map { ocrGroup!!.sourceLangs.contains(it.getOriCode()) }
-                2 -> locales.map { it.getOriCode() !in disabledTargets }
+                2 -> if (isHyMt2) {
+                    locales.map { it.getOriCode() in translationapi.hymt2translation.HyMt2Languages.supportedCodes }
+                } else {
+                    locales.map { it.getOriCode() !in disabledTargets }
+                }
                 else -> null
             }
             LanguageSelectionDialog(

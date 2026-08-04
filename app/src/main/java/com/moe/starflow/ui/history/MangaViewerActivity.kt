@@ -405,83 +405,12 @@ class MangaViewerActivity : AppCompatActivity() {
 
     /**
      * 根据当前偏好设置创建翻译器实例。
-     * 与 MangaFloatingService.initTranslator 一致的逻辑。
+     * 复用 TranslatorFactory.create(Mode.MANGA)（漫画 prompt + 续写格式逐行一致），避免与工厂逻辑漂移。
+     * 顺带修复：原实现 CUSTOM_TEXT 用旧格式存储（loadTextConfig/Custom_Text_API_N），工厂用新格式（Custom_Text_APIs），
+     * 新格式用户在该页自定义翻译引擎会失效。
      */
-    private fun createTranslator(prefs: CustomPreference): TranslationTextAPI? {
-        val textApi = prefs.getInt("Text_API", Constants.TextApi.BING.id)
-        val textAI = prefs.getInt("Text_AI", Constants.TextAI.NLLB.id)
-        return when (textApi) {
-            Constants.TextApi.AI.id -> when (textAI) {
-                Constants.TextAI.NLLB.id -> translationapi.nllbtranslation.NLLBTranslation(this)
-                Constants.TextAI.HYMT2.id -> translationapi.hymt2translation.HyMT2SharedHolder.get(this, prefs)  // 共享热实例，避免重翻加载第二份 440MB
-                else -> null
-            }
-            Constants.TextApi.BING.id -> translationapi.bingtranslation.BingTranslation()
-            Constants.TextApi.NIUTRANS.id -> {
-                val key = KeystoreManager.retrieveKey(this, "Niutrans") ?: return null
-                translationapi.niutrans.NiuTranslation(key)
-            }
-            Constants.TextApi.OPENAI.id -> {
-                val providerList = ConfigurationStorage.loadAllProviders(prefs)
-                val selectedIndex = prefs.getInt("OpenAI_Selected_Provider", 0)
-                val provider = providerList.getOrNull(selectedIndex) ?: return null
-                val effectiveContinuationType = if (provider.isBuiltin) {
-                    provider.continuationType
-                } else {
-                    OpenAIProviderConfig.CONTINUATION_NONE
-                }
-                val effectiveSystemPrompt = if (provider.isBuiltin) {
-                    provider.mangaSystemPrompt.ifEmpty { provider.defaultMangaSystemPrompt }
-                } else {
-                    provider.mangaSystemPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_SYSTEM_PROMPT }
-                }
-                val effectiveUserPrompt = if (provider.isBuiltin) {
-                    provider.mangaUserPrompt.ifEmpty { provider.defaultMangaUserPrompt }
-                } else {
-                    provider.mangaUserPrompt.ifEmpty { BuiltinProviders.DEFAULT_MANGA_USER_PROMPT }
-                }
-                translationapi.openaitranslation.OpenAITranslation(
-                    apiKey = provider.apiKey,
-                    baseUrl = provider.baseUrl,
-                    model = provider.modelName,
-                    systemPrompt = effectiveSystemPrompt,
-                    userPrompt = effectiveUserPrompt,
-                    continuationType = effectiveContinuationType,
-                    prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE && effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
-                    autoAppendPath = provider.autoAppendPath
-                )
-            }
-            Constants.TextApi.VOLC.id -> {
-                val account = KeystoreManager.retrieveKey(this, "Volc_ACCOUNT") ?: return null
-                val secret = KeystoreManager.retrieveKey(this, "Volc_SECRETKEY") ?: return null
-                translationapi.volctranslation.VolcTranslation(account, secret)
-            }
-            Constants.TextApi.AZURE.id -> {
-                val key = KeystoreManager.retrieveKey(this, "Azure") ?: return null
-                translationapi.azuretranslation.AzureTranslation(key)
-            }
-            Constants.TextApi.DEEPL.id -> {
-                val host = KeystoreManager.retrieveKey(this, "DeepL_Translate_HOST") ?: return null
-                val key = KeystoreManager.retrieveKey(this, "DeepL_Translate_APIKEY") ?: return null
-                translationapi.deepltranslation.DeepLTranslation(host, key)
-            }
-            Constants.TextApi.BAIDU.id -> {
-                val account = KeystoreManager.retrieveKey(this, "Baidu_Translate_ACCOUNT") ?: return null
-                val secret = KeystoreManager.retrieveKey(this, "Baidu_Translate_SECRETKEY") ?: return null
-                translationapi.baidutranslation.BaiduTranslationText(account, secret)
-            }
-            Constants.TextApi.TENCENT.id -> {
-                val account = KeystoreManager.retrieveKey(this, "Tencent_Cloud_ACCOUNT") ?: return null
-                val secret = KeystoreManager.retrieveKey(this, "Tencent_Cloud_SECRETKEY") ?: return null
-                translationapi.tencentcloud.TencentTranslationText(account, secret)
-            }
-            Constants.TextApi.CUSTOM_TEXT.id -> {
-                val textConfig = ConfigurationStorage.loadTextConfig(prefs, prefs.getInt("Custom_Text_API", 0))
-                if (textConfig != null) translationapi.customtranslation.CustomTranslationText(textConfig) else null
-            }
-            else -> null
-        }
-    }
+    private fun createTranslator(prefs: CustomPreference): TranslationTextAPI? =
+        translationapi.TranslatorFactory.create(this, prefs, translationapi.TranslatorFactory.Mode.MANGA)
 
     /**
      * 将引擎名称字符串映射为 DetEngine 和 OcrEngine 枚举。

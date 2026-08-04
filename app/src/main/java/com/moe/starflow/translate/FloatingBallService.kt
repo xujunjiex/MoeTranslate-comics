@@ -53,6 +53,7 @@ import com.moe.starflow.R
 import com.moe.starflow.me.apiconfig.BuiltinProviders
 import com.moe.starflow.me.apiconfig.ConfigurationStorage
 import com.moe.starflow.manga.MangaOcrBridge
+import com.moe.starflow.manga.OCRTextRecognizer
 import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.MangaOcrRecognizer
 import com.moe.starflow.manga.OcrEngineGroup
@@ -62,7 +63,7 @@ import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.KeystoreManager
-import com.moe.starflow.utils.TranslationStatusOverlay
+import com.moe.starflow.translate.TranslationStatusOverlay
 import com.moe.starflow.utils.UiUtils
 import com.moe.starflow.utils.UtilTools
 import kotlinx.coroutines.Dispatchers

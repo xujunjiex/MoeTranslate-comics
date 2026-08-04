@@ -8,7 +8,7 @@ import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
-import com.moe.starflow.utils.TranslationStatusOverlay
+import com.moe.starflow.translate.TranslationStatusOverlay
 
 class HyMT2Translation(context: Context) : TranslationTextAPI {
     private val ctx = context.applicationContext

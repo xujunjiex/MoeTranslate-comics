@@ -2,7 +2,6 @@ package com.moe.starflow.manga
 
 import android.graphics.Rect
 import android.graphics.RectF
-import com.moe.starflow.bridge.TextBlockInfo
 import com.moe.starflow.utils.LogCollector
 import kotlin.math.abs
 import kotlin.math.max

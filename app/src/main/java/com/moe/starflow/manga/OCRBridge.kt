@@ -1,4 +1,4 @@
-package com.moe.starflow.bridge
+package com.moe.starflow.manga
 
 import android.graphics.Bitmap
 import android.graphics.Rect
@@ -58,7 +58,7 @@ object OCRBridge {
 
     suspend fun recognizeText(language: String, bitmap: Bitmap): String {
         LogCollector.d(TAG, "recognizeText: bitmap=${bitmap.width}x${bitmap.height}")
-        return com.moe.starflow.translate.OCRTextRecognizer.getPicText(language, bitmap)
+        return OCRTextRecognizer.getPicText(language, bitmap)
     }
 
     private fun getTextRecognizer(language: String): TextRecognizer {

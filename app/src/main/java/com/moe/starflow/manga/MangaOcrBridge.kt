@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.util.Log
 import com.moe.starflow.utils.LogCollector
-import com.moe.starflow.bridge.OCRBridge
-import com.moe.starflow.bridge.TextBlockInfo
 
 /**
  * manga-ocr 混合 OCR 桥接

@@ -73,9 +73,8 @@ adb devices
 
 **包结构** (`app/src/main/java/com/moe/starflow/`):
 
-- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`MenuDialogAdapter`（菜单列表项适配器）、`BallStateManager`（悬浮球状态图标管理器）
-- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线，默认）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）、`MangaModeConfig`（漫画模式配置 + 引擎组合定义）
-- `bridge/` — 桥接层：`OCRBridge`、`DetectionBridge`、`TranslateBridge`、`ScreenshotBridge`
+- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`MenuDialogAdapter`（菜单列表项适配器）、`BallStateManager`（悬浮球状态图标管理器）、`TranslationStatusOverlay`（共享翻译状态浮层单例，全局调用）
+- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线，默认）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`OCRBridge`/`OCRTextRecognizer`（ML Kit 识别桥 + 基础识别，游戏漫画共用）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）、`MangaModeConfig`（漫画模式配置 + 引擎组合定义）
 - `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，11 条 FAQ）
 - `launch/` — 首次启动引导
 - `utils/` — 工具类：`Constants`（枚举定义）、`CustomPreference`（配置封装）、`LogCollector`（日志收集）、`PixelCompare`（像素比较）、`UiUtils`（Toast 统一）、`ServiceUtils`（服务状态检测）、`UpdateChecker`（检查更新）
@@ -87,18 +86,18 @@ adb devices
 - `hymt2translation/` — **Hy-MT2 本地翻译引擎**（llama.cpp 设备端推理，需下载模型，非联网 API）；`nllbtranslation/` 同属本地引擎类
 
 **Hy-MT2 关键机制（`hymt2translation/` + `cpp/hymt2/`）：**
-- **引擎兼容**：仅 f8b355a9e（build 9521）可加载 1.25-bit 模型，链接预编译 `jniLibs/arm64-v8a/libllama.so`，CMake 只编 `hymt2_bridge.cpp`。2-bit 模型需 PR #19357 引擎，两者互不兼容
+- **引擎兼容**：1.25-bit 用 f8b355a9e（type 42 免打标）；PR #22836 head（7e74b8296）重打标 42→43 也可用（实测速度相当）。2-bit 需 PR #19357 引擎（Q2_0C，手机实测 3.92 tok/s 太慢）。CMake 链接 libllama + libggml-base + libggml-cpu（线程池 API 需要）
 - **流式契约**：`getTranslationStreaming` 回调 `onPhase`（`"prefill"` 读取原文 / `"generate"` 生成译文）+ `onPartial`（**累积到当前的完整译文**，非单片段）。其他翻译 API 的 `getTranslationStreaming` 是默认实现 = 一次性 `getTranslation`，不触发回调
-- **聊天格式**：输入必须包 `[BOS]<hy_User>指令<hy_Assistant>` 角色 token，裸文本会退化输出垃圾
+- **聊天格式（system 段）**：`[BOS]{指令}<hy_place_holder_no_3=120021><hy_User>{原文}<hy_Assistant>`——翻译指令放 system 段、原文放 user 段（官方 chat 模板结构）。裸文本会退化输出垃圾
 - **前缀 KV 缓存**：固定翻译指令（模板 `{source_text}` 之前的部分）只 prefill 一次进 KV，跨翻译复用（`HyMt2Prompt.buildPrefix` + 桥接 `prefix_key`/`prefix_n`），跳过重复读指令（约省 1s/次）
 - **线程分离**：prefill（读原文）与生成（写译文）线程数独立可配（`HyMt2Params.threads`/`batchThreads`，默认 `availableProcessors().coerceIn(1,6)` / 全核），详情页可调对比速度。实测 prefill 8 线程比 6 线程快 ~22%
 - **超时语义**：本地引擎**不设总时长超时**，改「30s 无任何新输出」卡死看门狗（`TranslateUtils` 的 `LOCAL_STALL_TIMEOUT_MS`）；网络 API 保持请求发出起 35s 总超时（`API_TIMEOUT_MS`）。勿改回 `withTimeoutOrNull(总时长)` 一刀切
 - **漫画跳过分批**：`incrementalTranslateFlow` 对 `HyMT2Translation` 直接返回 false，走"一次翻译全部气泡 + 流式逐个显示"，不分两批
 - **单气泡也走批量**：`translateBubbles` 对 Hy-MT2 即使 1 个气泡也走编号批量流式路径（统一享受卡死看门狗）
-- **手机实测性能**：读原文 ~17-20 tok/s、写译文 ~13-14 tok/s（8 核限频 ~1.5GHz）。生成是 CPU 硬上限；**KV 缓存量化、2-bit 在手机实测反而更慢，勿再试**
+- **手机实测性能**：读原文 ~17-20 tok/s、写译文 ~13-14 tok/s（8 核限频 ~1.5GHz）。生成是 CPU 硬上限；**2-bit（Q2_0C）实测 3.92 tok/s 比 1.25-bit 慢 3 倍，勿再试**
 - **进程级共享实例**：全 app（游戏/漫画/文本）共享**同一个热模型实例**（`HyMT2SharedHolder`，`keepAlive=true`）。各页面/服务 `release()` 只取消在途任务、**不释放模型**；`MainActivity` 启动后台 `warmUp()` 预加载。引擎设置（Text_API/Text_AI）变化时重建实例；**切换到非 Hy-MT2 引擎（NLLB/API）时 `TranslatorFactory.create` 调 `releaseIfNotCurrent()` 释放旧模型、把 440MB 换出内存**（get() 只在 Hy-MT2 分支被调，切走后不会自动触发）
 - **use_mlock 探测**：`hymt2_bridge.cpp` 的 `mlock_capable()` 先锁小页探测系统是否允许 mlock。非 root Android app 的 `RLIMIT_MEMLOCK` 通常为 0 → 跳过锁定（避免每次冷加载双重读 440MB）；系统允许则锁住模型页防换出（防解码慢 180 倍）
-- **CPU 亲和性（`pin_to_all_cores`）**：厂商调度器可能把 JNI 调用线程钉在部分小核，llama 一次性 worker 继承该亲和性 → 解码慢 ~200 倍。桥接在 `nativeInit`/`translate` 前把当前线程放宽到全核（`sched_setaffinity`）
+- **线程池（治挤核，必要）**：`create_pinned_pool` + `llama_attach_threadpool` 自定义持久线程池，显式全核 cpumask——worker 不继承受限核 mask。默认一次性线程池每次新建 worker 被调度器塞中核 → 慢 180 倍（注释掉线程池后旧手机立即卡死，已验证必要）。`pin_to_all_cores` 已证明无效（mask 本就全核）已删除；strict_cpu 钉死单核有害（坏核拖累 barrier）
 
 **关键接口：**
 - `TranslationTextAPI.getTranslation(text, sourceLanguage, targetLanguage, callback)` — 文本翻译
@@ -396,7 +395,7 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 - **模型管理页选择**：点 4 组标题选 OCR 引擎（当前组高亮「当前使用」；未下载模型组置灰，点击弹提示需要哪些模型）；与悬浮窗同步
 - **首页 top_bar 双行状态栏**：🔔通知 与 ❓帮助 之间两行——`OCR模型：xxx` + `翻译模型：xxx`（`refreshEngineStatusBar()`，OCR 组/翻译引擎变化实时刷新）
 - **源语言动态（首页/悬浮窗）**：30 种语言池按当前 OCR 组排序（支持在前），不支持的下移置灰，点击弹「该语言当前 OCR 模型不支持，请使用 X」；悬浮窗语言循环只循环组适配语言
-- **目标语言过滤**：`TranslateTools.getDisabledTargetLangs(prefs)`——Hy-MT2 下 9 种（sv/da/no/fi/hu/ro/ne/ca/af）置灰（Hy-MT2 仅 38 种目标语言）；NLLB/API 全支持
+- **目标语言过滤（白名单）**：Hy-MT2 官方仅 38 种目标语言（`HyMt2Languages.supportedCodes`），游戏页/文本页目标语言按官方 38 种白名单置灰（旧 9 种黑名单已废）；NLLB/API 全支持
 - **文本翻译源语言不受 OCR 影响**：`getLanguagesList(type=1, ocrGroup=null)` 全量 30 种
 
 **引擎切换架构（重要）：**
@@ -617,7 +616,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils | tag:TranslateBridge
+tag:OCRBridge | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils
 ```
 
 ## 安装规范（最高优先级）

@@ -1,4 +1,7 @@
-package com.moe.starflow.utils
+package com.moe.starflow.translate
+
+import com.moe.starflow.utils.CustomPreference
+import com.moe.starflow.utils.LogCollector
 
 import android.animation.LayoutTransition
 import android.content.ClipData

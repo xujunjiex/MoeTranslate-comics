@@ -39,8 +39,6 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.moe.starflow.MainActivity
 import com.moe.starflow.R
-import com.moe.starflow.bridge.OCRBridge
-import com.moe.starflow.bridge.TextBlockInfo
 import com.moe.starflow.me.apiconfig.BuiltinProviders
 import com.moe.starflow.me.apiconfig.ConfigurationStorage
 import com.moe.starflow.me.apiconfig.OpenAIProviderConfig
@@ -61,7 +59,7 @@ import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.KeystoreManager
 import com.moe.starflow.utils.TextSimilarity
-import com.moe.starflow.utils.TranslationStatusOverlay
+import com.moe.starflow.translate.TranslationStatusOverlay
 import com.moe.starflow.utils.UtilTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

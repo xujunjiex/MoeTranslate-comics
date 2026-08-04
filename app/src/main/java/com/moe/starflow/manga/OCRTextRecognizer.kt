@@ -15,7 +15,7 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.translate
+package com.moe.starflow.manga
 
 import android.graphics.Bitmap
 import android.util.Log

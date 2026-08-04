@@ -3,6 +3,7 @@ package com.moe.starflow.translate
 import android.content.Context
 import android.graphics.Bitmap
 import com.moe.starflow.manga.MangaOcrBridge
+import com.moe.starflow.manga.OCRTextRecognizer
 import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine

@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Point
 import android.graphics.PointF
 import android.graphics.Rect
-import com.moe.starflow.bridge.OCRBridge
-import com.moe.starflow.bridge.TextBlockInfo
 import com.moe.starflow.utils.LogCollector
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition

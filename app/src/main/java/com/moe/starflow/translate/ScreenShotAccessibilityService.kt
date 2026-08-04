@@ -26,7 +26,7 @@ import android.util.Log
 import android.view.Display.DEFAULT_DISPLAY
 import android.view.accessibility.AccessibilityEvent
 import androidx.annotation.RequiresApi
-import com.moe.starflow.utils.TranslationStatusOverlay
+import com.moe.starflow.translate.TranslationStatusOverlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

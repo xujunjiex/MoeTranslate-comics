@@ -109,7 +109,14 @@ class TextTranslateFragment : Fragment() {
 
     private fun showLanguageDialog(type: Int) {
         val list = TranslateTools.getLanguagesList(requireContext(), type) ?: return
-        LanguageSelectionDialog(requireContext(), type, list) { locale ->
+        // 目标语言(type=2)：Hy-MT2 只支持官方 38 种，白名单置灰其余（此前文本页无过滤，可选中模型不支持的语种输出垃圾）
+        val prefs = CustomPreference.getInstance(requireContext())
+        val isHyMt2 = prefs.getInt("Text_API", 1) == com.moe.starflow.utils.Constants.TextApi.AI.id &&
+            prefs.getInt("Text_AI", 0) == com.moe.starflow.utils.Constants.TextAI.HYMT2.id
+        val enabled = if (type == 2 && isHyMt2) {
+            list.map { it.getOriCode() in translationapi.hymt2translation.HyMt2Languages.supportedCodes }
+        } else null
+        LanguageSelectionDialog(requireContext(), type, list, enabled = enabled) { locale ->
             if (type == 1) {
                 srcCode = locale.getOriCode()
                 if (srcCode == tgtCode) tgtCode = "zh"

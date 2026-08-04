@@ -1,7 +1,6 @@
 package com.moe.starflow.manga
 
 import android.graphics.Rect
-import com.moe.starflow.bridge.TextBlockInfo
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min

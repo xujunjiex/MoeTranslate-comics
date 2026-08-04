@@ -8,6 +8,7 @@ object HyMt2Languages {
     private val TARGET_NAMES: Map<String, String> = mapOf(
         "zh" to "中文",
         "zh-TW" to "繁体中文",
+        "zh-Hant" to "繁体中文",  // 官方 README 用 zh-Hant，UI 语言池可能用任一 code
         "en" to "英语",
         "ja" to "日语",
         "ko" to "韩语",
@@ -49,6 +50,14 @@ object HyMt2Languages {
 
     val supportedNames: Collection<String>
         get() = TARGET_NAMES.values
+
+    /**
+     * Hy-MT2 官方支持的 38 种目标语言（官方 README「支持的语种」表，与 TARGET_NAMES 一一对应）。
+     * 用于目标语言选择白名单：Hy-MT2 引擎下，不在集合内的语言一律置灰（模型不支持，翻了也是垃圾）。
+     * 注意 UI 语言池（nllb_text_support_languages.xml 68 种）远大于此集合，必须用白名单而非黑名单。
+     */
+    val supportedCodes: Set<String>
+        get() = TARGET_NAMES.keys
 
     /** 取目标语言中文名；不在 38 种内时回退原代码（翻译质量不保证，接受）。 */
     fun getTargetName(code: String): String = TARGET_NAMES[code] ?: code

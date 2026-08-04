@@ -16,6 +16,8 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include "llama.h"
+#include "ggml.h"
+#include "ggml-cpu.h"
 
 #define TAG "HyMT2Bridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -37,7 +39,13 @@ static long long now_ms() {
 // 若 leader 被（厂商调度器）钉在部分核上（本机实测 4-6，只有 3 个中核），
 // 6 个 worker 一起被锁 → 每核 2 倍超订 + STQ 层间 barrier 打架 → 解码慢 ~200 倍。
 // 这里强制回到 0-7，让新建的 worker 继承全核亲和性。
-static void pin_to_all_cores() {
+// ⚠️ pinner 会在翻译中途重新钉线程，因此调用点必须在 llama_decode 紧前（见 translate_impl）。
+static bool pin_to_all_cores() {
+    // ⚠️ 测试禁用（2026-08-04）：自定义线程池已用全核 cpumask 处理 worker 核限制，
+    // 本函数只放宽"调用线程自身"的 mask（worker 跑哪由线程池决定），疑为冗余。
+    // 实测两台手机确认无副作用后删除本函数及所有调用点。
+    return true;
+#if 0  // ==== 原实现（禁用） ====
     // 用在线核数（_ONLN）而非配置核数（_CONF 可能含离线核），且与进程允许的 cpuset 求交集：
     // 直接设置到进程被排除的核会 EINVAL 静默失败，导致 worker 仍被钉在受限亲和性上（解码慢 ~200 倍）。
     int n = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
@@ -45,16 +53,39 @@ static void pin_to_all_cores() {
     if (n > CPU_SETSIZE) n = CPU_SETSIZE;
     cpu_set_t allowed;
     CPU_ZERO(&allowed);
-    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) return;
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) return false;
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     for (int i = 0; i < n; ++i) {
         if (CPU_ISSET(i, &allowed)) CPU_SET(i, &cpuset);
     }
-    if (CPU_COUNT(&cpuset) == 0) return;  // 空交集（进程被限制在非常规核），保持现状
+    if (CPU_COUNT(&cpuset) == 0) return false;  // 空交集（进程被限制在非常规核），保持现状
     if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0) {
         LOGW("pin_to_all_cores failed: %s", strerror(errno));
+        return false;
     }
+    // 诊断：读回验证是否真达到全核（setaffinity 成功但被 cpuset/cgroup 截断时会少核）
+    cpu_set_t after;
+    CPU_ZERO(&after);
+    if (sched_getaffinity(0, sizeof(after), &after) == 0 &&
+        CPU_COUNT(&after) < CPU_COUNT(&cpuset)) {
+        LOGW("pin verify: got %d/%d cores", CPU_COUNT(&after), CPU_COUNT(&cpuset));
+    }
+    return true;
+#endif
+}
+
+// 创建"全核 cpumask"的 llama 线程池：给每个 worker 显式设置允许全部在线核。
+// 默认线程池 cpumask 全 0 = worker 继承 leader 的核限制，厂商调度器可能把翻译线程钉到部分核
+// → worker 继承受限 mask 挤在少量核上超订。显式全核 cpumask 让 worker 能分散到所有核；
+// 保持默认线程放置策略（worker 不被钉死单核，调度器可自由迁移）。
+static ggml_threadpool_t create_pinned_pool(int n_threads) {
+    if (n_threads < 1) n_threads = 1;
+    struct ggml_threadpool_params tp = ggml_threadpool_params_default(n_threads);
+    const int online = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
+    const int ncpu = (online > 0 && online <= GGML_MAX_N_THREADS) ? online : n_threads;
+    for (int i = 0; i < ncpu; ++i) tp.cpumask[i] = true;
+    return ggml_threadpool_new(&tp);
 }
 
 // 探测 mlock 能力：Android 普通 app 的 RLIMIT_MEMLOCK 通常为 0，mlock 大内存必然失败。
@@ -128,6 +159,11 @@ struct HyMt2Handle {
     llama_token user_token = -1;
     llama_token asst_token = -1;
     llama_token eot_token = -1;
+    // system 结束标记 <|hy_place▁holder▁no▁3|>（120021）：翻译指令放 system 段、原文放 user 段时的分隔符
+    llama_token sys_token = -1;
+    // 自定义线程池（全核 cpumask）：worker 不继承受限核 mask，可分散到所有核
+    ggml_threadpool_t pool = nullptr;
+    ggml_threadpool_t pool_batch = nullptr;
     // 中止标志：nativeAbort 置位，解码循环检查后提前退出（真正终止翻译进程）
     std::atomic<bool> abort{false};
     // 前缀 KV 缓存：固定翻译指令只解码一次进 KV，跨翻译复用，跳过重复 prefill。
@@ -188,6 +224,19 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
         h->ctx = ctx;
         h->vocab = llama_model_get_vocab(model);
 
+        // 自定义线程池显式全核 mask，worker 不继承受限核（避免挤核超订）。
+        // 已验证必要：注释掉（回到 llama 默认一次性线程池）后旧手机立即卡死（worker 每次新建被调度器塞中核）。
+        h->pool = create_pinned_pool(nThreads);
+        h->pool_batch = create_pinned_pool(nBatchThreads);
+        if (h->pool != nullptr && h->pool_batch != nullptr) {
+            llama_attach_threadpool(ctx, h->pool, h->pool_batch);
+            LOGI("nativeInit: attached pinned threadpool gen=%d batch=%d", nThreads, nBatchThreads);
+        } else {
+            LOGW("nativeInit: pinned threadpool create failed, fallback to default");
+            if (h->pool != nullptr) { ggml_threadpool_free(h->pool); h->pool = nullptr; }
+            if (h->pool_batch != nullptr) { ggml_threadpool_free(h->pool_batch); h->pool_batch = nullptr; }
+        }
+
         // 诊断 + 格式：读取模型要求的输入格式（chat template）与聊天特殊 token
         {
             char tbuf[2048];
@@ -201,9 +250,18 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
                 if (strstr(text, "hy_User")) { if (h->user_token < 0) h->user_token = t; }
                 else if (strstr(text, "hy_Assistant")) { if (h->asst_token < 0) h->asst_token = t; }
                 else if (strstr(text, "hy_EOT")) { if (h->eot_token < 0) h->eot_token = t; }
+                else if (strstr(text, "hy_place") && h->sys_token < 0) {
+                    // system 结束标记 <|hy_place▁holder▁no▁3|>（120021）。token 文本用 U+2581 作分隔：
+                    // "hy_place▁holder▁no▁3"。匹配 no▁3 且后续非数字（排除 no▁30 等）
+                    const char* m = strstr(text, "no\xE2\x96\x81" "3");
+                    if (m != nullptr) {
+                        const char* after = m + 6;  // "no"(2) + U+2581(3) + "3"(1) = 6，指向 "3" 之后
+                        if (!(*after >= '0' && *after <= '9')) h->sys_token = t;
+                    }
+                }
             }
-            LOGI("chat special tokens: user=%d asst=%d eot=%d",
-                 h->user_token, h->asst_token, h->eot_token);
+            LOGI("chat special tokens: user=%d asst=%d eot=%d sys=%d",
+                 h->user_token, h->asst_token, h->eot_token, h->sys_token);
         }
 
         // 预热：解码一个 token 跑一次全前向，把 440MB 权重页调入内存（首次解码会 mmap 缺页 ~15s）
@@ -212,6 +270,8 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
         llama_token warm_tokens[4];
         const int32_t n_warm = llama_tokenize(h->vocab, "a", 1, warm_tokens, 4, false, false);
         if (n_warm > 0) {
+            // 预热 decode 前重新 pin：模型加载耗时数秒，期间厂商 pinner 可能把本线程重新钉回部分核
+            pin_to_all_cores();
             llama_batch wb = llama_batch_init(n_warm, 0, 1);
             wb.n_tokens = n_warm;
             for (int32_t i = 0; i < n_warm; ++i) {
@@ -307,66 +367,72 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
         std::vector<llama_token> prompt_tok;
         int32_t start_pos = 0;  // 本次解码的起始 KV 位置（缓存命中时 = 前缀长度）
 
+        // 固定前缀（system 段指令，跨翻译不变）与变化部分（user 段原文）分开 tokenize。
+        // 统一 add_special=false，BOS/角色标记全部手动加，不依赖引擎版本的 add_special 行为。
+        const bool has_chat = (h->bos_token > 0 || h->user_token >= 0 || h->asst_token >= 0);
+        // 固定前缀 token 数（KV 缓存量）：BOS + system 结束标记 + user 角色标记
+        const int32_t chat_prefix = (h->bos_token > 0 ? 1 : 0) + (h->sys_token >= 0 ? 1 : 0) + (h->user_token >= 0 ? 1 : 0);
+        const int32_t rest_len = static_cast<int32_t>(text_len - prefix.size());
+
         if (cache_valid) {
-            // 缓存命中：只解码变化部分（prompt 去掉前缀），前缀 KV 已在 [0, prefix_n)
-            const int32_t rest_len = static_cast<int32_t>(text_len - prefix.size());
+            // 缓存命中：只解码变化部分（rest + Assistant），前缀 KV 已在 [0, prefix_n)
             const int32_t nr = tokenize_str(prompt + prefix.size(), rest_len, false, prompt_tok);
             if (nr < 0) {
                 LOGE("translate: rest tokenize failed (%d)", nr);
                 env->ReleaseStringUTFChars(jPrompt, prompt);
                 return env->NewStringUTF("");
             }
+            // ⚠️ 缓存命中时 KV 前缀已含 [BOS][指令][sys_end][User]，不能再重复加这些角色标记
+            if (has_chat && h->asst_token >= 0) prompt_tok.push_back(h->asst_token);
             start_pos = h->prefix_n;
             LOGI("translate: prefix cache HIT prefix_n=%d rest_tokens=%d", h->prefix_n, nr);
         } else {
             // 缓存未命中/禁用：全量 prefill（保持原有行为），清空 KV 后重建
             llama_memory_clear(mem, false);
             h->prefix_n = 0;  // KV 已清空，任何已缓存前缀失效
-            const int32_t n = tokenize_str(prompt, static_cast<int32_t>(text_len), true, prompt_tok);
-            if (n < 0) {
-                LOGE("translate: prompt tokenize failed (%d)", n);
-                env->ReleaseStringUTFChars(jPrompt, prompt);
-                return env->NewStringUTF("");
-            }
             start_pos = 0;
-            // 尝试建立前缀缓存：校验「前缀 token」==「全量 prompt 前段」，一致才说明切分干净
-            // （add_special 未额外加 BOS、且前缀/变化部分边界无 token 合并），缓存才与全量 prefill 等价
-            if (want_cache && h->prefix_key != prefix) {
-                std::vector<llama_token> prefix_tok;
+
+            std::vector<llama_token> prefix_tok, rest_tok;
+            if (want_cache && rest_len >= 0) {
+                // 指令（prefix）→ system 段；原文（rest）→ user 段
                 const int32_t np = tokenize_str(prefix.c_str(), static_cast<int32_t>(prefix.size()), false, prefix_tok);
-                bool clean = (np >= 0) && (static_cast<int32_t>(prefix_tok.size()) <= n);
-                if (clean) {
-                    for (int32_t k = 0; k < static_cast<int32_t>(prefix_tok.size()); ++k) {
-                        if (prefix_tok[k] != prompt_tok[k]) { clean = false; break; }
-                    }
+                const int32_t nr = tokenize_str(prompt + prefix.size(), rest_len, false, rest_tok);
+                if (np < 0 || nr < 0) {
+                    LOGE("translate: split tokenize failed np=%d nr=%d", np, nr);
+                    env->ReleaseStringUTFChars(jPrompt, prompt);
+                    return env->NewStringUTF("");
                 }
-                if (clean) {
-                    const int32_t chat_prefix = (h->bos_token > 0 ? 1 : 0) + (h->user_token >= 0 ? 1 : 0);
-                    h->prefix_n = chat_prefix + static_cast<int32_t>(prefix_tok.size());
-                    h->prefix_key = prefix;
-                    LOGI("translate: prefix cache built prefix_n=%d prefix_tokens=%d", h->prefix_n, np);
-                } else {
-                    // 切分不干净 → 该前缀不可缓存，记住 key 避免每次重试
-                    h->prefix_key = prefix;
-                    LOGW("translate: prefix split not clean, caching disabled for this prefix");
+                // 固定前缀：BOS + 指令 + sys_end + User，跨翻译复用 KV 跳过重复 prefill
+                h->prefix_n = chat_prefix + static_cast<int32_t>(prefix_tok.size());
+                h->prefix_key = prefix;
+                LOGI("translate: prefix cache built prefix_n=%d prefix_tokens=%d sys_end=%d",
+                     h->prefix_n, np, h->sys_token);
+            } else {
+                // 无前缀（模板不含 {source_text} 或缓存禁用）：全部放 user 段
+                const int32_t n = tokenize_str(prompt, static_cast<int32_t>(text_len), false, rest_tok);
+                if (n < 0) {
+                    LOGE("translate: prompt tokenize failed (%d)", n);
+                    env->ReleaseStringUTFChars(jPrompt, prompt);
+                    return env->NewStringUTF("");
                 }
-            } else if (!want_cache) {
-                h->prefix_key.clear();
+                if (!want_cache) h->prefix_key.clear();
+            }
+
+            // ⚠️ 按模型 chat 模板构造输入:
+            //   [BOS] + {指令} + <hy_place_holder_no_3>(system 结束) + <hy_User> + {原文} + <hy_Assistant>
+            // 指令放 system 段（官方模板结构，BLEU 比全塞 user 高 5~13）；不包角色标记直接喂裸文本会退化输出垃圾
+            if (has_chat) {
+                if (h->bos_token > 0) prompt_tok.push_back(h->bos_token);
+                prompt_tok.insert(prompt_tok.end(), prefix_tok.begin(), prefix_tok.end());
+                if (h->sys_token >= 0) prompt_tok.push_back(h->sys_token);
+                if (h->user_token >= 0) prompt_tok.push_back(h->user_token);
+                prompt_tok.insert(prompt_tok.end(), rest_tok.begin(), rest_tok.end());
+                if (h->asst_token >= 0) prompt_tok.push_back(h->asst_token);
+            } else {
+                prompt_tok.swap(rest_tok);
             }
         }
         env->ReleaseStringUTFChars(jPrompt, prompt);
-
-        // ⚠️ 按模型聊天格式构造输入: [BOS]<User>{prompt}<Assistant>
-        //    模型有 <｜hy_User｜>/<｜hy_Assistant｜> 角色 token，不包角色标记直接喂裸文本会退化输出垃圾
-        if (h->bos_token > 0 || h->user_token >= 0 || h->asst_token >= 0) {
-            std::vector<llama_token> seq;
-            seq.reserve(prompt_tok.size() + 4);
-            if (h->bos_token > 0) seq.push_back(h->bos_token);
-            if (h->user_token >= 0) seq.push_back(h->user_token);
-            seq.insert(seq.end(), prompt_tok.begin(), prompt_tok.end());
-            if (h->asst_token >= 0) seq.push_back(h->asst_token);
-            prompt_tok.swap(seq);
-        }
         const int32_t n_tokens = static_cast<int32_t>(prompt_tok.size());
         // 本次输入实际占用上下文 [start_pos, start_pos + n_tokens)
         const int32_t total_prompt = start_pos + n_tokens;
@@ -451,6 +517,9 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             env->DeleteLocalRef(js);
             if (env->ExceptionCheck()) env->ExceptionClear();
         }
+        // 每次 decode 紧前重新 pin：厂商 pinner 可能在 translate 处理途中把本线程重新钉回部分核，
+        // worker 继承的是 llama_decode 调用时刻的亲和性，必须在紧前保证全核（~10us syscall，可忽略）
+        pin_to_all_cores();
         const long long t_decode0 = now_ms();
         if (llama_decode(h->ctx, batch) != 0) {
             LOGE("translate: prompt decode failed");
@@ -514,6 +583,8 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             batch.n_seq_id[0] = 1;
             batch.seq_id[0][0] = 0;
             batch.logits[0]   = true;
+            // 同上：每 token 解码前保证 leader 全核，worker 继承全核（pinner 对抗）
+            pin_to_all_cores();
             const long long t_d0 = now_ms();
             if (llama_decode(h->ctx, batch) != 0) { LOGE("translate: decode failed at step %d", i); break; }
             if ((i % 4) == 0) LOGI("translate: gen[%d] decode=%lldms", i, now_ms() - t_d0);
@@ -569,8 +640,10 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeRelease(JNIEnv*, jclass, 
         std::lock_guard<std::mutex> lock(g_mutex);
         auto* h = reinterpret_cast<HyMt2Handle*>(jHandle);
         if (h == nullptr) return;
-        if (h->ctx != nullptr) llama_free(h->ctx);
+        if (h->ctx != nullptr) llama_free(h->ctx);  // 内部 detach threadpool（不 free pool）
         if (h->model != nullptr) llama_model_free(h->model);
+        if (h->pool != nullptr) ggml_threadpool_free(h->pool);
+        if (h->pool_batch != nullptr) ggml_threadpool_free(h->pool_batch);
         delete h;
         LOGI("model released");
     } catch (const std::exception& e) {
