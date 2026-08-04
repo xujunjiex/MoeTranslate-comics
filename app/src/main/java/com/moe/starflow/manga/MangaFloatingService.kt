@@ -1793,7 +1793,7 @@ class MangaFloatingService : LifecycleService() {
             TextRegionMerger.refreshParams(this@MangaFloatingService)
             val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() }, verticalDirection = config.textDirection)
             // 合并后内容过滤
-            val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+            val (mergedRegions, contentDiscarded) = PPOcrPostProcessing.filterMergedRegions(allMerged)
             LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
             return mergedRegions.map { region ->
                 TextBlockInfo(
@@ -1918,7 +1918,7 @@ class MangaFloatingService : LifecycleService() {
             val mergedInput = PPOcrV6Engine.recResultsToTextLines(recResults, rects, angles, centers)
             TextRegionMerger.refreshParams(this@MangaFloatingService)
             val allMerged = TextRegionMerger.merge(mergedInput.map { it.toTextRegion() }, verticalDirection = config.textDirection)
-            val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+            val (mergedRegions, contentDiscarded) = PPOcrPostProcessing.filterMergedRegions(allMerged)
             LogCollector.d(TAG, "recognizeBatch TextLineMerger: ${mergedInput.size} 行 → ${allMerged.size} 合并 → 内容丢弃${contentDiscarded.size} → ${mergedRegions.size} 输出")
             return mergedRegions.map { region ->
                 TextBlockInfo(
@@ -2098,11 +2098,11 @@ class MangaFloatingService : LifecycleService() {
                         LogCollector.d(TAG, "PP-OCRv6 Debug: det=${ocrResult.boxes.size}, rec=${ocrResult.texts.size}, det丢弃=${debugDet.discardedBoxes.size}, 识别丢弃=$scoreDisc, 内容丢弃=$contentDisc")
                         val allMerged = try {
                             TextRegionMerger.enableDebugLogging(true)  // 合并判定详细日志（debug 模式）
-                            runTextLineMerge(ocrResult, bitmap.width, bitmap.height, isV6 = true)
+                            PPOcrPostProcessing.runTextLineMerge(this, ocrResult, bitmap.width, bitmap.height, isV6 = true, textDirection = config.textDirection)
                         } finally {
                             TextRegionMerger.enableDebugLogging(false)
                         }
-                        val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+                        val (mergedRegions, contentDiscarded) = PPOcrPostProcessing.filterMergedRegions(allMerged)
                         LogCollector.d(TAG, "PP-OCRv6 Debug: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
                         showPPOcrV6DebugView(bitmap, ocrResult, mergedRegions, debugDet)
                     }
@@ -2176,12 +2176,12 @@ class MangaFloatingService : LifecycleService() {
                             // 运行 TextLineMerger 合并（debug 模式开详细判定日志）
                             val allMerged = try {
                                 TextRegionMerger.enableDebugLogging(true)
-                                runTextLineMerge(ocrResult, bitmap.width, bitmap.height)
+                                PPOcrPostProcessing.runTextLineMerge(this, ocrResult, bitmap.width, bitmap.height, textDirection = config.textDirection)
                             } finally {
                                 TextRegionMerger.enableDebugLogging(false)
                             }
                             // 合并后内容过滤
-                            val (mergedRegions, contentDiscarded) = filterMergedRegions(allMerged)
+                            val (mergedRegions, contentDiscarded) = PPOcrPostProcessing.filterMergedRegions(allMerged)
                             LogCollector.d(TAG, "PP-OCRv5 Debug Mode: merged=${allMerged.size}, 内容丢弃=${contentDiscarded.size}, 输出=${mergedRegions.size}")
                             // 合并区域详情
                             for ((idx, region) in mergedRegions.withIndex()) {
@@ -3928,50 +3928,6 @@ class MangaFloatingService : LifecycleService() {
     /**
      * 从 OcrResult 构建 TextRegionMerger 输入并执行合并
      */
-    private fun runTextLineMerge(ocrResult: OcrResult, bitmapWidth: Int, bitmapHeight: Int, isV6: Boolean = false): List<TextRegionGroup> {
-        val textLines = if (isV6) PPOcrV6Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
-        else PPOcrV5Engine.ocrResultToTextLines(ocrResult, bitmapWidth, bitmapHeight)
-        TextRegionMerger.refreshParams(this)
-        return TextRegionMerger.merge(textLines.map { it.toTextRegion() }, verticalDirection = config.textDirection)
-    }
-
-    /**
-     * TextLine → TextRegion 转换
-     */
-    private fun PPOcrTextLine.toTextRegion(): TextRegion {
-        return TextRegion(
-            quad = QuadBox(quadPoints),
-            text = text,
-            score = score
-        )
-    }
-
-    /**
-     * 合并后内容过滤：丢弃无意义的合并结果。
-     * 在 TextLineMerger.merge 之后调用，基于合并后的完整文本判断。
-     * 返回 Pair(保留的区域, 丢弃的区域+原因)
-     */
-    private fun filterMergedRegions(regions: List<TextRegionGroup>): Pair<List<TextRegionGroup>, List<Pair<TextRegionGroup, String>>> {
-        val kept = mutableListOf<TextRegionGroup>()
-        val discarded = mutableListOf<Pair<TextRegionGroup, String>>()
-        for (region in regions) {
-            val text = region.texts.joinToString("").trim()
-            val reason = when {
-                text.isEmpty() -> "空白"
-                text.length == 1 -> "单字符"
-                text.all { !it.isLetterOrDigit() } -> "纯符号"
-                text.length <= 2 && text.all { it.isDigit() } -> "短数字"
-                else -> null
-            }
-            if (reason != null) {
-                discarded.add(region to reason)
-            } else {
-                kept.add(region)
-            }
-        }
-        return Pair(kept, discarded)
-    }
-
     /**
      * PP-OCRv5 调试模式：渲染检测+识别+合并结果并显示
      */
