@@ -857,7 +857,7 @@ object DetectionBridge {
             if (kotlin.math.abs(angle) <= 3f) angle = 0f
 
             val pts = PPOcrV5Engine.boxToQuadPointsPublic(box)
-            val crop = PPOcrV5Engine.getRotateCropImage(bitmap, pts)
+            val crop = PPOcrDetGeometry.getRotateCropImage(bitmap, pts)
             CroppedTextLine(crop, rect, angle, rect.exactCenterX(), rect.exactCenterY())
         }
 
@@ -918,7 +918,7 @@ object DetectionBridge {
             if (kotlin.math.abs(angle) <= 3f) angle = 0f
 
             val pts = PPOcrV6Engine.boxToQuadPointsPublic(box)
-            val crop = PPOcrV6Engine.getRotateCropImage(bitmap, pts)
+            val crop = PPOcrDetGeometry.getRotateCropImage(bitmap, pts)
             CroppedTextLine(crop, rect, angle, rect.exactCenterX(), rect.exactCenterY())
         }
 
