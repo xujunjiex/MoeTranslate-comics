@@ -1568,7 +1568,7 @@ class MangaFloatingService : LifecycleService() {
      */
     private suspend fun saveCacheEntry(original: Bitmap, allBubbles: List<TranslatedBubble>) {
         try {
-            val translatorName = buildTranslatorDisplayName()
+            val translatorName = TranslateUtils.buildTranslatorDisplayName(translatorText, config.detEngine, config.ocrEngine, prefs.getSharedPreferences())
             val ocrTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
             val transTexts = allBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
             LogCollector.d(TAG, "saveCacheEntry: ${allBubbles.size} 个气泡")
@@ -2620,7 +2620,7 @@ class MangaFloatingService : LifecycleService() {
         // 保存到缓存和历史（分批翻译时由 finalizeIncremental 统一保存，避免保存中间结果）
         if (saveCache) {
             try {
-                val translatorName = buildTranslatorDisplayName()
+                val translatorName = TranslateUtils.buildTranslatorDisplayName(translatorText, config.detEngine, config.ocrEngine, prefs.getSharedPreferences())
                 val ocrTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.originalText}" }.joinToString("\n")
                 val transTexts = newBubbles.mapIndexed { i, b -> "[${i + 1}] ${b.translatedText}" }.joinToString("\n")
                 LogCollector.d(TAG, "保存缓存: ${newBubbles.size} 个气泡")
@@ -2689,58 +2689,6 @@ class MangaFloatingService : LifecycleService() {
             }
         }
     }
-
-    /** 构建翻译器显示名：API名(模型名) + 检测器 + 识别器 + 分批等参数 */
-    private fun buildTranslatorDisplayName(): String {
-        val apiName = translatorText?.javaClass?.simpleName ?: "Unknown"
-        val model = translatorText?.modelName ?: ""
-        val apiStr = if (model.isNotEmpty()) "$apiName($model)" else apiName
-
-        val det = when (config.detEngine) {
-            DetEngine.MLKIT -> "MLKit"
-            DetEngine.RT_DETR_V2 -> "RT-DETR"
-            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
-            DetEngine.PP_OCR_V6 -> "PP-OCRv6"
-        }
-        val ocr = when (config.ocrEngine) {
-            OcrEngine.MLKit -> "MLKit"
-            OcrEngine.MangaOcr -> "manga-ocr"
-            OcrEngine.PPOcrV5 -> "PP-OCRv5"
-            OcrEngine.PPOcrV6 -> "PP-OCRv6"
-        }
-
-        val parts = mutableListOf(apiStr, "$det+$ocr")
-
-        // 分批翻译：开关打开 + 支持的组合（RT-DETR+manga-ocr 或 PP-OCRv5 独立）
-        val incrementalEnabled = prefs.getBoolean("Incremental_Render", true)
-        val isRTDetrMangaOcr = config.detEngine == DetEngine.RT_DETR_V2 && config.ocrEngine == OcrEngine.MangaOcr
-        val isPPOcrV5Standalone = config.detEngine == DetEngine.PP_OCR_V5 && config.ocrEngine == OcrEngine.PPOcrV5
-        val isPPOcrV6Standalone2 = config.detEngine == DetEngine.PP_OCR_V6 && config.ocrEngine == OcrEngine.PPOcrV6
-        if (incrementalEnabled && (isRTDetrMangaOcr || isPPOcrV5Standalone || isPPOcrV6Standalone2)) {
-            parts.add("分批✓")
-        } else if (incrementalEnabled) {
-            parts.add("分批✗")  // 开关打开但组合不支持
-        }
-
-        // 自由文字：开关打开 + 检测器是 RT-DETR-V2
-        val keepTextFreeEnabled = prefs.getBoolean("Manga_Keep_Text_Free", true)
-        if (keepTextFreeEnabled && config.detEngine == DetEngine.RT_DETR_V2) {
-            parts.add("自由文字✓")
-        } else if (keepTextFreeEnabled) {
-            parts.add("自由文字✗")  // 开关打开但检测器不是 RT-DETR
-        }
-
-        // PP-OCRv5 参数（仅当检测器或识别器为 PP-OCRv5 时显示）
-        if (config.detEngine == DetEngine.PP_OCR_V5 || config.ocrEngine == OcrEngine.PPOcrV5) {
-            val boxThresh = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
-            val unclipRatio = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
-            val textScore = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
-            parts.add("box=%.2f unclip=%.1f score=%.2f".format(boxThresh, unclipRatio, textScore))
-        }
-
-        return parts.joinToString(" | ")
-    }
-
     private suspend fun translateBubbles(
         bubbles: List<BubbleRegion>,
         forceContext: Boolean = false,

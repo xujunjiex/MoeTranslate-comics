@@ -45,6 +45,24 @@ object HyMt2Native {
 
     /** 中止当前翻译（原子置位，解码循环提前退出）。 */
     external fun nativeAbort(handle: Long)
+
+    /**
+     * 多轮对话翻译：组装 [BOS]{system}<sys_end><hy_User>m1<hy_Assistant>m2...<hy_Assistant>。
+     * @param roles 每条消息角色：0=user, 1=assistant；contents 对应文本。
+     * @param systemPrompt 对话系统提示词（固定，用于前缀 KV 缓存）。
+     */
+    external fun nativeTranslateChat(
+        handle: Long,
+        systemPrompt: String,
+        roles: IntArray,
+        contents: Array<String>,
+        temperature: Float,
+        topP: Float,
+        topK: Int,
+        repetitionPenalty: Float,
+        maxTokens: Int,
+        callback: HyMt2StreamCallback?
+    ): String
 }
 
 /**

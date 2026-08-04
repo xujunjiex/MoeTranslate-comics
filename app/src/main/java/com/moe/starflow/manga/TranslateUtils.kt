@@ -492,4 +492,63 @@ object TranslateUtils {
             ch == '〜' || ch == '～' || ch == '…' || ch == '─'
         }
     }
+
+    /**
+     * 构建翻译器显示名（调试信息：引擎 + det/ocr 组合 + 分批/自由文字开关 + PP-OCRv5 参数）。
+     * 从 MangaFloatingService 阶段 4b 提取（纯函数，参数化无 Service 依赖）。
+     */
+    fun buildTranslatorDisplayName(
+        translator: TranslationTextAPI?,
+        detEngine: DetEngine,
+        ocrEngine: OcrEngine,
+        prefs: android.content.SharedPreferences
+    ): String {
+        val apiName = translator?.javaClass?.simpleName ?: "Unknown"
+        val model = translator?.modelName ?: ""
+        val apiStr = if (model.isNotEmpty()) "$apiName($model)" else apiName
+
+        val det = when (detEngine) {
+            DetEngine.MLKIT -> "MLKit"
+            DetEngine.RT_DETR_V2 -> "RT-DETR"
+            DetEngine.PP_OCR_V5 -> "PP-OCRv5"
+            DetEngine.PP_OCR_V6 -> "PP-OCRv6"
+        }
+        val ocr = when (ocrEngine) {
+            OcrEngine.MLKit -> "MLKit"
+            OcrEngine.MangaOcr -> "manga-ocr"
+            OcrEngine.PPOcrV5 -> "PP-OCRv5"
+            OcrEngine.PPOcrV6 -> "PP-OCRv6"
+        }
+
+        val parts = mutableListOf(apiStr, "$det+$ocr")
+
+        // 分批翻译：开关打开 + 支持的组合（RT-DETR+manga-ocr 或 PP-OCRv5/v6 独立）
+        val incrementalEnabled = prefs.getBoolean("Incremental_Render", true)
+        val isRTDetrMangaOcr = detEngine == DetEngine.RT_DETR_V2 && ocrEngine == OcrEngine.MangaOcr
+        val isPPOcrV5Standalone = detEngine == DetEngine.PP_OCR_V5 && ocrEngine == OcrEngine.PPOcrV5
+        val isPPOcrV6Standalone2 = detEngine == DetEngine.PP_OCR_V6 && ocrEngine == OcrEngine.PPOcrV6
+        if (incrementalEnabled && (isRTDetrMangaOcr || isPPOcrV5Standalone || isPPOcrV6Standalone2)) {
+            parts.add("分批✓")
+        } else if (incrementalEnabled) {
+            parts.add("分批✗")  // 开关打开但组合不支持
+        }
+
+        // 自由文字：开关打开 + 检测器是 RT-DETR-V2
+        val keepTextFreeEnabled = prefs.getBoolean("Manga_Keep_Text_Free", true)
+        if (keepTextFreeEnabled && detEngine == DetEngine.RT_DETR_V2) {
+            parts.add("自由文字✓")
+        } else if (keepTextFreeEnabled) {
+            parts.add("自由文字✗")  // 开关打开但检测器不是 RT-DETR
+        }
+
+        // PP-OCRv5 参数（仅当检测器或识别器为 PP-OCRv5 时显示）
+        if (detEngine == DetEngine.PP_OCR_V5 || ocrEngine == OcrEngine.PPOcrV5) {
+            val boxThresh = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
+            val unclipRatio = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
+            val textScore = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
+            parts.add("box=%.2f unclip=%.1f score=%.2f".format(boxThresh, unclipRatio, textScore))
+        }
+
+        return parts.joinToString(" | ")
+    }
 }

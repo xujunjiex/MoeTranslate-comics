@@ -89,7 +89,10 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                     val s = HyMt2Params.read(CustomPreference.getInstance(ctx).getSharedPreferences())
                     val prompt = HyMt2Prompt.build(s.promptTemplate, targetName, text)
                     val prefix = HyMt2Prompt.buildPrefix(s.promptTemplate, targetName)  // 固定指令前缀，用于前缀 KV 缓存
-                    LogCollector.d(TAG, "Hy-MT2 翻译开始: $sourceLanguage→$targetLanguage, text=$text")
+                    LogCollector.d(TAG, "Hy-MT2 翻译开始: $sourceLanguage→$targetLanguage")
+                    LogCollector.d(TAG, "Hy-MT2 翻译 sys指令: $prefix")
+                    LogCollector.d(TAG, "Hy-MT2 翻译 user原文: $text")
+                    LogCollector.d(TAG, "Hy-MT2 翻译 完整prompt: $prompt")
                     val tNative0 = System.currentTimeMillis()
                     val result = if (onPartial != null) {
                         val cb = object : HyMt2StreamCallback {
@@ -118,6 +121,68 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                 }
             } catch (e: Exception) {
                 LogCollector.e(TAG, "Hy-MT2 翻译异常: ${e.message}", e)
+                callback(TranslationResult.Error(e))
+            }
+        }.apply {
+            // 高优先级：解码线程在系统高负载时不被前台饿死（否则 decode 慢 280 倍）
+            priority = Thread.MAX_PRIORITY
+            start()
+        }
+    }
+
+    /**
+     * 多轮对话（共享实例）：调 nativeTranslateChat，复用 inFlight/epoch 生命周期管理。
+     * 保持 keepAlive（不释放模型），供对话模式复用同一热模型。
+     */
+    fun chatNative(
+        roles: IntArray,
+        contents: Array<String>,
+        systemPrompt: String,
+        temperature: Float,
+        topP: Float,
+        topK: Int,
+        repetitionPenalty: Float,
+        maxTokens: Int,
+        onPhase: (String) -> Unit,
+        onPartial: (String) -> Unit,
+        callback: (TranslationResult) -> Unit
+    ) {
+        cancelled = false  // 每次新对话重置取消标志
+        val epoch = currentEpoch
+        currentTask = Thread {
+            try {
+                val h = ensureLoaded()
+                if (h == 0L) {
+                    callback(TranslationResult.Error(Exception("模型未就绪")))
+                    return@Thread
+                }
+                var registered = false
+                try {
+                    val nativeHandle = synchronized(initLock) {
+                        if (handle != 0L && currentEpoch == epoch) { inFlight++; registered = true; handle } else 0L
+                    }
+                    if (nativeHandle == 0L) {
+                        callback(TranslationResult.Error(Exception("翻译引擎已释放")))
+                        return@Thread
+                    }
+                    val cb = object : HyMt2StreamCallback {
+                        override fun onPhase(phase: String) { onPhase(phase) }
+                        override fun onToken(text: String) { onPartial(text) }
+                    }
+                    val result = HyMt2Native.nativeTranslateChat(
+                        nativeHandle, systemPrompt, roles, contents,
+                        temperature, topP, topK, repetitionPenalty, maxTokens, cb
+                    ).trim()
+                    if (cancelled || currentEpoch != epoch) {
+                        callback(TranslationResult.Error(Exception("对话已取消")))
+                    } else {
+                        callback(TranslationResult.Success(result))
+                    }
+                } finally {
+                    if (registered) synchronized(initLock) { inFlight-- }
+                }
+            } catch (e: Exception) {
+                LogCollector.e(TAG, "Hy-MT2 对话异常: ${e.message}", e)
                 callback(TranslationResult.Error(e))
             }
         }.apply {

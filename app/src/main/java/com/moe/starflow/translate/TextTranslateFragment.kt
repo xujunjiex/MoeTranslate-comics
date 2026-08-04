@@ -38,6 +38,9 @@ class TextTranslateFragment : Fragment() {
     private var leaveDialogShowing = false
     private var pendingLeave: (() -> Unit)? = null
     private var forceLeaveCancelled = false
+    /** 对话模式状态（Activity 级 ViewModel + 对话 tab 视图） */
+    private var chatViewModel: com.moe.starflow.chat.ChatHistoryViewModel? = null
+    private var chatTab: com.moe.starflow.chat.ChatTabView? = null
     /** 流式 UI 节流：最多每 80ms 更新一次输出框，避免 Main 布局工作抢占解码线程 CPU/内存带宽 */
     @Volatile private var lastUiUpdate = 0L
 
@@ -54,6 +57,7 @@ class TextTranslateFragment : Fragment() {
         setupLanguageSelectors(b)
         setupEngine(b)
         setupActions(b)
+        setupModeTabs(b)
     }
 
     override fun onResume() {
@@ -71,6 +75,8 @@ class TextTranslateFragment : Fragment() {
             translator?.release()
         }
         translator = null
+        chatTab?.unbind()
+        chatTab = null
         super.onDestroyView()
         binding = null
     }
@@ -167,6 +173,80 @@ class TextTranslateFragment : Fragment() {
         }
     }
 
+    // ========== 多模式（翻译 | 对话） ==========
+
+    private fun setupModeTabs(b: FragmentTextTranslateBinding) {
+        b.modeTabs.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
+                switchMode(b, translate = tab.position == 0)
+            }
+            override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
+            override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
+        })
+    }
+
+    private fun switchMode(b: FragmentTextTranslateBinding, translate: Boolean) {
+        val engineLabel = translationapi.TranslatorFactory.engineLabel(
+            requireContext(), CustomPreference.getInstance(requireContext())
+        )
+        LogCollector.d(TAG, "switchMode: mode=${if (translate) "翻译" else "对话"} 当前引擎=$engineLabel")
+        if (!translate && !(chatViewModel?.engineSupported ?: isChatEngineSupported())) {
+            UiUtils.showToast(requireContext(), getString(R.string.text_chat_engine_unsupported), isShort = true)
+            // 回滚 tab 到翻译（防递归：仅当当前不在翻译位置时 selectTab）
+            b.modeTabs.getTabAt(0)?.let { if (b.modeTabs.selectedTabPosition != 0) b.modeTabs.selectTab(it) }
+            return
+        }
+        b.translateContainer.visibility = if (translate) View.VISIBLE else View.GONE
+        b.chatContainer.visibility = if (translate) View.GONE else View.VISIBLE
+        if (!translate) {
+            ensureChatTab(b)
+            checkEngineChange()
+        }
+    }
+
+    /** 当前引擎是否支持对话（Hy-MT2 / OpenAI 兼容 API） */
+    private fun isChatEngineSupported(): Boolean {
+        val prefs = CustomPreference.getInstance(requireContext())
+        val api = prefs.getInt("Text_API", com.moe.starflow.utils.Constants.TextApi.BING.id)
+        val ai = prefs.getInt("Text_AI", com.moe.starflow.utils.Constants.TextAI.NLLB.id)
+        return (api == com.moe.starflow.utils.Constants.TextApi.AI.id &&
+            ai == com.moe.starflow.utils.Constants.TextAI.HYMT2.id) ||
+            api == com.moe.starflow.utils.Constants.TextApi.OPENAI.id
+    }
+
+    private fun ensureChatTab(b: FragmentTextTranslateBinding) {
+        if (chatTab != null) return
+        val vm = chatViewModel ?: androidx.lifecycle.ViewModelProvider(requireActivity())
+            .get(com.moe.starflow.chat.ChatHistoryViewModel::class.java).also { chatViewModel = it }
+        vm.loadHistory()
+        val tab = com.moe.starflow.chat.ChatTabView(requireContext())
+        tab.onTemplateClick = { com.moe.starflow.chat.ChatTemplateSheet.show(childFragmentManager) }
+        tab.bind(vm)
+        b.chatContainer.addView(tab)
+        chatTab = tab
+    }
+
+    /** 引擎变更检测：切换模型后旧对话历史不适用，提示是否清空 */
+    private fun checkEngineChange() {
+        val vm = chatViewModel ?: return
+        if (vm.hasEngineChanged()) {
+            val dialog = android.app.AlertDialog.Builder(requireContext())
+                .setMessage(getString(R.string.text_chat_engine_changed))
+                .setPositiveButton(getString(R.string.text_chat_engine_changed_clear)) { _, _ ->
+                    vm.clearAll()
+                    vm.markEngineCurrent()
+                }
+                .setNegativeButton(getString(R.string.user_cancel), null)
+                .setOnDismissListener { vm.markEngineCurrent() }
+                .create()
+            dialog.show()
+            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        } else {
+            // 首次进入或引擎未变：记录当前引擎，供下次对比
+            vm.markEngineCurrent()
+        }
+    }
+
     // ========== 翻译 ==========
 
     private fun translate() {
@@ -202,7 +282,7 @@ class TextTranslateFragment : Fragment() {
         val tStart = System.currentTimeMillis()
         // 内存诊断：确认是否因可用内存不足导致模型堆页被换出（解码极慢）
         logMemory("translate 前")
-        LogCollector.d(TAG, "translate: 开始 src=$srcCode→$tgtCode 引擎=${t::class.simpleName} text='${text.take(50)}'")
+        LogCollector.d(TAG, "translate: 开始 src=$srcCode→$tgtCode 引擎=${translationapi.TranslatorFactory.engineLabel(requireContext(), CustomPreference.getInstance(requireContext()))} (${t::class.simpleName}) text='$text'")
         b.translateButton.isEnabled = false
         b.outputText.text = getString(R.string.text_translate_translating)
         // 预捕获字符串：回调可能在 fragment 脱离后触发，直接 getString 会抛 not attached

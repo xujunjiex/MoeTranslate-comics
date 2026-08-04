@@ -33,48 +33,6 @@ static long long now_ms() {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-// 把当前线程亲和性放宽到全部核。
-// llama 每次 llama_decode 都会新建一次性线程池，worker 线程继承创建线程的亲和性
-// （ggml_threadpool_params_default 的 cpumask 全零 = 不设置，直接继承）。
-// 若 leader 被（厂商调度器）钉在部分核上（本机实测 4-6，只有 3 个中核），
-// 6 个 worker 一起被锁 → 每核 2 倍超订 + STQ 层间 barrier 打架 → 解码慢 ~200 倍。
-// 这里强制回到 0-7，让新建的 worker 继承全核亲和性。
-// ⚠️ pinner 会在翻译中途重新钉线程，因此调用点必须在 llama_decode 紧前（见 translate_impl）。
-static bool pin_to_all_cores() {
-    // ⚠️ 测试禁用（2026-08-04）：自定义线程池已用全核 cpumask 处理 worker 核限制，
-    // 本函数只放宽"调用线程自身"的 mask（worker 跑哪由线程池决定），疑为冗余。
-    // 实测两台手机确认无副作用后删除本函数及所有调用点。
-    return true;
-#if 0  // ==== 原实现（禁用） ====
-    // 用在线核数（_ONLN）而非配置核数（_CONF 可能含离线核），且与进程允许的 cpuset 求交集：
-    // 直接设置到进程被排除的核会 EINVAL 静默失败，导致 worker 仍被钉在受限亲和性上（解码慢 ~200 倍）。
-    int n = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
-    if (n <= 0) n = 8;
-    if (n > CPU_SETSIZE) n = CPU_SETSIZE;
-    cpu_set_t allowed;
-    CPU_ZERO(&allowed);
-    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) return false;
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    for (int i = 0; i < n; ++i) {
-        if (CPU_ISSET(i, &allowed)) CPU_SET(i, &cpuset);
-    }
-    if (CPU_COUNT(&cpuset) == 0) return false;  // 空交集（进程被限制在非常规核），保持现状
-    if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0) {
-        LOGW("pin_to_all_cores failed: %s", strerror(errno));
-        return false;
-    }
-    // 诊断：读回验证是否真达到全核（setaffinity 成功但被 cpuset/cgroup 截断时会少核）
-    cpu_set_t after;
-    CPU_ZERO(&after);
-    if (sched_getaffinity(0, sizeof(after), &after) == 0 &&
-        CPU_COUNT(&after) < CPU_COUNT(&cpuset)) {
-        LOGW("pin verify: got %d/%d cores", CPU_COUNT(&after), CPU_COUNT(&cpuset));
-    }
-    return true;
-#endif
-}
-
 // 创建"全核 cpumask"的 llama 线程池：给每个 worker 显式设置允许全部在线核。
 // 默认线程池 cpumask 全 0 = worker 继承 leader 的核限制，厂商调度器可能把翻译线程钉到部分核
 // → worker 继承受限 mask 挤在少量核上超订。显式全核 cpumask 让 worker 能分散到所有核；
@@ -177,8 +135,6 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
     JNIEnv* env, jclass, jstring jModelPath, jint nThreads, jint nBatchThreads, jint nCtx) {
     try {
         std::lock_guard<std::mutex> lock(g_mutex);
-        // worker 继承 leader 亲和性：确保模型加载/预热解码不被钉在小核簇
-        pin_to_all_cores();
         const char* path = env->GetStringUTFChars(jModelPath, nullptr);
         if (path == nullptr) return 0;
 
@@ -270,8 +226,6 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
         llama_token warm_tokens[4];
         const int32_t n_warm = llama_tokenize(h->vocab, "a", 1, warm_tokens, 4, false, false);
         if (n_warm > 0) {
-            // 预热 decode 前重新 pin：模型加载耗时数秒，期间厂商 pinner 可能把本线程重新钉回部分核
-            pin_to_all_cores();
             llama_batch wb = llama_batch_init(n_warm, 0, 1);
             wb.n_tokens = n_warm;
             for (int32_t i = 0; i < n_warm; ++i) {
@@ -315,11 +269,6 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
 
         std::lock_guard<std::mutex> lock(g_mutex);
         LOGI("translate: mutex acquired (+%lld ms)", now_ms() - t_entry);
-
-        // llama 每次 decode 新建一次性线程池，worker 继承本线程亲和性。
-        // 若被钉在部分核上（本机实测 4-6），6 worker 挤 3 核 → 解码慢 ~200 倍。
-        // 强制放宽到全部核，让 worker 继承 0-7。
-        pin_to_all_cores();
 
         auto* h = reinterpret_cast<HyMt2Handle*>(jHandle);
         if (h == nullptr || h->ctx == nullptr) return env->NewStringUTF("");
@@ -518,8 +467,6 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             if (env->ExceptionCheck()) env->ExceptionClear();
         }
         // 每次 decode 紧前重新 pin：厂商 pinner 可能在 translate 处理途中把本线程重新钉回部分核，
-        // worker 继承的是 llama_decode 调用时刻的亲和性，必须在紧前保证全核（~10us syscall，可忽略）
-        pin_to_all_cores();
         const long long t_decode0 = now_ms();
         if (llama_decode(h->ctx, batch) != 0) {
             LOGE("translate: prompt decode failed");
@@ -583,8 +530,6 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             batch.n_seq_id[0] = 1;
             batch.seq_id[0][0] = 0;
             batch.logits[0]   = true;
-            // 同上：每 token 解码前保证 leader 全核，worker 继承全核（pinner 对抗）
-            pin_to_all_cores();
             const long long t_d0 = now_ms();
             if (llama_decode(h->ctx, batch) != 0) { LOGE("translate: decode failed at step %d", i); break; }
             if ((i % 4) == 0) LOGI("translate: gen[%d] decode=%lldms", i, now_ms() - t_d0);
@@ -660,5 +605,192 @@ Java_translationapi_hymt2translation_HyMt2Native_nativeAbort(JNIEnv*, jclass, jl
     if (h != nullptr) {
         h->abort.store(true);
         LOGI("abort requested");
+    }
+}
+
+// 多轮对话：组装 [BOS]{system}<sys_end><hy_User>m1<hy_Assistant>m2...<hy_Assistant>，末尾 assistant 引导生成。
+// system 段固定 → 前缀 KV 缓存只 prefill 一次，每轮只解新增消息。复用采样链/生成循环/abort 逻辑。
+extern "C" JNIEXPORT jstring JNICALL
+Java_translationapi_hymt2translation_HyMt2Native_nativeTranslateChat(
+    JNIEnv* env, jclass, jlong jHandle, jstring jSystemPrompt,
+    jintArray jRoles, jobjectArray jContents,
+    jfloat temperature, jfloat topP, jint topK,
+    jfloat repetitionPenalty, jint maxTokens, jobject jCallback) {
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        auto* h = reinterpret_cast<HyMt2Handle*>(jHandle);
+        if (h == nullptr || h->ctx == nullptr) return env->NewStringUTF("");
+        h->abort.store(false);
+
+        const char* sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
+        if (sys == nullptr) return env->NewStringUTF("");
+        std::string system_prompt(sys);
+        env->ReleaseStringUTFChars(jSystemPrompt, sys);
+
+        const jsize n_msgs = env->GetArrayLength(jRoles);
+        std::vector<int> roles(static_cast<size_t>(n_msgs));
+        env->GetIntArrayRegion(jRoles, 0, n_msgs, roles.data());
+        std::vector<std::string> msgs(static_cast<size_t>(n_msgs));
+        for (jsize i = 0; i < n_msgs; ++i) {
+            auto js = static_cast<jstring>(env->GetObjectArrayElement(jContents, i));
+            const char* cs = env->GetStringUTFChars(js, nullptr);
+            msgs[static_cast<size_t>(i)] = cs ? cs : "";
+            if (cs) env->ReleaseStringUTFChars(js, cs);
+            env->DeleteLocalRef(js);
+        }
+
+        // 分词（add_special=false，特殊 token 手动加）
+        auto tokenize_str = [&](const char* s, int32_t len, std::vector<llama_token>& out) -> int32_t {
+            std::vector<llama_token> buf((len < 0 ? 0 : len) + 16);
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                int32_t n = llama_tokenize(h->vocab, s, len, buf.data(), static_cast<int32_t>(buf.size()), false, false);
+                if (n < 0) {
+                    const int32_t needed = -n;
+                    if (needed <= static_cast<int32_t>(buf.size())) return n;
+                    buf.resize(static_cast<size_t>(needed) + 16);
+                    continue;
+                }
+                out.assign(buf.begin(), buf.begin() + n);
+                return n;
+            }
+            return -1;
+        };
+
+        // 组装 chat 序列: [BOS]{system}<sys_end> {role1}{m1}{role2}{m2}... {asst}
+        std::vector<llama_token> seq;
+        std::vector<llama_token> prefix_tok;
+        tokenize_str(system_prompt.c_str(), static_cast<int32_t>(system_prompt.size()), prefix_tok);
+        if (h->bos_token > 0) seq.push_back(h->bos_token);
+        seq.insert(seq.end(), prefix_tok.begin(), prefix_tok.end());
+        if (h->sys_token >= 0) seq.push_back(h->sys_token);
+        // 固定前缀：BOS + system + sys_end + 第一条消息的 role token
+        const int32_t chat_prefix = (h->bos_token > 0 ? 1 : 0) + (h->sys_token >= 0 ? 1 : 0) + (h->user_token >= 0 ? 1 : 0);
+        const int32_t prefix_n = chat_prefix + static_cast<int32_t>(prefix_tok.size());
+
+        for (jsize i = 0; i < n_msgs; ++i) {
+            const llama_token role_tok = (roles[static_cast<size_t>(i)] == 0) ? h->user_token : h->asst_token;
+            if (role_tok >= 0) seq.push_back(role_tok);
+            std::vector<llama_token> toks;
+            if (tokenize_str(msgs[static_cast<size_t>(i)].c_str(),
+                    static_cast<int32_t>(msgs[static_cast<size_t>(i)].size()), toks) < 0) {
+                return env->NewStringUTF("");
+            }
+            seq.insert(seq.end(), toks.begin(), toks.end());
+        }
+        if (h->asst_token >= 0) seq.push_back(h->asst_token);
+
+        // 前缀 KV 缓存：system 段固定 → 每轮只 prefill 新增消息
+        llama_memory_t mem = llama_get_memory(h->ctx);
+        const bool cache_valid = h->prefix_n > 0 && h->prefix_key == system_prompt && h->prefix_n == prefix_n;
+        std::vector<llama_token> prompt_tok;
+        int32_t start_pos = 0;
+        if (cache_valid) {
+            start_pos = h->prefix_n;
+            prompt_tok.assign(seq.begin() + prefix_n, seq.end());
+        } else {
+            llama_memory_clear(mem, false);
+            h->prefix_n = 0;
+            h->prefix_key = system_prompt;
+            h->prefix_n = prefix_n;
+            prompt_tok = seq;
+        }
+
+        const int32_t n_tokens = static_cast<int32_t>(prompt_tok.size());
+        if (n_tokens <= 0) return env->NewStringUTF("");
+        const int32_t n_ctx = static_cast<int32_t>(llama_n_ctx(h->ctx));
+        const int gen_cap = n_tokens * 2 + 64;
+        const int max_tok = std::max(0, std::min(static_cast<int>(maxTokens),
+                                                 std::min(gen_cap, static_cast<int>(n_ctx - start_pos - n_tokens))));
+        if (max_tok == 0) return env->NewStringUTF("");
+
+        // 采样链（与 translate_impl 一致）
+        llama_sampler_chain_params sp = llama_sampler_chain_default_params();
+        llama_sampler* smpl = llama_sampler_chain_init(sp);
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, repetitionPenalty, 0.0f, 0.0f));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+        llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+        if (batch.token == nullptr) { llama_sampler_free(smpl); return env->NewStringUTF(""); }
+        batch.n_tokens = n_tokens;
+        for (int32_t i = 0; i < n_tokens; ++i) {
+            batch.token[i] = prompt_tok[i];
+            batch.pos[i] = start_pos + i;
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i][0] = 0;
+        }
+        batch.logits[n_tokens - 1] = true;
+
+        jmethodID onTokenId = nullptr, onPhaseId = nullptr;
+        if (jCallback != nullptr) {
+            jclass cbClass = env->GetObjectClass(jCallback);
+            onTokenId = env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V");
+            onPhaseId = env->GetMethodID(cbClass, "onPhase", "(Ljava/lang/String;)V");
+            env->DeleteLocalRef(cbClass);
+        }
+        auto notify_phase = [&](const char* p) {
+            if (onPhaseId != nullptr) {
+                jstring js = env->NewStringUTF(p);
+                env->CallVoidMethod(jCallback, onPhaseId, js);
+                env->DeleteLocalRef(js);
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
+        };
+
+        notify_phase("prefill");
+        if (llama_decode(h->ctx, batch) != 0) {
+            llama_batch_free(batch);
+            llama_sampler_free(smpl);
+            return env->NewStringUTF("");
+        }
+
+        notify_phase("generate");
+        std::string result;
+        char piece_buf[512];
+        int32_t n_cur = start_pos + n_tokens;
+        for (int i = 0; i < max_tok; ++i) {
+            if (h->abort.load()) break;
+            const llama_token id = llama_sampler_sample(smpl, h->ctx, -1);
+            llama_sampler_accept(smpl, id);
+            if (llama_vocab_is_eog(h->vocab, id)) break;
+            const int32_t n_piece = llama_token_to_piece(h->vocab, id, piece_buf,
+                static_cast<int32_t>(sizeof(piece_buf)), 0, false);
+            if (n_piece > 0) {
+                result.append(piece_buf, n_piece);
+                if (onTokenId != nullptr) {
+                    jstring js = safe_new_string_utf8(env, result.c_str(), result.size());
+                    if (js != nullptr) {
+                        env->CallVoidMethod(jCallback, onTokenId, js);
+                        env->DeleteLocalRef(js);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                    }
+                }
+            }
+            batch.n_tokens = 1;
+            batch.token[0] = id;
+            batch.pos[0] = n_cur++;
+            batch.n_seq_id[0] = 1;
+            batch.seq_id[0][0] = 0;
+            batch.logits[0] = true;
+            if (llama_decode(h->ctx, batch) != 0) break;
+        }
+        llama_batch_free(batch);
+        llama_sampler_free(smpl);
+
+        // 保留 system 前缀 KV，裁掉本次生成内容
+        if (h->prefix_n > 0 && h->prefix_key == system_prompt) {
+            llama_memory_seq_rm(mem, 0, h->prefix_n, -1);
+        }
+        return safe_new_string_utf8(env, result.c_str(), result.size());
+    } catch (const std::exception& e) {
+        LOGE("translateChat: C++ exception: %s", e.what());
+        throw_java_exception(env, e.what());
+        return nullptr;
+    } catch (...) {
+        LOGE("translateChat: unknown C++ exception");
+        throw_java_exception(env, "unknown native exception");
+        return nullptr;
     }
 }

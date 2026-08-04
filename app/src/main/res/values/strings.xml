@@ -61,6 +61,14 @@
     <string name="text_translate_engine_loading">正在读取翻译引擎…</string>
     <string name="text_translate_engine_init_failed">翻译引擎初始化失败，请检查设置中的翻译引擎配置</string>
     <string name="text_translate_input_hint">输入或粘贴要翻译的文本</string>
+    <string name="text_chat_engine_unsupported">当前引擎不支持对话（仅 Hy-MT2 / OpenAI）</string>
+    <string name="text_chat_template_hint">翻译提示词模板</string>
+    <string name="text_chat_input_hint">输入消息…</string>
+    <string name="text_chat_send">发送</string>
+    <string name="text_chat_clear">清空</string>
+    <string name="text_chat_clear_confirm">确定清空全部对话记录？</string>
+    <string name="text_chat_engine_changed">检测到模型变更，旧对话记录可能不适用，是否清空？</string>
+    <string name="text_chat_engine_changed_clear">清空</string>
     <string name="text_translate_button">翻译</string>
     <string name="text_translate_recent">最近记录</string>
     <string name="text_translate_recent_limit_format">条数：%d</string>
