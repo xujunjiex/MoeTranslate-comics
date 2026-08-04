@@ -25,144 +25,17 @@ class TranslationCacheManager(private val context: Context) {
         const val MODE_MANGA = 1
         private const val DEFAULT_CACHE_COUNT = 100
         private const val SIMILARITY_THRESHOLD_MANGA = 0.95f  // 256-bit hash 相似度阈值（~13 bit 容差）
-        /**
-         * 稀疏 hash 守卫阈值：256-bit dHash 总有效位 < 该值视为「无判别力 hash」，
-         * 不参与任何 256-bit hash 相似度判定（缓存命中 + 历史分组两处共用）。
-         *
-         * 背景：纯色/几乎纯色页面 dHash 4 段几乎全 0（每段 1-3 bits）。两张低纹理页即使内容完全不同，
-         * Hamming distance 也只有 2-3 bits → similarity = 1 - 3/256 = 0.988 远超 0.95 → 错误命中/合并。
-         * ~6.25% 是 dHash 在低纹理页面下的经验上界，足以过滤此 FP class。
-         *
-         * 使用方：findCacheExt、groupMangaEntriesByPHash 都必须先调 isSparseHash 判断再走相似度逻辑。
-         */
-        const val MIN_INFO_BITS = 16
         private const val THUMBNAIL_SIZE = 200
         private const val AREA_RATIO_MIN = 0.8f   // 面积比下限（框选偏移面积变化 <1%，宽松允许 ±20%）
         private const val AREA_RATIO_MAX = 1.25f  // 面积比上限
         private const val CROP_POSITION_IOU_THRESHOLD = 0.5f  // 框选位置 IoU 下限（交集 / 较小面积）—— 拦截"同图不同区域"的错误命中（用户小调整也会超过 0.7，留余量给 ±20% 微调）
 
-        /**
-         * 计算 256-bit dHash 总有效位（4 段 Long bits 之和）。
-         * 稀疏守卫的唯一判断依据：必须用整体累加（≈ 4 段的 bitCount 之和），不能分段判断。
-         */
-        fun countInfoBits(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long): Int =
-            java.lang.Long.bitCount(pHash) +
-            java.lang.Long.bitCount(pHash2) +
-            java.lang.Long.bitCount(pHash3) +
-            java.lang.Long.bitCount(pHash4)
-
-        /**
-         * LongArray 形式的便利重载。
-         */
-        fun countInfoBits(hashes: LongArray): Int {
-            require(hashes.size >= 4) { "需要至少 4 段 hash" }
-            return countInfoBits(hashes[0], hashes[1], hashes[2], hashes[3])
-        }
-
-        /**
-         * 稀疏 hash 判定：infoBits < MIN_INFO_BITS → true。
-         * 任何调用 256-bit hash 相似度比较的地方都必须先过这一关。
-         */
-        fun isSparseHash(pHash: Long, pHash2: Long, pHash3: Long, pHash4: Long): Boolean =
-            countInfoBits(pHash, pHash2, pHash3, pHash4) < MIN_INFO_BITS
-
-        fun isSparseHash(hashes: LongArray): Boolean = isSparseHash(hashes[0], hashes[1], hashes[2], hashes[3])
-
-        // ========== 气泡解析工具函数 ==========
-
-        /** 解析扩展气泡 JSON（含 fontSize + direction），兼容旧格式无 fs/dir 字段 */
-        fun parseBubbleEntriesJson(json: String?, defaultFontSize: Float): List<BubbleJsonEntry> {
-            if (json.isNullOrEmpty()) return emptyList()
-            return try {
-                val result = mutableListOf<BubbleJsonEntry>()
-                val jsonArray = org.json.JSONArray(json)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val rect = android.graphics.Rect(
-                        obj.getInt("l"), obj.getInt("t"),
-                        obj.getInt("r"), obj.getInt("b")
-                    )
-                    val fs = if (obj.has("fs")) obj.getDouble("fs").toFloat() else defaultFontSize
-                    val dir = if (obj.has("dir")) {
-                        try { TextDirection.valueOf(obj.getString("dir")) }
-                        catch (_: Exception) { TextDirection.VERTICAL_RL }
-                    } else {
-                        TextDirection.VERTICAL_RL
-                    }
-                    result.add(BubbleJsonEntry(rect, fs, dir))
-                }
-                result
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "parseBubbleEntriesJson failed", e)
-                emptyList()
-            }
-        }
-
-        /**
-         * 解析 "[1] text1\n[2] text2\n..." 格式的文本列表
-         */
-        fun parseIndexedTextList(text: String?): List<String> {
-            if (text.isNullOrEmpty()) return emptyList()
-            return try {
-                text.split("\n").mapNotNull { line ->
-                    val match = Regex("^\\[\\d+\\]\\s?(.*)$").find(line.trim())
-                    match?.groupValues?.getOrNull(1)?.trim()
-                }
-            } catch (e: Exception) {
-                emptyList()
-            }
-        }
-
-        /** 将 TranslatedBubble 列表序列化为 JSON（与 parseBubbleEntriesJson 配对） */
-        fun serializeBubbleRects(bubbles: List<TranslatedBubble>): String {
-            val jsonArray = org.json.JSONArray()
-            for (b in bubbles) {
-                val obj = org.json.JSONObject()
-                obj.put("l", b.rect.left)
-                obj.put("t", b.rect.top)
-                obj.put("r", b.rect.right)
-                obj.put("b", b.rect.bottom)
-                obj.put("fs", b.fontSize.toDouble())
-                obj.put("dir", b.direction.name)
-                jsonArray.put(obj)
-            }
-            return jsonArray.toString()
-        }
-
-        /** 从缓存的 rect JSON + 文本列表重建 TranslatedBubble */
-        fun rebuildBubblesFromCache(
-            originals: List<String>,
-            translations: List<String>,
-            bubbleRectsJson: String?,
-            defaultFontSize: Float,
-            bgColor: Int
-        ): List<TranslatedBubble> {
-            val entries = parseBubbleEntriesJson(bubbleRectsJson, defaultFontSize)
-            if (entries.isEmpty() || originals.isEmpty()) return emptyList()
-            return entries.mapIndexed { idx, (rect, fontSize, direction) ->
-                TranslatedBubble(
-                    rect = rect,
-                    originalText = originals.getOrElse(idx) { "" },
-                    translatedText = translations.getOrElse(idx) { "" },
-                    backgroundColor = bgColor,
-                    fontSize = fontSize,
-                    direction = direction,
-                    angle = 0f,
-                    fromCache = true
-                )
-            }
-        }
     }
 
     // ========== 共享类型 ==========
 
     enum class OverlayMode { TRANSLATED, ORIGINAL, PLAIN }
 
-    data class BubbleJsonEntry(
-        val rect: android.graphics.Rect,
-        val fontSize: Float,
-        val direction: TextDirection
-    )
 
     private val db = TranslationHistoryDatabase.getInstance(context)
     private val dao = db.historyDao()
@@ -219,9 +92,9 @@ class TranslationCacheManager(private val context: Context) {
         LogCollector.d(TAG, "renderOverlay: decoded fullBitmap=${fullBitmap.width}x${fullBitmap.height}")
 
         // 2. 解析气泡数据
-        val originals = parseIndexedTextList(history.sourceText)
-        val translations = parseIndexedTextList(history.translatedText)
-        val bubbles = rebuildBubblesFromCache(originals, translations, history.bubbleRects, config.fontSize, config.bgColor)
+        val originals = TranslationCacheUtils.parseIndexedTextList(history.sourceText)
+        val translations = TranslationCacheUtils.parseIndexedTextList(history.translatedText)
+        val bubbles = TranslationCacheUtils.rebuildBubblesFromCache(originals, translations, history.bubbleRects, config.fontSize, config.bgColor)
 
         // 自定义字体（游戏/漫画共用 Custom_Result_Font），无则默认字体
         val fontTypeface = OverlayRenderer.loadResultTypeface(context, com.moe.starflow.utils.CustomPreference.getInstance(context))
@@ -414,15 +287,15 @@ class TranslationCacheManager(private val context: Context) {
             // 两张低纹理页即使内容完全不同，Hamming distance 也只有 2-3 bits，
             // similarity = 1 - 3/256 = 0.988 远超 0.95 → 误命中（曾导致第二页命中第一页缓存）。
             // 与 groupMangaEntriesByPHash 同样的守卫：infoBits < MIN_INFO_BITS 不参与相似度匹配。
-            if (isSparseHash(extHashes)) {
-                LogCollector.d(TAG, "findCacheExt: 稀疏 hash 跳过相似度匹配 (curBits=${countInfoBits(extHashes)}/256)")
+            if (TranslationCacheUtils.isSparseHash(extHashes)) {
+                LogCollector.d(TAG, "findCacheExt: 稀疏 hash 跳过相似度匹配 (curBits=${TranslationCacheUtils.countInfoBits(extHashes)}/256)")
             } else {
             val allCache = dao.getAllCacheByMode(mode)
             var bestMatch: PageCacheEntity? = null
             var bestSimilarity = 0f
             for (entry in allCache) {
                 // 守卫候选 entry 也必须满足稀疏阈值，否则两张稀疏 hash 容易被错误匹配
-                if (isSparseHash(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)) continue
+                if (TranslationCacheUtils.isSparseHash(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)) continue
                 val entryHashes = longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
                 val sim = PerceptualHash.similarity(extHashes, entryHashes)
                 if (sim >= SIMILARITY_THRESHOLD_MANGA && sim > bestSimilarity) {
@@ -445,7 +318,7 @@ class TranslationCacheManager(private val context: Context) {
                             dao.updateHistoryTimestamp(history.id, now)
                         }
                     }
-                    LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=${countInfoBits(extHashes)}/256, entryBits=${countInfoBits(bestMatch.pHash, bestMatch.pHash2, bestMatch.pHash3, bestMatch.pHash4)}/256), historyId=${history.id}")
+                    LogCollector.d(TAG, "findCacheExt: 相似度命中 (${"%.3f".format(bestSimilarity)}, curBits=${TranslationCacheUtils.countInfoBits(extHashes)}/256, entryBits=${TranslationCacheUtils.countInfoBits(bestMatch.pHash, bestMatch.pHash2, bestMatch.pHash3, bestMatch.pHash4)}/256), historyId=${history.id}")
                     return@withContext buildCacheResult(history, bestMatch.effectiveCropWidth(), bestMatch.effectiveCropHeight(), bestMatch)
                 }
             }
@@ -923,20 +796,20 @@ class TranslationCacheManager(private val context: Context) {
 
         // 预计算每个 entry 的总 bits（避免重复计算）
         val bitsByEntry = entries.associateWith { entry ->
-            countInfoBits(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
+            TranslationCacheUtils.countInfoBits(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
         }
 
         for (entry in entries) {
             if (entry.id in used) continue
             val infoBits = bitsByEntry[entry] ?: 0
-            if (isSparseHash(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)) {
+            if (TranslationCacheUtils.isSparseHash(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)) {
                 // 稀疏 hash：守卫只跳过相似度判断（不参与 0.95 阈值比较），
                 // 但 4 段 hash bit-by-bit 完全相等的仍视为同图 → 合并。
                 // 256 bit 完全相等的碰撞概率 ≈ 2^-256，远低于纯色页 2-3 bit
                 // 差异被误判为高相似度的风险（id=237 bug），可作为强同图信号。
                 val exactDuplicates = entries.filter { cand ->
                     cand.id != entry.id && cand.id !in used &&
-                        isSparseHash(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4) &&
+                        TranslationCacheUtils.isSparseHash(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4) &&
                         cand.pHash == entry.pHash &&
                         cand.pHash2 == entry.pHash2 &&
                         cand.pHash3 == entry.pHash3 &&
@@ -965,7 +838,7 @@ class TranslationCacheManager(private val context: Context) {
             val repHashes = longArrayOf(entry.pHash, entry.pHash2, entry.pHash3, entry.pHash4)
             val variants = entries.filter { cand ->
                 cand.id !in used &&
-                    !isSparseHash(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4) &&
+                    !TranslationCacheUtils.isSparseHash(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4) &&
                     PerceptualHash.similarity(
                         repHashes,
                         longArrayOf(cand.pHash, cand.pHash2, cand.pHash3, cand.pHash4)

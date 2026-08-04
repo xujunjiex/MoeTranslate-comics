@@ -84,6 +84,7 @@ import translationapi.hymt2translation.HyMT2Translation
 import translationapi.TranslatorFactory
 import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.TranslationCacheManager
+import com.moe.starflow.data.TranslationCacheUtils
 import com.moe.starflow.utils.PerceptualHash
 import org.json.JSONArray
 import org.json.JSONObject
@@ -1595,7 +1596,7 @@ class MangaFloatingService : LifecycleService() {
                 cropRight = if (useCrop) cropRect!!.right.toInt() else fullWidth,
                 cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight,
                 bubbleRects = if (allBubbles.isNotEmpty()) {
-                    TranslationCacheManager.serializeBubbleRects(allBubbles)
+                    TranslationCacheUtils.serializeBubbleRects(allBubbles)
                 } else null
             )
             if (isForceRefreshActive) {
@@ -2175,10 +2176,10 @@ class MangaFloatingService : LifecycleService() {
                     lastCachedPHash = currentPHash
                     lastCacheBubbleRects = cached.bubbleRects
                     // 解析缓存的原文/译文列表供复制模式使用
-                    cachedOriginalTextList = TranslationCacheManager.parseIndexedTextList(cached.originalText)
-                    cachedTranslatedTextList = TranslationCacheManager.parseIndexedTextList(cached.translatedText)
+                    cachedOriginalTextList = TranslationCacheUtils.parseIndexedTextList(cached.originalText)
+                    cachedTranslatedTextList = TranslationCacheUtils.parseIndexedTextList(cached.translatedText)
                     // 从缓存数据重建 TranslatedBubble 列表（供原文模式 overlay 渲染）
-                    currentShowBubbles = TranslationCacheManager.rebuildBubblesFromCache(
+                    currentShowBubbles = TranslationCacheUtils.rebuildBubblesFromCache(
                         cachedOriginalTextList, cachedTranslatedTextList, lastCacheBubbleRects, config.fontSize, config.bgColor)
                     // 通过共享层渲染裁剪区域的译文 overlay（替代加载预渲染 JPEG）
                     // 仅新数据（有 bubbleRects）走实时渲染；旧数据回退到 imagePath
@@ -2617,7 +2618,7 @@ class MangaFloatingService : LifecycleService() {
                     cropRight = entryCropRight,
                     cropBottom = entryCropBottom,
                     bubbleRects = if (newBubbles.isNotEmpty()) {
-                        TranslationCacheManager.serializeBubbleRects(newBubbles)
+                        TranslationCacheUtils.serializeBubbleRects(newBubbles)
                     } else null
                 )
                 if (isRetranslate && historyIdToDelete > 0) {

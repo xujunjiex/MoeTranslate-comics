@@ -20,6 +20,7 @@ import com.moe.starflow.data.CacheEntry
 import com.moe.starflow.data.HistoryEntry
 import com.moe.starflow.data.PageCacheEntity
 import com.moe.starflow.data.TranslationCacheManager
+import com.moe.starflow.data.TranslationCacheUtils
 import com.moe.starflow.databinding.ActivityMangaViewerBinding
 import com.moe.starflow.manga.BubbleRegion
 import com.moe.starflow.manga.ComicBubbleDetector
@@ -804,7 +805,7 @@ class MangaViewerActivity : AppCompatActivity() {
                                 historyId = entry.id,
                                 newSourceText = numberedText,
                                 newTranslatedText = transText,
-                                newBubbleRects = TranslationCacheManager.serializeBubbleRects(translatedBubbles),
+                                newBubbleRects = TranslationCacheUtils.serializeBubbleRects(translatedBubbles),
                                 newCropLeft = cropLeftPx,
                                 newCropTop = cropTopPx,
                                 newCropRight = cropRightPx,
