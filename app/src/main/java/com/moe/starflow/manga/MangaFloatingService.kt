@@ -106,11 +106,6 @@ class MangaFloatingService : LifecycleService() {
         private const val LONG_PRESS_SLOP = 10f
         private const val DOUBLE_CLICK_DELAY = 300L
 
-        // pHash 阈值常量
-        const val PHASH_STABLE_THRESHOLD = 0.95f   // >= 此值认为画面没变
-        const val PHASH_NEW_PAGE_THRESHOLD = 0.60f  // < 此值认为是全新页面
-        const val STABLE_CONFIRM_COUNT = 2          // 连续稳定次数
-        const val DETECT_INTERVAL_MS = 500L         // 运动中检测间隔
         const val REGION_IOU_THRESHOLD = 0.4f       // 区域重叠判定阈值
         const val MAX_CACHED_REGIONS = 50           // 最大缓存区域数
         const val REGION_TTL_MS = 300_000L          // 区域缓存有效期 5 分钟
@@ -184,21 +179,11 @@ class MangaFloatingService : LifecycleService() {
     private val contextHistory = LinkedList<Pair<String, String>>()  // (原文, 译文) 对
 
     // Auto-translate — 基于图像哈希 + 区域级缓存的智能自动翻译
-    private var isAutoTranslating = false
-    private var isManualTranslating = false  // 手动翻译标志：暂停自动检测，跳过 pHash 门控
+    // 状态机（autoTranslateEngine.isAutoTranslating/autoTranslateEngine.detectState/hash 等）移入 MangaAutoTranslateEngine
     private var wasAutoTranslatingBeforeCrop = false  // 框选前的自动翻译状态
-    private val autoTranslateHandler = Handler(Looper.getMainLooper())
     private var consecutiveEmptyCount = 0  // 连续未检测到文字的计数（用于检测受保护区域）
     private var pendingAutoStart = false   // 等待权限授权后自动启动
-
-    // 检测状态机
-    private enum class DetectState { IDLE, MOTION, STABLE }
-    private var detectState = DetectState.IDLE
-    private var lastTranslatedHash = 0L        // 上次翻译页的哈希（IDLE 判断是否需翻译）
-    private var lastTranslatedTime = 0L       // 上次翻译时间戳（40s 超时省电检测）
-    private var previousScreenshotHash = 0L    // 上一次截图的哈希（MOTION 判断页面是否稳定）
-    private var stableCount = 0
-    private var motionStartTime = 0L
+    private lateinit var autoTranslateEngine: MangaAutoTranslateEngine
 
     // 区域级翻译缓存
     private data class TranslatedRegion(
@@ -350,6 +335,17 @@ class MangaFloatingService : LifecycleService() {
         doubleClickAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Double_Click", "2").toIntOrNull() ?: 2)
         longPressAction = Constants.BallAction.fromValue(prefs.getString("Ball_Gesture_Long_Press", "1").toIntOrNull() ?: 1)
         config = loadConfig()
+        // 自动翻译状态机（副作用经回调注入服务）
+        autoTranslateEngine = MangaAutoTranslateEngine(
+            context = this,
+            isResultOrMenuShowing = { isResultShowing || isMenuShowing },
+            isProcessing = { isProcessing },
+            onShowProgress = { showProgressOverlay(it) },
+            onDismissProgress = { dismissProgressOverlay() },
+            onTriggerTranslation = { triggerTranslation() },
+            onClearRegionCache = { translatedRegions.clear() },
+            onShowToast = { showToast(it) }
+        )
         checkLanguageHints()
         initTranslator()
 
@@ -449,9 +445,9 @@ class MangaFloatingService : LifecycleService() {
                 pendingAutoStart = false
                 LogCollector.d(TAG, "Starting pending auto-translate")
                 startAutoTranslate()
-            } else if (isAutoTranslating && initialized) {
+            } else if (autoTranslateEngine.isAutoTranslating && initialized) {
                 LogCollector.d(TAG, "Resuming auto-translate")
-                scheduleNextDetection(0L)
+                autoTranslateEngine.scheduleNextDetection(0L)
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -479,7 +475,7 @@ class MangaFloatingService : LifecycleService() {
         ballStateManager?.release()
         ballStateManager = null
         translatorText?.release()
-        autoTranslateHandler.removeCallbacksAndMessages(null)
+        autoTranslateEngine.clearScheduled()
         clearRegionCache()
 
         // 等待正在执行的 ONNX 推理完成后再释放资源
@@ -989,7 +985,7 @@ class MangaFloatingService : LifecycleService() {
 
         val langName = getCurrentSourceLangName()
         val (dialog, listView) = Dialogs.mangaMenuDialogSimple(
-            this, isAutoTranslating, cropLabel, modelLabel, langName
+            this, autoTranslateEngine.isAutoTranslating, cropLabel, modelLabel, langName
         )
 
         listView.onItemClickListener = android.widget.AdapterView.OnItemClickListener { _, _, which, _ ->
@@ -1007,14 +1003,14 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 1 -> {
-                    if (isAutoTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating) {
                         showToast(getString(R.string.auto_translate_disabled_hint), true)
                     } else {
                         showFontSizeDialog()
                     }
                 }
                 2 -> {
-                    if (isAutoTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating) {
                         showToast(getString(R.string.auto_translate_disabled_hint), true)
                     } else {
                         // 切换模型（固定搭配）
@@ -1022,7 +1018,7 @@ class MangaFloatingService : LifecycleService() {
                     }
                 }
                 3 -> {
-                    if (isAutoTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating) {
                         showToast(getString(R.string.auto_translate_no_switch), true)
                     } else {
                         // 循环切换源语言，不关闭菜单
@@ -1035,7 +1031,7 @@ class MangaFloatingService : LifecycleService() {
                     // 自动翻译
                     toggleAutoTranslate()
                     val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
-                    if (isAutoTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating) {
                         adapter.updateLabel(4, getString(R.string.manga_menu_stop_auto))
                         adapter.updateIcon(4, R.drawable.stop_auto)
                     } else {
@@ -1223,7 +1219,7 @@ class MangaFloatingService : LifecycleService() {
     // ---------- Auto-translate — 智能状态机 ----------
 
     private fun toggleAutoTranslate() {
-        if (isAutoTranslating) {
+        if (autoTranslateEngine.isAutoTranslating) {
             stopAutoTranslate()
         } else {
             startAutoTranslate()
@@ -1245,164 +1241,16 @@ class MangaFloatingService : LifecycleService() {
             return
         }
         pendingAutoStart = false
-        isAutoTranslating = true
-        detectState = DetectState.IDLE
-        stableCount = 0
         consecutiveEmptyCount = 0
-        previousScreenshotHash = 0L
-        lastTranslatedHash = 0L
-        lastTranslatedTime = 0L
-        translatedRegions.clear()
-        scheduleNextDetection(0L)
-        LogCollector.d(TAG, "Auto-translate started")
-        showToast(getString(R.string.manga_auto_translate_start))
+        // 状态初始化/首检调度/region 缓存清空/toast 由状态机处理
+        autoTranslateEngine.start()
     }
 
     private fun stopAutoTranslate() {
-        isAutoTranslating = false
-        isManualTranslating = false
-        detectState = DetectState.IDLE
-        stableCount = 0
         consecutiveEmptyCount = 0
-        previousScreenshotHash = 0L
-        autoTranslateHandler.removeCallbacksAndMessages(null)
-        translatedRegions.clear()
-        dismissProgressOverlay()
-        LogCollector.d(TAG, "Auto-translate stopped")
-        showToast(getString(R.string.manga_auto_translate_stop))
+        autoTranslateEngine.stop()
     }
 
-    private fun scheduleNextDetection(delayMs: Long) {
-        autoTranslateHandler.removeCallbacksAndMessages(null)
-        autoTranslateHandler.postDelayed({ runAutoDetect() }, delayMs)
-    }
-
-    /**
-     * 自动检测入口 — 通过 triggerTranslation 请求截图，
-     * 实际 pHash 门控在 screenshotCollector 中执行。
-     */
-    private fun runAutoDetect() {
-        if (!isAutoTranslating) return
-        if (isResultShowing || isMenuShowing) {
-            scheduleNextDetection(1000L)
-            return
-        }
-        if (isProcessing) {
-            scheduleNextDetection(DETECT_INTERVAL_MS)
-            return
-        }
-        // 请求截图 — 截图到达后由 collector 处理 pHash 状态机
-        triggerTranslation()
-    }
-
-    /**
-     * pHash 状态机：在 screenshotCollector 中调用。
-     * 返回 true = 应继续处理（OCR+翻译），false = 跳过本次截图。
-     *
-     * 状态流转:
-     *   IDLE   → pHash 相似 → 已翻译? 跳过 : 翻译
-     *         → pHash 不同 → 进入 MOTION
-     *   MOTION → pHash 相似 → stableCount++ → 达标? 进入 STABLE : 继续等
-     *         → pHash 不同 → 重置计数，继续等
-     *         → 超时 → 强制 STABLE
-     *   STABLE → 判断是否新页面 → 翻译 or 跳过 → 回到 IDLE
-     */
-    private fun processAutoDetectPHash(currentHash: Long): Boolean {
-        LogCollector.d(TAG, "AutoDetect: state=$detectState, current=$currentHash, prev=$previousScreenshotHash, lastTranslated=$lastTranslatedHash")
-
-        when (detectState) {
-            DetectState.IDLE -> {
-                // 首次截图，直接翻译
-                if (lastTranslatedHash == 0L && previousScreenshotHash == 0L) {
-                    previousScreenshotHash = currentHash
-                    LogCollector.d(TAG, "AutoDetect[IDLE]: first screenshot → translate")
-                    return true
-                }
-
-                // IDLE: 比较当前截图和上次翻译页的哈希
-                val simToTranslated = PerceptualHash.similarity(lastTranslatedHash, currentHash)
-                if (simToTranslated >= PHASH_STABLE_THRESHOLD) {
-                    // 画面没变或回到了已翻译的页面，跳过
-                    LogCollector.d(TAG, "AutoDetect[IDLE]: simToTranslated=$simToTranslated → skip")
-                    previousScreenshotHash = currentHash
-                    // P4: 缩短 IDLE 重检间隔（MediaProjection 模式下也有帧变化事件加速）
-                    scheduleNextDetection(DETECT_INTERVAL_MS)
-                    return false
-                } else {
-                    // 画面和已翻译页不同 — 但可能是 overlay dismiss 导致的视觉差异
-                    // dismiss overlay 后再检查一次：如果和已翻译页一样，说明只是 overlay 变化，跳过
-                    // 这也覆盖了"翻页后翻回来"的场景：回来的页面和已翻译页一样 → skip
-                    detectState = DetectState.MOTION
-                    stableCount = 0
-                    previousScreenshotHash = currentHash
-                    motionStartTime = System.currentTimeMillis()
-                    LogCollector.d(TAG, "AutoDetect[IDLE→MOTION]: simToTranslated=$simToTranslated, motion detected")
-                    showProgressOverlay("检测中...")
-                    scheduleNextDetection(DETECT_INTERVAL_MS)
-                    return false
-                }
-            }
-
-            DetectState.MOTION -> {
-                // MOTION: 比较连续两次截图，判断页面是否稳定
-                val simConsecutive = PerceptualHash.similarity(previousScreenshotHash, currentHash)
-                previousScreenshotHash = currentHash
-
-                if (simConsecutive >= PHASH_STABLE_THRESHOLD) {
-                    // 连续两次截图一致 → 页面已稳定
-                    stableCount++
-                    if (stableCount >= STABLE_CONFIRM_COUNT) {
-                        detectState = DetectState.STABLE
-                        LogCollector.d(TAG, "AutoDetect[MOTION→STABLE]: consecutive sim=$simConsecutive, stabilized after ${stableCount} checks")
-                        return onMotionStabilized(currentHash)
-                    } else {
-                        LogCollector.d(TAG, "AutoDetect[MOTION]: stabilizing... consecutive sim=$simConsecutive, count=$stableCount")
-                        scheduleNextDetection(DETECT_INTERVAL_MS)
-                        return false
-                    }
-                } else {
-                    // 还在动，重置计数继续等
-                    stableCount = 0
-                    scheduleNextDetection(DETECT_INTERVAL_MS)
-                    return false
-                }
-            }
-
-            DetectState.STABLE -> {
-                // 不应该停留在此状态，回到 IDLE
-                detectState = DetectState.IDLE
-                scheduleNextDetection(DETECT_INTERVAL_MS)
-                return false
-            }
-        }
-    }
-
-    /**
-     * 画面稳定后 — 判断是否需要翻译。
-     * @return true = 应翻译，false = 跳过
-     */
-    private fun onMotionStabilized(stableHash: Long): Boolean {
-        val similarityToTranslated = PerceptualHash.similarity(lastTranslatedHash, stableHash)
-
-        if (similarityToTranslated >= PHASH_STABLE_THRESHOLD) {
-            // 与已翻译页面相同，跳过
-            LogCollector.d(TAG, "onMotionStabilized: same as translated page → skip")
-            detectState = DetectState.IDLE
-            scheduleNextDetection(1000L)
-            return false
-        }
-
-        if (similarityToTranslated < PHASH_NEW_PAGE_THRESHOLD) {
-            // 差异巨大 → 翻页，但保留文本缓存（文字匹配决定是否复用，不靠坐标）
-            LogCollector.d(TAG, "onMotionStabilized: new page (sim=$similarityToTranslated), keeping text cache")
-        } else {
-            // 小幅变化 → 滚动，保留缓存做增量翻译
-            LogCollector.d(TAG, "onMotionStabilized: incremental (sim=$similarityToTranslated), keeping cache")
-        }
-
-        // 需要翻译
-        return true
-    }
 
     // ---------- Crop selection ----------
 
@@ -1413,7 +1261,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 暂停自动翻译
-        if (isAutoTranslating) {
+        if (autoTranslateEngine.isAutoTranslating) {
             wasAutoTranslatingBeforeCrop = true
             stopAutoTranslate()
             LogCollector.d(TAG, "框选模式：暂停自动翻译")
@@ -1488,8 +1336,8 @@ class MangaFloatingService : LifecycleService() {
             }
             .start()
         // 自动翻译中点击 → 手动翻译，暂停自动检测
-        if (isAutoTranslating) {
-            isManualTranslating = true
+        if (autoTranslateEngine.isAutoTranslating) {
+            autoTranslateEngine.isManualTranslating = true
         }
         triggerTranslation()
     }
@@ -1565,14 +1413,14 @@ class MangaFloatingService : LifecycleService() {
             }
             // 手动模式：截图前隐藏悬浮球，避免遮挡页面内容影响 pHash
             // 自动模式：不隐藏（由 collector 中 STABLE 后的重截图逻辑获取干净截图）
-            if (!isAutoTranslating) {
+            if (!autoTranslateEngine.isAutoTranslating) {
                 ballWasShowing = ::floatingBallView.isInitialized &&
                     isViewAdded(floatingBallView) &&
                     floatingBallView.visibility == View.VISIBLE
             }
             // 异步截图：先获取全屏，再由服务层裁剪（保留全屏 bitmap 供缓存使用）
             lifecycleScope.launch {
-                if (!isAutoTranslating && ballWasShowing) {
+                if (!autoTranslateEngine.isAutoTranslating && ballWasShowing) {
                     floatingBallView.visibility = View.GONE
                     LogCollector.d(TAG, "takeScreenshotWithProvider: 手动模式隐藏悬浮球")
                     // 等至少一个 VSYNC 周期，确保 VD 产出无球的新帧
@@ -1592,14 +1440,14 @@ class MangaFloatingService : LifecycleService() {
                     } else {
                         LogCollector.w(TAG, "Screenshot returned null")
                         isProcessing = false
-                        if (isAutoTranslating) {
+                        if (autoTranslateEngine.isAutoTranslating) {
                             stopAutoTranslate()
                         }
                     }
                 } catch (e: Exception) {
                     LogCollector.e(TAG, "Screenshot exception", e)
                     isProcessing = false
-                    if (isAutoTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating) {
                         stopAutoTranslate()
                     }
                 } finally {
@@ -1613,7 +1461,7 @@ class MangaFloatingService : LifecycleService() {
         } else {
             // AccessibilityService 模式：手动模式截图前隐藏悬浮球
             // 自动模式：不隐藏（由 collector 中 STABLE 后的重截图逻辑获取干净截图）
-            if (!isAutoTranslating) {
+            if (!autoTranslateEngine.isAutoTranslating) {
                 ballWasShowing = ::floatingBallView.isInitialized &&
                     isViewAdded(floatingBallView) &&
                     floatingBallView.visibility == View.VISIBLE
@@ -1717,9 +1565,9 @@ class MangaFloatingService : LifecycleService() {
                     }
 
                     // 自动翻译模式：pHash 门控（手动翻译时跳过）
-                    if (isAutoTranslating && !isManualTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating && !autoTranslateEngine.isManualTranslating) {
                         // 40s 超时省电检测：同一页面超过 40s 未变化，自动停止翻译
-                        if (lastTranslatedTime > 0 && System.currentTimeMillis() - lastTranslatedTime > 40_000) {
+                        if (autoTranslateEngine.lastTranslatedTime > 0 && System.currentTimeMillis() - autoTranslateEngine.lastTranslatedTime > 40_000) {
                             LogCollector.d(TAG, "Screenshot collector: 40s 超时，页面未变化，停止自动翻译")
                             ocrBitmap.recycle()
                             pendingFullBitmap?.recycle()
@@ -1745,7 +1593,7 @@ class MangaFloatingService : LifecycleService() {
                         val extHashes = PerceptualHash.computeExtended(data.fullBitmap, centerCrop = true)
                         // 保存全屏 bitmap 引用用于缓存（不要在翻译前释放）
                         pendingFullBitmap = data.fullBitmap
-                        val shouldTranslate = processAutoDetectPHash(pHash)
+                        val shouldTranslate = autoTranslateEngine.processAutoDetectPHash(pHash)
                         if (!shouldTranslate) {
                             ocrBitmap.recycle()
                             pendingFullBitmap = null
@@ -1831,7 +1679,7 @@ class MangaFloatingService : LifecycleService() {
                         try {
                             processMangaScreenshot(ocrBitmap, cachePHash, extHashes)
                         } finally {
-                            isManualTranslating = false  // 无论成功失败，恢复自动检测
+                            autoTranslateEngine.isManualTranslating = false  // 无论成功失败，恢复自动检测
                         }
                     }
                     LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
@@ -1841,7 +1689,7 @@ class MangaFloatingService : LifecycleService() {
                     dismissProgressOverlay()
                     statusOverlay.showError("识别模型文件缺失：${e.message}")
                     ballStateManager?.setState(BallStateManager.State.Error)
-                    if (isAutoTranslating) {
+                    if (autoTranslateEngine.isAutoTranslating) {
                         stopAutoTranslate()
                     }
                 } catch (e: Exception) {
@@ -1855,7 +1703,7 @@ class MangaFloatingService : LifecycleService() {
                         LogCollector.e(TAG, "Screenshot collector: CAUGHT EXCEPTION", e)
                         statusOverlay.showError("翻译失败：${e.message ?: "Unknown error"}")
                         ballStateManager?.setState(BallStateManager.State.Error)
-                        if (isAutoTranslating) {
+                        if (autoTranslateEngine.isAutoTranslating) {
                             stopAutoTranslate()
                         }
                     }
@@ -1868,10 +1716,9 @@ class MangaFloatingService : LifecycleService() {
         // 无障碍事件辅助：滚动/内容变化时加速检测（事件经 EventHandler 去抖后到达）
         lifecycleScope.launch {
             ScreenshotManager.eventTriggerFlow.collect { eventType ->
-                if (isAutoTranslating && detectState == DetectState.IDLE && !isProcessing) {
+                if (autoTranslateEngine.isAutoTranslating && autoTranslateEngine.detectState == DetectState.IDLE && !isProcessing) {
                     LogCollector.d(TAG, "事件触发 [$eventType]: 立即检测")
-                    autoTranslateHandler.removeCallbacksAndMessages(null)
-                    autoTranslateHandler.postDelayed({ runAutoDetect() }, 500L)
+                    autoTranslateEngine.scheduleNextDetection(500L)
                 }
             }
         }
@@ -1973,7 +1820,7 @@ class MangaFloatingService : LifecycleService() {
         val croppedBubbles = DetectionBridge.detectAndCropRTDetrV2(bitmap, config.keepTextFree)
         if (croppedBubbles.isEmpty()) {
             LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 未检测到气泡")
-            if (!isAutoTranslating) {
+            if (!autoTranslateEngine.isAutoTranslating) {
                 withContext(Dispatchers.Main) { showToast(getString(R.string.no_text_found), true) }
             }
             return true
@@ -2068,7 +1915,7 @@ class MangaFloatingService : LifecycleService() {
         val textLines = DetectionBridge.detectAndCropPPOcrV5Lines(this@MangaFloatingService, bitmap)
         if (textLines.isEmpty()) {
             LogCollector.d(TAG, "incrementalPPOcrV5: 未检测到文字")
-            if (!isAutoTranslating) {
+            if (!autoTranslateEngine.isAutoTranslating) {
                 withContext(Dispatchers.Main) { showToast(getString(R.string.no_text_found), true) }
             }
             return true
@@ -2197,7 +2044,7 @@ class MangaFloatingService : LifecycleService() {
         val textLines = DetectionBridge.detectAndCropPPOcrV6Lines(this@MangaFloatingService, bitmap)
         if (textLines.isEmpty()) {
             LogCollector.d(TAG, "incrementalPPOcrV6: 未检测到文字")
-            if (!isAutoTranslating) {
+            if (!autoTranslateEngine.isAutoTranslating) {
                 withContext(Dispatchers.Main) { showToast(getString(R.string.no_text_found), true) }
             }
             return true
@@ -2329,9 +2176,9 @@ class MangaFloatingService : LifecycleService() {
         }
         statusOverlay.showImmediate("翻译完成")
         ballStateManager?.setState(BallStateManager.State.Completed)
-        lastTranslatedHash = currentPHash
-        lastTranslatedTime = System.currentTimeMillis()
-        if (isAutoTranslating) scheduleNextDetection(DETECT_INTERVAL_MS)
+        autoTranslateEngine.lastTranslatedHash = currentPHash
+        autoTranslateEngine.lastTranslatedTime = System.currentTimeMillis()
+        if (autoTranslateEngine.isAutoTranslating) autoTranslateEngine.scheduleNextDetection(MangaAutoTranslateEngine.DETECT_INTERVAL_MS)
     }
 
     private suspend fun processMangaScreenshot(bitmap: Bitmap, precomputedPHash: Long? = null, precomputedExtHashes: LongArray? = null) {
@@ -2342,7 +2189,7 @@ class MangaFloatingService : LifecycleService() {
             ballStateManager?.setState(BallStateManager.State.Processing)
 
             // 清理过期的区域缓存
-            if (isAutoTranslating) {
+            if (autoTranslateEngine.isAutoTranslating) {
                 val beforeSize = translatedRegions.size
                 evictExpiredRegions()
                 if (beforeSize != translatedRegions.size) {
@@ -2366,10 +2213,10 @@ class MangaFloatingService : LifecycleService() {
                 statusOverlay.showImmediate("未检测到文字")
                 ballStateManager?.setState(BallStateManager.State.Completed)
                 showToast("未检测到文字", false)
-                lastTranslatedHash = currentPHash
-        lastTranslatedTime = System.currentTimeMillis()
-                if (isAutoTranslating) {
-                    scheduleNextDetection(DETECT_INTERVAL_MS)
+                autoTranslateEngine.lastTranslatedHash = currentPHash
+        autoTranslateEngine.lastTranslatedTime = System.currentTimeMillis()
+                if (autoTranslateEngine.isAutoTranslating) {
+                    autoTranslateEngine.scheduleNextDetection(MangaAutoTranslateEngine.DETECT_INTERVAL_MS)
                 }
                 return
             }
@@ -2564,8 +2411,8 @@ class MangaFloatingService : LifecycleService() {
                     } else null
                     statusOverlay.showImmediate("缓存命中")
                     ballStateManager?.setState(BallStateManager.State.Completed)
-                    lastTranslatedHash = currentPHash
-        lastTranslatedTime = System.currentTimeMillis()
+                    autoTranslateEngine.lastTranslatedHash = currentPHash
+        autoTranslateEngine.lastTranslatedTime = System.currentTimeMillis()
                     withContext(Dispatchers.Main) {
                         currentOriginalBitmap?.recycle()
                         currentOriginalBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
@@ -2582,7 +2429,7 @@ class MangaFloatingService : LifecycleService() {
 
             // OcrLock: 保护 ONNX 模型的多线程访问（PP-OCRv5/manga-ocr 等单例引擎）
             if (!com.moe.starflow.manga.OcrLock.tryAcquire()) {
-                scheduleNextDetection(DETECT_INTERVAL_MS)
+                autoTranslateEngine.scheduleNextDetection(MangaAutoTranslateEngine.DETECT_INTERVAL_MS)
                 isProcessing = false
                 return
             }
@@ -2655,7 +2502,7 @@ class MangaFloatingService : LifecycleService() {
             // No text handling — outside OcrLock (early return if empty)
             if (ocrTextBlocks.isEmpty()) {
                 LogCollector.d(TAG, "processMangaScreenshot: No text found, returning early")
-                if (isAutoTranslating) {
+                if (autoTranslateEngine.isAutoTranslating) {
                     consecutiveEmptyCount++
                     if (consecutiveEmptyCount >= 3) {
                         LogCollector.d(TAG, "processMangaScreenshot: ${consecutiveEmptyCount} consecutive empty OCR — possible protected area")
@@ -2720,11 +2567,11 @@ class MangaFloatingService : LifecycleService() {
             ballStateManager?.setState(BallStateManager.State.Completed)
 
             // 更新区域缓存和 pHash
-            lastTranslatedHash = currentPHash
-        lastTranslatedTime = System.currentTimeMillis()
-            if (isAutoTranslating) {
+            autoTranslateEngine.lastTranslatedHash = currentPHash
+        autoTranslateEngine.lastTranslatedTime = System.currentTimeMillis()
+            if (autoTranslateEngine.isAutoTranslating) {
                 // 翻译完成后用短间隔快速重新检测，响应翻页
-                scheduleNextDetection(DETECT_INTERVAL_MS)
+                autoTranslateEngine.scheduleNextDetection(MangaAutoTranslateEngine.DETECT_INTERVAL_MS)
             }
 
         } finally {
@@ -2739,10 +2586,10 @@ class MangaFloatingService : LifecycleService() {
                 pendingFullBitmap!!.recycle()
             }
             pendingFullBitmap = null
-            // 自动翻译模式：确保 lastTranslatedHash 被更新，避免异常后状态机卡住
-            if (isAutoTranslating && currentPHash != 0L) {
-                lastTranslatedHash = currentPHash
-        lastTranslatedTime = System.currentTimeMillis()
+            // 自动翻译模式：确保 autoTranslateEngine.lastTranslatedHash 被更新，避免异常后状态机卡住
+            if (autoTranslateEngine.isAutoTranslating && currentPHash != 0L) {
+                autoTranslateEngine.lastTranslatedHash = currentPHash
+        autoTranslateEngine.lastTranslatedTime = System.currentTimeMillis()
             }
             LogCollector.d(TAG, "processMangaScreenshot: FINALLY - dismissing progress, isProcessing=false")
             isProcessing = false
@@ -2980,7 +2827,7 @@ class MangaFloatingService : LifecycleService() {
         }
 
         // 更新进度
-        if (isAutoTranslating) {
+        if (autoTranslateEngine.isAutoTranslating) {
             showProgressOverlay(getString(R.string.manga_translating))
         }
 
@@ -3275,10 +3122,8 @@ class MangaFloatingService : LifecycleService() {
             currentOriginalBitmap = null
 
             // 重置自动翻译状态，但不清楚文本缓存（文本缓存跨页面有效）
-            if (isAutoTranslating) {
-                detectState = DetectState.IDLE
-                stableCount = 0
-                scheduleNextDetection(0L)
+            if (autoTranslateEngine.isAutoTranslating) {
+                autoTranslateEngine.resetToIdle()
             }
         }
     }
@@ -3336,8 +3181,8 @@ class MangaFloatingService : LifecycleService() {
             setOnClickListener {
                 dismissCacheOverlay()
                 forceRefresh = true
-                lastTranslatedHash = 0L
-        lastTranslatedTime = 0L
+                autoTranslateEngine.lastTranslatedHash = 0L
+        autoTranslateEngine.lastTranslatedTime = 0L
                 translatedRegions.clear()  // 清空内存缓存，避免 ⚡ 标志
                 triggerTranslation()
             }
@@ -3443,11 +3288,9 @@ class MangaFloatingService : LifecycleService() {
             removeCopyButtons()
 
             // 重置自动翻译：清除区域缓存，立刻恢复检测
-            if (isAutoTranslating) {
+            if (autoTranslateEngine.isAutoTranslating) {
                 clearRegionCache()
-                detectState = DetectState.IDLE
-                stableCount = 0
-                scheduleNextDetection(0L)
+                autoTranslateEngine.resetToIdle()
             }
         }
     }
@@ -4208,7 +4051,7 @@ class MangaFloatingService : LifecycleService() {
         dismissProgressOverlay()
         dismissToastOverlay()
         handler.removeCallbacks(longPressRunnable)
-        autoTranslateHandler.removeCallbacksAndMessages(null)
+        autoTranslateEngine.clearScheduled()
         // Remove crop view if active
         if (isCropActive) {
             try {

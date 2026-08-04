@@ -77,6 +77,18 @@ class MangaAutoTranslateEngine(
         onShowToast(context.getString(R.string.manga_auto_translate_stop))
     }
 
+    /** 取消所有已调度的检测（服务销毁/UI 关闭时用，不停自动翻译）。 */
+    fun clearScheduled() {
+        handler.removeCallbacksAndMessages(null)
+    }
+
+    /** 翻译完成后重置到 IDLE + 立即重新检测（服务翻译流程用）。 */
+    fun resetToIdle() {
+        detectState = DetectState.IDLE
+        stableCount = 0
+        scheduleNextDetection(0L)
+    }
+
     /** 调度下一次检测（服务翻译流程共用）。 */
     fun scheduleNextDetection(delayMs: Long) {
         handler.removeCallbacksAndMessages(null)
