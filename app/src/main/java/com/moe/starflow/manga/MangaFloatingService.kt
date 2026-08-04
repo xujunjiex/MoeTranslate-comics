@@ -117,7 +117,6 @@ class MangaFloatingService : LifecycleService() {
 
         // 分批渲染常量
         const val INCREMENTAL_THRESHOLD = 6       // 触发分批的气泡数量阈值
-        const val CLUSTER_THRESHOLD = 250f        // 空间聚类加权距离阈值
 
 
         fun start(context: Context) {
@@ -1880,113 +1879,7 @@ class MangaFloatingService : LifecycleService() {
 
     // ---------- Manga translation pipeline ----------
 
-    /**
-     * 按漫画阅读顺序排序裁剪结果：从上到下，从右到左。
-     */
-    private fun sortByMangaReadingOrder(bubbles: List<CroppedBubble>): List<CroppedBubble> {
-        return bubbles.sortedWith(
-            compareBy<CroppedBubble> { it.rect.top }
-                .thenByDescending { it.rect.left }
-        )
-    }
-
-    // ========== 空间聚类（分批切分用） ==========
-
-    private class UnionFind(n: Int) {
-        private val parent = IntArray(n) { it }
-        private val rank = IntArray(n)
-        fun find(x: Int): Int {
-            var r = x
-            while (parent[r] != r) r = parent[r]
-            var i = x
-            while (i != r) { val p = parent[i]; parent[i] = r; i = p }
-            return r
-        }
-        fun union(a: Int, b: Int) {
-            val ra = find(a); val rb = find(b)
-            if (ra == rb) return
-            when {
-                rank[ra] < rank[rb] -> parent[ra] = rb
-                rank[ra] > rank[rb] -> parent[rb] = ra
-                else -> { parent[rb] = ra; rank[ra]++ }
-            }
-        }
-    }
-
-    /**
-     * 按 AABB 空间距离聚类，加权距离 dy×5 + dx。
-     * 垂直接近的行更容易归为同一组（漫画同行文字水平可远但垂直接近）。
-     */
-    private fun <T> groupByProximity(sorted: List<T>, getRect: (T) -> Rect, tag: String): List<List<T>> {
-        if (sorted.size <= 1) return listOf(sorted)
-        val rects = sorted.map { getRect(it) }
-        val uf = UnionFind(sorted.size)
-        for (i in rects.indices) {
-            for (j in i + 1 until rects.size) {
-                val ri = rects[i]; val rj = rects[j]
-                val dx = maxOf(0, maxOf(rj.left - ri.right, ri.left - rj.right))
-                val dy = maxOf(0, maxOf(rj.top - ri.bottom, ri.top - rj.bottom))
-                if (dy * 5f + dx < CLUSTER_THRESHOLD) uf.union(i, j)
-            }
-        }
-        val groups = mutableMapOf<Int, MutableList<T>>()
-        for (i in sorted.indices) groups.getOrPut(uf.find(i)) { mutableListOf() }.add(sorted[i])
-        val result = groups.values.toList()
-        LogCollector.d(TAG, "groupByProximity($tag): ${sorted.size} 行 → ${result.size} 组 ${result.joinToString { "${it.size}行" }}")
-        return result
-    }
-
-    /** 按组边界切分，不拆开任何组。 */
-    private fun <T> splitAtGroupBoundaries(groups: List<List<T>>, fraction: Int = 2, divisor: Int = 5): Pair<List<T>, List<T>> {
-        val total = groups.sumOf { it.size }
-        val target = total * fraction / divisor
-        var cum = 0; var splitIdx = 0
-        for ((i, g) in groups.withIndex()) { cum += g.size; if (cum >= target) { splitIdx = i + 1; break } }
-        if (splitIdx == 0 && groups.isNotEmpty()) splitIdx = 1
-        val first = groups.take(splitIdx).flatten()
-        val second = groups.drop(splitIdx).flatten()
-        LogCollector.d(TAG, "splitAtGroupBoundaries: target=$target, 第一批=${first.size} (${splitIdx}组), 第二批=${second.size} (${groups.size - splitIdx}组)")
-        return first to second
-    }
-
-    /**
-     * 将 TextBlockInfo 列表转换为 BubbleRegion 列表。
-     * 复用 processMangaScreenshot Step 2 中的转换逻辑。
-     */
-    private fun textBlocksToBubbleRegions(textBlocks: List<TextBlockInfo>): List<BubbleRegion> {
-        return textBlocks.filter { block ->
-            if (block.boundingBox == null) return@filter false
-            // 过滤单字符纯标点噪声
-            val cleaned = block.text.replace("\n", "").trim()
-            if (cleaned.length == 1 && cleaned[0].category in SINGLE_CHAR_NOISE_CATEGORIES) {
-                LogCollector.d(TAG, "过滤单字符噪声: \"${cleaned}\" [${block.boundingBox}]")
-                return@filter false
-            }
-            true
-        }.map { block ->
-            val rect = block.boundingBox!!
-            val isVertical = block.isVertical ?: (rect.height() > rect.width())
-            BubbleRegion(
-                rect = rect,
-                texts = listOf(block.text),
-                fontSize = if (isVertical) rect.width().toFloat() else rect.height().toFloat(),
-                direction = if (isVertical) config.textDirection else TextDirection.HORIZONTAL,
-                angle = block.angle,
-                centerX = block.centerX,
-                centerY = block.centerY
-            )
-        }
-    }
-
-    // 单字符噪声类别（标点、符号）
-    private val SINGLE_CHAR_NOISE_CATEGORIES = setOf(
-        CharCategory.OTHER_PUNCTUATION,
-        CharCategory.DASH_PUNCTUATION,
-        CharCategory.START_PUNCTUATION,
-        CharCategory.END_PUNCTUATION,
-        CharCategory.MATH_SYMBOL,
-        CharCategory.OTHER_SYMBOL
-    )
+    // ========== 翻译流水线 ==========
 
     /**
      * 保存翻译缓存（不渲染 overlay）。
@@ -2021,7 +1914,7 @@ class MangaFloatingService : LifecycleService() {
                 cropRight = if (useCrop) cropRect!!.right.toInt() else fullWidth,
                 cropBottom = if (useCrop) cropRect!!.bottom.toInt() else fullHeight,
                 bubbleRects = if (allBubbles.isNotEmpty()) {
-                    serializeBubbleRects(allBubbles)
+                    TranslationCacheManager.serializeBubbleRects(allBubbles)
                 } else null
             )
             if (isForceRefreshActive) {
@@ -2092,9 +1985,9 @@ class MangaFloatingService : LifecycleService() {
             return false
         }
 
-        val sorted = sortByMangaReadingOrder(croppedBubbles)
-        val groups = groupByProximity(sorted, { it.rect }, "RT-DETR")
-        val (firstBatch, secondBatch) = splitAtGroupBoundaries(groups)
+        val sorted = MangaSpatialGrouping.sortByMangaReadingOrder(croppedBubbles)
+        val groups = MangaSpatialGrouping.groupByProximity(sorted, { it.rect }, "RT-DETR")
+        val (firstBatch, secondBatch) = MangaSpatialGrouping.splitAtGroupBoundaries(groups)
         LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第一批 ${firstBatch.size}，第二批 ${secondBatch.size}")
 
         try {
@@ -2110,7 +2003,7 @@ class MangaFloatingService : LifecycleService() {
             val firstTranslated = if (firstTextBlocks.isEmpty()) {
                 emptyList()
             } else {
-                val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
+                val firstBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(firstTextBlocks, config.textDirection)
                 withContext(Dispatchers.Main) {
                     showProgressOverlay("翻译进行中，请勿点击屏幕...")
                     ballStateManager?.setState(BallStateManager.State.Translating)
@@ -2132,7 +2025,7 @@ class MangaFloatingService : LifecycleService() {
                 val secondTextBlocks = ocrJob.await()
                 LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
-                    val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
+                    val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
                     result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
                         if (partialBubbles.isNotEmpty()) {
                             lifecycleScope.launch {
@@ -2187,8 +2080,8 @@ class MangaFloatingService : LifecycleService() {
             return false
         }
 
-        val groups = groupByProximity(textLines, { it.rect }, "PP-OCRv5")
-        val (firstBatch, secondBatch) = splitAtGroupBoundaries(groups)
+        val groups = MangaSpatialGrouping.groupByProximity(textLines, { it.rect }, "PP-OCRv5")
+        val (firstBatch, secondBatch) = MangaSpatialGrouping.splitAtGroupBoundaries(groups)
         LogCollector.d(TAG, "incrementalPPOcrV5: 第一批 ${firstBatch.size} 行，第二批 ${secondBatch.size} 行")
 
         // 识别单批：OCR → TextLineMerger 合并 → TextBlockInfo
@@ -2246,7 +2139,7 @@ class MangaFloatingService : LifecycleService() {
             val firstTranslated = if (firstTextBlocks.isEmpty()) {
                 emptyList()
             } else {
-                val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
+                val firstBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(firstTextBlocks, config.textDirection)
                 withContext(Dispatchers.Main) {
                     showProgressOverlay("翻译进行中，请勿点击屏幕...")
                     ballStateManager?.setState(BallStateManager.State.Translating)
@@ -2267,7 +2160,7 @@ class MangaFloatingService : LifecycleService() {
                 ocrJob = null // 已完成，不再需要取消
                 LogCollector.d(TAG, "incrementalPPOcrV5: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
-                    val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
+                    val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
                     result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
                         if (partialBubbles.isNotEmpty()) {
                             lifecycleScope.launch {
@@ -2316,8 +2209,8 @@ class MangaFloatingService : LifecycleService() {
             return false
         }
 
-        val groups = groupByProximity(textLines, { it.rect }, "PP-OCRv6")
-        val (firstBatch, secondBatch) = splitAtGroupBoundaries(groups)
+        val groups = MangaSpatialGrouping.groupByProximity(textLines, { it.rect }, "PP-OCRv6")
+        val (firstBatch, secondBatch) = MangaSpatialGrouping.splitAtGroupBoundaries(groups)
         LogCollector.d(TAG, "incrementalPPOcrV6: 第一批 ${firstBatch.size} 行，第二批 ${secondBatch.size} 行")
 
         suspend fun recognizeBatch(batch: List<CroppedTextLine>): List<TextBlockInfo> {
@@ -2369,7 +2262,7 @@ class MangaFloatingService : LifecycleService() {
             val firstTranslated = if (firstTextBlocks.isEmpty()) {
                 emptyList()
             } else {
-                val firstBubbleRegions = textBlocksToBubbleRegions(firstTextBlocks)
+                val firstBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(firstTextBlocks, config.textDirection)
                 withContext(Dispatchers.Main) {
                     showProgressOverlay("翻译进行中，请勿点击屏幕...")
                     ballStateManager?.setState(BallStateManager.State.Translating)
@@ -2390,7 +2283,7 @@ class MangaFloatingService : LifecycleService() {
                 ocrJob = null
                 LogCollector.d(TAG, "incrementalPPOcrV6: 第二批 OCR ${secondTextBlocks.size} 个文字块")
                 if (secondTextBlocks.isNotEmpty()) {
-                    val secondBubbleRegions = textBlocksToBubbleRegions(secondTextBlocks)
+                    val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
                     result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
                         if (partialBubbles.isNotEmpty()) {
                             lifecycleScope.launch {
@@ -3167,7 +3060,7 @@ class MangaFloatingService : LifecycleService() {
                     cropRight = entryCropRight,
                     cropBottom = entryCropBottom,
                     bubbleRects = if (newBubbles.isNotEmpty()) {
-                        serializeBubbleRects(newBubbles)
+                        TranslationCacheManager.serializeBubbleRects(newBubbles)
                     } else null
                 )
                 if (isRetranslate && historyIdToDelete > 0) {
@@ -3560,10 +3453,6 @@ class MangaFloatingService : LifecycleService() {
     }
 
     // ---------- 复制模式 ----------
-
-    private fun serializeBubbleRects(bubbles: List<TranslatedBubble>): String {
-        return TranslationCacheManager.serializeBubbleRects(bubbles)
-    }
 
     private fun parseBubbleRectsJson(json: String?): List<android.graphics.Rect> {
         if (json.isNullOrEmpty()) return emptyList()
