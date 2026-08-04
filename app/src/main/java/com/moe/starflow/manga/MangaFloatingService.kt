@@ -1643,6 +1643,56 @@ class MangaFloatingService : LifecycleService() {
     }
 
     /**
+     * 两批并行 OCR + 翻译 + 合并 + 上下文回滚 公共骨架（4c-2 提取，incrementalRTDetrMangaOcr/V5/V6 共用）。
+     * 调用方负责：第一批 OCR（firstBubbleRegions）、第二批 OCR 异步任务（secondOcrJob）的启动与取消。
+     * 本方法：第一批翻译（并行 await 第二批 OCR）→ 合并第二批 → 回滚分批渲染添加的 AI 上下文。
+     */
+    private suspend fun translateFirstThenSecondBatch(
+        bitmap: Bitmap,
+        firstBubbleRegions: List<BubbleRegion>,
+        secondOcrJob: kotlinx.coroutines.Deferred<List<TextBlockInfo>>
+    ): List<TranslatedBubble> {
+        // 保存上下文历史大小，分批翻译完后回滚，避免污染后续页面的上下文
+        val contextSnapshotSize = contextHistory.size
+        val firstTranslated = if (firstBubbleRegions.isEmpty()) {
+            emptyList()
+        } else {
+            withContext(Dispatchers.Main) {
+                showProgressOverlay("翻译进行中，请勿点击屏幕...")
+                ballStateManager?.setState(BallStateManager.State.Translating)
+            }
+
+            val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
+                if (partialBubbles.isNotEmpty()) {
+                    launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
+                }
+            }
+            if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
+
+            val secondTextBlocks = secondOcrJob.await()
+            LogCollector.d(TAG, "第二批 OCR ${secondTextBlocks.size} 个文字块")
+            if (secondTextBlocks.isNotEmpty()) {
+                val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
+                result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
+                    if (partialBubbles.isNotEmpty()) {
+                        lifecycleScope.launch {
+                            renderStreamingOverlay(bitmap, partialBubbles)
+                        }
+                    }
+                }
+            } else {
+                result
+            }
+        }
+
+        // 回滚分批渲染添加的上下文，只保留翻译前的历史
+        while (contextHistory.size > contextSnapshotSize) {
+            contextHistory.removeLast()
+        }
+        return firstTranslated
+    }
+
+    /**
      * RT-DETR-V2 + MangaOcr 增量渲染。
      * 检测气泡 → 分批 MangaOcr encoder+decoder → 翻译+渲染。
      */
@@ -1678,48 +1728,14 @@ class MangaFloatingService : LifecycleService() {
             )
             LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第一批 OCR ${firstTextBlocks.size} 个文字块")
 
-            // 保存上下文历史大小，分批翻译完后回滚，避免污染后续页面的上下文
-            val contextSnapshotSize = contextHistory.size
-
             val firstTranslated = if (firstTextBlocks.isEmpty()) {
                 emptyList()
             } else {
                 val firstBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(firstTextBlocks, config.textDirection)
-                withContext(Dispatchers.Main) {
-                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
-                    ballStateManager?.setState(BallStateManager.State.Translating)
-                }
-
                 val ocrJob = lifecycleScope.async(Dispatchers.IO) {
-                    DetectionBridge.recognizeCroppedBubbles(
-                        secondBatch, config.sourceLang
-                    )
+                    DetectionBridge.recognizeCroppedBubbles(secondBatch, config.sourceLang)
                 }
-
-                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
-                    if (partialBubbles.isNotEmpty()) {
-                        launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
-                    }
-                }
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
-
-                val secondTextBlocks = ocrJob.await()
-                LogCollector.d(TAG, "incrementalRTDetrMangaOcr: 第二批 OCR ${secondTextBlocks.size} 个文字块")
-                if (secondTextBlocks.isNotEmpty()) {
-                    val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
-                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
-                        if (partialBubbles.isNotEmpty()) {
-                            lifecycleScope.launch {
-                                renderStreamingOverlay(bitmap, partialBubbles)
-                            }
-                        }
-                    }
-                } else result
-            }
-
-            // 回滚分批渲染添加的上下文，只保留翻译前的历史
-            while (contextHistory.size > contextSnapshotSize) {
-                contextHistory.removeLast()
+                translateFirstThenSecondBatch(bitmap, firstBubbleRegions, ocrJob)
             }
 
             finalizeIncremental(bitmap, firstTranslated)
@@ -1814,49 +1830,14 @@ class MangaFloatingService : LifecycleService() {
             val firstTextBlocks = recognizeBatch(firstBatch)
             LogCollector.d(TAG, "incrementalPPOcrV5: 第一批 OCR ${firstTextBlocks.size} 个文字块")
 
-            // 保存上下文历史大小，分批翻译完后回滚，避免污染后续页面的上下文
-            val contextSnapshotSize = contextHistory.size
-
             val firstTranslated = if (firstTextBlocks.isEmpty()) {
                 emptyList()
             } else {
                 val firstBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(firstTextBlocks, config.textDirection)
-                withContext(Dispatchers.Main) {
-                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
-                    ballStateManager?.setState(BallStateManager.State.Translating)
-                }
-
                 ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     recognizeBatch(secondBatch)
                 }
-
-                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
-                    if (partialBubbles.isNotEmpty()) {
-                        launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
-                    }
-                }
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
-
-                val secondTextBlocks = ocrJob.await()
-                ocrJob = null // 已完成，不再需要取消
-                LogCollector.d(TAG, "incrementalPPOcrV5: 第二批 OCR ${secondTextBlocks.size} 个文字块")
-                if (secondTextBlocks.isNotEmpty()) {
-                    val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
-                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
-                        if (partialBubbles.isNotEmpty()) {
-                            lifecycleScope.launch {
-                                renderStreamingOverlay(bitmap, partialBubbles)
-                            }
-                        }
-                    }
-                } else {
-                    result
-                }
-            }
-
-            // 回滚分批渲染添加的上下文，只保留翻译前的历史
-            while (contextHistory.size > contextSnapshotSize) {
-                contextHistory.removeLast()
+                translateFirstThenSecondBatch(bitmap, firstBubbleRegions, ocrJob!!)
             }
 
             finalizeIncremental(bitmap, firstTranslated)
@@ -1939,46 +1920,14 @@ class MangaFloatingService : LifecycleService() {
             val firstTextBlocks = recognizeBatch(firstBatch)
             LogCollector.d(TAG, "incrementalPPOcrV6: 第一批 OCR ${firstTextBlocks.size} 个文字块")
 
-            val contextSnapshotSize = contextHistory.size
             val firstTranslated = if (firstTextBlocks.isEmpty()) {
                 emptyList()
             } else {
                 val firstBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(firstTextBlocks, config.textDirection)
-                withContext(Dispatchers.Main) {
-                    showProgressOverlay("翻译进行中，请勿点击屏幕...")
-                    ballStateManager?.setState(BallStateManager.State.Translating)
-                }
-
                 ocrJob = lifecycleScope.async(Dispatchers.IO) {
                     recognizeBatch(secondBatch)
                 }
-
-                val result = incrementalTranslateBubbles(firstBubbleRegions, forceContext = true) { partialBubbles ->
-                    if (partialBubbles.isNotEmpty()) {
-                        launchPartialRender { renderStreamingOverlay(bitmap, partialBubbles) }
-                    }
-                }
-                if (result.isNotEmpty()) renderAndShowMergedOverlay(bitmap, result, saveCache = false, showCopyButton = false)
-
-                val secondTextBlocks = ocrJob.await()
-                ocrJob = null
-                LogCollector.d(TAG, "incrementalPPOcrV6: 第二批 OCR ${secondTextBlocks.size} 个文字块")
-                if (secondTextBlocks.isNotEmpty()) {
-                    val secondBubbleRegions = MangaSpatialGrouping.textBlocksToBubbleRegions(secondTextBlocks, config.textDirection)
-                    result + incrementalTranslateBubbles(secondBubbleRegions, forceContext = true) { partialBubbles ->
-                        if (partialBubbles.isNotEmpty()) {
-                            lifecycleScope.launch {
-                                renderStreamingOverlay(bitmap, partialBubbles)
-                            }
-                        }
-                    }
-                } else {
-                    result
-                }
-            }
-
-            while (contextHistory.size > contextSnapshotSize) {
-                contextHistory.removeLast()
+                translateFirstThenSecondBatch(bitmap, firstBubbleRegions, ocrJob!!)
             }
 
             finalizeIncremental(bitmap, firstTranslated)
