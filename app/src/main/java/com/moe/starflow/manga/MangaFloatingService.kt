@@ -106,9 +106,6 @@ class MangaFloatingService : LifecycleService() {
         private const val LONG_PRESS_SLOP = 10f
         private const val DOUBLE_CLICK_DELAY = 300L
 
-        const val REGION_IOU_THRESHOLD = 0.4f       // 区域重叠判定阈值
-        const val MAX_CACHED_REGIONS = 50           // 最大缓存区域数
-        const val REGION_TTL_MS = 300_000L          // 区域缓存有效期 5 分钟
 
         // 分批渲染常量
         const val INCREMENTAL_THRESHOLD = 6       // 触发分批的气泡数量阈值
@@ -185,15 +182,8 @@ class MangaFloatingService : LifecycleService() {
     private var pendingAutoStart = false   // 等待权限授权后自动启动
     private lateinit var autoTranslateEngine: MangaAutoTranslateEngine
     private lateinit var engineManager: MangaEngineManager
-
-    // 区域级翻译缓存
-    private data class TranslatedRegion(
-        val ocrText: String,
-        val ocrTextHash: Int,
-        val translation: String,
-        val translatedAt: Long = System.currentTimeMillis()
-    )
-    private val translatedRegions = mutableListOf<TranslatedRegion>()
+    // 区域级翻译缓存（TranslatedRegion/translatedRegions 移入 RegionCacheManager）
+    private val regionCache = RegionCacheManager()
 
     // Crop selection
     private lateinit var cropView: CropView
@@ -344,7 +334,7 @@ class MangaFloatingService : LifecycleService() {
             onShowProgress = { showProgressOverlay(it) },
             onDismissProgress = { dismissProgressOverlay() },
             onTriggerTranslation = { triggerTranslation() },
-            onClearRegionCache = { translatedRegions.clear() },
+            onClearRegionCache = { regionCache.clear() },
             onShowToast = { showToast(it) }
         )
         // OCR 引擎初始化/释放管理器（引擎为静态单例，UI 副作用经回调）
@@ -492,7 +482,7 @@ class MangaFloatingService : LifecycleService() {
         ballStateManager = null
         translatorText?.release()
         autoTranslateEngine.clearScheduled()
-        clearRegionCache()
+        regionCache.clear()
 
         // 等待正在执行的 ONNX 推理完成后再释放资源
         // 防止 session.close() 和 session.run() 并发导致 native 内存损坏
@@ -2034,13 +2024,13 @@ class MangaFloatingService : LifecycleService() {
 
             // 清理过期的区域缓存
             if (autoTranslateEngine.isAutoTranslating) {
-                val beforeSize = translatedRegions.size
-                evictExpiredRegions()
-                if (beforeSize != translatedRegions.size) {
-                    LogCollector.d(TAG, "evictExpiredRegions: ${beforeSize} → ${translatedRegions.size} (removed ${beforeSize - translatedRegions.size})")
+                val beforeSize = regionCache.size()
+                regionCache.evictExpiredRegions()
+                if (beforeSize != regionCache.size()) {
+                    LogCollector.d(TAG, "evictExpiredRegions: ${beforeSize} → ${regionCache.size()} (removed ${beforeSize - regionCache.size()})")
                 }
             }
-            LogCollector.d(TAG, "processMangaScreenshot: cacheSize at start=${translatedRegions.size}")
+            LogCollector.d(TAG, "processMangaScreenshot: cacheSize at start=${regionCache.size()}")
 
             // 使用全屏截图计算的稳定 pHash（不受框选偏移影响）
             // collector 已传入全屏 pHash，fallback 到 bitmap 计算（理论上不会走到）
@@ -2452,7 +2442,7 @@ class MangaFloatingService : LifecycleService() {
     ): List<TranslatedBubble> {
         if (bubbles.isEmpty()) return emptyList()
 
-        LogCollector.d(TAG, "incrementalTranslateBubbles: ${bubbles.size} bubbles, forceContext=$forceContext, cacheSize=${translatedRegions.size}")
+        LogCollector.d(TAG, "incrementalTranslateBubbles: ${bubbles.size} bubbles, forceContext=$forceContext, cacheSize=${regionCache.size()}")
 
         // 文本级缓存：先精确匹配（快速路径），再模糊匹配（编辑距离）
         val fromCache = mutableListOf<TranslatedBubble>()
@@ -2463,7 +2453,7 @@ class MangaFloatingService : LifecycleService() {
             if (combinedText.isBlank()) continue
 
             // 精确匹配
-            val exactMatch = translatedRegions.find { it.ocrTextHash == combinedText.hashCode() && it.ocrText == combinedText }
+            val exactMatch = regionCache.findExact(combinedText, combinedText.hashCode())
             if (exactMatch != null) {
                 fromCache.add(TranslatedBubble(
                     rect = bubble.rect,
@@ -2478,14 +2468,14 @@ class MangaFloatingService : LifecycleService() {
                     isInMemoryCache = true
                 ))
                 // 更新时间
-                translatedRegions.remove(exactMatch)
-                translatedRegions.add(exactMatch.copy(
+                regionCache.remove(exactMatch)
+                regionCache.add(exactMatch.copy(
                     translatedAt = System.currentTimeMillis()
                 ))
                 LogCollector.d(TAG, "Text cache hit (exact): '${combinedText.take(20)}' → '${exactMatch.translation.take(20)}'")
             } else {
                 // 模糊匹配：编辑距离自适应阈值
-                val fuzzyMatch = findFuzzyMatch(combinedText)
+                val fuzzyMatch = regionCache.findFuzzyMatch(combinedText)
                 if (fuzzyMatch != null) {
                     fromCache.add(TranslatedBubble(
                         rect = bubble.rect,
@@ -2499,8 +2489,8 @@ class MangaFloatingService : LifecycleService() {
                         centerY = bubble.centerY,
                         fromCache = true
                     ))
-                    translatedRegions.remove(fuzzyMatch)
-                    translatedRegions.add(fuzzyMatch.copy(
+                    regionCache.remove(fuzzyMatch)
+                    regionCache.add(fuzzyMatch.copy(
                         translatedAt = System.currentTimeMillis()
                     ))
                     LogCollector.d(TAG, "Text cache hit (fuzzy): '${combinedText.take(20)}' ~ '${fuzzyMatch.ocrText.take(20)}' → '${fuzzyMatch.translation.take(20)}'")
@@ -2512,7 +2502,6 @@ class MangaFloatingService : LifecycleService() {
 
         if (needTranslation.isEmpty()) {
             LogCollector.d(TAG, "incrementalTranslateBubbles: all ${bubbles.size} from text cache")
-            evictOldRegions()
             return fromCache
         }
 
@@ -2527,14 +2516,13 @@ class MangaFloatingService : LifecycleService() {
         // 缓存翻译结果
         for (result in results) {
             val textHash = result.originalText.hashCode()
-            translatedRegions.add(TranslatedRegion(
+            regionCache.add(RegionCacheManager.TranslatedRegion(
                 ocrText = result.originalText,
                 ocrTextHash = textHash,
                 translation = result.translatedText
             ))
             LogCollector.d(TAG, "Cached bubble: '${result.originalText.take(20)}' → '${result.translatedText.take(20)}'")
         }
-        evictOldRegions()
         return fromCache + results
     }
 
@@ -2542,77 +2530,6 @@ class MangaFloatingService : LifecycleService() {
     /**
      * 淘汰过旧的缓存区域。
      */
-    private fun evictOldRegions() {
-        if (translatedRegions.size > MAX_CACHED_REGIONS) {
-            val removeCount = translatedRegions.size - MAX_CACHED_REGIONS
-            repeat(removeCount) { translatedRegions.removeAt(0) }
-        }
-    }
-
-    /**
-     * 模糊文本匹配：在 translatedRegions 中查找与 targetText 最相似的条目。
-     * 使用 OCR 感知的加权编辑距离，相似字符（如カ/力）替换代价更低。
-     *
-     * @return 最佳匹配的 TranslatedRegion，或 null。
-     */
-    private fun findFuzzyMatch(targetText: String): TranslatedRegion? {
-        if (targetText.isEmpty()) return null
-
-        // 获取自适应阈值
-        val threshold = TextSimilarity.getAdaptiveThreshold(targetText.length)
-        if (threshold <= 0.0f) return null  // 太短，必须精确匹配
-
-        val normalizedTarget = TextSimilarity.normalize(targetText)
-        if (normalizedTarget.isEmpty()) return null
-
-        var bestMatch: TranslatedRegion? = null
-        var bestDistance = threshold + 1.0f
-        var checkedCount = 0
-        var lengthSkipCount = 0
-
-        for (region in translatedRegions) {
-            val normalizedCache = TextSimilarity.normalize(region.ocrText)
-
-            // 长度快速过滤
-            if (kotlin.math.abs(normalizedTarget.length - normalizedCache.length).toFloat() > threshold) {
-                lengthSkipCount++
-                continue
-            }
-
-            // 加权编辑距离（带 early exit）
-            val distance = TextSimilarity.weightedLevenshtein(normalizedTarget, normalizedCache, bestDistance)
-            checkedCount++
-            if (distance < bestDistance) {
-                bestDistance = distance
-                bestMatch = region
-            }
-        }
-
-        if (bestMatch != null && bestDistance <= threshold) {
-            LogCollector.d(TAG, "Fuzzy match: dist=${"%.2f".format(bestDistance)}/$threshold, '${targetText.take(15)}' ~ '${bestMatch.ocrText.take(15)}'")
-            return bestMatch
-        }
-        if (checkedCount > 0 || lengthSkipCount > 0) {
-            LogCollector.d(TAG, "Fuzzy no match: target='${targetText.take(15)}', threshold=$threshold, totalRegions=${translatedRegions.size}, lengthSkip=$lengthSkipCount, checked=$checkedCount, bestDist=$bestDistance")
-        }
-        return null
-    }
-
-    /**
-     * 清除过期的缓存区域（超过 TTL）。
-     */
-    private fun evictExpiredRegions() {
-        val now = System.currentTimeMillis()
-        translatedRegions.removeAll { now - it.translatedAt > REGION_TTL_MS }
-    }
-
-    /**
-     * 清除区域缓存。
-     */
-    private fun clearRegionCache() {
-        translatedRegions.clear()
-    }
-
 
     /**
      * 合并已缓存翻译 + 新翻译，渲染并显示 overlay。
@@ -3027,7 +2944,7 @@ class MangaFloatingService : LifecycleService() {
                 forceRefresh = true
                 autoTranslateEngine.lastTranslatedHash = 0L
         autoTranslateEngine.lastTranslatedTime = 0L
-                translatedRegions.clear()  // 清空内存缓存，避免 ⚡ 标志
+                regionCache.clear()  // 清空内存缓存，避免 ⚡ 标志
                 triggerTranslation()
             }
         }
@@ -3133,7 +3050,7 @@ class MangaFloatingService : LifecycleService() {
 
             // 重置自动翻译：清除区域缓存，立刻恢复检测
             if (autoTranslateEngine.isAutoTranslating) {
-                clearRegionCache()
+                regionCache.clear()
                 autoTranslateEngine.resetToIdle()
             }
         }
