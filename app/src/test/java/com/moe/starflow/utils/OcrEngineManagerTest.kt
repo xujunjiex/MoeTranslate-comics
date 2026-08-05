@@ -1,7 +1,8 @@
 package com.moe.starflow.utils
 
+import com.moe.starflow.manga.config.*
 import androidx.preference.PreferenceManager
-import com.moe.starflow.manga.OcrEngineGroup
+import com.moe.starflow.manga.config.OcrEngineGroup
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith

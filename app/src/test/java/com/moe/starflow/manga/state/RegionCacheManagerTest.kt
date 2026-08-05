@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.state
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.engine
 
 import android.graphics.PointF
 import org.junit.Assert.assertEquals

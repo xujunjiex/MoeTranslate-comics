@@ -1,5 +1,6 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.render
 
+import com.moe.starflow.manga.types.*
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect

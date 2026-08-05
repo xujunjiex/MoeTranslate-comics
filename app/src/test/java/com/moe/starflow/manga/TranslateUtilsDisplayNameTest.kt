@@ -1,5 +1,6 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.types.*
 import android.content.SharedPreferences
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
