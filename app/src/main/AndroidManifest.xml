@@ -65,7 +65,7 @@
         </activity>
 
         <service
-            android:name=".translate.ScreenShotAccessibilityService"
+            android:name=".translate.screenshot.ScreenShotAccessibilityService"
             android:enabled="true"
             android:exported="true"
             android:label="@string/accessibility_service_label"
@@ -111,7 +111,7 @@
             android:exported="false" />
 
         <activity
-            android:name=".translate.ScreenCapturePermissionActivity"
+            android:name=".translate.screenshot.ScreenCapturePermissionActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
