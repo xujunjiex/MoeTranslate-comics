@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.manga.engine
+import com.moe.starflow.manga.state.*
 import com.moe.starflow.manga.render.*
 import com.moe.starflow.manga.merge.*
 

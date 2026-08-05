@@ -1,4 +1,5 @@
 package com.moe.starflow.manga.merge
+import com.moe.starflow.manga.state.*
 import com.moe.starflow.manga.*
 
 import com.moe.starflow.manga.engine.*
