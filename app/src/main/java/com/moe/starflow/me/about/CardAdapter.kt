@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.about
+import com.moe.starflow.translate.screenshot.*
 
 import android.view.LayoutInflater
 import android.view.View

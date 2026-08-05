@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.apiconfig
+import com.moe.starflow.translate.screenshot.*
 
 import android.content.Context
 import com.moe.starflow.R

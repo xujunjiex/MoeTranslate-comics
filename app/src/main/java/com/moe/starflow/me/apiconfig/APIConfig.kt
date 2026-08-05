@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.apiconfig
+import com.moe.starflow.translate.screenshot.*
 
 import android.app.ActivityManager
 import android.app.AlertDialog
@@ -28,7 +29,7 @@ import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import com.moe.starflow.R
-import com.moe.starflow.translate.AccessibilityServiceManager
+import com.moe.starflow.translate.screenshot.AccessibilityServiceManager
 import com.moe.starflow.translate.FloatingBallService
 import com.moe.starflow.manga.MangaFloatingService
 import com.moe.starflow.utils.Constants

@@ -1,4 +1,5 @@
 package com.moe.starflow.ui.history
+import com.moe.starflow.translate.screenshot.*
 
 import android.content.ComponentCallbacks2
 import android.graphics.Bitmap
@@ -36,7 +37,7 @@ import com.moe.starflow.manga.types.TextDirection
 import com.moe.starflow.manga.engine.PPOcrV6Engine
 import com.moe.starflow.manga.types.TranslatedBubble
 import com.moe.starflow.manga.TranslateUtils
-import com.moe.starflow.translate.ScreenshotManager
+import com.moe.starflow.translate.screenshot.ScreenshotManager
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
 import com.moe.starflow.utils.BitmapLruCache

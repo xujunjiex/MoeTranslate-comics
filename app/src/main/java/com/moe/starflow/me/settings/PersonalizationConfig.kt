@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.settings
+import com.moe.starflow.translate.screenshot.*
 
 import android.app.ActivityManager
 import android.app.AlertDialog
@@ -34,7 +35,7 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
 import com.jaredrummler.android.colorpicker.ColorPreferenceCompat
 import com.moe.starflow.R
-import com.moe.starflow.translate.AccessibilityServiceManager
+import com.moe.starflow.translate.screenshot.AccessibilityServiceManager
 import com.moe.starflow.translate.CustomLocale
 import com.moe.starflow.translate.Dialogs
 import com.moe.starflow.translate.FloatingBallService

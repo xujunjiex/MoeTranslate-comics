@@ -24,6 +24,7 @@
  */
 
 package com.moe.starflow.translate
+import com.moe.starflow.translate.screenshot.*
 
 import android.text.TextUtils
 import java.util.Locale

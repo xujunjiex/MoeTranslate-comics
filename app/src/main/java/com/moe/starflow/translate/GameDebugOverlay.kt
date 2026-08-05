@@ -1,4 +1,5 @@
 package com.moe.starflow.translate
+import com.moe.starflow.translate.screenshot.*
 
 import android.annotation.SuppressLint
 import android.content.Context

@@ -1,4 +1,5 @@
 package com.moe.starflow.manga.types
+import com.moe.starflow.translate.screenshot.*
 
 /**
  * 合并器的统一输入。

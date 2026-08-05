@@ -1,4 +1,5 @@
 package com.moe.starflow.manga.types
+import com.moe.starflow.translate.screenshot.*
 
 /**
  * OCR 引擎类型

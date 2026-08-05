@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.settings
+import com.moe.starflow.translate.screenshot.*
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo

@@ -1,4 +1,5 @@
 package com.moe.starflow.ui.history
+import com.moe.starflow.translate.screenshot.*
 
 import android.view.LayoutInflater
 import android.view.View

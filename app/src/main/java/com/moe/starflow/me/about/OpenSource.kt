@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.about
+import com.moe.starflow.translate.screenshot.*
 
 import android.os.Bundle
 import androidx.fragment.app.Fragment

@@ -15,7 +15,12 @@
  * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-package com.moe.starflow.translate
+package com.moe.starflow.translate.screenshot
+import com.moe.starflow.translate.*
+import com.moe.starflow.manga.*
+import com.moe.starflow.manga.engine.*
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap

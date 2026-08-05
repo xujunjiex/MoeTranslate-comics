@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.translate
+import com.moe.starflow.translate.screenshot.*
 
 import android.app.AlertDialog
 import android.content.Context

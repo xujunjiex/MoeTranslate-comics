@@ -1,4 +1,5 @@
 package com.moe.starflow.me.model
+import com.moe.starflow.translate.screenshot.*
 
 import android.app.AlertDialog
 import android.content.Intent

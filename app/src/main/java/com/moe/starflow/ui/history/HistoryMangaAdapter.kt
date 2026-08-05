@@ -1,4 +1,5 @@
 package com.moe.starflow.ui.history
+import com.moe.starflow.translate.screenshot.*
 
 import android.graphics.BitmapFactory
 import android.util.TypedValue
