@@ -1,16 +1,22 @@
 package com.moe.starflow.manga.debug
 
 import android.graphics.Bitmap
+import android.graphics.PointF
+import android.graphics.Rect
 import android.util.Size
 import com.moe.starflow.manga.DebugRecResult
 import com.moe.starflow.manga.MLKitDebugResult
 import com.moe.starflow.manga.OcrResult
 import com.moe.starflow.manga.RTDetrV2DebugResult
+import com.moe.starflow.manga.TextDirection
+import com.moe.starflow.manga.TextRegionGroup
+import com.moe.starflow.utils.CustomPreference
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class MangaDebugOverlaysTest {
@@ -71,5 +77,102 @@ class MangaDebugOverlaysTest {
         val untouched = MangaDebugOverlays.applyCropDimming(debugBitmap, null, Size(0, 0))
         assertTrue("cropRect 为 null 应原样返回同一 bitmap", untouched === debugBitmap)
         debugBitmap.recycle()
+    }
+
+    private fun sampleOcrResult(): OcrResult = OcrResult(
+        boxes = listOf(floatArrayOf(0f, 0f, 10f, 0f, 10f, 10f, 0f, 10f)),
+        texts = listOf("こんにちは"),
+        scores = listOf(0.9f),
+        elapseList = listOf(0.1f, 0f, 0.2f, 0.5f, 0.8f),
+        recDebug = DebugRecResult(
+            keptBoxes = emptyList(),
+            keptTexts = emptyList(),
+            keptScores = emptyList(),
+            discardedBoxes = listOf(floatArrayOf(20f, 20f, 30f, 20f, 30f, 30f, 20f, 30f)),
+            discardedTexts = listOf("x"),
+            discardedScores = listOf(0.2f),
+            discardedReasons = listOf("score")
+        )
+    )
+
+    private fun sampleMergedRegion(): TextRegionGroup = TextRegionGroup(
+        rect = Rect(0, 0, 50, 100),
+        quadPoints = arrayOf(
+            PointF(0f, 0f), PointF(50f, 0f), PointF(50f, 100f), PointF(0f, 100f)
+        ),
+        texts = listOf("テスト", "文字"),
+        direction = TextDirection.VERTICAL_RL,
+        fontSize = 16f,
+        angle = 0f,
+        score = 0.9f,
+        center = PointF(25f, 50f),
+        members = emptyList()
+    )
+
+    @Test
+    fun buildPPOcrInfoLines_包含合并结果和原始识别行() {
+        val prefs = CustomPreference.getInstance(RuntimeEnvironment.getApplication())
+        val lines = MangaDebugOverlays.buildPPOcrInfoLines(
+            headerLines = listOf("PP-OCRv5 调试模式 | 检测: 1"),
+            ocrResult = sampleOcrResult(),
+            mergedRegions = listOf(sampleMergedRegion()),
+            detDiscardBoxes = emptyList(),
+            detDiscardScores = emptyList(),
+            detDiscardReasons = emptyList(),
+            prefs = prefs,
+            detBoxKey = "ppocr_det_box_thresh", detBoxDefault = 0.3f,
+            unclipKey = "ppocr_det_unclip_ratio",
+            textKey = "ppocr_text_score_thresh", textDefault = 0.5f
+        )
+        assertTrue("合并结果块缺失", lines.any { it.contains("━━━ 合并结果 ━━━") })
+        assertTrue("合并行格式错误: $lines", lines.any { it.contains("【0】竖排 ×2") })
+        assertTrue("合并行缺坐标", lines.any { it.contains("[0,0,50,100]") })
+        assertTrue("原始识别块缺失", lines.any { it.contains("━━━ 原始识别 ━━━") })
+        assertTrue("识别行缺文本", lines.any { it.contains("\"こんにちは\"") })
+        assertTrue("图例行缺失", lines.any { it.contains("图例:") })
+        assertTrue("参数行缺失", lines.any { it.contains("box_thresh=0.30") })
+    }
+
+    @Test
+    fun buildPPOcrInfoLines_丢弃选区行() {
+        val prefs = CustomPreference.getInstance(RuntimeEnvironment.getApplication())
+        val lines = MangaDebugOverlays.buildPPOcrInfoLines(
+            headerLines = listOf("PP-OCRv6 调试模式 | det尺寸: 480x640", "检测: 1"),
+            ocrResult = sampleOcrResult(),
+            mergedRegions = emptyList(),
+            detDiscardBoxes = listOf(floatArrayOf(5f, 5f, 15f, 5f, 15f, 15f, 5f, 15f)),
+            detDiscardScores = listOf(0.1f),
+            detDiscardReasons = listOf("box_thresh"),
+            prefs = prefs,
+            detBoxKey = "ppocrv6_det_box_thresh", detBoxDefault = 0.5f,
+            unclipKey = "ppocrv6_det_unclip_ratio",
+            textKey = "ppocrv6_text_score", textDefault = 0.5f
+        )
+        assertTrue("检测丢弃块缺失", lines.any { it.contains("━━━ 被检测丢弃选区 (1) ━━━") })
+        assertTrue("检测丢弃行错误", lines.any { it.contains("✗[0] 0.10") && it.contains("box_thresh") })
+        assertTrue("识别丢弃块缺失", lines.any { it.contains("━━━ 被识别/内容丢弃选区 (1) ━━━") })
+        assertTrue("识别丢弃行错误", lines.any { it.contains("✗[0] 分数0.20") && it.contains("\"x\"") })
+        assertTrue("headerLines 首行缺失", lines[0] == "PP-OCRv6 调试模式 | det尺寸: 480x640")
+    }
+
+    @Test
+    fun buildPPOcrInfoLines_空结果只含基础行() {
+        val prefs = CustomPreference.getInstance(RuntimeEnvironment.getApplication())
+        val lines = MangaDebugOverlays.buildPPOcrInfoLines(
+            headerLines = listOf("PP-OCRv5 调试模式 | 检测: 0"),
+            ocrResult = OcrResult(emptyList(), emptyList(), emptyList(), emptyList(), null),
+            mergedRegions = emptyList(),
+            detDiscardBoxes = emptyList(),
+            detDiscardScores = emptyList(),
+            detDiscardReasons = emptyList(),
+            prefs = prefs,
+            detBoxKey = "ppocr_det_box_thresh", detBoxDefault = 0.3f,
+            unclipKey = "ppocr_det_unclip_ratio",
+            textKey = "ppocr_text_score_thresh", textDefault = 0.5f
+        )
+        assertTrue("耗时行缺失", lines.any { it.contains("耗时: det=0.00s") })
+        assertTrue("合并参数行缺失", lines.any { it.contains("距离门控 = 1.5") })
+        assertTrue("合并结果块不应出现在空输入", !lines.any { it.contains("【0】") })
+        assertTrue("检测丢弃块不应出现在空输入", !lines.any { it.contains("被检测丢弃选区") })
     }
 }

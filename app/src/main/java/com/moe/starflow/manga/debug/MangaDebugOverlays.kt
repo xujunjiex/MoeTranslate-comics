@@ -8,12 +8,14 @@ import android.util.Size
 import android.view.View
 import android.widget.ScrollView
 import com.moe.starflow.manga.MLKitDebugResult
+import com.moe.starflow.manga.MergeParams
 import com.moe.starflow.manga.OcrResult
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.manga.RTDetrV2DebugResult
 import com.moe.starflow.manga.TextDirection
 import com.moe.starflow.manga.TextRegionGroup
+import com.moe.starflow.utils.CustomPreference
 
 /**
  * 调试渲染函数（纯函数）：输入截图 + 检测/识别结果，输出带调试框的 bitmap。
@@ -522,6 +524,98 @@ object MangaDebugOverlays {
             setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0))
             setOnClickListener {
                 onToggle()
+            }
+        }
+    }
+
+    /**
+     * 构建 PP-OCRv5/v6 调试信息行（V5/V6 共用，参数化 prefs key 与 header 差异）。
+     * detDiscard* 从各自引擎的 DebugDetResult 提取（字段相同但类型不同，故传列表）。
+     * 原实现：MangaFloatingService.showPPOcrV5DebugResultOverlay / showPPOcrV6DebugResultOverlay。
+     */
+    fun buildPPOcrInfoLines(
+        headerLines: List<String>,
+        ocrResult: OcrResult,
+        mergedRegions: List<TextRegionGroup>,
+        detDiscardBoxes: List<FloatArray>,
+        detDiscardScores: List<Float>,
+        detDiscardReasons: List<String>,
+        prefs: CustomPreference,
+        detBoxKey: String,
+        detBoxDefault: Float,
+        unclipKey: String,
+        textKey: String,
+        textDefault: Float
+    ): List<String> {
+        return buildList {
+            addAll(headerLines)
+            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
+            val curBox = prefs.getFloat(detBoxKey, detBoxDefault)
+            val curUnclip = prefs.getFloat(unclipKey, 1.6f)
+            val curText = prefs.getFloat(textKey, textDefault)
+            add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
+            val curGap = prefs.getFloat("merge_discard_gap", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)
+            add("合并参数（对齐 manga-image-translator）:")
+            add("  距离门控 = ${String.format("%.1f", curGap)} (×字号, AABB距离超过则拒绝合并)")
+            add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
+            add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0) { 0f })}s  " +
+                "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2) { 0f })}s  " +
+                "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3) { 0f })}s  " +
+                "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4) { 0f })}s")
+            add("━━━ 合并结果 ━━━")
+            for ((idx, region) in mergedRegions.withIndex()) {
+                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "竖排" else "横排"
+                val srcCount = region.texts.size
+                val merged = region.texts.joinToString("｜")
+                val r = region.rect
+                val angleStr = if (kotlin.math.abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
+                add("【$idx】$dirLabel ×$srcCount$angleStr [${r.left},${r.top},${r.right},${r.bottom}]")
+                add("    $merged")
+            }
+            add("")
+            add("━━━ 原始识别 ━━━")
+            for (i in ocrResult.texts.indices) {
+                val text = ocrResult.texts[i]
+                val score = ocrResult.scores.getOrElse(i) { 0f }
+                val box = ocrResult.boxes.getOrNull(i)
+                val boxStr = if (box != null && box.size >= 8) {
+                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
+                } else ""
+                val angleStr = if (box != null && box.size >= 8) {
+                    val topDx = box[2] - box[0]
+                    val topDy = box[3] - box[1]
+                    val ang = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
+                    val finalAng = if (kotlin.math.abs(ang) <= 3f) 0f else ang
+                    if (kotlin.math.abs(finalAng) > 0.5f) " ∠${String.format("%.1f°", finalAng)}" else ""
+                } else ""
+                add("[$i] ${String.format("%.2f", score)}$angleStr $boxStr \"$text\"")
+            }
+            if (detDiscardBoxes.isNotEmpty()) {
+                add("")
+                add("━━━ 被检测丢弃选区 (${detDiscardBoxes.size}) ━━━")
+                for (i in detDiscardBoxes.indices) {
+                    val box = detDiscardBoxes[i]
+                    val score = detDiscardScores.getOrElse(i) { 0f }
+                    val reason = detDiscardReasons.getOrElse(i) { "" }
+                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
+                }
+            }
+            val recDisc = ocrResult.recDebug
+            if (recDisc != null && recDisc.discardedBoxes.isNotEmpty()) {
+                add("")
+                add("━━━ 被识别/内容丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
+                for (i in recDisc.discardedBoxes.indices) {
+                    val box = recDisc.discardedBoxes[i]
+                    val score = recDisc.discardedScores.getOrElse(i) { 0f }
+                    val text = recDisc.discardedTexts.getOrElse(i) { "" }
+                    val reason = recDisc.discardedReasons.getOrElse(i) { "score" }
+                    val preview = text.take(20).ifEmpty { "(空)" }
+                    if (reason == "score") {
+                        add("✗[$i] 分数${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    } else {
+                        add("✗[$i] 内容:$reason [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
+                    }
+                }
             }
         }
     }
