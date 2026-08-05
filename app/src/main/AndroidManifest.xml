@@ -42,7 +42,7 @@
             android:exported="false"
             android:theme="@style/settheme" />
         <activity
-            android:name=".ui.history.MangaViewerActivity"
+            android:name=".ui.viewer.MangaViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
         <activity
