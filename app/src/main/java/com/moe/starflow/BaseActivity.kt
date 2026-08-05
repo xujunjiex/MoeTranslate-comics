@@ -52,7 +52,7 @@ abstract class BaseActivity : AppCompatActivity() {
     private fun setupFontInflater() {
         val prefs = com.moe.starflow.utils.CustomPreference.getInstance(this)
         if (!prefs.getBoolean("ui_apply_custom_font", false)) return
-        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(this, prefs) ?: return
+        val typeface = com.moe.starflow.manga.render.OverlayRenderer.loadResultTypeface(this, prefs) ?: return
         try {
             androidx.core.view.LayoutInflaterCompat.setFactory2(
                 layoutInflater,

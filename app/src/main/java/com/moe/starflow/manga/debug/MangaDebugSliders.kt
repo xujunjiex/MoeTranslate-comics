@@ -1,4 +1,6 @@
 package com.moe.starflow.manga.debug
+import com.moe.starflow.manga.render.*
+import com.moe.starflow.manga.merge.*
 
 import com.moe.starflow.manga.engine.*
 import android.annotation.SuppressLint
@@ -6,7 +8,7 @@ import android.content.Context
 import android.view.View
 import com.moe.starflow.manga.types.MergeParams
 import com.moe.starflow.manga.config.PPOcrDefault
-import com.moe.starflow.manga.TextRegionMerger
+import com.moe.starflow.manga.merge.TextRegionMerger
 import com.moe.starflow.utils.CustomPreference
 import kotlin.math.roundToInt
 

@@ -142,7 +142,7 @@ object Dialogs {
     fun applyCustomFontToTree(ctx: Context, view: View) {
         val prefs = com.moe.starflow.utils.CustomPreference.getInstance(ctx)
         if (!prefs.getBoolean("ui_apply_custom_font", false)) return
-        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(ctx, prefs) ?: return
+        val typeface = com.moe.starflow.manga.render.OverlayRenderer.loadResultTypeface(ctx, prefs) ?: return
         fun apply(v: View) {
             if (v is android.widget.TextView) v.typeface = typeface
             if (v is ViewGroup) for (i in 0 until v.childCount) apply(v.getChildAt(i))

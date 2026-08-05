@@ -1,4 +1,6 @@
 package com.moe.starflow.manga.debug
+import com.moe.starflow.manga.render.*
+import com.moe.starflow.manga.merge.*
 
 import com.moe.starflow.manga.engine.*
 import android.content.Context

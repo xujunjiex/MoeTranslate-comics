@@ -5,7 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.PerceptualHash
-import com.moe.starflow.manga.OverlayRenderer
+import com.moe.starflow.manga.render.OverlayRenderer
 import com.moe.starflow.manga.types.TextDirection
 import com.moe.starflow.manga.types.TranslatedBubble
 import kotlinx.coroutines.Dispatchers

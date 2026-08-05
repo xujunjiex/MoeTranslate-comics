@@ -30,7 +30,7 @@ import com.moe.starflow.manga.engine.MangaOcrModelFiles
 import com.moe.starflow.manga.engine.MangaOcrRecognizer
 import com.moe.starflow.manga.types.OcrEngine
 import com.moe.starflow.manga.OcrLock
-import com.moe.starflow.manga.OverlayRenderer
+import com.moe.starflow.manga.render.OverlayRenderer
 import com.moe.starflow.manga.engine.PPOcrV5Engine
 import com.moe.starflow.manga.types.TextDirection
 import com.moe.starflow.manga.engine.PPOcrV6Engine
@@ -131,7 +131,7 @@ class MangaViewerActivity : AppCompatActivity() {
     private fun setupFontInflater() {
         val prefs = com.moe.starflow.utils.CustomPreference.getInstance(this)
         if (!prefs.getBoolean("ui_apply_custom_font", false)) return
-        val typeface = com.moe.starflow.manga.OverlayRenderer.loadResultTypeface(this, prefs) ?: return
+        val typeface = com.moe.starflow.manga.render.OverlayRenderer.loadResultTypeface(this, prefs) ?: return
         try {
             androidx.core.view.LayoutInflaterCompat.setFactory2(
                 layoutInflater,
