@@ -1,6 +1,7 @@
 package com.moe.starflow.manga
 
 import com.moe.starflow.manga.debug.MangaDebugOverlays
+import com.moe.starflow.manga.debug.MangaDebugPanelController
 import com.moe.starflow.manga.debug.MangaDebugSliders
 import android.annotation.SuppressLint
 import android.app.AlertDialog
@@ -286,13 +287,7 @@ class MangaFloatingService : LifecycleService() {
     // 不会被裁剪。如果以后有截图提供者在 emit 前裁剪 fullBitmap，此处需同步更新。
     private var pendingFullBitmap: Bitmap? = null
 
-    // 调试详情面板（固定在屏幕底部）
-    private var debugInfoPanelView: android.view.View? = null  // 整个 container（包含 imageView + infoPanel + toggleButton）
-    private var debugInfoPanelContentView: android.view.View? = null  // 仅 infoPanel（可折叠部分）
-    private var debugInfoPanelAdded = false
-    private var debugInfoPanelCollapsed = false
-    private var debugToggleButton: android.widget.TextView? = null
-    private var debugToggleButtonAdded = false
+    private lateinit var debugPanel: MangaDebugPanelController
 
     private sealed class GestureType {
         object Click : GestureType()
@@ -585,6 +580,12 @@ class MangaFloatingService : LifecycleService() {
     @SuppressLint("InflateParams")
     private fun initializeViews() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        debugPanel = MangaDebugPanelController(
+            this,
+            windowManager,
+            onDismissAll = { dismissResultOverlay() },
+            onBringFront = { bringFloatingBallToFront() }
+        )
 
         // Create floating ball using original layout (65dp icon)
         floatingBallView = LayoutInflater.from(this).inflate(R.layout.floatball_layout, null)
@@ -2759,7 +2760,7 @@ class MangaFloatingService : LifecycleService() {
             removeCopyClickLayer()
         }
         removeCopyButtons()
-        dismissDebugInfoPanel()
+        debugPanel.dismiss()
         if (isResultShowing) {
             try {
                 // 先 removeView 再清 drawable，避免 FrameLayout 半透明黑色背景在清 bitmap 后、removeView 前那一帧暴露给用户（曾短暂闪烁黑色图层）
@@ -3401,90 +3402,26 @@ class MangaFloatingService : LifecycleService() {
     /**
      * RT-DETR-V2 调试模式：渲染检测结果到图片上并显示
      */
+
     private fun showRTDetrV2DebugView(bitmap: Bitmap, debugResult: RTDetrV2DebugResult) {
         val debugBitmap = MangaDebugOverlays.renderRTDetrV2DebugOverlay(bitmap, debugResult)
-        showRTDetrV2DebugResultOverlay(debugBitmap, debugResult)
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun showRTDetrV2DebugResultOverlay(debugBitmap: Bitmap, debugResult: RTDetrV2DebugResult) {
-        if (isResultShowing) {
-            dismissResultOverlay()
+        debugPanel.showDebugOverlay(
+            debugBitmap, cropRect, getScreenSize(), initialCollapsed = false, errorTag = "RT-DETR-V2 Debug"
+        ) { container ->
+            val infoPanel = MangaDebugOverlays.createInfoPanelView(this, MangaDebugOverlays.buildRTDetrInfoLines(debugResult, config.keepTextFree))
+            container.addView(infoPanel, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = android.view.Gravity.BOTTOM })
+            val toggle = MangaDebugOverlays.createToggleButton(this, onToggle = { debugPanel.toggleCollapse() })
+            container.addView(toggle, android.widget.FrameLayout.LayoutParams(dpToPx(48), dpToPx(48)).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                marginEnd = dpToPx(16)
+                bottomMargin = dpToPx(16)
+            })
+            debugPanel.setToggleButton(toggle)
+            infoPanel
         }
-
-        // 应用框选外区域遮罩
-        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
-
-        // 创建容器 FrameLayout
-        val container = android.widget.FrameLayout(this)
-        val imageView = android.widget.ImageView(this).apply {
-            setImageBitmap(displayBitmap)
-            scaleType = android.widget.ImageView.ScaleType.FIT_XY
-        }
-        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // 添加底部 info panel 到容器中
-        val infoLines = listOf(
-            "🟢 绿色 = text_bubble（${debugResult.textBubbles.size}）",
-            "🔵 蓝色 = text_free（${debugResult.textFree.size}）${if (config.keepTextFree) "保留" else "丢弃"}",
-            "🔴 红色 = bubble（${debugResult.emptyBubbles.size}）压缩15%",
-            "🟡 黄色 = 最终提交OCR（${debugResult.finalRegions.size}）"
-        )
-        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines)
-        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM
-        }
-        container.addView(infoPanel, infoPanelParams)
-        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
-
-        // 添加右下角展开/折叠按钮
-        val toggleButton = MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })
-        val toggleParams = android.widget.FrameLayout.LayoutParams(
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
-            marginEnd = margin
-            bottomMargin = margin
-        }
-        container.addView(toggleButton, toggleParams)
-
-        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
-        imageView.isClickable = true
-        imageView.setOnClickListener {
-            dismissDebugInfoPanel()
-            dismissResultOverlay()
-        }
-
-        // 始终全屏显示
-        val screenSize = getScreenSize()
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            width = screenSize.width
-            height = screenSize.height
-            gravity = Gravity.START or Gravity.TOP
-            x = 0; y = 0
-        }
-        windowManager.addView(container, params)
-        debugInfoPanelView = container
-        debugInfoPanelAdded = true
-        debugInfoPanelCollapsed = false
-        debugToggleButton = toggleButton
-        debugToggleButtonAdded = true
-        isResultShowing = true
-
-        bringFloatingBallToFront()
     }
 
     private fun showProgressOverlay(text: String = getString(R.string.manga_translating)) {
@@ -3521,158 +3458,6 @@ class MangaFloatingService : LifecycleService() {
         statusOverlay.dismiss()
     }
 
-    /**
-     * 显示调试详情面板：固定在屏幕底部的半透明信息面板。
-     * 与 debug bitmap 分离，不随框选区域移动。
-     * 右下角有展开/折叠按钮。
-     * @param maxHeight 最大高度（px），0 表示不限制（WRAP_CONTENT）
-     */
-    @SuppressLint("SetTextI18n")
-    private fun showDebugInfoPanel(lines: List<String>, scrollable: Boolean = false, maxHeight: Int = 0) {
-        dismissDebugInfoPanel()
-        val tv = android.widget.TextView(this).apply {
-            text = lines.joinToString("\n")
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = if (scrollable) 11f else 13f
-            setPadding(24, 16, 24, 16)
-            setBackgroundColor(android.graphics.Color.argb(200, 0, 0, 0))
-        }
-
-        val contentView: android.view.View
-        val layoutParamsHeight: Int
-
-        if (scrollable) {
-            val scrollView = android.widget.ScrollView(this).apply {
-                addView(tv)
-            }
-            contentView = scrollView
-            layoutParamsHeight = if (maxHeight > 0) maxHeight
-                else android.util.TypedValue.applyDimension(
-                    android.util.TypedValue.COMPLEX_UNIT_DIP, 400f, resources.displayMetrics
-                ).toInt()
-        } else {
-            contentView = tv
-            layoutParamsHeight = WindowManager.LayoutParams.WRAP_CONTENT
-        }
-
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            width = WindowManager.LayoutParams.MATCH_PARENT
-            height = layoutParamsHeight
-            gravity = Gravity.BOTTOM or Gravity.START
-            x = 0; y = 0
-        }
-        windowManager.addView(contentView, params)
-        debugInfoPanelView = contentView
-        debugInfoPanelAdded = true
-        debugInfoPanelCollapsed = false
-
-        // 添加右下角展开/折叠按钮
-        addDebugToggleButton()
-    }
-
-    /** 添加右下角展开/折叠按钮 */
-    @SuppressLint("SetTextI18n")
-    private fun addDebugToggleButton() {
-        removeDebugToggleButton()
-        val buttonSize = android.util.TypedValue.applyDimension(
-            android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics
-        ).toInt()
-        val margin = android.util.TypedValue.applyDimension(
-            android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics
-        ).toInt()
-
-        val button = android.widget.TextView(this).apply {
-            text = "▼"
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = 18f
-            gravity = android.view.Gravity.CENTER
-            setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0))
-            setOnClickListener {
-                if (debugInfoPanelCollapsed) {
-                    expandDebugInfoPanel()
-                } else {
-                    collapseDebugInfoPanel()
-                }
-            }
-        }
-
-        val params = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.RGBA_8888
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            width = buttonSize
-            height = buttonSize
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = margin
-            y = margin
-        }
-        windowManager.addView(button, params)
-        debugToggleButton = button
-        debugToggleButtonAdded = true
-    }
-
-    /** 移除展开/折叠按钮 */
-    private fun removeDebugToggleButton() {
-        if (debugToggleButtonAdded) {
-            try {
-                windowManager.removeView(debugToggleButton)
-            } catch (e: Exception) {
-                LogCollector.w(TAG, "removeDebugToggleButton: ${e.message}")
-            }
-            debugToggleButton = null
-            debugToggleButtonAdded = false
-        }
-    }
-
-    /** 折叠调试详情面板 */
-    private fun collapseDebugInfoPanel() {
-        if (debugInfoPanelAdded && !debugInfoPanelCollapsed && debugInfoPanelContentView != null) {
-            debugInfoPanelContentView!!.visibility = android.view.View.GONE
-            debugInfoPanelCollapsed = true
-            debugToggleButton?.text = "▲"
-        }
-    }
-
-    /** 展开已折叠的调试详情面板 */
-    private fun expandDebugInfoPanel() {
-        if (debugInfoPanelAdded && debugInfoPanelCollapsed && debugInfoPanelContentView != null) {
-            debugInfoPanelContentView!!.visibility = android.view.View.VISIBLE
-            debugInfoPanelCollapsed = false
-            debugToggleButton?.text = "▼"
-        }
-    }
-
-    /**
-     * 移除调试详情面板。
-     */
-    private fun dismissDebugInfoPanel() {
-        if (debugInfoPanelAdded) {
-            try {
-                windowManager.removeView(debugInfoPanelView)
-            } catch (e: Exception) {
-                LogCollector.w(TAG, "dismissDebugInfoPanel: ${e.message}")
-            }
-            debugInfoPanelView = null
-            debugInfoPanelContentView = null
-            debugInfoPanelAdded = false
-            debugInfoPanelCollapsed = false
-        }
-        removeDebugToggleButton()
-    }
-
-    /**
-     * 为 debug 图片添加框选外区域遮罩。
-     * 框选模式：创建全屏 bitmap，框选区域显示 debug 图片，框选外区域添加半透明黑色遮罩。
-     * 全屏模式：直接返回原 debug bitmap。
-     */
     // ---------- Helpers ----------
 
     private fun isViewAdded(view: View): Boolean {
@@ -3705,7 +3490,7 @@ class MangaFloatingService : LifecycleService() {
         removeCopyClickLayer()
         removeCopyButtons()
         dismissCacheOverlay()
-        dismissDebugInfoPanel()
+        debugPanel.dismiss()
         dismissResultOverlay()
         dismissProgressOverlay()
         dismissToastOverlay()
@@ -3782,97 +3567,26 @@ class MangaFloatingService : LifecycleService() {
      */
     private fun showMLKitDebugView(bitmap: Bitmap, result: MLKitDebugResult) {
         val debugBitmap = MangaDebugOverlays.renderMLKitDebugOverlay(bitmap, result)
-        showMLKitDebugResultOverlay(debugBitmap, result)
-    }
-
-    private fun showMLKitDebugResultOverlay(debugBitmap: Bitmap, result: MLKitDebugResult) {
-        if (isResultShowing) {
-            dismissResultOverlay()
+        debugPanel.showDebugOverlay(
+            debugBitmap, cropRect, getScreenSize(), initialCollapsed = false, errorTag = "ML Kit Debug"
+        ) { container ->
+            val infoPanel = MangaDebugOverlays.createInfoPanelView(
+                this, MangaDebugOverlays.buildMLKitInfoLines(result),
+                scrollable = true, maxHeight = getScreenSize().height / 2
+            )
+            container.addView(infoPanel, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = android.view.Gravity.BOTTOM })
+            val toggle = MangaDebugOverlays.createToggleButton(this, onToggle = { debugPanel.toggleCollapse() })
+            container.addView(toggle, android.widget.FrameLayout.LayoutParams(dpToPx(48), dpToPx(48)).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                marginEnd = dpToPx(16)
+                bottomMargin = dpToPx(16)
+            })
+            debugPanel.setToggleButton(toggle)
+            infoPanel
         }
-
-        // 应用框选外区域遮罩
-        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
-
-        // 创建容器 FrameLayout
-        val container = android.widget.FrameLayout(this)
-        val imageView = android.widget.ImageView(this).apply {
-            setImageBitmap(displayBitmap)
-            scaleType = android.widget.ImageView.ScaleType.FIT_XY
-        }
-        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // 添加底部 info panel 到容器中
-        val infoLines = buildList {
-            add("ML Kit 调试模式 | 块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements} | 语言: ${result.detectedLanguage ?: "未知"}")
-            add("绿=块  黄=行  红=元素")
-            add("")
-            // 只显示每块的文字摘要，不显示坐标和子元素
-            for ((i, block) in result.textBlocks.withIndex()) {
-                val text = block.blockText.take(30).replace("\n", " ")
-                add("B${i}: \"$text\" ${block.language ?: ""}")
-            }
-        }
-        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
-        val infoPanelParams = android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM
-        }
-        container.addView(infoPanel, infoPanelParams)
-        debugInfoPanelContentView = infoPanel  // 记录 infoPanel 引用，折叠时只隐藏它
-
-        // 添加右下角展开/折叠按钮
-        val toggleButton = MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })
-        val toggleParams = android.widget.FrameLayout.LayoutParams(
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
-            marginEnd = margin
-            bottomMargin = margin
-        }
-        container.addView(toggleButton, toggleParams)
-
-        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
-        imageView.isClickable = true
-        imageView.setOnClickListener {
-            dismissDebugInfoPanel()
-            dismissResultOverlay()
-        }
-
-        // 始终全屏显示
-        val screenSize = getScreenSize()
-        val params = android.view.WindowManager.LayoutParams(
-            screenSize.width,
-            screenSize.height,
-            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            android.graphics.PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = android.view.Gravity.START or android.view.Gravity.TOP
-            x = 0; y = 0
-        }
-
-        try {
-            windowManager.addView(container, params)
-            debugInfoPanelView = container
-            debugInfoPanelAdded = true
-            debugInfoPanelCollapsed = false
-            debugToggleButton = toggleButton
-            debugToggleButtonAdded = true
-            isResultShowing = true
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "ML Kit Debug: 显示失败", e)
-        }
-
-        bringFloatingBallToFront()
     }
 
     /**
@@ -3883,412 +3597,135 @@ class MangaFloatingService : LifecycleService() {
      */
     private fun showPPOcrV5DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup>, debugDet: PPOcrV5Engine.DebugDetResult? = null) {
         val debugBitmap = MangaDebugOverlays.renderPPOcrV5DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet, prefs.getFloat("ppocr_text_score_thresh", 0.5f))
-        showPPOcrV5DebugResultOverlay(debugBitmap, ocrResult, mergedRegions, debugDet)
+        debugPanel.showDebugOverlay(
+            debugBitmap, cropRect, getScreenSize(), initialCollapsed = true, errorTag = "PP-OCRv5 Debug"
+        ) { container ->
+            val disc = debugDet
+            val recDebug = ocrResult.recDebug
+            val discCount = disc?.discardedBoxes?.size ?: 0
+            val scoreDisc = recDebug?.discardedReasons?.count { it == "score" } ?: 0
+            val contentDisc = recDebug?.discardedReasons?.count { it != "score" } ?: 0
+            val infoLines = MangaDebugOverlays.buildPPOcrInfoLines(
+                headerLines = listOf(
+                    "PP-OCRv5 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $scoreDisc  内容丢弃: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域"
+                ),
+                ocrResult = ocrResult,
+                mergedRegions = mergedRegions,
+                detDiscardBoxes = disc?.discardedBoxes ?: emptyList(),
+                detDiscardScores = disc?.discardedScores ?: emptyList(),
+                detDiscardReasons = disc?.discardedReasons ?: emptyList(),
+                prefs = prefs,
+                detBoxKey = "ppocr_det_box_thresh", detBoxDefault = 0.3f,
+                unclipKey = "ppocr_det_unclip_ratio",
+                textKey = "ppocr_text_score_thresh", textDefault = 0.5f
+            )
+            val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
+            val slidersView = MangaDebugSliders.createPPOcrParamSlidersView(prefs, this)
+            val foldableContent = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+            }
+            foldableContent.addView(slidersView, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+            foldableContent.addView(infoPanel, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+            foldableContent.visibility = android.view.View.GONE  // 默认折叠
+            container.addView(foldableContent, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = android.view.Gravity.BOTTOM })
+            val toggle = MangaDebugOverlays.createToggleButton(this, onToggle = { debugPanel.toggleCollapse() })
+            toggle.text = "▲"  // 初始折叠
+            container.addView(toggle, android.widget.FrameLayout.LayoutParams(dpToPx(48), dpToPx(48)).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                marginEnd = dpToPx(16)
+                bottomMargin = dpToPx(16)
+            })
+            debugPanel.setToggleButton(toggle)
+            foldableContent
+        }
     }
-
 
     private fun showPPOcrV6DebugView(bitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup>, debugDet: PPOcrV6Engine.DebugDetResult? = null) {
         val debugBitmap = MangaDebugOverlays.renderPPOcrV6DebugWithMerge(bitmap, ocrResult, mergedRegions, debugDet, prefs.getFloat("ppocrv6_text_score", 0.5f))
-        showPPOcrV6DebugResultOverlay(debugBitmap, ocrResult, mergedRegions, debugDet)
-    }
-
-    /**
-     * 渲染 PP-OCRv5 调试图：原始检测框 + 合并区域框 + 被丢弃选区
-     */
-    private fun showPPOcrV5DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup> = emptyList(), debugDet: PPOcrV5Engine.DebugDetResult? = null) {
-        if (isResultShowing) {
-            dismissResultOverlay()
-        }
-
-        // 应用框选外区域遮罩
-        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
-
-        // 创建容器 FrameLayout
-        val container = android.widget.FrameLayout(this)
-        val imageView = android.widget.ImageView(this).apply {
-            setImageBitmap(displayBitmap)
-            scaleType = android.widget.ImageView.ScaleType.FIT_XY
-        }
-        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // 添加底部 info panel 到容器中（包含参数滑块 + 调试信息）
-        val infoLines = buildList {
-            val discCount = debugDet?.discardedBoxes?.size ?: 0
+        debugPanel.showDebugOverlay(
+            debugBitmap, cropRect, getScreenSize(), initialCollapsed = true, errorTag = "PP-OCRv6 Debug"
+        ) { container ->
+            val disc = debugDet
             val recDebug = ocrResult.recDebug
+            val discCount = disc?.discardedBoxes?.size ?: 0
             val scoreDisc = recDebug?.discardedReasons?.count { it == "score" } ?: 0
             val contentDisc = recDebug?.discardedReasons?.count { it != "score" } ?: 0
-            val curBox = prefs.getFloat("ppocr_det_box_thresh", 0.3f)
-            val curUnclip = prefs.getFloat("ppocr_det_unclip_ratio", 1.6f)
-            val curText = prefs.getFloat("ppocr_text_score_thresh", 0.5f)
-            add("PP-OCRv5 调试模式 | 检测: ${ocrResult.boxes.size}  检测丢弃: $discCount  识别丢弃: $scoreDisc  内容丢弃: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}区域")
-            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
-            add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
-            val curGap = prefs.getFloat("merge_discard_gap", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)
-            add("合并参数（对齐 manga-image-translator）:")
-            add("  距离门控 = ${String.format("%.1f", curGap)} (×字号, AABB距离超过则拒绝合并)")
-            add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
-            add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
-                "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
-                "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
-                "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
-            add("━━━ 合并结果 ━━━")
-            for ((idx, region) in mergedRegions.withIndex()) {
-                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "竖排" else "横排"
-                val srcCount = region.texts.size
-                val merged = region.texts.joinToString("｜")
-                val r = region.rect
-                val angleStr = if (kotlin.math.abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
-                add("【$idx】$dirLabel ×$srcCount$angleStr [${r.left},${r.top},${r.right},${r.bottom}]")
-                add("    $merged")
-            }
-            add("")
-            add("━━━ 原始识别 ━━━")
-            for (i in ocrResult.texts.indices) {
-                val text = ocrResult.texts[i]
-                val score = ocrResult.scores.getOrElse(i) { 0f }
-                val box = ocrResult.boxes.getOrNull(i)
-                val boxStr = if (box != null && box.size >= 8) {
-                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
-                } else ""
-                // 计算每个 box 的倾斜角（与 ocrResultToTextLines 同样的算法）
-                val angleStr = if (box != null && box.size >= 8) {
-                    val topDx = box[2] - box[0]
-                    val topDy = box[3] - box[1]
-                    val ang = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
-                    val finalAng = if (kotlin.math.abs(ang) <= 3f) 0f else ang
-                    if (kotlin.math.abs(finalAng) > 0.5f) " ∠${String.format("%.1f°", finalAng)}" else ""
-                } else ""
-                add("[$i] ${String.format("%.2f", score)}$angleStr $boxStr \"$text\"")
-            }
-            if (debugDet != null && debugDet.discardedBoxes.isNotEmpty()) {
-                add("")
-                add("━━━ 被检测丢弃选区 (${debugDet.discardedBoxes.size}) ━━━")
-                for (i in debugDet.discardedBoxes.indices) {
-                    val box = debugDet.discardedBoxes[i]
-                    val score = debugDet.discardedScores.getOrElse(i) { 0f }
-                    val reason = debugDet.discardedReasons.getOrElse(i) { "" }
-                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
-                }
-            }
-            // 识别置信度丢弃的选区
-            val recDisc = ocrResult.recDebug
-            if (recDisc != null && recDisc.discardedBoxes.isNotEmpty()) {
-                add("")
-                add("━━━ 被识别/内容丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
-                for (i in recDisc.discardedBoxes.indices) {
-                    val box = recDisc.discardedBoxes[i]
-                    val score = recDisc.discardedScores.getOrElse(i) { 0f }
-                    val text = recDisc.discardedTexts.getOrElse(i) { "" }
-                    val reason = recDisc.discardedReasons.getOrElse(i) { "score" }
-                    val preview = text.take(20).ifEmpty { "(空)" }
-                    if (reason == "score") {
-                        add("✗[$i] 分数${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
-                    } else {
-                        add("✗[$i] 内容:$reason [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
-                    }
-                }
-            }
-        }
-        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
-
-        // 创建可折叠内容容器：参数滑块 + 调试信息
-        val foldableContent = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        // 参数滑块（带恢复默认按钮）
-        val slidersView = MangaDebugSliders.createPPOcrParamSlidersView(prefs, this)
-        foldableContent.addView(slidersView, android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-        // 调试信息
-        foldableContent.addView(infoPanel, android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-
-        val foldableParams = android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM
-        }
-        container.addView(foldableContent, foldableParams)
-        debugInfoPanelContentView = foldableContent  // 折叠时隐藏整个内容区
-
-        // 添加右下角展开/折叠按钮
-        val toggleButton = MangaDebugOverlays.createToggleButton(this, onToggle = { if (debugInfoPanelCollapsed) expandDebugInfoPanel() else collapseDebugInfoPanel() })
-        val toggleParams = android.widget.FrameLayout.LayoutParams(
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt(),
-            android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics).toInt()
-            marginEnd = margin
-            bottomMargin = margin
-        }
-        container.addView(toggleButton, toggleParams)
-
-        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
-        imageView.isClickable = true
-        imageView.setOnClickListener {
-            dismissDebugInfoPanel()
-            dismissResultOverlay()
-        }
-
-        // 始终全屏显示
-        val screenSize = getScreenSize()
-        val params = android.view.WindowManager.LayoutParams(
-            screenSize.width,
-            screenSize.height,
-            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            android.graphics.PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = android.view.Gravity.START or android.view.Gravity.TOP
-            x = 0; y = 0
-        }
-
-        try {
-            windowManager.addView(container, params)
-            debugInfoPanelView = container
-            debugInfoPanelAdded = true
-            debugInfoPanelCollapsed = true  // 默认折叠
-            debugToggleButton = toggleButton
-            debugToggleButtonAdded = true
-            isResultShowing = true
-            // 初始折叠状态：隐藏内容，按钮显示展开箭头
-            foldableContent.visibility = android.view.View.GONE
-            toggleButton.text = "▲"
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "PP-OCRv5 Debug: 显示失败", e)
-        }
-
-        bringFloatingBallToFront()
-    }
-
-
-    private fun showPPOcrV6DebugResultOverlay(debugBitmap: Bitmap, ocrResult: OcrResult, mergedRegions: List<TextRegionGroup> = emptyList(), debugDet: PPOcrV6Engine.DebugDetResult? = null) {
-        if (isResultShowing) {
-            dismissResultOverlay()
-        }
-
-        // 应用框选外区域遮罩
-        val displayBitmap = MangaDebugOverlays.applyCropDimming(debugBitmap, cropRect, getScreenSize())
-
-        // 创建容器 FrameLayout
-        val container = android.widget.FrameLayout(this)
-        val imageView = android.widget.ImageView(this).apply {
-            setImageBitmap(displayBitmap)
-            scaleType = android.widget.ImageView.ScaleType.FIT_XY
-        }
-        container.addView(imageView, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // 添加底部 info panel 到容器中（包含参数滑块 + 调试信息）
-        val infoLines = buildList {
-            val discCount = debugDet?.discardedBoxes?.size ?: 0
-            val recDebug = ocrResult.recDebug
-            val scoreDisc = recDebug?.discardedReasons?.count { it == "score" } ?: 0
-            val contentDisc = recDebug?.discardedReasons?.count { it != "score" } ?: 0
-            val curBox = prefs.getFloat("ppocrv6_det_box_thresh", 0.5f)
-            val curUnclip = prefs.getFloat("ppocrv6_det_unclip_ratio", 1.6f)
-            val curText = prefs.getFloat("ppocrv6_text_score", 0.5f)
-            add("PP-OCRv6 调试模式 | det尺寸: ${PPOcrV6Engine.lastDetSize}")
-            add("检测: ${ocrResult.boxes.size}  丢弃: $discCount  识别丢: $scoreDisc  内容丢: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}")
-            add("图例: 绿=检测框  青=合并区  红虚线=检测分数低  橙虚线=识别/内容丢弃")
-            add("参数: box_thresh=${String.format("%.2f", curBox)}  unclip=${String.format("%.1f", curUnclip)}  text_score=${String.format("%.2f", curText)}")
-            val curGap = prefs.getFloat("merge_discard_gap", MergeParams.DISCARD_CONNECTION_GAP_DEFAULT)
-            add("合并参数（对齐 manga-image-translator）:")
-            add("  距离门控 = ${String.format("%.1f", curGap)} (×字号, AABB距离超过则拒绝合并)")
-            add("  其他参数: 字号比AA=2.0/Tilted=0.25  角度差Tilted=15°  长宽比=1.3")
-            add("耗时: det=${String.format("%.2f", ocrResult.elapseList.getOrElse(0){0f})}s  " +
-                "cls=${String.format("%.2f", ocrResult.elapseList.getOrElse(2){0f})}s  " +
-                "rec=${String.format("%.2f", ocrResult.elapseList.getOrElse(3){0f})}s  " +
-                "总=${String.format("%.2f", ocrResult.elapseList.getOrElse(4){0f})}s")
-            add("━━━ 合并结果 ━━━")
-            for ((idx, region) in mergedRegions.withIndex()) {
-                val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "竖排" else "横排"
-                val srcCount = region.texts.size
-                val merged = region.texts.joinToString("｜")
-                val r = region.rect
-                val angleStr = if (kotlin.math.abs(region.angle) > 0.5f) " ∠${String.format("%.1f°", region.angle)}" else ""
-                add("【$idx】$dirLabel ×$srcCount$angleStr [${r.left},${r.top},${r.right},${r.bottom}]")
-                add("    $merged")
-            }
-            add("")
-            add("━━━ 原始识别 ━━━")
-            for (i in ocrResult.texts.indices) {
-                val text = ocrResult.texts[i]
-                val score = ocrResult.scores.getOrElse(i) { 0f }
-                val box = ocrResult.boxes.getOrNull(i)
-                val boxStr = if (box != null && box.size >= 8) {
-                    "[${box[0].toInt()},${box[1].toInt()} → ${box[4].toInt()},${box[5].toInt()}]"
-                } else ""
-                // 计算每个 box 的倾斜角（与 ocrResultToTextLines 同样的算法）
-                val angleStr = if (box != null && box.size >= 8) {
-                    val topDx = box[2] - box[0]
-                    val topDy = box[3] - box[1]
-                    val ang = kotlin.math.atan2(topDy, topDx) * 180f / Math.PI.toFloat()
-                    val finalAng = if (kotlin.math.abs(ang) <= 3f) 0f else ang
-                    if (kotlin.math.abs(finalAng) > 0.5f) " ∠${String.format("%.1f°", finalAng)}" else ""
-                } else ""
-                add("[$i] ${String.format("%.2f", score)}$angleStr $boxStr \"$text\"")
-            }
-            if (debugDet != null && debugDet.discardedBoxes.isNotEmpty()) {
-                add("")
-                add("━━━ 被检测丢弃选区 (${debugDet.discardedBoxes.size}) ━━━")
-                for (i in debugDet.discardedBoxes.indices) {
-                    val box = debugDet.discardedBoxes[i]
-                    val score = debugDet.discardedScores.getOrElse(i) { 0f }
-                    val reason = debugDet.discardedReasons.getOrElse(i) { "" }
-                    add("✗[$i] ${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] $reason")
-                }
-            }
-            // 识别置信度丢弃的选区
-            val recDisc = ocrResult.recDebug
-            if (recDisc != null && recDisc.discardedBoxes.isNotEmpty()) {
-                add("")
-                add("━━━ 被识别/内容丢弃选区 (${recDisc.discardedBoxes.size}) ━━━")
-                for (i in recDisc.discardedBoxes.indices) {
-                    val box = recDisc.discardedBoxes[i]
-                    val score = recDisc.discardedScores.getOrElse(i) { 0f }
-                    val text = recDisc.discardedTexts.getOrElse(i) { "" }
-                    val reason = recDisc.discardedReasons.getOrElse(i) { "score" }
-                    val preview = text.take(20).ifEmpty { "(空)" }
-                    if (reason == "score") {
-                        add("✗[$i] 分数${String.format("%.2f", score)} [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
-                    } else {
-                        add("✗[$i] 内容:$reason [${box[0].toInt()},${box[1].toInt()}→${box[4].toInt()},${box[5].toInt()}] \"$preview\"")
-                    }
-                }
-            }
-        }
-        val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
-
-        // ============================================================
-        // 参数面板（可折叠，初始隐藏）
-        // ============================================================
-        val slidersView = MangaDebugSliders.createPPOcrV6ParamSlidersView(prefs, this)
-        slidersView.visibility = android.view.View.GONE  // 默认隐藏
-        val sliderParams = android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM
-            // 给 info 面板留空间
-            bottomMargin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 80f, resources.displayMetrics).toInt()
-        }
-        container.addView(slidersView, sliderParams)
-
-        // ============================================================
-        // 调试信息面板（可折叠，初始可见）
-        // ============================================================
-        val infoParams = android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM
-        }
-        container.addView(infoPanel, infoParams)
-        debugInfoPanelContentView = infoPanel  // 折叠时隐藏 info 面板
-
-        // ============================================================
-        // 两个折叠按钮：⚙参数 / 📊信息（右下角，左右排列，无背景）
-        // ============================================================
-        val btnSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 36f, resources.displayMetrics).toInt()
-        val margin = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 12f, resources.displayMetrics).toInt()
-
-        // 信息面板折叠按钮（右侧）
-        val toggleButton = android.widget.TextView(this).apply {
-            text = "📊"
-            textSize = 18f
-            gravity = android.view.Gravity.CENTER
-            setTextColor(android.graphics.Color.argb(220, 255, 255, 255))
-            isClickable = true; isFocusable = true
-            setOnClickListener {
-                if (infoPanel.visibility == android.view.View.GONE) {
-                    infoPanel.visibility = android.view.View.VISIBLE
-                    text = "📊"
-                } else {
-                    infoPanel.visibility = android.view.View.GONE
+            val infoLines = MangaDebugOverlays.buildPPOcrInfoLines(
+                headerLines = listOf(
+                    "PP-OCRv6 调试模式 | det尺寸: ${PPOcrV6Engine.lastDetSize}",
+                    "检测: ${ocrResult.boxes.size}  丢弃: $discCount  识别丢: $scoreDisc  内容丢: $contentDisc  输出: ${ocrResult.texts.size}  合并: ${mergedRegions.size}"
+                ),
+                ocrResult = ocrResult,
+                mergedRegions = mergedRegions,
+                detDiscardBoxes = disc?.discardedBoxes ?: emptyList(),
+                detDiscardScores = disc?.discardedScores ?: emptyList(),
+                detDiscardReasons = disc?.discardedReasons ?: emptyList(),
+                prefs = prefs,
+                detBoxKey = "ppocrv6_det_box_thresh", detBoxDefault = 0.5f,
+                unclipKey = "ppocrv6_det_unclip_ratio",
+                textKey = "ppocrv6_text_score", textDefault = 0.5f
+            )
+            val infoPanel = MangaDebugOverlays.createInfoPanelView(this, infoLines, scrollable = true, maxHeight = getScreenSize().height / 2)
+            val slidersView = MangaDebugSliders.createPPOcrV6ParamSlidersView(prefs, this)
+            slidersView.visibility = android.view.View.GONE  // 参数面板默认隐藏
+            container.addView(slidersView, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.BOTTOM
+                bottomMargin = dpToPx(80)  // 给 info 面板留空间
+            })
+            container.addView(infoPanel, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = android.view.Gravity.BOTTOM })
+            // 两个折叠按钮：📊信息 / ⚙参数（右下角，左右排列，无背景）
+            val btnSize = dpToPx(36)
+            val margin = dpToPx(12)
+            val toggleButton = android.widget.TextView(this).apply {
+                text = "📊"
+                textSize = 18f
+                gravity = android.view.Gravity.CENTER
+                setTextColor(android.graphics.Color.argb(220, 255, 255, 255))
+                isClickable = true; isFocusable = true
+                setOnClickListener {
+                    infoPanel.visibility = if (infoPanel.visibility == android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
                     text = "📊"
                 }
             }
-        }
-        val toggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            marginEnd = margin
-            bottomMargin = margin
-        }
-        container.addView(toggleButton, toggleParams)
-
-        // 参数面板折叠按钮（左侧，紧挨信息按钮）
-        val paramsToggle = android.widget.TextView(this).apply {
-            text = "⚙"
-            textSize = 18f
-            gravity = android.view.Gravity.CENTER
-            setTextColor(android.graphics.Color.argb(220, 255, 255, 255))
-            isClickable = true; isFocusable = true
-            setOnClickListener {
-                if (slidersView.visibility == android.view.View.GONE) {
-                    slidersView.visibility = android.view.View.VISIBLE
-                } else {
-                    slidersView.visibility = android.view.View.GONE
+            container.addView(toggleButton, android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                marginEnd = margin
+                bottomMargin = margin
+            })
+            val paramsToggle = android.widget.TextView(this).apply {
+                text = "⚙"
+                textSize = 18f
+                gravity = android.view.Gravity.CENTER
+                setTextColor(android.graphics.Color.argb(220, 255, 255, 255))
+                isClickable = true; isFocusable = true
+                setOnClickListener {
+                    slidersView.visibility = if (slidersView.visibility == android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
                 }
             }
+            container.addView(paramsToggle, android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                marginEnd = margin + btnSize + 2
+                bottomMargin = margin
+            })
+            toggleButton.text = "▼"  // 初始显示（原实现 addView 后设置）
+            debugPanel.setToggleButton(toggleButton)
+            infoPanel
         }
-        val paramsToggleParams = android.widget.FrameLayout.LayoutParams(btnSize, btnSize).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-            marginEnd = margin + btnSize + 2
-            bottomMargin = margin
-        }
-        container.addView(paramsToggle, paramsToggleParams)
-
-        // imageView 点击关闭全部（toggle 按钮在更高层级会优先接收点击）
-        imageView.isClickable = true
-        imageView.setOnClickListener {
-            dismissDebugInfoPanel()
-            dismissResultOverlay()
-        }
-
-        // 始终全屏显示
-        val screenSize = getScreenSize()
-        val params = android.view.WindowManager.LayoutParams(
-            screenSize.width,
-            screenSize.height,
-            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            android.graphics.PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = android.view.Gravity.START or android.view.Gravity.TOP
-            x = 0; y = 0
-        }
-
-        try {
-            windowManager.addView(container, params)
-            debugInfoPanelView = container
-            debugInfoPanelAdded = true
-            debugInfoPanelCollapsed = true  // 默认折叠
-            debugToggleButton = toggleButton
-            debugToggleButtonAdded = true
-            isResultShowing = true
-            // info 面板初始可见，参数面板初始隐藏
-            toggleButton.text = "▼"
-        } catch (e: Exception) {
-            LogCollector.e(TAG, "PP-OCRv6 Debug: 显示失败", e)
-        }
-
-        bringFloatingBallToFront()
     }
 
     /** 限制最大高度的 ScrollView，用于调试面板半屏约束 */
