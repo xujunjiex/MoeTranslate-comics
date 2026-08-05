@@ -16,6 +16,12 @@ import android.graphics.Typeface
 
 object VerticalTextRenderer {
 
+    /** 竖排字符步距系数（上下相邻字步进），与 OverlayRenderer.VERTICAL_CHAR_RATIO 必须一致 */
+    private const val VERTICAL_CHAR_RATIO = 1.1f
+
+    /** 横排换行行距系数（与竖排字距解耦，保持 1.2） */
+    private const val HORIZONTAL_LINE_RATIO = 1.2f
+
     // 从上到下，列从右到左（传统日漫）
     fun drawVerticalTextRL(
         canvas: Canvas,
@@ -35,8 +41,8 @@ object VerticalTextRenderer {
             typeface = fontTypeface ?: Typeface.DEFAULT
         }
 
-        val charHeight = fontSize * 1.2f
-        val columnSpacing = columnSpacingOverride ?: (fontSize * 1.2f)
+        val charHeight = fontSize * VERTICAL_CHAR_RATIO
+        val columnSpacing = columnSpacingOverride ?: (fontSize * VERTICAL_CHAR_RATIO)
         val charsPerColumn = maxOf(1, ((region.height() - fontSize) / charHeight).toInt() + 1)
         val columns = (text.length + charsPerColumn - 1) / charsPerColumn
         // 水平居中：列组中心对齐 region 中心（最右列中心）；否则从右缘开始
@@ -89,8 +95,8 @@ object VerticalTextRenderer {
             typeface = fontTypeface ?: Typeface.DEFAULT
         }
 
-        val charHeight = fontSize * 1.2f
-        val columnSpacing = columnSpacingOverride ?: (fontSize * 1.2f)
+        val charHeight = fontSize * VERTICAL_CHAR_RATIO
+        val columnSpacing = columnSpacingOverride ?: (fontSize * VERTICAL_CHAR_RATIO)
         val charsPerColumn = maxOf(1, ((region.height() - fontSize) / charHeight).toInt() + 1)
         val columns = (text.length + charsPerColumn - 1) / charsPerColumn
         // 水平居中：列组中心对齐 region 中心（最左列中心）；否则从左缘开始
@@ -139,7 +145,7 @@ object VerticalTextRenderer {
             typeface = fontTypeface ?: Typeface.DEFAULT
         }
 
-        val lineHeight = fontSize * 1.2f
+        val lineHeight = fontSize * HORIZONTAL_LINE_RATIO
         val maxWidth = region.width().toFloat()
         var currentY = region.top + fontSize
 
@@ -198,8 +204,8 @@ object VerticalTextRenderer {
 
         // 字体上限不能超过矩形本身能容纳的大小
         val rectLimit = when (direction) {
-            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> regionHeight / 1.2f
-            TextDirection.HORIZONTAL -> regionWidth / 1.2f
+            TextDirection.VERTICAL_RL, TextDirection.VERTICAL_LR -> regionHeight / VERTICAL_CHAR_RATIO
+            TextDirection.HORIZONTAL -> regionWidth / HORIZONTAL_LINE_RATIO
         }
         val cappedMax = minOf(maxFontSize, rectLimit)
 
@@ -227,8 +233,8 @@ object VerticalTextRenderer {
         direction: TextDirection,
         fontSize: Float
     ): Boolean {
-        val charHeight = fontSize * 1.2f
-        val columnSpacing = fontSize * 1.2f
+        val charHeight = fontSize * VERTICAL_CHAR_RATIO
+        val columnSpacing = fontSize * VERTICAL_CHAR_RATIO
         val regionWidth = region.width().toFloat()
         val regionHeight = region.height().toFloat()
 
@@ -241,7 +247,7 @@ object VerticalTextRenderer {
             }
             TextDirection.HORIZONTAL -> {
                 val paint = Paint().apply { textSize = fontSize }
-                val lineHeight = fontSize * 1.2f
+                val lineHeight = fontSize * HORIZONTAL_LINE_RATIO
                 val maxLines = (regionHeight / lineHeight).toInt()
                 var lines = 0
                 val paragraphs = text.split("\n")

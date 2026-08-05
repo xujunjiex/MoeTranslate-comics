@@ -40,18 +40,23 @@ object OverlayRenderer {
     private const val HORIZONTAL_SEPARATOR = "──"
 
     /**
-     * 竖排字符步距系数，必须与 VerticalTextRenderer 绘制一致（其内部用 fontSize*1.2f）。
-     * 尺寸计算若用更大的系数（如 1.4）会高估每列容量不足 → 列数算多 → drawRect 宽出 1-2 列空白。
+     * 竖排字符步距系数，必须与 VerticalTextRenderer 绘制一致（其内部 VERTICAL_CHAR_RATIO）。
+     * 尺寸计算若用更大的系数会高估每列容量不足 → 列数算多 → drawRect 宽出 1-2 列空白。
      */
-    private const val CHAR_RATIO = 1.2f
+    private const val VERTICAL_CHAR_RATIO = 1.1f
+
+    /**
+     * 横排行距系数（仅横排换行步进），保持与竖排字距解耦。
+     */
+    private const val HORIZONTAL_LINE_RATIO = 1.2f
 
     /**
      * 竖排每列可容纳字符数，与 VerticalTextRenderer 绘制逻辑一致：
-     * 起点 y = top + fontSize，每字步进 fontSize*CHAR_RATIO，超出 bottom 换列。
+     * 起点 y = top + fontSize，每字步进 fontSize*VERTICAL_CHAR_RATIO，超出 bottom 换列。
      */
     private fun capacityForHeight(height: Int, fontSize: Float): Int {
         if (height <= 0) return 1
-        val step = fontSize * CHAR_RATIO
+        val step = fontSize * VERTICAL_CHAR_RATIO
         return maxOf(1, ((height - fontSize) / step).toInt() + 1)
     }
 
@@ -286,7 +291,7 @@ object OverlayRenderer {
         val rightAll = members.maxOf { it.neededRect.right }
         val height = (bottom - top).coerceAtLeast(1)
 
-        val charHeight = fontSize * CHAR_RATIO
+        val charHeight = fontSize * HORIZONTAL_LINE_RATIO
         val padding = (fontSize * 0.4f).toInt()
 
         val drawRect = when (direction) {
@@ -347,8 +352,8 @@ object OverlayRenderer {
         regionHeight: Int,
         regionWidth: Int
     ): Pair<Int, Int> {
-        val charHeight = fontSize * CHAR_RATIO
-        val columnSpacing = fontSize * CHAR_RATIO
+        val charHeight = fontSize * VERTICAL_CHAR_RATIO
+        val columnSpacing = fontSize * VERTICAL_CHAR_RATIO
         // 最多列数：至少 4 列，宽区域可更多
         val maxColumns = maxOf(4, (regionWidth / columnSpacing).toInt()).coerceAtLeast(1)
         // 自然列数：优先利用区域高度（每列尽量多字），容量与绘制函数一致
@@ -383,8 +388,8 @@ object OverlayRenderer {
         direction: TextDirection,
         fontSize: Float
     ): Rect {
-        val charHeight = fontSize * CHAR_RATIO
-        val columnSpacing = fontSize * CHAR_RATIO
+        val charHeight = fontSize * VERTICAL_CHAR_RATIO
+        val columnSpacing = fontSize * VERTICAL_CHAR_RATIO
         val padding = (fontSize * 0.4f).toInt()
 
         val textW: Float
@@ -415,7 +420,7 @@ object OverlayRenderer {
                     }
                 }
                 textW = maxLineW
-                textH = lines * charHeight
+                textH = lines * fontSize * HORIZONTAL_LINE_RATIO
             }
         }
 
