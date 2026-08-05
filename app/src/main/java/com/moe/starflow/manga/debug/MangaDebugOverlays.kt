@@ -620,6 +620,29 @@ object MangaDebugOverlays {
         }
     }
 
+    /** 构建 ML Kit 调试信息行（原 MangaFloatingService.showMLKitDebugResultOverlay） */
+    fun buildMLKitInfoLines(result: MLKitDebugResult): List<String> {
+        return buildList {
+            add("ML Kit 调试模式 | 块: ${result.textBlocks.size}  行: ${result.totalLines}  元素: ${result.totalElements} | 语言: ${result.detectedLanguage ?: "未知"}")
+            add("绿=块  黄=行  红=元素")
+            add("")
+            for ((i, block) in result.textBlocks.withIndex()) {
+                val text = block.blockText.take(30).replace("\n", " ")
+                add("B${i}: \"$text\" ${block.language ?: ""}")
+            }
+        }
+    }
+
+    /** 构建 RT-DETR-V2 调试信息行（原 MangaFloatingService.showRTDetrV2DebugResultOverlay） */
+    fun buildRTDetrInfoLines(debugResult: RTDetrV2DebugResult, keepTextFree: Boolean): List<String> {
+        return listOf(
+            "🟢 绿色 = text_bubble（${debugResult.textBubbles.size}）",
+            "🔵 蓝色 = text_free（${debugResult.textFree.size}）${if (keepTextFree) "保留" else "丢弃"}",
+            "🔴 红色 = bubble（${debugResult.emptyBubbles.size}）压缩15%",
+            "🟡 黄色 = 最终提交OCR（${debugResult.finalRegions.size}）"
+        )
+    }
+
     /** 限制最大高度的 ScrollView */
     class MaxHeightScrollView(context: Context, private val maxHeightPx: Int) : ScrollView(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

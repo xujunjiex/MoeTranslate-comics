@@ -5,6 +5,7 @@ import android.graphics.PointF
 import android.graphics.Rect
 import android.util.Size
 import com.moe.starflow.manga.DebugRecResult
+import com.moe.starflow.manga.MLKitDebugBlock
 import com.moe.starflow.manga.MLKitDebugResult
 import com.moe.starflow.manga.OcrResult
 import com.moe.starflow.manga.RTDetrV2DebugResult
@@ -13,6 +14,7 @@ import com.moe.starflow.manga.TextRegionGroup
 import com.moe.starflow.utils.CustomPreference
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -174,5 +176,37 @@ class MangaDebugOverlaysTest {
         assertTrue("合并参数行缺失", lines.any { it.contains("距离门控 = 1.5") })
         assertTrue("合并结果块不应出现在空输入", !lines.any { it.contains("【0】") })
         assertTrue("检测丢弃块不应出现在空输入", !lines.any { it.contains("被检测丢弃选区") })
+    }
+
+    @Test
+    fun buildMLKitInfoLines_汇总头部和块文本() {
+        val result = MLKitDebugResult(
+            textBlocks = listOf(
+                MLKitDebugBlock("こんにちは\n世界", null, null, emptyList(), "ja")
+            ),
+            totalLines = 2,
+            totalElements = 3,
+            detectedLanguage = "ja"
+        )
+        val lines = MangaDebugOverlays.buildMLKitInfoLines(result)
+        assertTrue("块数缺失", lines[0].contains("块: 1"))
+        assertTrue("行数缺失", lines[0].contains("行: 2"))
+        assertTrue("元素数缺失", lines[0].contains("元素: 3"))
+        assertTrue("语言缺失", lines[0].contains("语言: ja"))
+        assertTrue("块文本行缺失: $lines", lines.any { it.contains("B0:") })
+        assertTrue("换行未替换为空格", lines.any { it.contains("\"こんにちは 世界\"") })
+    }
+
+    @Test
+    fun buildRTDetrInfoLines_keepTextFree开关() {
+        val result = RTDetrV2DebugResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        val keep = MangaDebugOverlays.buildRTDetrInfoLines(result, true)
+        val drop = MangaDebugOverlays.buildRTDetrInfoLines(result, false)
+        assertEquals(4, keep.size)
+        assertTrue("保留分支错误: $keep", keep[1].contains("保留"))
+        assertTrue("丢弃分支错误: $drop", drop[1].contains("丢弃"))
+        assertTrue("text_bubble 行缺失", keep[0].contains("text_bubble"))
+        assertTrue("bubble 行缺失", keep[2].contains("bubble"))
+        assertTrue("最终OCR行缺失", keep[3].contains("最终提交OCR"))
     }
 }
