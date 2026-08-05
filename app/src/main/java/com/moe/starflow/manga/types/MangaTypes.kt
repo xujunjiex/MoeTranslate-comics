@@ -1,4 +1,5 @@
 package com.moe.starflow.manga.types
+import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 
 import org.locationtech.jts.geom.Coordinate

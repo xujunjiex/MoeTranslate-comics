@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.apiconfig
+import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 
 import com.moe.starflow.utils.CustomPreference

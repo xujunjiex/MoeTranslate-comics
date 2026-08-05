@@ -1,4 +1,5 @@
 package com.moe.starflow.manga.config
+import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 
 import com.moe.starflow.R

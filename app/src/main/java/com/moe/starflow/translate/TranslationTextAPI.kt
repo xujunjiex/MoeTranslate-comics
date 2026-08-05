@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.translate
+import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 
 // 定义翻译结果的封装类

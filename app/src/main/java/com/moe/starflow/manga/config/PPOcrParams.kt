@@ -11,6 +11,7 @@
  * 三处调用方（引擎、UI、reset）都从这里取，IDE grep 可一次找全，避免再次写散。
  */
 package com.moe.starflow.manga.config
+import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 
 import com.moe.starflow.utils.CustomPreference
