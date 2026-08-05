@@ -73,13 +73,29 @@ adb devices
 
 **包结构** (`app/src/main/java/com/moe/starflow/`):
 
-- `translate/` — 游戏翻译引擎：`FloatingBallService`（主服务）、`AutoTranslateEngine`（自动翻译状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）、`TranslationResultView`（翻译结果容器）、`CropView`（框选视图）、`Shooter`（MediaProjection 截图）、`ScreenshotManager`（截图管理器单例）、`ScreenshotProvider`（截图提供者接口）/`MediaProjectionProvider`/`AccessibilityProvider`、`ScreenShotAccessibilityService`（无障碍截图）、`Dialogs`（菜单/弹窗工具）、`MenuDialogAdapter`（菜单列表项适配器）、`BallStateManager`（悬浮球状态图标管理器）、`TranslationStatusOverlay`（共享翻译状态浮层单例，全局调用）
-- `manga/` — 漫画翻译引擎：`MangaFloatingService`（主服务）、`DetectionBridge`（检测桥接）、`PPOcrV5Engine`（PP-OCRv5 流水线）、`PPOcrV6Engine`（PP-OCRv6 流水线，默认）、`ComicBubbleDetector`/`DBNetDetector`（检测器）、`MangaOcrBridge`/`MangaOcrRecognizer`（manga-ocr）、`OCRBridge`/`OCRTextRecognizer`（ML Kit 识别桥 + 基础识别，游戏漫画共用）、`MangaSpatialGrouping`（空间聚类/分批切分纯算法）、`TextRegionMerger`（区域合并）、`OverlayRenderer`（覆盖层渲染）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`GeometryUtils`/`OnnxUtils`（工具）、`MangaModeConfig`（漫画模式配置 + 引擎组合定义）
-- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，11 条 FAQ）
+- `manga/` — 漫画翻译引擎（按功能分 8 组）：
+  - 根包：`MangaFloatingService`（主服务）、`TranslateUtils`（翻译管线公共层）、`OcrLock`（引擎互斥锁）、`OnnxUtils`/`GeometryUtils`（工具）
+  - `types/` — 纯数据类（`TextLine`/`OcrResult`/`TranslatedBubble`/`BubbleRegion`/`TextBlockInfo`/`TextRegionGroup`/`QuadBox`/枚举等 13 文件）
+  - `config/` — `MangaModeConfig`（data class + verticalTextDirection 扩展）、`OcrEngineGroup`（4 组引擎组合：MLKIT/PP_OCR_V6/PP_OCR_V5/RT_MANGA）、`PPOcrParams`（v5/v6 参数 key/默认值单一来源）
+  - `engine/` — `PPOcrV5Engine`/`PPOcrV6Engine`（OCR 流水线）、`DetectionBridge`（检测桥接）、`OCRBridge`/`OCRTextRecognizer`（ML Kit，游戏漫画共用）、`MangaOcrBridge`/`MangaOcrRecognizer`/`MangaOcrTokenizer`（manga-ocr）、`ComicBubbleDetector`/`BubbleDetector`（检测器）、`PPOcrDetGeometry`（det 后处理共享）、`PPOcrModelFiles`/`MangaOcrModelFiles`/`RTDetrModelFiles`（模型文件检查）
+  - `render/` — `OverlayRenderer`（覆盖层渲染 + TranslatedBubble 类型）、`VerticalTextRenderer`（竖排/横排渲染）
+  - `merge/` — `TextRegionMerger`（区域合并）、`PPOcrPostProcessing`（识别后合并）、`MangaSpatialGrouping`（空间聚类/分批切分）
+  - `state/` — `MangaAutoTranslateEngine`（自动翻译状态机）、`MangaEngineManager`（引擎初始化/释放）、`RegionCacheManager`（区域缓存）
+  - `debug/` — `MangaDebugOverlays`（渲染纯函数）、`MangaDebugPanelController`（全屏 overlay 窗口骨架 + 折叠状态机）、`MangaDebugSliders`（参数滑块面板）
+- `translate/` — 游戏翻译引擎（3 个功能子包 + 根包）：
+  - 根包：`FloatingBallService`（主服务）、`TranslationTextAPI`/`TranslationPicAPI`（接口层）、`TranslationStatusOverlay`（共享翻译状态浮层单例）、`TranslateFragment`/`TextTranslateFragment`/`TranslateTools`/`CustomLocale`/`LanguageSelectionDialog`（首页/文本 UI）
+  - `screenshot/` — 截图系统：`ScreenshotProvider`（接口）/`MediaProjectionProvider`/`AccessibilityProvider`（双模式）、`ScreenshotManager`（截图总线单例）、`Shooter`（MediaProjection 帧捕获）、`ScreenCapturePermissionActivity`、`ScreenShotAccessibilityService`/`AccessibilityServiceManager`/`AccessibilityEventHandler`、`MediaProjectionIntentHolder`
+  - `autotranslate/` — `AutoTranslateEngine`（像素状态机）、`GameOcrEngine`（游戏 OCR 封装）、`GameDebugOverlay`（调试浮窗）
+  - `widget/` — `TranslationResultView`（翻译结果容器）、`BallStateManager`（悬浮球状态图标管理器）、`CropView`（框选视图）、`Dialogs`/`MenuDialogAdapter`（菜单/弹窗）
+- `chat/` — 文本聊天翻译模式：`ChatEngine`/`ChatTabView`/`ChatTemplates`/`ChatHistoryViewModel`/`HyMt2ChatEngine`/`OpenAIChatEngine`
+- `ui/` — 历史记录 & 漫画查看器：
+  - `history/` — `HistoryFragment`（双视图：默认/管理）+ 4 个 Adapter（`HistoryGameAdapter`/`HistoryMangaAdapter`/`HistoryGroupAdapter`/`HistoryMangaGroupAdapter`）
+  - `viewer/` — `MangaViewerActivity`（全屏图片浏览+译文详情+重翻操作）、`ZoomableImageView`（缩放控件）、`CropFragment`（重翻裁剪界面）
+- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，11 条 FAQ），按 about/apiconfig/model/settings 4 子包组织
 - `launch/` — 首次启动引导
 - `utils/` — 工具类：`Constants`（枚举定义）、`CustomPreference`（配置封装）、`LogCollector`（日志收集）、`PixelCompare`（像素比较）、`UiUtils`（Toast 统一）、`ServiceUtils`（服务状态检测）、`UpdateChecker`（检查更新）
-- `data/` — Room 数据库、`TranslationCacheManager`、`HistoryEntity`/`PageCacheEntity`
-- `ui/history/` — 历史记录 UI：`HistoryFragment`（双视图：默认/管理）、`HistoryGroupAdapter`（游戏分组）、`HistoryMangaGroupAdapter`（漫画分组）、`HistoryGameAdapter`、`HistoryMangaAdapter`、`MangaViewerActivity`（全屏图片浏览+译文详情+重翻操作）、`CropFragment`（重翻裁剪界面）
+- `data/` — Room 数据库、`TranslationCacheManager`、`TranslationCacheUtils`（缓存工具：256-bit hash 守卫 + 气泡 JSON 解析）、`HistoryEntity`/`PageCacheEntity`
+- `download/` — 模型下载流水线：`ModelDownloadManager`/`ModelDownloadRepository`/`ModelDownloadService`/`DownloadState`/`ModelInfo`/`ModelKey`/`ChecksumHelper`
 
 **翻译 API 实现** (`app/src/main/java/translationapi/`):
 每个子目录实现 `TranslationTextAPI` 接口：`openaitranslation/`、`bingtranslation/`、`nllbtranslation/`、`niutrans/`、`volctranslation/`、`deepltranslation/`、`baidutranslation/`、`tencentcloud/`、`azuretranslation/`、`customtranslation/`、`doubaotranslation/`、`hymt2translation/`
@@ -372,9 +388,9 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 ## 漫画模块
 
-**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测）、`PPOcrV5Engine.kt`（PP-OCRv5 det+cls+rec）、`MangaOcrBridge.kt`（manga-ocr）、`BoxMerger.kt`（合并）、`TextRegionMerger.kt`（识别后合并）、`OverlayRenderer.kt`（渲染）
+**核心文件：** `MangaFloatingService.kt`（主服务）、`DetectionBridge.kt`（检测桥接，engine/）、`ComicBubbleDetector.kt`（RT-DETR-V2 检测，engine/）、`PPOcrV5Engine.kt`（PP-OCRv5 det+rec，engine/）、`MangaOcrBridge.kt`（manga-ocr，engine/）、`TextRegionMerger.kt`（识别后合并，merge/）、`OverlayRenderer.kt`（渲染，render/）
 **工具类：** `GeometryUtils.kt`（凸包、点在多边形等几何算法）、`OnnxUtils.kt`（ONNX 张量提取、资源拷贝）
-**调试渲染子包 `manga/debug/`：** `MangaDebugOverlays.kt`（object：4 个 render*DebugOverlay 纯渲染函数 + applyCropDimming/createInfoPanelView/createToggleButton/MaxHeightScrollView 辅助）、`MangaDebugSliders.kt`（object：PP-OCRv5/v6 参数滑块面板构建器，注入 `CustomPreference` + `context`，无服务引用）。这些函数从 `MangaFloatingService` 提取（C1 重构），无状态、依赖全部参数化；`show*DebugResultOverlay`/`show*DebugView` 等编排函数仍在主服务里。
+**调试渲染子包 `manga/debug/`：** `MangaDebugOverlays.kt`（object：4 个 render*DebugOverlay 纯渲染函数 + applyCropDimming/createInfoPanelView/createToggleButton/MaxHeightScrollView 辅助）、`MangaDebugPanelController.kt`（全屏 debug overlay 窗口骨架 + 折叠状态机，4 个引擎共用的窗口管理）、`MangaDebugSliders.kt`（object：PP-OCRv5/v6 参数滑块面板构建器，注入 `CustomPreference` + `context`，无服务引用）。这些函数从 `MangaFloatingService` 提取，无状态、依赖全部参数化；`show*DebugView` 等编排函数仍在主服务里，窗口骨架由 `MangaDebugPanelController` 承载。
 
 **检测引擎（DetEngine）：**
 - `MLKIT(0)` — ML Kit 检测+识别一体化
@@ -415,7 +431,7 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 **合并机制：**
 
-| 检测器 + 识别器 | 前合并 (BoxMerger) | 后合并 (BubbleDetector) | 说明 |
+| 检测器 + 识别器 | 前合并 (MangaSpatialGrouping) | 后合并 (BubbleDetector) | 说明 |
 |---|---|---|---|
 | RT-DETR-V2 + 任意 | ❌ | ❌ | 检测器直接输出气泡级结果 |
 | MLKit 独立 | ❌ | ✅ | 行级文字块 → BubbleDetector 合并成气泡 |
@@ -616,7 +632,7 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:BoxMerger | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils
+tag:OCRBridge | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils
 ```
 
 ## 安装规范（最高优先级）
