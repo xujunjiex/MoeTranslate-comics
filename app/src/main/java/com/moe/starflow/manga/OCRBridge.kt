@@ -1,8 +1,9 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.config.*
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.util.Log
+import com.moe.starflow.manga.types.TextBlockInfo
 import com.moe.starflow.utils.LogCollector
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -13,16 +14,6 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-
-data class TextBlockInfo(
-    val text: String,
-    val boundingBox: Rect?,
-    val cornerPoints: Array<android.graphics.Point>?,
-    val isVertical: Boolean? = null,  // 新增: 竖排=true, 横排=false, null=从config推断
-    val angle: Float = 0f,
-    val centerX: Float = -1f,
-    val centerY: Float = -1f
-)
 
 object OCRBridge {
 

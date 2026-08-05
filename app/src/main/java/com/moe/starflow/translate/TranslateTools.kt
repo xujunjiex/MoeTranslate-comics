@@ -20,7 +20,7 @@ package com.moe.starflow.translate
 import android.content.Context
 import android.util.Log
 import com.moe.starflow.R
-import com.moe.starflow.manga.OcrEngineGroup
+import com.moe.starflow.manga.config.OcrEngineGroup
 import com.moe.starflow.utils.Constants
 import com.moe.starflow.utils.CustomPreference
 import org.w3c.dom.NodeList

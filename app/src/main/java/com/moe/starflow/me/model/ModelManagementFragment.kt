@@ -18,7 +18,7 @@ import com.moe.starflow.download.ModelDownloadRepository
 import com.moe.starflow.download.ModelKey
 import com.moe.starflow.download.ModelDownloadService
 import com.moe.starflow.manga.MangaOcrModelFiles
-import com.moe.starflow.manga.OcrEngineGroup
+import com.moe.starflow.manga.config.OcrEngineGroup
 import com.moe.starflow.manga.PPOcrModelFiles
 import com.moe.starflow.manga.RTDetrModelFiles
 import com.moe.starflow.utils.CustomPreference

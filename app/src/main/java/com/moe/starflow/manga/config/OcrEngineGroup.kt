@@ -1,6 +1,8 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.config
 
 import com.moe.starflow.R
+import com.moe.starflow.manga.types.DetEngine
+import com.moe.starflow.manga.types.OcrEngine
 
 /**
  * 统一 OCR 引擎选择：4 组，游戏/漫画共用唯一事实来源。

@@ -56,7 +56,7 @@ import com.moe.starflow.manga.MangaOcrBridge
 import com.moe.starflow.manga.OCRTextRecognizer
 import com.moe.starflow.manga.MangaOcrModelFiles
 import com.moe.starflow.manga.MangaOcrRecognizer
-import com.moe.starflow.manga.OcrEngineGroup
+import com.moe.starflow.manga.config.OcrEngineGroup
 import com.moe.starflow.manga.PPOcrModelFiles
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine

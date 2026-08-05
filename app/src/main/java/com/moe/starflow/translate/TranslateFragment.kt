@@ -997,7 +997,7 @@ class TranslateFragment : Fragment() {
                 enabled = enabled,
                 onDisabledClick = when (type) {
                     1 -> { locale ->
-                        val supportedNames = com.moe.starflow.manga.OcrEngineGroup.entries
+                        val supportedNames = com.moe.starflow.manga.config.OcrEngineGroup.entries
                             .filter { it.sourceLangs.contains(locale.getOriCode()) }
                             .joinToString(" / ") { getString(it.labelRes) }
                         val msg = if (supportedNames.isEmpty()) {

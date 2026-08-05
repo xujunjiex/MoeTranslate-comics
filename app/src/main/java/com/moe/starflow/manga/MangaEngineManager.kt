@@ -1,5 +1,7 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
 import android.content.Context
 import com.moe.starflow.R
 import com.moe.starflow.utils.LogCollector

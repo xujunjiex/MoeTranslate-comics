@@ -1,5 +1,8 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
+
 /**
  * OCR 引擎互斥锁。
  * PP-OCRv5 / MangaOcr 等 ONNX 引擎是单例对象，同时多线程调用会崩溃。

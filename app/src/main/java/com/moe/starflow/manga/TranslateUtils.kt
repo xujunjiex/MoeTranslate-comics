@@ -1,5 +1,7 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
 import android.graphics.Color
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI

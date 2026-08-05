@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.types
 
 /**
  * 合并器的统一输入。

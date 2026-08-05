@@ -17,6 +17,8 @@
 
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
 import android.graphics.Bitmap
 import android.util.Log
 import com.moe.starflow.utils.LogCollector

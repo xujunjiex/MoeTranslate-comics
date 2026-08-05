@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.types
 
 import android.graphics.PointF
 import android.graphics.Rect

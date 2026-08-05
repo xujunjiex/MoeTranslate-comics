@@ -7,14 +7,14 @@ import android.graphics.RectF
 import android.util.Size
 import android.view.View
 import android.widget.ScrollView
-import com.moe.starflow.manga.MLKitDebugResult
-import com.moe.starflow.manga.MergeParams
-import com.moe.starflow.manga.OcrResult
+import com.moe.starflow.manga.types.MLKitDebugResult
+import com.moe.starflow.manga.types.MergeParams
+import com.moe.starflow.manga.types.OcrResult
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
-import com.moe.starflow.manga.RTDetrV2DebugResult
-import com.moe.starflow.manga.TextDirection
-import com.moe.starflow.manga.TextRegionGroup
+import com.moe.starflow.manga.types.RTDetrV2DebugResult
+import com.moe.starflow.manga.types.TextDirection
+import com.moe.starflow.manga.types.TextRegionGroup
 import com.moe.starflow.utils.CustomPreference
 
 /**

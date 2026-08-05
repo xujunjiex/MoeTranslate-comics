@@ -6,8 +6,8 @@ import android.graphics.BitmapFactory
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.PerceptualHash
 import com.moe.starflow.manga.OverlayRenderer
-import com.moe.starflow.manga.TextDirection
-import com.moe.starflow.manga.TranslatedBubble
+import com.moe.starflow.manga.types.TextDirection
+import com.moe.starflow.manga.types.TranslatedBubble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -59,7 +59,7 @@ class TranslationCacheManager(private val context: Context) {
         val autoFit: Boolean = true,
         val textColor: Int = android.graphics.Color.BLACK,
         val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255),
-        val textDirection: com.moe.starflow.manga.TextDirection = com.moe.starflow.manga.TextDirection.VERTICAL_RL
+        val textDirection: com.moe.starflow.manga.types.TextDirection = com.moe.starflow.manga.types.TextDirection.VERTICAL_RL
     )
 
     /**
@@ -177,7 +177,7 @@ class TranslationCacheManager(private val context: Context) {
         val textColor = prefs.getInt("Manga_Text_Color", android.graphics.Color.BLACK)
         val bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
         val textDirection = if (prefs.getString("Manga_Text_Direction", "0") == "1")
-            com.moe.starflow.manga.TextDirection.VERTICAL_LR else com.moe.starflow.manga.TextDirection.VERTICAL_RL
+            com.moe.starflow.manga.types.TextDirection.VERTICAL_LR else com.moe.starflow.manga.types.TextDirection.VERTICAL_RL
         return OverlayConfig(fontSize, autoFit, textColor, bgColor, textDirection)
     }
 

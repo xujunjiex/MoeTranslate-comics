@@ -1,8 +1,8 @@
 package com.moe.starflow.data
 
 import android.graphics.Rect
-import com.moe.starflow.manga.TextDirection
-import com.moe.starflow.manga.TranslatedBubble
+import com.moe.starflow.manga.types.TextDirection
+import com.moe.starflow.manga.types.TranslatedBubble
 import com.moe.starflow.utils.LogCollector
 
 /**

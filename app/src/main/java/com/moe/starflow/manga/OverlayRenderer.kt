@@ -1,5 +1,6 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.config.*
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -7,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.types.TextDirection
 import com.moe.starflow.utils.CustomPreference
 
 object OverlayRenderer {
@@ -435,17 +438,3 @@ object OverlayRenderer {
         return Rect(left, top, left + w, top + h)
     }
 }
-
-data class TranslatedBubble(
-    val rect: Rect,
-    val originalText: String,
-    val translatedText: String,
-    val backgroundColor: Int,
-    val fontSize: Float = 16f,
-    val direction: TextDirection = TextDirection.VERTICAL_RL,
-    val angle: Float = 0f,
-    val centerX: Float = -1f,
-    val centerY: Float = -1f,
-    val fromCache: Boolean = false,  // true = 来自数据库反序列化（不进 ⚡）
-    val isInMemoryCache: Boolean = false  // true = 来自内存 translatedRegions 命中（显示 ⚡）
-)

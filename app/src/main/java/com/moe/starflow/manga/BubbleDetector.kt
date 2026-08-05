@@ -1,22 +1,16 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.config.*
 import android.graphics.Rect
 import android.graphics.RectF
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.types.BubbleRegion
+import com.moe.starflow.manga.types.TextDirection
 import com.moe.starflow.utils.LogCollector
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
-
-data class BubbleRegion(
-    val rect: Rect,
-    val texts: List<String>,
-    val fontSize: Float = 16f,
-    val direction: TextDirection = TextDirection.VERTICAL_RL,
-    val angle: Float = 0f,
-    val centerX: Float = -1f,
-    val centerY: Float = -1f
-)
 
 /**
  * 气泡检测器 — 基于 manga-image-translator 的 textline_merge 算法。

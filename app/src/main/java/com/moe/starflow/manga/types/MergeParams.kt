@@ -1,4 +1,4 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.types
 
 /**
  * TextRegionMerger 可调参数。

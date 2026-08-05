@@ -1,9 +1,11 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.config.*
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.RectF
+import com.moe.starflow.manga.types.DetectedBubble
 import com.moe.starflow.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
@@ -34,12 +36,6 @@ object ComicBubbleDetector {
 
     // NMS 阈值
     private const val NMS_IOU_THRESHOLD = 0.5f
-
-    data class DetectedBubble(
-        val rect: Rect,
-        val classId: Int,    // 1=text_bubble, 2=text_free (0 已过滤)
-        val confidence: Float
-    )
 
     private var ortEnv: OrtEnvironment? = null
     private var session: OrtSession? = null

@@ -10,7 +10,7 @@
  * 所有可调参数都集中在这里：默认值 + prefs key + read/write 工具方法。
  * 三处调用方（引擎、UI、reset）都从这里取，IDE grep 可一次找全，避免再次写散。
  */
-package com.moe.starflow.manga
+package com.moe.starflow.manga.config
 
 import com.moe.starflow.utils.CustomPreference
 

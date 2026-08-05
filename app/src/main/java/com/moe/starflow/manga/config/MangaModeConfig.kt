@@ -1,43 +1,12 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.config
 
-/**
- * OCR 引擎类型
- */
-enum class OcrEngine(val value: Int) {
-    MLKit(0),      // 系统 OCR（默认，无需下载）
-    MangaOcr(1),   // manga-ocr（下载版，从 HuggingFace 下载）
-    PPOcrV5(4),    // PP-OCRv5（内置，多语言）
-    PPOcrV6(5);    // PP-OCRv6（内置，多语言）
-
-    companion object {
-        fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKit
-    }
-}
-
-enum class TextDirection {
-    VERTICAL_RL,   // 从上到下，列从右到左（传统日漫）
-    VERTICAL_LR,   // 从上到下，列从左到右
-    HORIZONTAL     // 从左到右，从上到下（标准）
-}
+import com.moe.starflow.manga.types.DetEngine
+import com.moe.starflow.manga.types.OcrEngine
+import com.moe.starflow.manga.types.TextDirection
 
 /** 竖排时的列方向（仅 RL 或 LR）。配置值只允许这两种，HORIZONTAL 由检测另行判断。 */
 val MangaModeConfig.verticalTextDirection: TextDirection
     get() = if (textDirection == TextDirection.VERTICAL_LR) TextDirection.VERTICAL_LR else TextDirection.VERTICAL_RL
-
-/**
- * 文字检测引擎。
- * MLKIT: ML Kit 检测+识别一体化
- */
-enum class DetEngine(val value: Int) {
-    MLKIT(0),
-    RT_DETR_V2(3),
-    PP_OCR_V5(4),
-    PP_OCR_V6(5);
-
-    companion object {
-        fun fromValue(value: Int) = entries.firstOrNull { it.value == value } ?: MLKIT
-    }
-}
 
 data class MangaModeConfig(
     val enabled: Boolean = false,

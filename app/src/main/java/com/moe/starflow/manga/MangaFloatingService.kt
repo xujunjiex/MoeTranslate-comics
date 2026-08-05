@@ -1,5 +1,7 @@
 package com.moe.starflow.manga
 
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
 import com.moe.starflow.manga.debug.MangaDebugOverlays
 import com.moe.starflow.manga.debug.MangaDebugPanelController
 import com.moe.starflow.manga.debug.MangaDebugSliders

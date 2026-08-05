@@ -3,8 +3,8 @@ package com.moe.starflow.manga.debug
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.View
-import com.moe.starflow.manga.MergeParams
-import com.moe.starflow.manga.PPOcrDefault
+import com.moe.starflow.manga.types.MergeParams
+import com.moe.starflow.manga.config.PPOcrDefault
 import com.moe.starflow.manga.PPOcrV5Engine
 import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.manga.TextRegionMerger

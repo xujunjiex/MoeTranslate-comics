@@ -1,9 +1,9 @@
 package com.moe.starflow.utils
 
 import android.content.SharedPreferences
-import com.moe.starflow.manga.DetEngine
-import com.moe.starflow.manga.OcrEngine
-import com.moe.starflow.manga.OcrEngineGroup
+import com.moe.starflow.manga.types.DetEngine
+import com.moe.starflow.manga.types.OcrEngine
+import com.moe.starflow.manga.config.OcrEngineGroup
 
 /** 统一 OCR 引擎选择的共享 prefs 读写（游戏/漫画共用）。 */
 object OcrEngineManager {
