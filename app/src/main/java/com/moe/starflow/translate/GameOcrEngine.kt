@@ -2,11 +2,11 @@ package com.moe.starflow.translate
 
 import android.content.Context
 import android.graphics.Bitmap
-import com.moe.starflow.manga.MangaOcrBridge
-import com.moe.starflow.manga.OCRTextRecognizer
-import com.moe.starflow.manga.MangaOcrModelFiles
-import com.moe.starflow.manga.PPOcrV5Engine
-import com.moe.starflow.manga.PPOcrV6Engine
+import com.moe.starflow.manga.engine.MangaOcrBridge
+import com.moe.starflow.manga.engine.OCRTextRecognizer
+import com.moe.starflow.manga.engine.MangaOcrModelFiles
+import com.moe.starflow.manga.engine.PPOcrV5Engine
+import com.moe.starflow.manga.engine.PPOcrV6Engine
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
 import kotlinx.coroutines.Dispatchers

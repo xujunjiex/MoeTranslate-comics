@@ -1,5 +1,6 @@
 package com.moe.starflow.manga.debug
 
+import com.moe.starflow.manga.engine.*
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -10,8 +11,6 @@ import android.widget.ScrollView
 import com.moe.starflow.manga.types.MLKitDebugResult
 import com.moe.starflow.manga.types.MergeParams
 import com.moe.starflow.manga.types.OcrResult
-import com.moe.starflow.manga.PPOcrV5Engine
-import com.moe.starflow.manga.PPOcrV6Engine
 import com.moe.starflow.manga.types.RTDetrV2DebugResult
 import com.moe.starflow.manga.types.TextDirection
 import com.moe.starflow.manga.types.TextRegionGroup

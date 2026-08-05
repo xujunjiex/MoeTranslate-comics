@@ -1,5 +1,7 @@
-package com.moe.starflow.manga
+package com.moe.starflow.manga.engine
+import com.moe.starflow.manga.*
 
+import com.moe.starflow.manga.types.*
 import com.moe.starflow.manga.config.*
 import android.content.Context
 import android.graphics.Bitmap
@@ -9,11 +11,6 @@ import android.graphics.Point
 import android.graphics.PointF
 import android.graphics.Rect
 import com.moe.starflow.R
-import com.moe.starflow.manga.types.*
-import com.moe.starflow.manga.types.DebugRecResult
-import com.moe.starflow.manga.types.DetBox
-import com.moe.starflow.manga.types.OcrResult
-import com.moe.starflow.manga.types.RecResult
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
 import ai.onnxruntime.OnnxTensor
@@ -22,8 +19,8 @@ import ai.onnxruntime.OrtSession
 import org.locationtech.jts.geom.Coordinate
 import org.locationtech.jts.geom.GeometryFactory
 import org.locationtech.jts.operation.buffer.BufferOp
+import java.io.File
 import java.nio.FloatBuffer
-import java.util.EnumMap
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
@@ -34,19 +31,20 @@ import kotlin.math.sqrt
 
 // det 后处理共享类型（提取到 PPOcrDetGeometry，保留内部引用简洁）
 
+// Data classes reused from PPOcrV5Engine.kt (same package)
 // ============================================================================
-// PP-OCRv5 OCR Engine
+// PP-OCRv6 OCR Engine
 // ============================================================================
 
 /**
- * PP-OCRv5 完整 OCR 引擎（det + rec）。
+ * PP-OCRv6 完整 OCR 引擎（det + cls + rec）。
  *
- * 对齐 RapidOCR Python 实现：det → crop → rec → CTCLabelDecode。
- * 所有模型输入名均为 `x`。方向分类（cls）已删除。
+ * 对齐 RapidOCR Python 实现：det → crop → cls → rec → CTCLabelDecode。
+ * 所有模型输入名均为 `x`。
  */
-object PPOcrV5Engine {
+object PPOcrV6Engine {
 
-    private const val TAG = "PPOcrV5Engine"
+    private const val TAG = "PPOcrV6Engine"
 
     // det 后处理共享类型（4c-3 提取到 PPOcrDetGeometry）
 
@@ -55,25 +53,24 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // 用户可调参数的"默认值"已迁到 PPOcrDefault（manga/PPOcrParams.kt）作为单一来源。
     // 这里保留 *_DEFAULT 常量仅用于字段初始化（冷启动 fallback），refreshParams() 会从 prefs 覆盖。
-    private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)
-    private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
-    private const val DET_THRESH = 0.1f
-    private const val DET_BOX_THRESH_DEFAULT = 0.3f       // must match PPOcrDefault.DET_BOX_THRESH_V5
-    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6     // must match PPOcrDefault.DET_UNCLIP_RATIO
-    private const val DET_MAX_CANDIDATES = 100
-    private const val DET_MIN_SIZE = 3
+    private const val DET_LIMIT_SIDE_LEN = 1200      // 必须与 PPOcrDefault.LIMIT_SIDE_LEN 一致
+    private const val DET_LIMIT_TYPE = "max"          // 必须与 PPOcrDefault.LIMIT_TYPE 一致
+    private val DET_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)  // same
+    private val DET_STD = floatArrayOf(0.5f, 0.5f, 0.5f)   // same
+    private const val DET_THRESH = 0.3f               // was 0.1f
+    private const val DET_BOX_THRESH_DEFAULT = 0.5f   // must match PPOcrDefault.DET_BOX_THRESH_V6
+    private const val DET_UNCLIP_RATIO_DEFAULT = 1.6  // must match PPOcrDefault.DET_UNCLIP_RATIO
+    private const val DET_MAX_CANDIDATES_DEFAULT = 1000  // must match PPOcrDefault.V6_MAX_CANDIDATES
+    private const val DET_MIN_SIZE = 3                 // same
 
-    // -----------------------------------------------------------------------
-    // Cls 常量 (ch_ppocr_cls/main.py)
-    // -----------------------------------------------------------------------
     // cls removed — direction classification is no longer used
 
     // -----------------------------------------------------------------------
     // Rec 常量 (ch_ppocr_rec/main.py)
     // -----------------------------------------------------------------------
-    private const val REC_IMG_HEIGHT = 48
-    private const val REC_IMG_CHANNELS = 3
-    private const val REC_BATCH_NUM = 16
+    private const val REC_IMG_HEIGHT = 48          // same
+    private const val REC_IMG_CHANNELS = 3         // same
+    private const val REC_BATCH_NUM = 6            // was 16
 
     // -----------------------------------------------------------------------
     // 全局常量
@@ -83,13 +80,26 @@ object PPOcrV5Engine {
     // -----------------------------------------------------------------------
     // 用户可调参数（从 SharedPreferences 动态读取）
     // -----------------------------------------------------------------------
+    // All params, with ppocrv6_ prefix
+    @Volatile private var detThresh = DET_THRESH
     @Volatile private var detBoxThresh = DET_BOX_THRESH_DEFAULT
-    @Volatile private var detUnclipRatio = DET_UNCLIP_RATIO_DEFAULT
+    @Volatile private var detUnclipRatio = DET_UNCLIP_RATIO_DEFAULT.toDouble()  // note: double
+    @Volatile private var limitSideLen = DET_LIMIT_SIDE_LEN
+    @Volatile private var limitType = DET_LIMIT_TYPE
     @Volatile private var textScoreThresh = TEXT_SCORE_THRESH_DEFAULT
+    @Volatile private var recBatchNum = REC_BATCH_NUM
     @Volatile private var largeBoxEnabled = false
     @Volatile private var largeBoxRatio = 0.6f  // 宽/高/面积占图片比例阈值
-    @Volatile private var limitSideLen = 1200        // Det.limit_side_len（must match PPOcrDefault.LIMIT_SIDE_LEN）
-    @Volatile private var limitType = "max"          // Det.limit_type: "min" | "max"
+
+    // v6 新增可调参数（对齐 RapidOCR 官方参数表）
+    // 参考: https://rapidai.github.io/RapidOCRDocs/latest/install_usage/rapidocr/parameters/
+    @Volatile private var useDilation = true           // Det.use_dilation
+    @Volatile private var scoreMode = "fast"           // Det.score_mode: "fast" | "slow"
+    @Volatile private var maxCandidates = DET_MAX_CANDIDATES_DEFAULT  // Det.max_candidates (默认 1000)
+    // 注：Global.max_side_len / Global.min_side_len 已删除——官方 RapidOCR 没有这两个参数，
+    // 之前 PPOcrV6Engine 凭空捏造导致极薄横屏框选级联放大 → OOM 闪退
+    @Volatile private var minHeight = 30               // Global.min_height (px)
+    @Volatile private var widthHeightRatio = -1f  // Global.width_height_ratio (-1 不启用，默认关闭)
 
     /**
      * 从 SharedPreferences 刷新可调参数。
@@ -98,55 +108,44 @@ object PPOcrV5Engine {
     fun refreshParams(context: Context) {
         val prefs = CustomPreference.getInstance(context)
         // 默认值单一来源见 PPOcrDefault；prefs key 见 PPOcrKey。改默认值时只动 PPOcrParams.kt。
-        detBoxThresh = PPOcrPrefs.boxThreshV5(prefs)
-        detUnclipRatio = PPOcrPrefs.unclipRatio(prefs).toDouble()
-        textScoreThresh = PPOcrPrefs.textScoreV5(prefs)
-        largeBoxEnabled = PPOcrPrefs.largeBoxEnabled(prefs)
-        largeBoxRatio = PPOcrPrefs.largeBoxRatio(prefs)
-        limitSideLen = PPOcrPrefs.limitSideLen(prefs)
-        limitType = PPOcrPrefs.limitType(prefs)
-    }
+        detThresh = PPOcrPrefs.detThreshV6(prefs)
+        detBoxThresh = PPOcrPrefs.boxThreshV6(prefs)
+        detUnclipRatio = PPOcrPrefs.unclipRatioV6(prefs).toDouble()
+        limitSideLen = PPOcrPrefs.limitSideLenV6(prefs)
+        limitType = PPOcrPrefs.limitTypeV6(prefs)
+        textScoreThresh = PPOcrPrefs.textScoreV6(prefs)
+        recBatchNum = PPOcrPrefs.recBatchNumV6(prefs)
+        largeBoxEnabled = PPOcrPrefs.largeBoxEnabledV6(prefs)
+        largeBoxRatio = PPOcrPrefs.largeBoxRatioV6(prefs)
 
-    // -----------------------------------------------------------------------
-    // Rec 语言枚举
-    // -----------------------------------------------------------------------
-    /**
-     * Rec 模型枚举（全部 PP-OCRv5 mobile）。
-     * ZH: 中英日混合（~16MB，内置）
-     * JA: 日文专用（复用 ZH 模型，日文由 ZH 模型覆盖）
-     * EN: 英文专用（~7.5MB，可选下载）
-     * KO: 韩文专用（~13MB，可选下载）
-     * RU: 俄文/西里尔文字（~7.7MB，可选下载）
-     */
-    enum class RecLang(val code: String) {
-        ZH("zh"),
-        JA("zh"),   // 日文走 rec_zh（PP-OCRv5 中英日混合）
-        EN("en"),
-        KO("ko"),
-        RU("ru");
-
-        fun recModelFile(): String = "ppocrv5/rec_$code.onnx"
-        fun dictFile(): String = "ppocrv5/rec_${code}_dict.txt"
+        // v6 新增参数
+        useDilation = PPOcrPrefs.useDilationV6(prefs)
+        scoreMode = PPOcrPrefs.scoreModeV6(prefs)
+        maxCandidates = PPOcrPrefs.maxCandidatesV6(prefs)
+        minHeight = PPOcrPrefs.minHeightV6(prefs)
+        widthHeightRatio = PPOcrPrefs.widthHeightRatioV6(prefs)
     }
 
     // -----------------------------------------------------------------------
     // ONNX 会话
     // -----------------------------------------------------------------------
-    @Volatile
-    private var ortEnv: OrtEnvironment? = null
-    @Volatile
-    private var detSession: OrtSession? = null
-    private val recSessions = EnumMap<RecLang, OrtSession>(RecLang::class.java)
+    @Volatile private var ortEnv: OrtEnvironment? = null
+    @Volatile private var detSession: OrtSession? = null
+    @Volatile private var recSession: OrtSession? = null  // single session, not EnumMap
 
     // 字典：blank(0) + dict_chars + space(end)
-    private var dictionary: Map<RecLang, List<String>> = emptyMap()
+    private var dictionary: List<String> = emptyList()
 
     @Volatile
     var isInitialized = false
         private set
 
+    /** 最近一次 det 的输入尺寸（原图→预处理后），用于调试面板显示 */
+    @Volatile var lastDetSize: String = ""
+        private set
+
     // rec 会话加载锁
-    private val recLocks = EnumMap<RecLang, Any>(RecLang::class.java)
+    private val recLock = Any()
 
     // 初始化/释放锁
     private val lock = Any()
@@ -156,18 +155,15 @@ object PPOcrV5Engine {
     // ========================================================================
 
     /**
-     * 初始化引擎：加载 det ONNX 会话 + 字典。
+     * 初始化引擎：加载 det + cls ONNX 会话 + 字典。
      * rec 会话按需懒加载（首次调用 [getRecSession] 时）。
      */
     fun initialize(context: Context) {
         synchronized(lock) {
             if (isInitialized) return
-
             try {
-                LogCollector.d(TAG, "开始初始化 PP-OCRv5 引擎...")
-
+                LogCollector.d(TAG, "开始初始化 PP-OCRv6 引擎...")
                 ortEnv = OrtEnvironment.getEnvironment()
-
                 val sessionOpts = OrtSession.SessionOptions().apply {
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                     setMemoryPatternOptimization(true)
@@ -175,117 +171,98 @@ object PPOcrV5Engine {
                     setIntraOpNumThreads(4)
                 }
 
-                // det（从 filesDir 加载）
-                LogCollector.d(TAG, "加载 det 模型...")
-                val detFile = java.io.File(PPOcrModelFiles.getModelDir(context), "det_v5.onnx")
-                if (!detFile.exists() || detFile.length() == 0L) {
-                    LogCollector.e(TAG, "v5 det 模型未下载，请先在模型管理中下载")
-                    throw IllegalStateException("PP-OCRv5 检测模型未下载，请在模型管理中下载")
-                }
-                val detBytes = detFile.readBytes()
+                // det（tier 感知：medium 外部优先，small assets 兜底）
+                val detBytes = loadDetModelBytes(context)
                 detSession = ortEnv!!.createSession(detBytes, sessionOpts)
-                LogCollector.d(TAG, "det 模型加载完成 (${detBytes.size / 1024}KB)")
 
                 // cls removed — direction classification is no longer used
-
-                // 初始化 rec 锁
-                for (lang in RecLang.entries) {
-                    recLocks[lang] = Any()
-                }
 
                 // 字典
                 loadDictionary(context)
 
                 isInitialized = true
-                LogCollector.d(TAG, "PP-OCRv5 引擎初始化完成")
-
+                LogCollector.d(TAG, "PP-OCRv6 引擎初始化完成")
             } catch (e: Exception) {
-                LogCollector.e(TAG, "PP-OCRv5 初始化失败", e)
+                LogCollector.e(TAG, "PP-OCRv6 初始化失败", e)
                 release()
                 throw e
             }
         }
     }
 
-    /**
-     * 懒加载 rec 会话（线程安全）
-     * 所有语言从 filesDir 加载（需用户下载）。
-     */
-    private fun getRecSession(context: Context, lang: RecLang): OrtSession? {
-        recSessions[lang]?.let { return it }
-
-        synchronized(recLocks[lang]!!) {
-            recSessions[lang]?.let { return it }
-
+    // -----------------------------------------------------------------------
+    // Rec 会话（单模型，懒加载）
+    // -----------------------------------------------------------------------
+    private fun getRecSession(context: Context): OrtSession? {
+        recSession?.let { return it }
+        synchronized(recLock) {
+            recSession?.let { return it }
             return try {
-                LogCollector.d(TAG, "懒加载 rec 模型: ${lang.code}...")
+                LogCollector.d(TAG, "懒加载 rec 模型...")
                 val opts = OrtSession.SessionOptions().apply {
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                     setMemoryPatternOptimization(true)
                     setCPUArenaAllocator(true)
                     setIntraOpNumThreads(4)
                 }
-
-                val bytes = if (lang == RecLang.ZH || lang == RecLang.JA) {
-                    // 从 filesDir 加载（原内置，现需下载）
-                    val recFile = java.io.File(PPOcrModelFiles.getModelDir(context), "rec_zh.onnx")
-                    if (!recFile.exists() || recFile.length() == 0L) {
-                        LogCollector.w(TAG, "rec_zh 模型未下载")
-                        return null
-                    }
-                    LogCollector.d(TAG, "从 filesDir 加载 rec 模型: ${lang.code}")
-                    recFile.readBytes()
-                } else {
-                    // 可选模型，从 filesDir 加载
-                    val modelFile = PPOcrModelFiles.getRecModelFile(context, lang.code)
-                    if (modelFile == null) {
-                        LogCollector.w(TAG, "rec 模型 ${lang.code} 未下载")
-                        return null
-                    }
-                    LogCollector.d(TAG, "从 filesDir 加载 rec 模型: ${lang.code}")
-                    modelFile.readBytes()
-                }
+                // Try medium first (external), fallback to small (assets)
+                val bytes = loadRecModelBytes(context)
                 val session = ortEnv!!.createSession(bytes, opts)
-                recSessions[lang] = session
-                LogCollector.d(TAG, "rec 模型 ${lang.code} 加载完成")
+                recSession = session
+                LogCollector.d(TAG, "rec 模型加载完成")
                 session
             } catch (e: Exception) {
-                LogCollector.e(TAG, "rec 模型 ${lang.code} 加载失败", e)
+                LogCollector.e(TAG, "rec 模型加载失败", e)
                 throw e
             }
         }
     }
 
+    private fun loadDetModelBytes(context: Context): ByteArray {
+        val tier = CustomPreference.getInstance(context).getString("ppocrv6_tier", "small") ?: "small"
+        if (tier == "medium") {
+            val file = File(PPOcrModelFiles.getV6ModelDir(context), "det_v6_medium.onnx")
+            if (file.exists() && file.length() > 0) {
+                LogCollector.d(TAG, "从外部存储加载 det medium 模型")
+                return file.readBytes()
+            }
+            LogCollector.w(TAG, "det medium 模型不存在，fallback 到 small")
+        }
+        LogCollector.d(TAG, "从 assets 加载 det small 模型")
+        return context.assets.open("ppocrv6/det_v6_small.onnx").use { it.readBytes() }
+    }
+
+    private fun loadRecModelBytes(context: Context): ByteArray {
+        val tier = CustomPreference.getInstance(context).getString("ppocrv6_tier", "small") ?: "small"
+        if (tier == "medium") {
+            val file = File(PPOcrModelFiles.getV6ModelDir(context), "rec_v6_medium.onnx")
+            if (file.exists() && file.length() > 0) {
+                LogCollector.d(TAG, "从外部存储加载 rec medium 模型")
+                return file.readBytes()
+            }
+            LogCollector.w(TAG, "rec medium 模型不存在，fallback 到 small")
+        }
+        LogCollector.d(TAG, "从 assets 加载 rec small 模型")
+        return context.assets.open("ppocrv6/rec_v6_small.onnx").use { it.readBytes() }
+    }
+
     /**
      * 加载字典文件：blank(0) + dict_chars + space(end)
-     * 仅从 filesDir 读取，不 fallback assets。
      */
     private fun loadDictionary(context: Context) {
-        val dicts = mutableMapOf<RecLang, List<String>>()
-        val modelDir = PPOcrModelFiles.getModelDir(context)
-
-        for (lang in RecLang.entries) {
-            try {
-                val dictFileName = if (lang == RecLang.JA) "rec_zh_dict.txt"
-                    else "rec_${lang.code}_dict.txt"
-                val dictFile = java.io.File(modelDir, dictFileName)
-                if (!dictFile.exists() || dictFile.length() == 0L) {
-                    LogCollector.w(TAG, "字典 ${lang.code} 未下载，跳过 ($dictFileName)")
-                    continue
-                }
-                LogCollector.d(TAG, "从 filesDir 加载字典: ${lang.code} ($dictFileName)")
-                val lines = dictFile.bufferedReader().readLines().filter { it.isNotEmpty() }
-                val dict = mutableListOf<String>()
-                dict.add("blank") // index 0
-                dict.addAll(lines)
-                dict.add(" ")     // end
-                dicts[lang] = dict
-                LogCollector.d(TAG, "字典 ${lang.code}: ${dict.size} 条 (含 blank+space)")
-            } catch (e: Exception) {
-                LogCollector.e(TAG, "字典 ${lang.code} 加载失败", e)
-            }
+        try {
+            val lines = context.assets.open("ppocrv6/ppocrv6_dict.txt")
+                .bufferedReader().readLines().filter { it.isNotEmpty() }
+            val dict = mutableListOf<String>()
+            dict.add("blank")
+            dict.addAll(lines)
+            dict.add(" ")
+            dictionary = dict
+            LogCollector.d(TAG, "字典: ${dict.size} 条")
+        } catch (e: Exception) {
+            LogCollector.e(TAG, "字典加载失败", e)
+            dictionary = emptyList()
         }
-        dictionary = dicts
     }
 
     /**
@@ -295,90 +272,18 @@ object PPOcrV5Engine {
         synchronized(lock) {
             try {
                 detSession?.close()
-                recSessions.values.forEach { try { it.close() } catch (_: Exception) {} }
+                recSession?.close()
                 ortEnv?.close()
             } catch (e: Exception) {
                 LogCollector.e(TAG, "释放资源失败", e)
             } finally {
                 detSession = null
-                recSessions.clear()
+                recSession = null
                 ortEnv = null
-                dictionary = emptyMap()
+                dictionary = emptyList()
                 isInitialized = false
             }
         }
-    }
-
-    /**
-     * 将 source language 字符串映射到 RecLang。
-     * 日文走 JA（= rec_zh，PP-OCRv5 中英日混合模型）。
-     */
-    fun getRecLang(language: String): RecLang? = when (language.lowercase()) {
-        "zh", "zh-tw", "chinese", "chinese (taiwan)", "中文", "繁体中文" -> RecLang.ZH
-        "ja", "japanese", "日本語" -> RecLang.JA
-        "en", "english", "英语" -> RecLang.EN
-        "ko", "korean", "한국어" -> RecLang.KO
-        "ru", "russian", "俄文" -> RecLang.RU
-        else -> null
-    }
-
-    /**
-     * 检查指定语言的 rec 模型是否可用（已下载到 filesDir）。
-     * 所有语言（包括 ZH/JA）均需下载。
-     */
-    fun isRecModelAvailable(context: Context, lang: RecLang): Boolean {
-        return if (lang == RecLang.ZH || lang == RecLang.JA) {
-            PPOcrModelFiles.isV5RecZhDownloaded(context)
-        } else {
-            PPOcrModelFiles.isRecModelDownloaded(context, lang.code)
-        }
-    }
-
-    /**
-     * 解析实际使用的 rec 语言（带 fallback）。
-     * - ZH/JA：始终可用（内置）
-     * - EN：已下载用 EN，否则 fallback 到 ZH（ch 模型也支持英文识别）
-     * - KO：已下载用 KO，否则返回 null（需提示用户下载）
-     * - RU：已下载用 RU，否则返回 null（需提示用户下载）
-     *
-     * @return Pair<实际RecLang, 提示消息?> 提示消息不为 null 时应展示给用户
-     */
-    fun resolveRecLang(context: Context, language: String): Pair<RecLang?, String?> {
-        val lang = getRecLang(language) ?: return Pair(null, null)
-
-        val result = when (lang) {
-            RecLang.ZH, RecLang.JA -> Pair(lang, null)
-            RecLang.EN -> {
-                if (isRecModelAvailable(context, RecLang.EN)) {
-                    Pair(RecLang.EN, null)
-                } else {
-                    Pair(RecLang.ZH, null) // fallback: ch 模型支持英文
-                }
-            }
-            RecLang.KO -> {
-                if (isRecModelAvailable(context, RecLang.KO)) {
-                    Pair(RecLang.KO, null)
-                } else {
-                    Pair(null, context.getString(R.string.ko_need_download_model))
-                }
-            }
-            RecLang.RU -> {
-                if (isRecModelAvailable(context, RecLang.RU)) {
-                    Pair(RecLang.RU, null)
-                } else {
-                    Pair(null, context.getString(R.string.ru_need_download_model))
-                }
-            }
-        }
-
-        val resolved = result.first
-        if (resolved != null) {
-            val fallback = if (lang != resolved) " (fallback: ${lang.code}→${resolved.code})" else ""
-            LogCollector.d(TAG, "识别模型: rec_${resolved.code}${fallback}, 请求语言: $language")
-        } else {
-            LogCollector.d(TAG, "识别模型: 无可用模型, 请求语言: $language, 提示: ${result.second}")
-        }
-        return result
     }
 
     // ========================================================================
@@ -393,29 +298,33 @@ object PPOcrV5Engine {
         val srcH = bitmap.height
         val srcW = bitmap.width
 
-        // 1. 计算缩放
+        // 1. 计算缩放 — 对齐官方 RapidOCR DetPreProcess.resize()
+        // 官方只有 limit_side_len + limit_type，没有 Global.max_side_len / min_side_len
+        // 之前版本 PPOcrV6Engine 凭空捏造了这两步导致极薄横屏框选级联放大 → OOM 闪退
         var resizeH = srcH
         var resizeW = srcW
+
+        val sideLen = limitSideLen
 
         val ratio: Float
         if (limitType == "min") {
             val minSide = min(resizeH, resizeW).toFloat()
-            if (minSide < limitSideLen) {
-                ratio = limitSideLen / minSide
+            if (minSide < sideLen) {
+                ratio = sideLen / minSide
                 resizeH = (resizeH * ratio).roundToInt()
                 resizeW = (resizeW * ratio).roundToInt()
             } else {
                 val maxSide = max(resizeH, resizeW).toFloat()
-                if (maxSide > limitSideLen) {
-                    ratio = limitSideLen / maxSide
+                if (maxSide > sideLen) {
+                    ratio = sideLen / maxSide
                     resizeH = (resizeH * ratio).roundToInt()
                     resizeW = (resizeW * ratio).roundToInt()
                 }
             }
         } else {
             val maxSide = max(resizeH, resizeW).toFloat()
-            if (maxSide > limitSideLen) {
-                ratio = limitSideLen / maxSide
+            if (maxSide > sideLen) {
+                ratio = sideLen / maxSide
                 resizeH = (resizeH * ratio).roundToInt()
                 resizeW = (resizeW * ratio).roundToInt()
             }
@@ -425,12 +334,16 @@ object PPOcrV5Engine {
         resizeH = max(32, (resizeH / 32) * 32)
         resizeW = max(32, (resizeW / 32) * 32)
 
-        // 2a. 安全保护：防止极薄横屏框选 + 用户误调 limit_side_len 到很大值时爆 OOM
+        // 2a. 安全保护：防止极薄横屏框选（如 2400x20）触发 min_side 缩放产生极端尺寸
+        // 案例：min_side=20 → ratio=1.5 → resizeW=3529 → limit_side 阶段再 ratio=24.5 → 86,558x736
+        // FloatArray(3*736*86558) ≈ 190M floats ≈ 760 MB → OOM
+        // Bitmap 硬件上限约 16384px，留余量设上限 4000
         val absoluteMax = 4000
         if (resizeW > absoluteMax || resizeH > absoluteMax) {
             val capRatio = absoluteMax.toFloat() / max(resizeW, resizeH)
             resizeH = (resizeH * capRatio).roundToInt()
             resizeW = (resizeW * capRatio).roundToInt()
+            // 重新对齐 32
             resizeH = max(32, (resizeH / 32) * 32)
             resizeW = max(32, (resizeW / 32) * 32)
             LogCollector.w(TAG, "!!! det 尺寸超限已截断到 ${resizeW}x${resizeH}（原图 ${bitmap.width}x${bitmap.height}）")
@@ -476,22 +389,31 @@ object PPOcrV5Engine {
         srcH: Int,
         srcW: Int
     ): PPOcrDetGeometry.BoxScoreResult {
-        // 1. 阈值化
+        // 1. 阈值化 — 使用可调字段
         val cBitmap = Bitmap.createBitmap(predW, predH, Bitmap.Config.ARGB_8888)
         for (i in 0 until predH * predW) {
-            val v = if (pred[i] > DET_THRESH) Color.WHITE else Color.BLACK
+            val v = if (pred[i] > detThresh) Color.WHITE else Color.BLACK
             cBitmap.setPixel(i % predW, i / predW, v)
         }
 
+        // use_dilation: 形态学膨胀处理
+        // 对应 RapidOCR Det.use_dilation：是否对检测到的文本区域做形态学膨胀处理
+        var maskBitmap = cBitmap
+        if (useDilation) {
+            val dilated = dilateMask(maskBitmap, predW, predH)
+            maskBitmap.recycle()
+            maskBitmap = dilated
+        }
+
         // 2. BFS 连通域
-        val contours = PPOcrDetGeometry.findContours(cBitmap, predW, predH, DET_MIN_SIZE)
-        cBitmap.recycle()
+        val contours = PPOcrDetGeometry.findContours(maskBitmap, predW, predH, DET_MIN_SIZE)
+        maskBitmap.recycle()
 
         if (contours.isEmpty()) return PPOcrDetGeometry.BoxScoreResult(emptyList(), emptyList())
 
-        // 3. 限制候选数量
-        val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
-            contours.sortedByDescending { it.size }.take(DET_MAX_CANDIDATES)
+        // 3. 限制候选数量 — 使用可调字段
+        val limitedContours = if (contours.size > maxCandidates) {
+            contours.sortedByDescending { it.size }.take(maxCandidates)
         } else {
             contours
         }
@@ -506,9 +428,13 @@ object PPOcrV5Engine {
             if (boxPoints == null) continue
             if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
 
-            // 概率评分
+            // 概率评分 — 使用可调字段 score_mode
             val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
-            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            val score = if (scoreMode == "slow") {
+                GeometryUtils.boxScoreSlow(pred, predW, predH, boxCoords)
+            } else {
+                GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            }
 
             // box_thresh 过滤：低于阈值的候选框直接跳过
             if (score < detBoxThresh) continue
@@ -543,13 +469,44 @@ object PPOcrV5Engine {
         val discardedReasons: List<String>
     )
 
+    /**
+     * 过滤检测结果：裁剪到图像范围 + 最小尺寸检查
+     */
+
+    // -----------------------------------------------------------------------
+    // findContours: BFS 连通域 (对应 cv2.findContours)
+    // -----------------------------------------------------------------------
+
+
+    // -----------------------------------------------------------------------
+    // getMiniBoxes: 凸包 + 最小外接矩形
+    // -----------------------------------------------------------------------
+
+
+
+    // -----------------------------------------------------------------------
+    // orderPointsClockwise: 排序四角点 → TL, TR, BR, BL
+    // -----------------------------------------------------------------------
+
+
+    // -----------------------------------------------------------------------
+    // unclip: Vatti unclip (JTS BufferOp)
+    // -----------------------------------------------------------------------
 
 
 
 
+    // ========================================================================
+    // getRotateCropImage (utils/process_img.py)
+    // ========================================================================
 
-
-
+    /**
+     * 透视裁剪 + 自动旋转竖排文字。
+     *
+     * @param bitmap 原图
+     * @param points 4 个顶点 [TL, TR, BR, BL]（原图坐标）
+     * @return 裁剪后的正向文字图片
+     */
 
     // cls removed — direction classification code deleted; use recognizeBatch directly
 
@@ -560,18 +517,18 @@ object PPOcrV5Engine {
     /**
      * 批量识别（按 wh_ratio 分组，batch 推理）。
      */
-    fun recognizeBatch(context: Context, imgList: List<Bitmap>, lang: RecLang): List<RecResult> = synchronized(lock) {
+    fun recognizeBatch(context: Context, imgList: List<Bitmap>): List<RecResult> = synchronized(lock) {
         if (imgList.isEmpty()) return emptyList()
 
-        val dict = dictionary[lang] ?: return imgList.map { RecResult("", 0f) }
-        val session = getRecSession(context, lang) ?: return imgList.map { RecResult("", 0f) }
+        val dict = dictionary
+        val session = getRecSession(context) ?: return imgList.map { RecResult("", 0f) }
 
         val t0 = System.currentTimeMillis()
         val allResults = mutableListOf<RecResult>()
 
         var i = 0
         while (i < imgList.size) {
-            val batchEnd = min(i + REC_BATCH_NUM, imgList.size)
+            val batchEnd = min(i + recBatchNum, imgList.size)
             val batch = imgList.subList(i, batchEnd)
 
             // 找 batch 内最大 wh_ratio
@@ -635,7 +592,7 @@ object PPOcrV5Engine {
             i = batchEnd
         }
 
-        LogCollector.d(TAG, "recognizeBatch: ${imgList.size} 张, lang=${lang.code}, 耗时 ${System.currentTimeMillis() - t0}ms")
+        LogCollector.d(TAG, "recognizeBatch: ${imgList.size} 张, 耗时 ${System.currentTimeMillis() - t0}ms")
         allResults
     }
 
@@ -750,17 +707,31 @@ object PPOcrV5Engine {
     fun runOCR(
         context: Context,
         bitmap: Bitmap,
-        recLang: RecLang = RecLang.ZH,
         useDet: Boolean = true
     ): OcrResult {
-        if (!isInitialized) throw IllegalStateException("PPOcrV5Engine 未初始化")
+        if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
         if (bitmap.isRecycled) throw IllegalArgumentException("Bitmap 已回收")
 
         refreshParams(context)
         val t0 = System.currentTimeMillis()
 
+        // min_height + width_height_ratio 预检查
+        // 对应 RapidOCR Global.min_height + Global.width_height_ratio：
+        // 低于最小高度 + 宽高比过大时跳过检测，直接全图识别（单行文本加速）
+        // width_height_ratio = -1 时不启用此过滤
+        val effectiveUseDet = if (!useDet) {
+            false
+        } else if (minHeight > 0 && bitmap.height < minHeight
+            && (widthHeightRatio < 0 || bitmap.width.toFloat() / bitmap.height > widthHeightRatio)
+        ) {
+            LogCollector.d(TAG, "跳过检测: h=${bitmap.height}<${minHeight}, whRatio=${"%.1f".format(bitmap.width.toFloat() / bitmap.height)}>${widthHeightRatio}")
+            false
+        } else {
+            true
+        }
+
         // 1. Det
-        val (boxes, detTime) = if (useDet && detSession != null) {
+        val (boxes, detTime) = if (effectiveUseDet && detSession != null) {
             val dt = System.currentTimeMillis()
             val det = runDet(bitmap)
             Pair(det, System.currentTimeMillis() - dt)
@@ -801,7 +772,7 @@ object PPOcrV5Engine {
         // 2c. Rec
         val recT0 = System.currentTimeMillis()
         if (cropResults.isNotEmpty()) {
-            val recResults = recognizeBatch(context, cropResults.map { it.first }, recLang)
+            val recResults = recognizeBatch(context, cropResults.map { it.first })
             for (i in cropResults.indices) {
                 if (i < recResults.size) {
                     allTexts.add(recResults[i].text)
@@ -855,10 +826,10 @@ object PPOcrV5Engine {
 
     /**
      * 批量识别（直接委托 recognizeBatch，cls 已删除）。
-     * 保留此方法以兼容调用方，避免修改 MangaFloatingService。
+     * 保留此方法以兼容调用方。
      */
-    fun recognizeBatchWithCls(context: Context, imgList: List<Bitmap>, lang: RecLang): List<RecResult> {
-        return recognizeBatch(context, imgList, lang)
+    fun recognizeBatchWithCls(context: Context, imgList: List<Bitmap>): List<RecResult> {
+        return recognizeBatch(context, imgList)
     }
 
     /**
@@ -1004,7 +975,7 @@ object PPOcrV5Engine {
      * 用于增量渲染场景的 det 阶段。
      */
     fun runDetForBoxes(context: Context, bitmap: Bitmap): List<FloatArray> {
-        if (!isInitialized) throw IllegalStateException("PPOcrV5Engine 未初始化")
+        if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
         refreshParams(context)
         val boxes = runDet(bitmap)
         LogCollector.d(TAG, "runDetForBoxes: ${boxes.size} 个文字行")
@@ -1016,8 +987,15 @@ object PPOcrV5Engine {
      * 丢弃原因：score<box_thresh、尺寸过小、unclip过小
      */
     fun runDetForDebug(context: Context, bitmap: Bitmap): DebugDetResult {
-        if (!isInitialized) throw IllegalStateException("PPOcrV5Engine 未初始化")
+        if (!isInitialized) throw IllegalStateException("PPOcrV6Engine 未初始化")
         refreshParams(context)
+
+        // min_height + width_height_ratio 预检查
+        if (minHeight > 0 && bitmap.height < minHeight
+            && (widthHeightRatio < 0 || bitmap.width.toFloat() / bitmap.height > widthHeightRatio)
+        ) {
+            return DebugDetResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        }
 
         val (input, detH, detW) = preprocessDet(bitmap)
         val buffer = FloatBuffer.wrap(input)
@@ -1064,22 +1042,30 @@ object PPOcrV5Engine {
         srcH: Int,
         srcW: Int
     ): DebugDetResult {
-        // 1. 阈值化（使用调试阈值 0.05，远低于正常 0.3）
+        // 1. 阈值化（使用调试阈值 0.3，与正常模式一致）
         val cBitmap = Bitmap.createBitmap(predW, predH, Bitmap.Config.ARGB_8888)
         for (i in 0 until predH * predW) {
             val v = if (pred[i] > DET_DEBUG_THRESH) Color.WHITE else Color.BLACK
             cBitmap.setPixel(i % predW, i / predW, v)
         }
 
+        // use_dilation: 形态学膨胀处理
+        var maskBitmap = cBitmap
+        if (useDilation) {
+            val dilated = dilateMask(maskBitmap, predW, predH)
+            maskBitmap.recycle()
+            maskBitmap = dilated
+        }
+
         // 2. BFS 连通域
-        val contours = PPOcrDetGeometry.findContours(cBitmap, predW, predH, DET_MIN_SIZE)
-        cBitmap.recycle()
+        val contours = PPOcrDetGeometry.findContours(maskBitmap, predW, predH, DET_MIN_SIZE)
+        maskBitmap.recycle()
 
         if (contours.isEmpty()) return DebugDetResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
 
-        // 3. 限制候选数量
-        val limitedContours = if (contours.size > DET_MAX_CANDIDATES) {
-            contours.sortedByDescending { it.size }.take(DET_MAX_CANDIDATES)
+        // 3. 限制候选数量 — 使用可调字段
+        val limitedContours = if (contours.size > maxCandidates) {
+            contours.sortedByDescending { it.size }.take(maxCandidates)
         } else {
             contours
         }
@@ -1097,7 +1083,11 @@ object PPOcrV5Engine {
             if (w < DET_MIN_SIZE || h < DET_MIN_SIZE) continue
 
             val boxCoords = boxPoints.map { Coordinate(it.x.toDouble(), it.y.toDouble()) }
-            val score = GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            val score = if (scoreMode == "slow") {
+                GeometryUtils.boxScoreSlow(pred, predW, predH, boxCoords)
+            } else {
+                GeometryUtils.boxScoreFast(pred, predW, predH, boxCoords)
+            }
 
             // box_thresh 过滤
             if (score < detBoxThresh) {
@@ -1155,7 +1145,8 @@ object PPOcrV5Engine {
      */
     private fun runDet(bitmap: Bitmap): List<FloatArray> = synchronized(lock) {
         val (input, detH, detW) = preprocessDet(bitmap)
-        LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH}")
+        LogCollector.d(TAG, "det input: ${bitmap.width}x${bitmap.height} → ${detW}x${detH} (limit_side_len=$limitSideLen, $limitType)")
+        lastDetSize = "${bitmap.width}×${bitmap.height} → ${detW}×${detH}"
 
         val buffer = FloatBuffer.wrap(input)
         val inputTensor = OnnxTensor.createTensor(
@@ -1224,6 +1215,55 @@ object PPOcrV5Engine {
             (pts[3].x * ratioW).coerceIn(0f, (srcW - 1).toFloat()),
             (pts[3].y * ratioH).coerceIn(0f, (srcH - 1).toFloat())
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // dilateMask: 形态学膨胀（对应 RapidOCR Det.use_dilation）
+    // -----------------------------------------------------------------------
+
+    /**
+     * 形态学膨胀：对二值 mask 做 3×3 十字核膨胀。
+     * 对应 RapidOCR Det.use_dilation — 是否对检测到的文本区域做形态学膨胀处理。
+     * 白色像素（文字区域）扩展一个邻域，使相邻文字区域合并。
+     *
+     * @param mask 输入二值图（ARGB_8888，仅黑/白）
+     * @param w 宽度
+     * @param h 高度
+     * @return 膨胀后的二值图（新 Bitmap）
+     */
+    private fun dilateMask(mask: Bitmap, w: Int, h: Int): Bitmap {
+        val srcPixels = IntArray(w * h)
+        mask.getPixels(srcPixels, 0, w, 0, 0, w, h)
+
+        val dstPixels = IntArray(w * h)
+        // 4-connected 十字核: 上(-1,0) 下(+1,0) 左(0,-1) 右(0,+1)
+        val dx = intArrayOf(-1, 1, 0, 0)
+        val dy = intArrayOf(0, 0, -1, 1)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val idx = y * w + x
+                // 只要自身或任一邻域是白色，输出就是白色
+                var isWhite = srcPixels[idx] == Color.WHITE
+                if (!isWhite) {
+                    for (d in 0 until 4) {
+                        val nx = x + dx[d]
+                        val ny = y + dy[d]
+                        if (nx in 0 until w && ny in 0 until h) {
+                            if (srcPixels[ny * w + nx] == Color.WHITE) {
+                                isWhite = true
+                                break
+                            }
+                        }
+                    }
+                }
+                dstPixels[idx] = if (isWhite) Color.WHITE else Color.BLACK
+            }
+        }
+
+        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        result.setPixels(dstPixels, 0, w, 0, 0, w, h)
+        return result
     }
 
     // -----------------------------------------------------------------------

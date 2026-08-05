@@ -17,10 +17,10 @@ import com.moe.starflow.download.DownloadState
 import com.moe.starflow.download.ModelDownloadRepository
 import com.moe.starflow.download.ModelKey
 import com.moe.starflow.download.ModelDownloadService
-import com.moe.starflow.manga.MangaOcrModelFiles
+import com.moe.starflow.manga.engine.MangaOcrModelFiles
 import com.moe.starflow.manga.config.OcrEngineGroup
-import com.moe.starflow.manga.PPOcrModelFiles
-import com.moe.starflow.manga.RTDetrModelFiles
+import com.moe.starflow.manga.engine.PPOcrModelFiles
+import com.moe.starflow.manga.engine.RTDetrModelFiles
 import com.moe.starflow.utils.CustomPreference
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.OcrEngineManager
@@ -331,8 +331,8 @@ class ModelManagementFragment : Fragment() {
     private fun updateV6TierVisibility() {
         val smallRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_small)
         val mediumRadio = rootView.findViewById<RadioButton>(R.id.ppocrv6_tier_medium)
-        val detDownloaded = com.moe.starflow.manga.PPOcrModelFiles.isV6MediumDownloaded(requireContext(), "det")
-        val recDownloaded = com.moe.starflow.manga.PPOcrModelFiles.isV6MediumDownloaded(requireContext(), "rec")
+        val detDownloaded = com.moe.starflow.manga.engine.PPOcrModelFiles.isV6MediumDownloaded(requireContext(), "det")
+        val recDownloaded = com.moe.starflow.manga.engine.PPOcrModelFiles.isV6MediumDownloaded(requireContext(), "rec")
         val mediumAvailable = detDownloaded && recDownloaded
 
         mediumRadio.visibility = if (mediumAvailable) android.view.View.VISIBLE else android.view.View.GONE
