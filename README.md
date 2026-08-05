@@ -55,9 +55,11 @@
 
 气泡检测 + OCR + 翻译 + 竖排渲染，4 种检测引擎 + 4 种 OCR 引擎可自由组合。超 6 个气泡增量渲染分批提速，pHash 检测页面变化自动翻页。实时渲染共享层：译文/原文/纯原图三态切换、气泡点击复制原文/译文、翻译缓存相似度匹配翻过的页秒开。竖排方向（右到左/左到右）对所有翻译结果实时生效。
 
-### 文本翻译
+### 文本翻译 & 聊天
 
 独立文本翻译页面：流式输出实时显示翻译进度，最近记录分页 + 快速复制，语言选择跨页面持久化。源语言不受 OCR 引擎限制（30 种全量可选），目标语言按翻译模型自动过滤。
+
+页面内置**聊天模式**（Tab 切换）：基于 Hy-MT2 本地模型或 OpenAI 兼容 API 的对话式翻译，支持聊天模板、会话历史。Hy-MT2 本地引擎提供真正的离线对话能力。
 
 ---
 
@@ -83,6 +85,7 @@
 ### 翻译引擎矩阵
 
 **本地机器翻译：**
+- **Hy-MT2 翻译** — 1.8B 设备端大模型（llama.cpp 推理），翻译完全离线、不上传文本，进程级共享实例 + 前缀 KV 缓存加速，支持流式输出与聊天模式
 - **NLLB 翻译** — 首次下载模型（~1GB）后可离线使用，自动检测设备 RAM（< 6GB 警告）
 
 **在线翻译 API：**
@@ -155,7 +158,7 @@
 - **检查更新** — GitHub Releases 自动检测，支持直接下载 / 百度网盘 / 夸克网盘
 - **应用内公告** — 开发者通过 Gist 推送公告，启动时自动检查
 - **FAQ 页面** — 常见问题解答，含 PP-OCRv5 调试面板参数详解
-- **开发者选项** — 各引擎调试浮窗（RT-DETR-V2/MLKit/PP-OCRv5）+ 参数实时调节
+- **开发者选项** — 各引擎调试浮窗（RT-DETR-V2/MLKit/PP-OCRv5/PP-OCRv6）+ 参数实时调节
 - **日志系统** — 所有日志通过 LogCollector 统一管理，支持导出
 
 ---
@@ -187,14 +190,29 @@ echo sdk.dir=C:/Users/<username>/AppData/Local/Android/Sdk > local.properties
 
 ```
 app/src/main/java/com/moe/starflow/
+├── manga/           漫画翻译引擎（按功能分 8 个子包）
+│   ├── types/       纯数据类（TextLine/OcrResult/TranslatedBubble 等 13 文件）
+│   ├── config/      配置 & 枚举（MangaModeConfig/OcrEngineGroup/PPOcrParams）
+│   ├── engine/      14 文件（PP-OCRv5/v6、ML Kit/manga-ocr 桥接、检测器、模型文件）
+│   ├── render/      译文渲染（OverlayRenderer/VerticalTextRenderer）
+│   ├── merge/       文本区域合并 & 聚类（TextRegionMerger/PPOcrPostProcessing）
+│   ├── state/       状态管理（自动翻译状态机/引擎管理器/区域缓存）
+│   ├── debug/       调试渲染 & 面板
+│   └── MangaFloatingService.kt  主服务
 ├── translate/       游戏/视频翻译引擎
-├── manga/           漫画翻译引擎
-├── bridge/          桥接层（OCR / 检测 / 翻译 / 截图）
-├── me/              设置 & API 配置 & FAQ
+│   ├── screenshot/  截图系统（MediaProjection/无障碍双模式、Shooter、ScreenshotManager）
+│   ├── autotranslate/  游戏自动翻译（像素状态机/GameOcrEngine/调试浮窗）
+│   ├── widget/      悬浮窗组件（TranslationResultView/BallStateManager/CropView/Dialogs）
+│   └── FloatingBallService.kt  主服务 + TranslationTextAPI/PicAPI 接口
+├── chat/            文本聊天翻译模式（ChatEngine/模板/历史）
+├── ui/              历史记录 & 漫画查看器
+│   ├── history/     历史记录列表（HistoryFragment + 适配器）
+│   └── viewer/      漫画全屏查看器（MangaViewerActivity/ZoomableImageView/CropFragment）
+├── me/              设置 & API 配置（about/apiconfig/model/settings 4 子包）
 ├── launch/          首次启动引导
 ├── utils/           工具类（pHash、像素比较、日志、检查更新等）
 ├── data/            Room 数据库 & 缓存管理
-├── ui/history/      历史记录 UI
+├── download/        模型下载流水线（断点续传/校验/前台服务）
 └── translationapi/  翻译 API 实现（10+ 厂商）
 ```
 
@@ -203,7 +221,7 @@ app/src/main/java/com/moe/starflow/
 ## 后续计划
 
 - 后台批量漫画翻译和打包下载
-- 测试本地离线翻译功能
+- 更多本地离线翻译模型支持（NLLB 之外的语种扩展）
 
 ---
 
