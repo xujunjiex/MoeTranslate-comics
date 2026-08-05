@@ -1,4 +1,5 @@
 package com.moe.starflow.chat
+import com.moe.starflow.translate.widget.*
 
 object ChatPromptBuilder {
 

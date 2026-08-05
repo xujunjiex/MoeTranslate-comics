@@ -1,4 +1,5 @@
 package com.moe.starflow.utils
+import com.moe.starflow.translate.widget.*
 
 /**
  * OCR-aware text similarity utility.

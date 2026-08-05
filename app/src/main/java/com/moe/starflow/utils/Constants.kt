@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.utils
+import com.moe.starflow.translate.widget.*
 
 object Constants {
     // 翻译相关常量

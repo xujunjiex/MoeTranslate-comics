@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow
+import com.moe.starflow.translate.widget.*
 
 import android.content.pm.ActivityInfo
 import android.os.Build

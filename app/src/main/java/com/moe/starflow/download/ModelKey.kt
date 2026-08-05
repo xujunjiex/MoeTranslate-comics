@@ -1,4 +1,5 @@
 package com.moe.starflow.download
+import com.moe.starflow.translate.widget.*
 
 /**
  * 所有可下载模型的统一标识。

@@ -1,4 +1,5 @@
 package com.moe.starflow.chat
+import com.moe.starflow.translate.widget.*
 
 /** 对话消息角色 */
 enum class ChatRole { USER, ASSISTANT }

@@ -1,4 +1,10 @@
-package com.moe.starflow.translate
+package com.moe.starflow.translate.widget
+import com.moe.starflow.translate.widget.*
+import com.moe.starflow.translate.*
+import com.moe.starflow.manga.*
+import com.moe.starflow.manga.engine.*
+import com.moe.starflow.manga.types.*
+import com.moe.starflow.manga.config.*
 import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 

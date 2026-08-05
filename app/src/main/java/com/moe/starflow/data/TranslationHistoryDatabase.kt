@@ -1,4 +1,5 @@
 package com.moe.starflow.data
+import com.moe.starflow.translate.widget.*
 
 import android.content.Context
 import androidx.room.Database

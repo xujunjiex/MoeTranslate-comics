@@ -1,4 +1,5 @@
 package com.moe.starflow.utils
+import com.moe.starflow.translate.widget.*
 
 import android.app.ActivityManager
 import android.content.Context

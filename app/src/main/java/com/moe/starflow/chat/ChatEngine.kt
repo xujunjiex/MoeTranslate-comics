@@ -1,4 +1,5 @@
 package com.moe.starflow.chat
+import com.moe.starflow.translate.widget.*
 
 /** 对话引擎回调结果 */
 sealed class ChatResult {

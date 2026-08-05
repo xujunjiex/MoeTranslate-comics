@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me.settings
+import com.moe.starflow.translate.widget.*
 import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 
@@ -38,7 +39,7 @@ import com.jaredrummler.android.colorpicker.ColorPreferenceCompat
 import com.moe.starflow.R
 import com.moe.starflow.translate.screenshot.AccessibilityServiceManager
 import com.moe.starflow.translate.CustomLocale
-import com.moe.starflow.translate.Dialogs
+import com.moe.starflow.translate.widget.Dialogs
 import com.moe.starflow.translate.FloatingBallService
 import com.moe.starflow.manga.MangaFloatingService
 import com.moe.starflow.utils.Constants

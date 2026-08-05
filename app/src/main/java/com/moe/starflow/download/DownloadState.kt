@@ -1,4 +1,5 @@
 package com.moe.starflow.download
+import com.moe.starflow.translate.widget.*
 
 /**
  * 模型下载状态。

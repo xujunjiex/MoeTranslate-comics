@@ -1,4 +1,5 @@
 package com.moe.starflow.download
+import com.moe.starflow.translate.widget.*
 
 import com.moe.starflow.utils.LogCollector
 import java.io.File

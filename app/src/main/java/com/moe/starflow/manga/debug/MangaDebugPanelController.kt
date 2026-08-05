@@ -1,4 +1,5 @@
 package com.moe.starflow.manga.debug
+import com.moe.starflow.translate.widget.*
 import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 import com.moe.starflow.manga.state.*

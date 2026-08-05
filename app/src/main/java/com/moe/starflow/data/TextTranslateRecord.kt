@@ -1,4 +1,5 @@
 package com.moe.starflow.data
+import com.moe.starflow.translate.widget.*
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity

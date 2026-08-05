@@ -1,4 +1,5 @@
 package com.moe.starflow.download
+import com.moe.starflow.translate.widget.*
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

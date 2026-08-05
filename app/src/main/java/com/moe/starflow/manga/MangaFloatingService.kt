@@ -1,4 +1,5 @@
 package com.moe.starflow.manga
+import com.moe.starflow.translate.widget.*
 import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 import com.moe.starflow.manga.state.*
@@ -53,9 +54,9 @@ import com.moe.starflow.me.apiconfig.OpenAIProviderConfig
 import com.moe.starflow.translate.screenshot.AccessibilityProvider
 import com.moe.starflow.translate.screenshot.AccessibilityEventHandler
 import com.moe.starflow.translate.screenshot.AccessibilityServiceManager
-import com.moe.starflow.translate.BallStateManager
-import com.moe.starflow.translate.CropView
-import com.moe.starflow.translate.Dialogs
+import com.moe.starflow.translate.widget.BallStateManager
+import com.moe.starflow.translate.widget.CropView
+import com.moe.starflow.translate.widget.Dialogs
 import com.moe.starflow.translate.screenshot.MediaProjectionProvider
 import com.moe.starflow.translate.screenshot.ScreenshotData
 import com.moe.starflow.translate.screenshot.ScreenshotManager
@@ -838,7 +839,7 @@ class MangaFloatingService : LifecycleService() {
                     if (cropRect != null) {
                         cropRect = null
                         showToast(getString(R.string.manga_mode_fullscreen), true)
-                        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
+                        val adapter = listView.adapter as com.moe.starflow.translate.widget.MenuDialogAdapter
                         adapter.updateLabel(0, "${getString(R.string.manga_crop_toggle)}：${getString(R.string.manga_mode_fullscreen)}")
                     } else {
                         dialog.dismiss()
@@ -866,14 +867,14 @@ class MangaFloatingService : LifecycleService() {
                     } else {
                         // 循环切换源语言，不关闭菜单
                         cycleSourceLang()
-                        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
+                        val adapter = listView.adapter as com.moe.starflow.translate.widget.MenuDialogAdapter
                         adapter.updateLabel(3, "${getString(R.string.game_switch_language)}：${getCurrentSourceLangName()}")
                     }
                 }
                 4 -> {
                     // 自动翻译
                     toggleAutoTranslate()
-                    val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
+                    val adapter = listView.adapter as com.moe.starflow.translate.widget.MenuDialogAdapter
                     if (autoTranslateEngine.isAutoTranslating) {
                         adapter.updateLabel(4, getString(R.string.manga_menu_stop_auto))
                         adapter.updateIcon(4, R.drawable.stop_auto)
@@ -1019,7 +1020,7 @@ class MangaFloatingService : LifecycleService() {
         applyCombo(next)
 
         // 更新菜单标签
-        val adapter = listView.adapter as com.moe.starflow.translate.MenuDialogAdapter
+        val adapter = listView.adapter as com.moe.starflow.translate.widget.MenuDialogAdapter
         adapter.updateLabel(2, "${getString(R.string.manga_model_toggle)}：${comboLabel(next)}")
     }
 

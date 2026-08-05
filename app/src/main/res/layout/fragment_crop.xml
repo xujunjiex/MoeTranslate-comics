@@ -10,7 +10,7 @@
         android:layout_height="match_parent"
         android:scaleType="fitCenter" />
 
-    <com.moe.starflow.translate.CropView
+    <com.moe.starflow.translate.widget.CropView
         android:id="@+id/cropView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

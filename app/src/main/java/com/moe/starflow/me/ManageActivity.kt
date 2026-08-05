@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.me
+import com.moe.starflow.translate.widget.*
 import com.moe.starflow.translate.autotranslate.*
 import com.moe.starflow.translate.screenshot.*
 

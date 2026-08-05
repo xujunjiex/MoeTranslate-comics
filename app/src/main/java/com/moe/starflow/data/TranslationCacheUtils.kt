@@ -1,4 +1,5 @@
 package com.moe.starflow.data
+import com.moe.starflow.translate.widget.*
 
 import android.graphics.Rect
 import com.moe.starflow.manga.types.TextDirection

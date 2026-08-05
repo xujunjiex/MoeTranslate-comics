@@ -16,6 +16,7 @@
  */
 
 package com.moe.starflow.utils
+import com.moe.starflow.translate.widget.*
 
 import android.content.Context
 import kotlin.math.max

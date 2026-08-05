@@ -1,4 +1,5 @@
 package com.moe.starflow.translate.screenshot
+import com.moe.starflow.translate.widget.*
 import com.moe.starflow.translate.*
 import com.moe.starflow.manga.*
 import com.moe.starflow.manga.engine.*

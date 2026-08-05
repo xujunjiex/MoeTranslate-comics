@@ -1,4 +1,5 @@
 package com.moe.starflow.utils
+import com.moe.starflow.translate.widget.*
 
 /**
  * 逐像素图像比较工具（移植自 pixelmatch）

@@ -1,4 +1,5 @@
 package com.moe.starflow
+import com.moe.starflow.translate.widget.*
 
 import android.app.Application
 import com.moe.starflow.download.ModelDownloadRepository
