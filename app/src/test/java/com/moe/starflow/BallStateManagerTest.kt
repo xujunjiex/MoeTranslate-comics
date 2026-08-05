@@ -1,6 +1,6 @@
 package com.moe.starflow
 
-import com.moe.starflow.translate.BallStateManager
+import com.moe.starflow.translate.widget.BallStateManager
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
