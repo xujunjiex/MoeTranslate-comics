@@ -630,6 +630,20 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 
 **所有日志必须通过 `LogCollector` 写入**，不能直接用 `Log.d/i/e`。
 
+**统一日志落盘（v0.10.x 新增，排查 native 闪退的关键）：**
+- `LogCollector` 除内存缓冲 + logcat 外，同时追加写入 `getExternalFilesDir/logs/starflow.log`
+- Hy-MT2 bridge（`hymt2_bridge.cpp`）的 native 日志通过 `nativeSetLogFile` 写**同一文件**；
+  SIGSEGV/SIGABRT/SIGBUS 崩溃时信号处理器把 backtrace + abort message 追加进同一文件后
+  **re-raise 信号**（绝不用 `_exit`——那会跳过 debuggerd，系统崩溃报告/tombstone/vivo·realme
+  "服务与反馈"就抓不到崩溃，用户无法上报）；`SA_ONSTACK` + 备用栈防栈溢出时处理器自身挂
+- 固定大小 ~2MB：超限保留尾部（截掉最旧一半），启动不清空
+- `StarFlowApplication.onCreate` 调用 `LogCollector.init(this)` 初始化 +
+  `Thread.setDefaultUncaughtExceptionHandler`（Java 未捕获异常写盘后交给原 handler）；
+  `HyMT2Translation.setupCrashDir()` 幂等调用 `nativeSetLogFile`（单测 JVM 无 .so 时静默跳过）
+- 用户获取：关于页 → 查看日志 → 导出，导出文件含完整 `starflow.log`（Java + native + 崩溃 backtrace）
+- ⚠️ native 崩溃日志只进 `starflow.log` 和 logcat，**不进** `LogCollector` 内存缓冲 —— 排查闪退
+  必须读导出文件，不能只看 app 内实时日志
+
 logcat 过滤器：
 ```
 tag:OCRBridge | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils

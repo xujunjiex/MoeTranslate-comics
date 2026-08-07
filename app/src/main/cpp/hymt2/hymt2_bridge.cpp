@@ -12,17 +12,171 @@
 #include <algorithm>
 #include <cstring>
 #include <cerrno>
+#include <cstdarg>
+#include <cstdio>
 #include <unistd.h>
 #include <sched.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
 #include <sys/mman.h>
+#include <unwind.h>
+#include <dlfcn.h>
 #include "llama.h"
 #include "ggml.h"
 #include "ggml-cpu.h"
 
 #define TAG "HyMT2Bridge"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 统一坠机记录仪：native 日志 + SIGSEGV/SIGABRT 崩溃 backtrace 写入与 Java 层 LogCollector
+// 同一个文件（<logs>/starflow.log）。崩溃处理器只使用 async-signal-safe 函数
+// （open/write/snprintf），不拿锁、不 malloc，避免崩溃处理器自身再崩。
+// ══════════════════════════════════════════════════════════════════════════════
+
+// 统一日志文件（nativeSetLogFile 设置；崩溃时只读 g_log_fd，原子追加）
+static std::mutex g_log_mutex;
+static std::string g_log_path;
+static int g_log_fd = -1;
+static long g_log_bytes = 0;  // 累计写入字节数，超 2MB 由调用方滚动（与 Java 侧一致）
+
+static const char* sig_name(int sig) {
+    switch (sig) {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGABRT: return "SIGABRT";
+        case SIGBUS:  return "SIGBUS";
+        case SIGFPE:  return "SIGFPE";
+        case SIGILL:  return "SIGILL";
+        case SIGSYS:  return "SIGSYS";
+        default:      return "UNKNOWN";
+    }
+}
+
+// 崩溃信号处理器：追加 backtrace 到日志文件后，re-raise 信号让 debuggerd 接管。
+// ⚠️ 关键：绝不能用 _exit 退出——那会跳过 debuggerd，系统崩溃报告（tombstone / vivo·realme 的
+// "服务与反馈"）就抓不到崩溃，用户无法上报日志。写盘后把 handler 重置为默认并重新抛信号，
+// 让 Android 的 crash 捕获链路正常收尾。
+struct crash_bt_ctx {
+    int fd;
+    int depth;
+    unsigned long pcs[64];
+};
+static _Unwind_Reason_Code crash_unwind_cb(struct _Unwind_Context* uc, void* arg) {
+    auto* c = static_cast<crash_bt_ctx*>(arg);
+    if (c->depth >= 64) return _URC_END_OF_STACK;
+    c->pcs[c->depth++] = _Unwind_GetIP(uc);
+    return _URC_NO_REASON;
+}
+
+// SIGABRT 的 abort message（debuggerd 的 tombstone 里会显示）。通过 libc 内部符号
+// __libc_get_abort_message 读取（android_set_abort_message 设置的诊断文本，如 ggml_abort
+// 的"Internal error"、std::terminate 的 what()）。直接 dlsym，避免链接依赖。
+static const char* android_abort_message() {
+    typedef const char* (*get_abort_fn)();
+    static void* sym = nullptr;
+    if (sym == nullptr) {
+        sym = dlsym(RTLD_DEFAULT, "__libc_get_abort_message");
+    }
+    if (sym == nullptr) return nullptr;
+    auto fn = reinterpret_cast<get_abort_fn>(sym);
+    return fn ? fn() : nullptr;
+}
+
+static void crash_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
+    const int fd = g_log_fd;
+    char line[512];
+    int n = 0;
+    if (fd >= 0) {
+        n = snprintf(line, sizeof(line),
+            "\n════════ NATIVE CRASH ════════\nsig=%d (%s) si_addr=%p\n",
+            sig, sig_name(sig), (info && info->si_addr != nullptr) ? info->si_addr : nullptr);
+        write(fd, line, n);
+        if (sig == SIGABRT) {
+            const char* am = android_abort_message();
+            if (am != nullptr && am[0] != '\0') {
+                write(fd, "abort_message: ", 15);
+                write(fd, am, strlen(am));
+                write(fd, "\n", 1);
+            }
+        }
+        crash_bt_ctx ctx;
+        ctx.fd = fd;
+        ctx.depth = 0;
+        _Unwind_Backtrace(crash_unwind_cb, &ctx);
+        for (int i = 0; i < ctx.depth; ++i) {
+            char bt_line[128];
+            int bn = snprintf(bt_line, sizeof(bt_line), "  #%02d pc=%016lx\n", i, ctx.pcs[i]);
+            write(fd, bt_line, bn);
+        }
+        const char* end = "════════ END CRASH ════════\n";
+        write(fd, end, strlen(end));
+    }
+    // 复位为默认处置并 re-raise，让 debuggerd / tombstone / 系统崩溃报告正常收尾
+    signal(sig, SIG_DFL);
+    raise(sig);
+    // raise 若被阻塞则兜底（正常不会到这）
+    _exit(128 + sig);
+}
+
+// 安装崩溃信号处理器（幂等）。SA_ONSTACK + 备用栈：栈溢出（SIGSEGV on stack）时
+// 处理器在备用栈上运行，不会因无栈空间再崩。
+static void install_crash_handlers() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        // 备用栈（8 页）：崩溃发生在耗尽栈时处理器仍有空间
+        static char alt_stack[SIGSTKSZ * 4];
+        static bool stack_set = false;
+        if (!stack_set) {
+            stack_t ss;
+            memset(&ss, 0, sizeof(ss));
+            ss.ss_sp = alt_stack;
+            ss.ss_size = sizeof(alt_stack);
+            if (sigaltstack(&ss, nullptr) == 0) stack_set = true;
+        }
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_sigaction = crash_handler;
+        sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+        sigemptyset(&sa.sa_mask);
+        const int kSignals[] = { SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSYS };
+        for (int sig : kSignals) sigaction(sig, &sa, nullptr);
+    });
+}
+
+// 每条日志追加到统一日志文件（带锁；崩溃处理器不经过此函数，直接用 fd 追加）
+static void log_to_file(const char* msg) {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (g_log_fd < 0) return;
+    // 固定大小：native 侧自己的字节计数超限时截断重写（保留尾部新内容）。
+    // Java 侧 LogCollector 也独立滚动同一文件（保留尾部），两者不冲突——都是"超限保留最新"。
+    if (g_log_bytes > 2 * 1024 * 1024) {
+        g_log_bytes = 0;
+        if (ftruncate(g_log_fd, 0) == 0) {
+            static const char hdr[] = "…（日志已滚动，截断最旧内容）…\n";
+            write(g_log_fd, hdr, sizeof(hdr) - 1);
+        }
+    }
+    char line[1200];
+    const int n = snprintf(line, sizeof(line), "%s\n", msg);
+    if (n <= 0) return;
+    const ssize_t w = write(g_log_fd, line, n);
+    if (w > 0) g_log_bytes += w;
+}
+
+// 统一日志入口：logcat + 落盘
+static void bridge_log(int level, const char* fmt, ...) {
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    __android_log_print(level, TAG, "%s", buf);
+    log_to_file(buf);
+}
+
+#define LOGI(...) bridge_log(ANDROID_LOG_INFO, __VA_ARGS__)
+#define LOGW(...) bridge_log(ANDROID_LOG_WARN, __VA_ARGS__)
+#define LOGE(...) bridge_log(ANDROID_LOG_ERROR, __VA_ARGS__)
 
 // 串行化所有解码调用，防止并发访问同一 context（漫画模式多气泡并行翻译时排队）
 static std::mutex g_mutex;
@@ -67,7 +221,7 @@ static void log_chunked(const char* tag, const char* s, size_t len) {
     size_t off = 0;
     while (off < len) {
         size_t n = std::min(CHUNK, len - off);
-        LOGI("%s%.*s", tag, static_cast<int>(n), s + off);
+        bridge_log(ANDROID_LOG_INFO, "%s%.*s", tag, static_cast<int>(n), s + off);
         off += n;
     }
 }
@@ -130,10 +284,64 @@ struct HyMt2Handle {
     int32_t prefix_n = 0;
 };
 
+// 设置统一日志文件（<logs>/starflow.log，与 Java 层 LogCollector 同一文件），
+// 打开文件 + 安装崩溃信号处理器。幂等：路径一致且已打开则不重开。
+// ⚠️ fd 打开后进程生命周期内不再 close/reopen（崩溃处理器无锁读 g_log_fd，重开有 fd 复用竞态）。
+extern "C" JNIEXPORT void JNICALL
+Java_translationapi_hymt2translation_HyMt2Native_nativeSetLogFile(
+    JNIEnv* env, jclass, jstring jPath) {
+    try {
+        const char* path_c = env->GetStringUTFChars(jPath, nullptr);
+        if (path_c == nullptr) return;
+        std::string path(path_c);
+        env->ReleaseStringUTFChars(jPath, path_c);
+
+        // 先确保目录存在（mkdir(2) 替代 system()：不 spawn shell、不持锁、不碰信号处理器）
+        const size_t slash = path.find_last_of('/');
+        std::string dir;
+        if (slash != std::string::npos) dir = path.substr(0, slash);
+        if (!dir.empty()) {
+            // 逐级 mkdir（app 私有目录已存在时通常一次成功；失败不致命，open 会暴露）
+            size_t pos = 0;
+            while (pos != std::string::npos) {
+                pos = dir.find('/', pos + 1);
+                std::string sub = (pos == std::string::npos) ? dir : dir.substr(0, pos);
+                if (!sub.empty()) {
+                    if (mkdir(sub.c_str(), 0755) != 0 && errno != EEXIST) {
+                        __android_log_print(ANDROID_LOG_WARN, TAG, "mkdir %s failed: %s", sub.c_str(), strerror(errno));
+                        break;
+                    }
+                }
+            }
+        }
+
+        install_crash_handlers();
+        {
+            std::lock_guard<std::mutex> lock(g_log_mutex);
+            if (g_log_fd >= 0) return;  // 已打开过，不重开
+            g_log_path = path;
+            // 打开同一文件追加写入（不截断：保留跨会话日志，崩溃后仍可读）
+            g_log_fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
+            g_log_bytes = 0;
+        }
+        if (g_log_fd < 0) {
+            __android_log_print(ANDROID_LOG_ERROR, TAG, "open log file failed: %s", path.c_str());
+            return;
+        }
+        // 日志放锁外：LOG/LOGI → log_to_file 会再次拿 g_log_mutex，锁内调用会自死锁
+        LOGI("nativeSetLogFile: %s", path.c_str());
+    } catch (const std::exception& e) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "nativeSetLogFile exception: %s", e.what());
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "nativeSetLogFile unknown exception");
+    }
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_translationapi_hymt2translation_HyMt2Native_nativeInit(
     JNIEnv* env, jclass, jstring jModelPath, jint nThreads, jint nBatchThreads, jint nCtx) {
     try {
+        install_crash_handlers();  // 保证即使未设目录，崩溃也走处理器的 fd 路径（fd<0 直接 _exit）
         std::lock_guard<std::mutex> lock(g_mutex);
         const char* path = env->GetStringUTFChars(jModelPath, nullptr);
         if (path == nullptr) return 0;
@@ -502,6 +710,10 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             const llama_token id = llama_sampler_sample(smpl, h->ctx, -1);
             llama_sampler_accept(smpl, id);
             generated = i + 1;
+            // 每个 token 记录解码信息（崩溃前最后 token 可定位问题）
+            if ((i % 8) == 0 || i == 0) {
+                LOGI("translate: sampled[%d] id=%d pos=%d", i, id, n_cur);
+            }
             if (llama_vocab_is_eog(h->vocab, id)) {
                 LOGI("translate: EOG at token %d (+%lld ms), token_id=%d", i, now_ms() - t_gen0, id);
                 hit_eog = true;

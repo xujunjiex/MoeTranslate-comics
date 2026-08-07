@@ -6,6 +6,12 @@ object HyMt2Native {
         System.loadLibrary("hymt2")
     }
 
+    /**
+     * 设置统一日志文件路径（<logs>/starflow.log）+ 安装 SIGSEGV/SIGABRT 处理器。
+     * 之后所有 bridge 日志 + 崩溃 backtrace 都追加到该文件（与 Java 层 LogCollector 同一文件）。
+     */
+    external fun nativeSetLogFile(path: String)
+
     /** 加载模型 + 建 context。返回句柄，0 = 失败。 */
     external fun nativeInit(modelPath: String, nThreads: Int, nBatchThreads: Int, nCtx: Int): Long
 

@@ -1,19 +1,75 @@
 package com.moe.starflow.utils
 import com.moe.starflow.translate.widget.*
 
+import android.content.Context
 import android.util.Log
+import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * 内存日志收集器（环形缓冲区）
+ * 统一日志收集器（内存缓冲 + 单文件落盘）
  *
- * 所有日志通过此类写入，同时写入 Android logcat 和内存缓冲区。
- * 用户可在设置页面查看最近的日志，方便复制错误信息。
+ * 所有日志（Java 层 + native 层 + 崩溃 backtrace）统一写入同一个文件：
+ * `getExternalFilesDir/logs/starflow.log`。
+ *
+ * - 内存缓冲：app 内日志查看器实时查看最近 500 条
+ * - 文件落盘：统一格式追加写入，native 崩溃/进程死亡后日志仍保留
+ * - 固定大小：超 2MB 时保留尾部（截掉最旧的一半），启动不清空
+ *
+ * ⚠️ 必须在 Application.onCreate 调用 [init] 后才能落盘（否则只有内存缓冲）。
  */
 object LogCollector {
 
     // 日志 tag 常量
     const val TAG_OCR = "OCR"
     const val TAG_DETECTION = "DetectionBridge"
+
+    /** 日志文件最大字节数（超限保留尾部，滚动截断） */
+    const val MAX_LOG_BYTES = 2 * 1024 * 1024L
+
+    /** 日志文件名（统一） */
+    const val LOG_FILE_NAME = "starflow.log"
+
+    /** 日志文件目录（init 后可用） */
+    @Volatile
+    private var logDir: File? = null
+
+    /** 当前日志文件（追加写入） */
+    @Volatile
+    private var logFile: File? = null
+
+    /**
+     * 初始化文件落盘。幂等：重复调用只刷新路径。
+     * @param context 应用上下文（取 applicationContext）
+     */
+    @Synchronized
+    fun init(context: Context) {
+        try {
+            val dir = File(context.applicationContext.getExternalFilesDir(null), "logs")
+            if (!dir.exists()) dir.mkdirs()
+            logDir = dir
+            logFile = File(dir, LOG_FILE_NAME)
+            // 追加写入，不截断（保留跨会话日志，崩溃后仍可读）
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 统一日志文件路径（Java + native 共用） */
+    val logFilePath: String?
+        get() = logFile?.absolutePath
+
+    /** 统一日志文件（给 AboutMe 崩溃日志入口展示用） */
+    val crashLogFile: File?
+        get() = logFile
+
+    /** 读取文件落盘的全部日志（native 崩溃 backtrace 也在这里） */
+    fun readLogFile(): String {
+        return try {
+            logFile?.takeIf { it.exists() }?.readText() ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
 
     data class LogEntry(
         val level: String,  // D, I, W, E, V
@@ -34,7 +90,7 @@ object LogCollector {
     }
 
     private const val MAX_ENTRIES = 500
-    private val buffer = java.util.concurrent.CopyOnWriteArrayList<LogEntry>()
+    private val buffer = CopyOnWriteArrayList<LogEntry>()
 
     fun v(tag: String, msg: String): Int {
         addEntry("V", tag, msg)
@@ -76,6 +132,35 @@ object LogCollector {
         buffer.add(entry)
         while (buffer.size > MAX_ENTRIES) {
             buffer.removeAt(0)
+        }
+        // 文件落盘：统一格式追加写入（尽力而为，失败不阻塞主流程）
+        try {
+            val file = logFile
+            if (file != null) {
+                synchronized(file) {
+                    file.appendText(entry.format() + "\n")
+                    rotateIfNeeded(file)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * 固定大小滚动：文件超 [MAX_LOG_BYTES] 时保留尾部一半（截掉最旧的一半）。
+     * 启动不清空；超出固定大小才替换。截断只发生在整行边界，避免切断日志行。
+     */
+    private fun rotateIfNeeded(file: File) {
+        if (file.length() <= MAX_LOG_BYTES) return
+        try {
+            val data = file.readText()
+            val keepChars = data.length / 2
+            // 从保留起点找下一个换行，避免截断一行
+            var start = data.length - keepChars
+            val nl = data.indexOf('\n', start)
+            if (nl in 0 until data.length) start = nl + 1
+            file.writeText("…（日志已滚动，截断最旧内容）…\n" + data.substring(start))
+        } catch (_: Exception) {
         }
     }
 

@@ -177,14 +177,18 @@ class AboutMe : Fragment() {
         val logContent = dialogView.findViewById<TextView>(R.id.log_content)
         val logCount = dialogView.findViewById<TextView>(R.id.log_count)
 
+        // 统一日志检测：starflow.log 包含全部日志（Java + native + 崩溃 backtrace）
+        val crashHint = buildCrashHint(LogCollector.crashLogFile)
+        logCount.text = crashHint.ifEmpty {
+            getString(R.string.log_count_format, logEntries.size)
+        }
+
         if (logs.isEmpty()) {
             logContent.text = getString(R.string.log_empty)
-            logCount.text = getString(R.string.log_count_format, 0)
         } else {
             val spannable = buildLogSpannable(logEntries)
             logContent.text = spannable
             logContent.movementMethod = LinkMovementMethod.getInstance()
-            logCount.text = getString(R.string.log_count_format, logEntries.size)
         }
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -210,6 +214,16 @@ class AboutMe : Fragment() {
         }
 
         dialog.show()
+    }
+
+    /**
+     * 构建日志提示。有统一日志文件（starflow.log）时显示路径 + 大小，
+     * 引导用户导出日志反馈给开发者。无文件返回空串（不打扰）。
+     */
+    private fun buildCrashHint(file: java.io.File?): String {
+        val appLog = file?.takeIf { it.exists() && it.length() > 0 } ?: return ""
+        return "⚠️ 日志文件：${appLog.absolutePath} (${appLog.length() / 1024}KB)\n" +
+            "    包含全部日志（Java + Hy-MT2 native + 崩溃信息）\n\n"
     }
 
     /**
@@ -268,7 +282,14 @@ class AboutMe : Fragment() {
             val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
                 .format(java.util.Date())
             val file = java.io.File(dir, "moe_log_$timestamp.txt")
-            file.writeText(logs)
+
+            // 统一日志文件内容（Java + native + 崩溃 backtrace 都在这里，单一来源）
+            val unifiedLog = LogCollector.crashLogFile
+            val content = when {
+                unifiedLog?.exists() == true && unifiedLog.length() > 0 -> unifiedLog.readText()
+                else -> logs
+            }
+            file.writeText(content)
             UiUtils.showToast(requireContext(), getString(R.string.log_exported, file.absolutePath), isShort = false)
         } catch (e: Exception) {
             UiUtils.showToast(requireContext(), getString(R.string.log_export_failed, e.message ?: "未知错误"), isShort = false)

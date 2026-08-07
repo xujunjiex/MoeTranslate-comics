@@ -14,6 +14,10 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
     private val ctx = context.applicationContext
     private val statusOverlay = TranslationStatusOverlay.getInstance(ctx)
     private val initLock = Any()
+
+    /** 崩溃日志目录是否已设置（避免重复 native 调用） */
+    @Volatile private var crashDirSet = false
+
     @Volatile private var handle: Long = 0L
     @Volatile private var currentTask: Thread? = null
     @Volatile private var cancelled = false
@@ -194,6 +198,9 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
 
     /** 懒加载：首次翻译才初始化模型。失败返回 0。 */
     private fun ensureLoaded(): Long {
+        // 设置 native 崩溃日志目录 + 安装信号处理器：所有 bridge 日志 + 崩溃 backtrace 落盘。
+        // 懒调用 + 幂等，保证 nativeInit 之前处理器已就位（崩溃可捕获）
+        setupCrashDir()
         // 已 release 的实例（共享持有器换出/重建）绝不再重载模型：
         // 否则服务缓存的旧实例会在 handle=0 时绕过持有器重新 nativeInit 一个 440MB 僵尸模型
         if (released) return 0L
@@ -280,6 +287,7 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
 
     /** 后台预加载模型（共享常驻场景），把加载挪到后台，避免首次翻译时才等模型就绪 */
     fun warmUp() {
+        setupCrashDir()
         if (handle != 0L) return
         Thread {
             try {
@@ -290,6 +298,24 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                 LogCollector.e(TAG, "Hy-MT2 warmUp 失败: ${e.message}", e)
             }
         }.start()
+    }
+
+    /** 设置统一日志文件 + 安装 native 崩溃处理器（幂等，线程安全） */
+    private fun setupCrashDir() {
+        if (crashDirSet) return
+        synchronized(initLock) {
+            if (crashDirSet) return
+            try {
+                // 与 Java 层 LogCollector 同一文件：所有日志统一一个地方
+                val file = java.io.File(ctx.getExternalFilesDir(null), "logs")
+                    .resolve(com.moe.starflow.utils.LogCollector.LOG_FILE_NAME)
+                HyMt2Native.nativeSetLogFile(file.absolutePath)
+                crashDirSet = true
+            } catch (e: Throwable) {
+                // 单测 JVM 无 libhymt2.so → UnsatisfiedLinkError，忽略（仅真机生效）
+                LogCollector.d(TAG, "nativeSetLogFile 不可用: ${e.message}")
+            }
+        }
     }
 
     companion object {
