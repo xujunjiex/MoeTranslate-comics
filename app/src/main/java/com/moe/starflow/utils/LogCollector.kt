@@ -216,16 +216,23 @@ object LogCollector {
     }
 
     /**
-     * 文件滚动：行数超 [MAX_ENTRIES] 时保留最新 [MAX_ENTRIES] 行（丢最旧）。
-     * 只在超限时读+写，平时仅 appendText。
+     * 文件滚动：行数超 [MAX_ENTRIES] 时保留最新内容（丢最旧）。
+     * **崩溃块保护**：文件含 NATIVE CRASH 块时，从块起始保留（崩溃块 + 其后日志），
+     * 确保闪退后即使重开 app 又产生大量日志，崩溃块也不会被滚动挤出、一定查询得到。
      */
     private fun trimFileToTail(file: File) {
         if (file.length() == 0L) return
         try {
             val lines = file.readLines()
-            if (lines.size > MAX_ENTRIES) {
-                file.writeText(lines.takeLast(MAX_ENTRIES).joinToString("\n") + "\n")
+            if (lines.size <= MAX_ENTRIES) return
+            val crashStart = lines.indexOfFirst { it.contains("NATIVE CRASH") }
+            val final = if (crashStart >= 0) {
+                val fromCrash = lines.subList(crashStart, lines.size)
+                if (fromCrash.size <= MAX_ENTRIES) fromCrash else fromCrash.takeLast(MAX_ENTRIES)
+            } else {
+                lines.takeLast(MAX_ENTRIES)
             }
+            file.writeText(final.joinToString("\n") + "\n")
         } catch (_: Exception) {
         }
     }

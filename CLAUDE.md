@@ -650,6 +650,20 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
   `debuggerd_signal_handler`（socket 通知 crash_dump），不是内核 core_pattern——直接 `SIG_DFL`
   + raise 实测不产生 tombstone；re-raise 前还须 `sigprocmask(SIG_UNBLOCK)` 解除该信号阻塞
   （处理器运行时被处理信号自动加入线程屏蔽集，否则 raise 后走 `_exit` 正常退出、无 tombstone）
+- **崩溃块诊断（v0.10.3 增强，一次定位根因）**：crash_handler 崩溃块除 backtrace 外还写入——
+  `time=`（epoch 秒）、`tid=/thread=`（崩溃线程，判断主线程还是翻译线程）、`mem:`（VmRSS）+
+  `memavail:`（系统可用内存，判断是否 OOM 相关）、`diag:` 行（`in_translate/prompt_chars/
+  prompt_tokens/n_ctx/max_tokens/gen_token/prefix_cache`，来自全局 `CrashDiag`，translate_impl
+  入口/分词后/生成循环实时更新）、`prompt_preview`（prompt 开头 160 字符）。backtrace 用
+  **`dladdr` 符号化**（async-signal-safe）：每帧 `pc=... 函数名+偏移 [.so 名]`，崩溃块直接可读、
+  无需 PC 端 addr2line。排查 Hy-MT2 闪退看 `diag:` 的 `prompt_tokens` vs `n_ctx` 判断是否超
+  context、`gen_token` 判断崩在解码还是生成
+- **崩溃块滚动保护**：`LogCollector.trimFileToTail` 文件含 NATIVE CRASH 块时从块起始保留
+  （崩溃块 + 其后日志），闪退后即使重开 app 又产生大量日志，崩溃块也不会被 300 行滚动挤出——
+  重开 app 后日志查看器/导出一定能查到崩溃块
+- **超长 prompt 防御（防 ggml_abort 闪退）**：`translate_impl` decode 前检查
+  `n_tokens >= llama_n_ctx - 64` → 返回 `__PROMPT_TOO_LONG__`（Java 侧转友好错误，
+  不喂给 llama）；漫画 34 气泡批量合并的 prompt 可能超 n_ctx=2048，宁可翻译失败也不闪退
 - `StarFlowApplication.onCreate` 顺序：`LogCollector.init(this)` →
   `Thread.setDefaultUncaughtExceptionHandler`（Java 未捕获异常写入日志后交给原 handler）→
   **`installNativeCrashHandler()`（直接调 `HyMt2Native.nativeSetLogFile`，不等 Hy-MT2 初始化，

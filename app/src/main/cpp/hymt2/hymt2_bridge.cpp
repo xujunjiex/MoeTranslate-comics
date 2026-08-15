@@ -18,6 +18,8 @@
 #include <sched.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <pthread.h>
+#include <sys/syscall.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <unwind.h>
@@ -44,6 +46,23 @@ static int g_log_fd = -1;
 // 保存 libc 原始信号处置（debuggerd 通知链路）。崩溃时恢复后 re-raise，
 // 让 debuggerd 走正常路径生成 tombstone（见 crash_handler）。
 static struct sigaction g_old_sa[64];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 崩溃诊断上下文：translate 线程更新，crash_handler 只读（std::atomic 保证崩溃时
+// 读到一致值，不锁）。崩溃块记录这些，让用户/开发者一次性定位（prompt 是否超长/
+// 是否超 n_ctx / 生成到第几个 token / 前缀缓存状态）。
+// ══════════════════════════════════════════════════════════════════════════════
+struct CrashDiag {
+    std::atomic<bool> in_translate{false};
+    std::atomic<int> prompt_chars{0};    // 当前 prompt 字符数（含全部气泡编号文本）
+    std::atomic<int> prompt_tokens{0};   // 分词后 token 数
+    std::atomic<int> n_ctx{0};           // 模型 context 大小
+    std::atomic<int> max_tokens{0};      // 最大生成 token
+    std::atomic<int> gen_token{0};       // 生成循环已到第几个 token
+    std::atomic<int> prefix_cache_valid{0};
+    char prompt_preview[160];            // prompt 开头预览（写一次，崩溃时可能读到部分）
+};
+static CrashDiag g_diag;
 
 static const char* sig_name(int sig) {
     switch (sig) {
@@ -95,10 +114,61 @@ static void crash_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
         // 文件是"最近 300 行滚动"（Java 侧维护），崩溃块追加到末尾、不覆盖旧日志：
         // 多次崩溃的记录都保留；滚动（丢最旧）由 Java 侧下次启动时做（crash_handler
         // 内只允许 async-signal-safe 操作，不做读文件解析）。O_APPEND 下 write 天然追加。
+        // 崩溃时间戳（time() 是 async-signal-safe）
+        char tbuf[32];
+        int tn = snprintf(tbuf, sizeof(tbuf), "time=%lld\n", (long long)time(nullptr));
+        write(fd, tbuf, tn);
+        // 崩溃线程信息（gettid + pthread_getname_np，均 async-signal-safe）
+        {
+            char tbuf2[96];
+            char tname[64];
+            memset(tname, 0, sizeof(tname));
+            if (pthread_getname_np(pthread_self(), tname, sizeof(tname)) != 0) tname[0] = 0;
+            int bn = snprintf(tbuf2, sizeof(tbuf2), "tid=%ld thread=[%s]\n",
+                (long)syscall(SYS_gettid), tname);
+            write(fd, tbuf2, bn);
+        }
         n = snprintf(line, sizeof(line),
             "\n════════ NATIVE CRASH ════════\nsig=%d (%s) si_addr=%p\n",
             sig, sig_name(sig), (info && info->si_addr != nullptr) ? info->si_addr : nullptr);
         write(fd, line, n);
+        // 崩溃时内存（进程 VmRSS + 系统 MemAvailable，判断是否 OOM/内存压力相关）
+        {
+            const int mfd = open("/proc/self/status", O_RDONLY | O_CLOEXEC);
+            if (mfd >= 0) {
+                char mbuf[4096];
+                const ssize_t rd = read(mfd, mbuf, sizeof(mbuf) - 1);
+                close(mfd);
+                if (rd > 0) {
+                    mbuf[rd] = 0;
+                    char* p = strstr(mbuf, "VmRSS:");
+                    if (p) {
+                        char* eol = strchr(p, '\n');
+                        size_t len = eol ? (size_t)(eol - p) : strlen(p);
+                        write(fd, "mem: ", 5);
+                        write(fd, p, len);
+                        write(fd, "\n", 1);
+                    }
+                }
+            }
+            const int afd = open("/proc/meminfo", O_RDONLY | O_CLOEXEC);
+            if (afd >= 0) {
+                char mbuf[4096];
+                const ssize_t rd = read(afd, mbuf, sizeof(mbuf) - 1);
+                close(afd);
+                if (rd > 0) {
+                    mbuf[rd] = 0;
+                    char* p = strstr(mbuf, "MemAvailable:");
+                    if (p) {
+                        char* eol = strchr(p, '\n');
+                        size_t len = eol ? (size_t)(eol - p) : strlen(p);
+                        write(fd, "memavail: ", 10);
+                        write(fd, p, len);
+                        write(fd, "\n", 1);
+                    }
+                }
+            }
+        }
         if (sig == SIGABRT) {
             const char* am = android_abort_message();
             if (am != nullptr && am[0] != '\0') {
@@ -107,13 +177,36 @@ static void crash_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
                 write(fd, "\n", 1);
             }
         }
+        // 翻译诊断（崩溃时读全局上下文，定位 prompt 超长/超 n_ctx/生成进度）
+        n = snprintf(line, sizeof(line),
+            "diag: in_translate=%d prompt_chars=%d prompt_tokens=%d n_ctx=%d max_tokens=%d gen_token=%d prefix_cache=%d\n",
+            (int)g_diag.in_translate.load(), (int)g_diag.prompt_chars.load(),
+            (int)g_diag.prompt_tokens.load(), (int)g_diag.n_ctx.load(),
+            (int)g_diag.max_tokens.load(), (int)g_diag.gen_token.load(),
+            (int)g_diag.prefix_cache_valid.load());
+        write(fd, line, n);
+        if (g_diag.prompt_chars.load() > 0) {
+            write(fd, "prompt_preview: ", 16);
+            write(fd, g_diag.prompt_preview, strnlen(g_diag.prompt_preview, sizeof(g_diag.prompt_preview)));
+            write(fd, "\n", 1);
+        }
+        // backtrace（dladdr 符号化：函数名 + .so 名 + 函数内偏移，async-signal-safe，
+        // 崩溃块直接可读，无需 PC 端 addr2line）
         crash_bt_ctx ctx;
         ctx.fd = fd;
         ctx.depth = 0;
         _Unwind_Backtrace(crash_unwind_cb, &ctx);
         for (int i = 0; i < ctx.depth; ++i) {
-            char bt_line[128];
-            int bn = snprintf(bt_line, sizeof(bt_line), "  #%02d pc=%016lx\n", i, ctx.pcs[i]);
+            char bt_line[256];
+            Dl_info info;
+            memset(&info, 0, sizeof(info));
+            const bool has_sym = dladdr((void*)ctx.pcs[i], &info) != 0 && info.dli_sname != nullptr;
+            const char* sym = has_sym ? info.dli_sname : "";
+            const char* fname = info.dli_fname != nullptr ? info.dli_fname : "";
+            const uintptr_t off = (has_sym && info.dli_saddr != nullptr)
+                ? (uintptr_t)ctx.pcs[i] - (uintptr_t)info.dli_saddr : 0;
+            int bn = snprintf(bt_line, sizeof(bt_line), "  #%02d pc=%016lx  %s+0x%zx  [%s]\n",
+                i, ctx.pcs[i], sym, off, fname);
             write(fd, bt_line, bn);
         }
         const char* end = "════════ END CRASH ════════\n";
@@ -516,6 +609,13 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
         std::string prefix = (prefix_cstr != nullptr) ? std::string(prefix_cstr) : std::string();
         if (prefix_cstr != nullptr) env->ReleaseStringUTFChars(jPrefix, prefix_cstr);
         LOGI("translate: prompt chars=%zu preview=[%.100s]", text_len, prompt);
+        // 崩溃诊断：记录本次翻译上下文（crash_handler 崩溃时读）
+        g_diag.in_translate.store(true);
+        g_diag.prompt_chars.store(static_cast<int>(text_len));
+        g_diag.max_tokens.store(maxTokens);
+        g_diag.n_ctx.store(static_cast<int>(llama_n_ctx(h->ctx)));
+        g_diag.gen_token.store(0);
+        snprintf(g_diag.prompt_preview, sizeof(g_diag.prompt_preview), "%.*s", (int)sizeof(g_diag.prompt_preview) - 1, prompt);
         // 把含 {source_text} 的尾部单独打出来，确认识别文本确实进了 prompt
         const size_t tail_len = std::min<size_t>(text_len, 80);
         LOGI("translate: prompt tail=[%s]", prompt + (text_len - tail_len));
@@ -616,6 +716,19 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
         }
         env->ReleaseStringUTFChars(jPrompt, prompt);
         const int32_t n_tokens = static_cast<int32_t>(prompt_tok.size());
+        g_diag.prompt_tokens.store(n_tokens);
+        g_diag.prefix_cache_valid.store(cache_valid ? 1 : 0);
+        // ⚠️ 超长 prompt 防御：实际 context 占用 = 前缀(KV 缓存 start_pos) + 本次输入。
+        //   缓存命中时 n_tokens 只是变化部分，必须加 start_pos（前缀长度）才是真实占用，
+        //   否则缓存命中会漏检放行超限 prompt（decode 时 llama 可能 ggml_abort 闪退）。
+        //   这里直接返回错误标记，不喂给 llama——宁可翻译失败也不闪退。
+        const int32_t ctx_n = static_cast<int32_t>(llama_n_ctx(h->ctx));
+        if (start_pos + n_tokens >= ctx_n - 64) {
+            LOGE("translate: prompt too long: %d tokens >= ctx %d - 64, aborting translate",
+                 start_pos + n_tokens, ctx_n);
+            g_diag.in_translate.store(false);
+            return env->NewStringUTF("__PROMPT_TOO_LONG__");
+        }
         // 本次输入实际占用上下文 [start_pos, start_pos + n_tokens)
         const int32_t total_prompt = start_pos + n_tokens;
 
@@ -723,6 +836,7 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
             if (env->ExceptionCheck()) env->ExceptionClear();
         }
         for (int i = 0; i < max_tokens; ++i) {
+            g_diag.gen_token.store(i);  // 崩溃诊断：生成到第几个 token
             if ((i % 8) == 0) {
                 LOGI("translate: gen progress token %d/%d (+%lld ms)", i, max_tokens, now_ms() - t_gen0);
             }
@@ -788,8 +902,10 @@ static jstring translate_impl(JNIEnv* env, jlong jHandle, jstring jPrompt, jstri
         log_chunked("translate: FULL RESULT:\n", result.c_str(), result.size());
         LOGI("translate: DONE generated=%d/%d eog=%d gen_elapsed=%lld ms total_elapsed=%lld ms result_len=%zu preview=[%.120s]",
              generated, max_tokens, hit_eog, now_ms() - t_gen0, now_ms() - t_entry, result.size(), result.c_str());
+        g_diag.in_translate.store(false);  // 翻译结束，崩溃诊断复位
         return safe_new_string_utf8(env, result.c_str(), result.size());
     } catch (const std::exception& e) {
+        g_diag.in_translate.store(false);
         LOGE("translate: C++ exception: %s", e.what());
         throw_java_exception(env, e.what());
         return nullptr;

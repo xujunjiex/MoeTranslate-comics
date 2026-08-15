@@ -111,6 +111,12 @@ class HyMT2Translation(context: Context) : TranslationTextAPI {
                             nativeHandle, prompt, prefix, s.temperature, s.topP, s.topK, s.repetitionPenalty, s.maxTokens
                         )
                     }.trim()
+                    // native 超长 prompt 防御标记（token 超 context 时返回，避免 ggml_abort 闪退）
+                    if (result == "__PROMPT_TOO_LONG__") {
+                        LogCollector.e(TAG, "Hy-MT2 文本过长超过模型上下文，已拒绝翻译")
+                        callback(TranslationResult.Error(Exception("待翻译文本过长，超过模型上下文限制")))
+                        return@Thread
+                    }
                     LogCollector.d(TAG, "Hy-MT2 native 调用耗时=${System.currentTimeMillis() - tNative0}ms")
                     LogCollector.d(TAG, "Hy-MT2 翻译完成: result=$result")
                     if (cancelled || currentEpoch != epoch) {
