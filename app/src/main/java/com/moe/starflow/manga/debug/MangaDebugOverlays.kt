@@ -216,12 +216,27 @@ object MangaDebugOverlays {
             setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
         }
 
-        // ① 绘制原始检测框（绿色）
-        for (box in ocrResult.boxes) {
-            canvas.drawLine(box[0], box[1], box[2], box[3], rawPaint)
-            canvas.drawLine(box[2], box[3], box[4], box[5], rawPaint)
-            canvas.drawLine(box[4], box[5], box[6], box[7], rawPaint)
-            canvas.drawLine(box[6], box[7], box[0], box[1], rawPaint)
+        // 气泡编号标签画笔（绿色框上方，小号避免遮挡）
+        val memberLabelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.YELLOW
+            textSize = 22f
+            isAntiAlias = true
+            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+
+        // ① 绘制每个气泡的原始检测框（绿色）+ 气泡编号（与日志 canMerge [i] 一致）
+        //    ⚠️ 不能用 ocrResult.boxes 编号：ocrResultToTextLines 过滤了空白/低分 box，
+        //    导致 boxes 索引 ≠ merge 输入的 regions 索引。用 memberIndices 保证对齐。
+        for (region in mergedRegions) {
+            val memberIds = if (region.memberIndices.isNotEmpty()) region.memberIndices
+            else (0 until region.members.size).toList()
+            for ((k, memberId) in memberIds.withIndex()) {
+                val member = region.members.getOrNull(k) ?: continue
+                val r = member.quad.aabb
+                canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(), rawPaint)
+                // 气泡编号（绿色框上方，与 canMerge [i] 对齐）
+                canvas.drawText("[$memberId]", r.left.toFloat(), r.top.toFloat() - 6f, memberLabelPaint)
+            }
         }
 
         // ② 绘制合并区域框（青色）+ 标签
@@ -236,10 +251,15 @@ object MangaDebugOverlays {
             canvas.drawRect(r, mergedFillPaint)
             canvas.drawRect(r, mergedPaint)
 
-            // 标签：序号 + 方向 + 文字数 + 倾斜角
+            // 标签：组编号 + 组内成员原始索引（与日志「merge: 组N 成员[i,j]」对应）
             val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "V" else "H"
             val angleStr = if (hasTilt) " ∠${String.format("%.0f°", region.angle)}" else ""
-            val label = "[$idx]$dirLabel ×${region.texts.size}$angleStr"
+            val memberStr = if (region.memberIndices.isNotEmpty()) {
+                region.memberIndices.joinToString(",") { it.toString() }
+            } else {
+                (0 until region.texts.size).joinToString(",")
+            }
+            val label = "[$idx]$dirLabel ×${region.texts.size}{$memberStr}$angleStr"
             canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)
             canvas.restore()
         }
@@ -359,12 +379,27 @@ object MangaDebugOverlays {
             setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
         }
 
-        // ① 绘制原始检测框（绿色）
-        for (box in ocrResult.boxes) {
-            canvas.drawLine(box[0], box[1], box[2], box[3], rawPaint)
-            canvas.drawLine(box[2], box[3], box[4], box[5], rawPaint)
-            canvas.drawLine(box[4], box[5], box[6], box[7], rawPaint)
-            canvas.drawLine(box[6], box[7], box[0], box[1], rawPaint)
+        // 气泡编号标签画笔（绿色框上方，小号避免遮挡）
+        val memberLabelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.YELLOW
+            textSize = 22f
+            isAntiAlias = true
+            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+
+        // ① 绘制每个气泡的原始检测框（绿色）+ 气泡编号（与日志 canMerge [i] 一致）
+        //    ⚠️ 不能用 ocrResult.boxes 编号：ocrResultToTextLines 过滤了空白/低分 box，
+        //    导致 boxes 索引 ≠ merge 输入的 regions 索引。用 memberIndices 保证对齐。
+        for (region in mergedRegions) {
+            val memberIds = if (region.memberIndices.isNotEmpty()) region.memberIndices
+            else (0 until region.members.size).toList()
+            for ((k, memberId) in memberIds.withIndex()) {
+                val member = region.members.getOrNull(k) ?: continue
+                val r = member.quad.aabb
+                canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(), rawPaint)
+                // 气泡编号（绿色框上方，与 canMerge [i] 对齐）
+                canvas.drawText("[$memberId]", r.left.toFloat(), r.top.toFloat() - 6f, memberLabelPaint)
+            }
         }
 
         // ② 绘制合并区域框（青色）+ 标签
@@ -379,10 +414,15 @@ object MangaDebugOverlays {
             canvas.drawRect(r, mergedFillPaint)
             canvas.drawRect(r, mergedPaint)
 
-            // 标签：序号 + 方向 + 文字数 + 倾斜角
+            // 标签：组编号 + 组内成员原始索引（与日志「merge: 组N 成员[i,j]」对应）
             val dirLabel = if (region.direction == TextDirection.VERTICAL_RL || region.direction == TextDirection.VERTICAL_LR) "V" else "H"
             val angleStr = if (hasTilt) " ∠${String.format("%.0f°", region.angle)}" else ""
-            val label = "[$idx]$dirLabel ×${region.texts.size}$angleStr"
+            val memberStr = if (region.memberIndices.isNotEmpty()) {
+                region.memberIndices.joinToString(",") { it.toString() }
+            } else {
+                (0 until region.texts.size).joinToString(",")
+            }
+            val label = "[$idx]$dirLabel ×${region.texts.size}{$memberStr}$angleStr"
             canvas.drawText(label, r.left.toFloat(), r.top.toFloat() - 6f, labelPaint)
             canvas.restore()
         }

@@ -156,6 +156,13 @@
             android:title="@string/manga_keep_text_free_title"
             android:summary="@string/manga_keep_text_free_summary" />
 
+        <SwitchPreference
+            android:key="Manga_Text_Merge"
+            app:iconSpaceReserved="false"
+            android:defaultValue="true"
+            android:title="@string/manga_text_merge_title"
+            android:summary="@string/manga_text_merge_summary" />
+
     </PreferenceCategory>
 
     <PreferenceCategory

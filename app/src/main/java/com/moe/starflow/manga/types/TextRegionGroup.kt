@@ -18,7 +18,9 @@ data class TextRegionGroup(
     val angle: Float,
     val score: Float,
     val center: PointF,
-    val members: List<TextRegion>
+    val members: List<TextRegion>,
+    /** 组内成员的原始输入索引（按阅读顺序排序，与调试日志 canMerge [i] 对应） */
+    val memberIndices: List<Int> = emptyList()
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

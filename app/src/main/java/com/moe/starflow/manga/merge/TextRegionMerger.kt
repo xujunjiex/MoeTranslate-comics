@@ -47,6 +47,8 @@ object TextRegionMerger {
     @Volatile private var discardConnectionGap: Float = MergeParams.DISCARD_CONNECTION_GAP_DEFAULT
     @Volatile private var charGapTolerance2: Float = MergeParams.CHAR_GAP_TOLERANCE2_DEFAULT
     @Volatile private var debugEnabled: Boolean = false
+    /** 文本合并总开关：关闭时跳过合并（每个区域独立成组），适合表格/多栏等场景 */
+    @Volatile private var mergeEnabled: Boolean = true
 
     /**
      * 启用/禁用调试日志（默认关闭，零开销）。
@@ -54,6 +56,9 @@ object TextRegionMerger {
     fun enableDebugLogging(enabled: Boolean) {
         debugEnabled = enabled
     }
+
+    /** 是否启用文本合并（关闭时跳过合并）。默认开启。 */
+    fun isMergeEnabled(): Boolean = mergeEnabled
 
     /**
      * 从 SharedPreferences 刷新可调参数。
@@ -68,6 +73,7 @@ object TextRegionMerger {
             "merge_char_gap2",
             MergeParams.CHAR_GAP_TOLERANCE2_DEFAULT
         ).coerceIn(MergeParams.MIN_CHAR_GAP2, MergeParams.MAX_CHAR_GAP2)
+        mergeEnabled = prefs.getBoolean("Manga_Text_Merge", true)
     }
 
     /**
@@ -92,55 +98,6 @@ object TextRegionMerger {
         val totalWeight = weights.sum()
         if (totalWeight <= 0f) return values.average().toFloat()
         return values.zip(weights).sumOf { (v, w) -> (v * w).toDouble() }.toFloat() / totalWeight
-    }
-
-    /**
-     * 并查集（Kruskal MST 用）。
-     */
-    internal class UnionFind(size: Int) {
-        private val parent = IntArray(size) { it }
-        private val rank = IntArray(size) { 0 }
-
-        fun find(x: Int): Int {
-            var root = x
-            while (parent[root] != root) root = parent[root]
-            var node = x
-            while (node != root) {
-                val next = parent[node]
-                parent[node] = root
-                node = next
-            }
-            return root
-        }
-
-        /**
-         * @return true 表示合并成功；false 表示已在同一集合。
-         */
-        fun union(x: Int, y: Int): Boolean {
-            val rx = find(x)
-            val ry = find(y)
-            if (rx == ry) return false
-            when {
-                rank[rx] < rank[ry] -> parent[rx] = ry
-                rank[rx] > rank[ry] -> parent[ry] = rx
-                else -> { parent[ry] = rx; rank[rx]++ }
-            }
-            return true
-        }
-    }
-
-    /**
-     * MST 边。
-     */
-    internal data class MSTEdge(val u: Int, val v: Int, val weight: Float)
-
-    /**
-     * 计算 quad 中心点距离。
-     */
-    private fun quadCenterDistance(a: TextRegion, b: TextRegion): Float {
-        val dx = b.quad.centroidX - a.quad.centroidX
-        val dy = b.quad.centroidY - a.quad.centroidY
-        return sqrt(dx * dx + dy * dy)
     }
 
     /**
@@ -249,35 +206,50 @@ object TextRegionMerger {
             val x2 = b.quad.aabb.left.toFloat()
             val w2 = b.quad.aabb.width().toFloat()
             val h2 = b.quad.aabb.height().toFloat()
+            val y1 = a.quad.aabb.top.toFloat()
+            val y2 = b.quad.aabb.top.toFloat()
 
-            // 中心对齐
-            if (abs(x1 + w1 / 2 - (x2 + w2 / 2)) < charGapTolerance2) {
-                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA ACCEPT center aligned")
+            // 三个阈值分工：
+            //  - gapTol（间隔，管「相邻」）：宽松 2×字号，容纳行距（竖排同气泡行距实测 68-75px≈1.5×字号）
+            //  - centerTol（中心对齐，管「同一句/同列」）：宽松 2×字号，最后一行 1-2 字也能合
+            //  - edgeTol（边缘对齐，管「起始位置对齐」）：严格 1×字号，错位（起始点不同）就分
+            // 优先级：中心对齐（最强）> 边缘对齐（次强）。中心距失败不兜底，错位绝不合并。
+            val gapTol = max(charGapTolerance2, charSize * 2f)
+            val centerTol = max(charGapTolerance2, charSize * 2f)
+            val edgeTol = max(charGapTolerance2, charSize * 1f)
+
+            val cx1 = x1 + w1 / 2f
+            val cy1 = y1 + h1 / 2f
+            val cx2 = x2 + w2 / 2f
+            val cy2 = y2 + h2 / 2f
+
+            // ① 中心对齐（2D）：x、y 中心都接近 → 同一位置的最紧密碎片，最强
+            if (abs(cx1 - cx2) < centerTol && abs(cy1 - cy2) < centerTol) {
+                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA ACCEPT center aligned (2D)")
                 return true
             }
-            // 方向互斥
-            if (w1 > h1 * RATIO && h2 > w2 * RATIO) {
-                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA REJECT mixed orient")
-                return false
-            }
-            if (w2 > h2 * RATIO && h1 > w1 * RATIO) {
-                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA REJECT mixed orient")
-                return false
-            }
-            // 横排：边对齐（对齐参考：charSize * charGapTolerance2）
+
+            // ② 横排文字（宽 > 高）：多行上下堆叠 → 垂直行距小 && 左/右/中心任一对齐
             if (w1 > h1 * RATIO || w2 > h2 * RATIO) {
-                val accept = abs(x1 - x2) < charSize * charGapTolerance2 ||
-                             abs(x1 + w1 - (x2 + w2)) < charSize * charGapTolerance2
-                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA h-align=$accept (Δleft=${String.format("%.0f", abs(x1-x2))}, Δright=${String.format("%.0f", abs(x1+w1-(x2+w2)))})")
+                // 垂直行距（上下是否紧挨）
+                val vGap = max(0f, max(y1 - (y2 + h2), y2 - (y1 + h1)))
+                // 左边缘 / 右边缘 / 水平中心 对齐
+                val leftAligned = abs(x1 - x2) < edgeTol
+                val rightAligned = abs((x1 + w1) - (x2 + w2)) < edgeTol
+                val centerXAligned = abs(cx1 - cx2) < centerTol
+                val accept = vGap < gapTol && (leftAligned || rightAligned || centerXAligned)
+                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA h-merge=$accept (vGap=${String.format("%.0f", vGap)}, L=$leftAligned R=$rightAligned C=$centerXAligned)")
                 return accept
             }
-            // 竖排：边对齐（对齐参考：charSize * charGapTolerance2）
+            // ③ 竖排文字（高 > 宽）：多段左右排列 → 水平列距小 && 上边缘/垂直中心任一对齐
             if (h1 > w1 * RATIO || h2 > w2 * RATIO) {
-                val y1 = a.quad.aabb.top.toFloat()
-                val y2 = b.quad.aabb.top.toFloat()
-                val accept = abs(y1 - y2) < charSize * charGapTolerance2 ||
-                             abs(y1 + h1 - (y2 + h2)) < charSize * charGapTolerance2
-                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA v-align=$accept")
+                // 水平列距（左右是否紧挨）
+                val hGap = max(0f, max(x1 - (x2 + w2), x2 - (x1 + w1)))
+                // 上边缘（竖排列从顶部同一高度开始）或 垂直中心对齐
+                val topAligned = abs(y1 - y2) < edgeTol
+                val centerYAligned = abs(cy1 - cy2) < centerTol
+                val accept = hGap < gapTol && (topAligned || centerYAligned)
+                if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA v-merge=$accept (hGap=${String.format("%.0f", hGap)}, T=$topAligned C=$centerYAligned)")
                 return accept
             }
             if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → AA REJECT no direction match")
@@ -298,8 +270,11 @@ object TextRegionMerger {
             if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → TILTED REJECT fsDiff=${String.format("%.2f", fsDiff)} > $TILTED_FS_DIFF_MAX")
             return false
         }
-        if (dist > fsMin * charGapTolerance2) {
-            if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → TILTED REJECT dist=${String.format("%.1f", dist)} > ${fsMin * charGapTolerance2}")
+        // 距离阈值：TILTED 倾斜文字同样必须紧邻——1.5×字号（与 AA 粗筛 discardConnectionGap 一致）。
+        // 曾用 fsMin * charGapTolerance2（3×字号=135px）→ 相距很远但角度接近的倾斜气泡被误连
+        // （用户日志：[9]+[11] TILTED ACCEPT 误合，9 与 11 分属不同气泡）。
+        if (dist > fsMin * 1.5f) {
+            if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → TILTED REJECT dist=${String.format("%.1f", dist)} > ${fsMin * 1.5f}")
             return false
         }
         if (debugEnabled) LogCollector.d(TAG, "canMerge $tagA + $tagB → TILTED ACCEPT")
@@ -309,8 +284,14 @@ object TextRegionMerger {
     // ========== splitTextRegion（对齐 textline_merge/__init__.py L10-83） ==========
 
     /**
-     * MST 分析拆分过大的文本区域。
-     * 完整对齐 split_text_region()（textline_merge/__init__.py:10-83）。
+     * 拆分过大的文本区域。
+     *
+     * 核心思路：按阅读顺序排序后，**只在相邻行/列之间找断点**（相邻间隙显著偏大处切分）。
+     * 绝不使用全对全 MST 建边——那会在不相邻的行之间连接（长行中心偏右、短行中心偏左，
+     * 中心距离把"长行+长行"或"短行+短行"误连），导致交叉合并（如用户日志：
+     * [4]长行被单独拆出、[5][6][7]短行连成错误一行，而 [4]+[5] 明明是一句话）。
+     *
+     * 排序后组内成员必然连续，从根本上杜绝交叉：结果只能是"相邻的行合并"或"整块合并"。
      */
     private fun splitTextRegion(
         regions: List<TextRegion>,
@@ -330,81 +311,93 @@ object TextRegionMerger {
             return listOf(setOf(indices[0], indices[1]))
         }
 
-        // case 3+: MST
-        val allEdges = mutableListOf<MSTEdge>()
-        for (i in indices.indices) {
-            for (j in i + 1 until indices.size) {
-                val u = indices[i]
-                val v = indices[j]
-                allEdges.add(MSTEdge(u, v, quadCenterDistance(regions[u], regions[v])))
-            }
-        }
-        allEdges.sortBy { it.weight }
-        val uf = UnionFind(regions.size)
-        val mstEdges = mutableListOf<MSTEdge>()
-        for (edge in allEdges) {
-            if (uf.union(edge.u, edge.v)) {
-                mstEdges.add(edge)
-                if (mstEdges.size == indices.size - 1) break
-            }
-        }
-        if (mstEdges.isEmpty()) return listOf(connectedIndices)
+        // 方向投票（只统计有明确方向的框，正方形不参与）
+        val directional = indices.filter { regions[it].quad.aspectRatio >= ASPECT_RATIO_TOL }
+        val voters = if (directional.isNotEmpty()) directional else indices
+        val vCount = voters.count { regions[it].quad.isVertical }
+        val isVertical = vCount > voters.size - vCount
 
-        val sortedEdges = mstEdges.sortedByDescending { it.weight }
-        val distances = sortedEdges.map { it.weight }
-        val distancesMean = distances.average().toFloat()
-        val distancesStd = if (distances.size > 1) {
-            val mean = distancesMean
-            sqrt(distances.map { (it - mean) * (it - mean) }.average()).toFloat()
-        } else 0f
+        // 按阅读顺序排序：横排 top→bottom（同 top 用 x 二级），竖排 right→left（同 right 用 y 二级）
+        val sorted = if (isVertical) {
+            indices.sortedWith(Comparator { a, b ->
+                val xa = regions[a].quad.aabb.right
+                val xb = regions[b].quad.aabb.right
+                if (xa != xb) xb.compareTo(xa)
+                else regions[a].quad.aabb.top.compareTo(regions[b].quad.aabb.top)
+            })
+        } else {
+            indices.sortedWith(Comparator { a, b ->
+                val ya = regions[a].quad.aabb.top
+                val yb = regions[b].quad.aabb.top
+                if (ya != yb) ya.compareTo(yb)
+                else regions[a].quad.aabb.left.compareTo(regions[b].quad.aabb.left)
+            })
+        }
+
+        // 相邻行/列的间隙（合并方向上的真实分离度）
+        // 核心度量：垂直间隙 + 水平不重叠惩罚。
+        // - 同一视觉行/列（垂直相邻 + 水平重叠）→ gap 小 → 合并
+        // - 垂直相距远（不同气泡）→ 垂直间隙大 → gap 大 → 断开
+        // - 水平不重叠（跨列/两栏）→ 水平惩罚大 → gap 大 → 断开
+        // 修复背景：竖排曾用纯水平间隙（a.left-b.right），同列内垂直远离的元素水平间隙=0
+        // → 被误判相邻合并（用户报"相距极远的两个气泡被合并"）。
+        val gaps = mutableListOf<Float>()
+        for (i in 0 until sorted.size - 1) {
+            val a = regions[sorted[i]].quad.aabb
+            val b = regions[sorted[i + 1]].quad.aabb
+            // 垂直间隙：b 在 a 下方（排序后同列内 b 在 a 下）
+            val vGap = max(0, b.top - a.bottom).toFloat()
+            // 水平投影重叠：两行水平方向重叠多少（负数=完全分离）
+            val hOverlap = min(a.right, b.right) - max(a.left, b.left)
+            // 水平不重叠惩罚：重叠不足 2×charSize 时惩罚（跨列/两栏 → 大 gap 断开）
+            val charSize = min(regions[sorted[i]].quad.fontSize, regions[sorted[i + 1]].quad.fontSize)
+            val hPenalty = if (charSize > 0) max(0f, 2f * charSize - hOverlap) else 0f
+            gaps.add(vGap + hPenalty)
+        }
+
         val avgFontSize = indices.map { regions[it].quad.fontSize }.average().toFloat()
-        val stdThreshold = max(0.3f * avgFontSize + 5f, 5f)
-
-        val maxEdge = sortedEdges.first()
-        val shouldKeep = (maxEdge.weight <= distancesMean + distancesStd * sigma ||
-                maxEdge.weight <= avgFontSize * (1 + gamma)) &&
-                distancesStd < stdThreshold
+        // 断点检测：用「局部显著跳变」，不用全局 mean+std。
+        // 全局 mean+std 会把大间隙计入均值/方差，阈值被抬高到覆盖该间隙（用户日志：
+        // gaps=[67,64,129,70,71] threshold=129.3，129 被 0.3px 放过没断开）。
+        // 正确：某间隙显著大于「相邻间隙的中位数/均值」（孤立大跳变）才断。
+        val breakAt = BooleanArray(gaps.size)
+        for (i in gaps.indices) {
+            // 邻近窗口（最多 3 个邻居）的中位数
+            val neighbors = ArrayList<Float>()
+            for (k in (i - 2)..(i + 2)) {
+                if (k in gaps.indices && k != i) neighbors.add(gaps[k])
+            }
+            if (neighbors.isEmpty()) continue
+            val sortedNb = neighbors.sorted()
+            val medianNb = if (sortedNb.size % 2 == 1) sortedNb[sortedNb.size / 2]
+            else (sortedNb[sortedNb.size / 2 - 1] + sortedNb[sortedNb.size / 2]) / 2f
+            // 间隙 > 中位数 × 1.6 且 > 字号 × 1.2 → 断开（孤立大跳变）
+            // 用户日志组6 gaps=[67,64,129,70,71]：129 是组间间隙（该断），邻居中位 68.5，
+            // 系数 2.0 时阈值 137 放过了（差 8px）；1.6 时阈值 109.6 → 129 断开 ✓。
+            // 中位数 0 时（全紧贴）用字号兜底。
+            val ratioThresh = if (medianNb > 1f) medianNb * 1.6f else avgFontSize * 1.2f
+            if (gaps[i] > ratioThresh && gaps[i] > avgFontSize * 1.2f) {
+                breakAt[i] = true
+            }
+        }
 
         if (debugEnabled) {
-            LogCollector.d(TAG, "splitTextRegion[${indices.size}]: " +
-                "maxEdge=${String.format("%.1f", maxEdge.weight)} " +
-                "mean=${String.format("%.1f", distancesMean)} std=${String.format("%.1f", distancesStd)} " +
-                "fontSize=${String.format("%.1f", avgFontSize)} keep=$shouldKeep")
+            val gapsStr = gaps.joinToString(",") { String.format("%.0f", it) }
+            val breaksStr = breakAt.map { if (it) "X" else "." }.joinToString("")
+            LogCollector.d(TAG, "splitTextRegion[${indices.size}] dir=${if (isVertical) "v" else "h"} " +
+                "gaps=[$gapsStr] breaks=[$breaksStr] fontSize=${String.format("%.1f", avgFontSize)}")
         }
 
-        if (shouldKeep) {
-            return listOf(connectedIndices)
-        }
-
-        // 拆分：移除最大边，递归处理两个子图
-        val remainingEdges = sortedEdges.drop(1)
-        val uf2 = UnionFind(regions.size)
-        for (edge in remainingEdges) {
-            uf2.union(edge.u, edge.v)
-        }
-
+        // 从前往后找断点，把序列切成连续段
         val result = mutableListOf<Set<Int>>()
-        val visited = mutableSetOf<Int>()
-        for (idx in indices) {
-            if (idx in visited) continue
-            val component = mutableSetOf<Int>()
-            val queue = ArrayDeque<Int>()
-            queue.add(idx)
-            while (queue.isNotEmpty()) {
-                val cur = queue.removeFirst()
-                if (cur in visited) continue
-                visited.add(cur)
-                component.add(cur)
-                for (otherIdx in indices) {
-                    if (otherIdx !in visited && uf2.find(cur) == uf2.find(otherIdx)) {
-                        queue.add(otherIdx)
-                    }
-                }
-            }
-            if (component.isNotEmpty()) {
-                result.addAll(splitTextRegion(regions, component, gamma, sigma))
+        var segStart = 0
+        for (i in 0 until gaps.size) {
+            if (breakAt[i]) {
+                result.add(sorted.subList(segStart, i + 1).toSet())
+                segStart = i + 1
             }
         }
+        result.add(sorted.subList(segStart, sorted.size).toSet())
         return result
     }
 
@@ -451,12 +444,40 @@ object TextRegionMerger {
                         angle = quadTopEdgeAngleDeg(region.quad),
                         score = region.score,
                         center = PointF(rect.exactCenterX(), rect.exactCenterY()),
-                        members = listOf(region)
+                        members = listOf(region),
+                        memberIndices = listOf(0)
                     )
                 )
             }
 
             if (debugEnabled) LogCollector.d(TAG, "merge: 输入 ${regions.size} 个 region")
+
+            // 合并开关：关闭时跳过合并，每个 region 独立成组（表格/多栏等场景）
+            if (!mergeEnabled) {
+                if (debugEnabled) LogCollector.d(TAG, "merge: 合并已关闭（Manga_Text_Merge=false），每个 region 独立")
+                return regions.mapIndexed { idx, region ->
+                    val rect = region.quad.aabb
+                    val quadPoints = arrayOf(
+                        PointF(rect.left.toFloat(), rect.top.toFloat()),
+                        PointF(rect.right.toFloat(), rect.top.toFloat()),
+                        PointF(rect.right.toFloat(), rect.bottom.toFloat()),
+                        PointF(rect.left.toFloat(), rect.bottom.toFloat())
+                    )
+                    val direction = if (region.quad.isVertical) verticalDirection else TextDirection.HORIZONTAL
+                    TextRegionGroup(
+                        rect = rect,
+                        quadPoints = quadPoints,
+                        texts = listOf(region.text ?: ""),
+                        direction = direction,
+                        fontSize = region.quad.fontSize,
+                        angle = quadTopEdgeAngleDeg(region.quad),
+                        score = region.score,
+                        center = PointF(rect.exactCenterX(), rect.exactCenterY()),
+                        members = listOf(region),
+                        memberIndices = listOf(idx)
+                    )
+                }
+            }
 
             // Step 1: canMergeRegion 建图 → 连通分量
             val n = regions.size
@@ -562,11 +583,15 @@ object TextRegionMerger {
                     angle = weightedAngle,
                     score = avgScore,
                     center = mergedCenter,
-                    members = members
+                    members = members,
+                    memberIndices = sortedNodes
                 ))
 
                 if (debugEnabled) {
-                    LogCollector.d(TAG, "merge: 区域 ${members.size} 行, dir=$direction, " +
+                    // 组编号（result 顺序 index）+ 组内成员原始索引，与调试面板标签对应
+                    val idx = result.size - 1
+                    val memberStr = sortedNodes.joinToString(",")
+                    LogCollector.d(TAG, "merge: 组$idx 成员[$memberStr] ${members.size}行, dir=$direction, " +
                             "fs=${String.format("%.1f", minFontSize)}, text='${combinedTexts.first().take(20)}'")
                 }
             }
