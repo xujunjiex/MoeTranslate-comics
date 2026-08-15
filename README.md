@@ -167,7 +167,7 @@
 
 | 方式 | 链接 |
 |------|------|
-| GitHub Releases | [最新版本 v0.10.2](https://github.com/xujunjiex/StarFlow/releases/tag/v0.10.2) |
+| GitHub Releases | [最新版本 v0.10.3](https://github.com/xujunjiex/StarFlow/releases/tag/v0.10.3) |
 | 百度网盘 | https://pan.baidu.com/s/1Zi-o2mHhgJEqhk8UzxRoSA?pwd=star |
 | 夸克网盘 | https://pan.quark.cn/s/cbac92882d82?pwd=E9P8 |
 
