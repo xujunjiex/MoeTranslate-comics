@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-星译（StarFlow）— Android 翻译应用，支持 Android 11+（API 29+）。包含两个核心功能：游戏翻译（截图 OCR + 翻译 API）和漫画翻译（气泡检测 + OCR + 翻译 + 竖排渲染）。
+星译（StarFlow）— Android 翻译应用，支持 Android 10+（API 29+）。包含两个核心功能：游戏翻译（截图 OCR + 翻译 API）和漫画翻译（气泡检测 + OCR + 翻译 + 竖排渲染）。
 
 ## 目录规范
 
@@ -20,7 +20,8 @@
 
 **首次克隆后：**
 1. 创建 `local.properties`（已 gitignore）：`sdk.dir=C:/Users/%USERNAME%/AppData/Local/Android/Sdk`，路径用正斜杠 `/`
-2. 配置 git 代理（国内环境）：`git config --global http.proxy http://127.0.0.1:7897`
+2. 配置 git 代理（国内环境，二选一）：Clash 时 `git config --global http.proxy http://127.0.0.1:7897`；
+   用 Cloudflare WARP 时**不设代理**（清掉 env 后 git 走系统路由直连，见「网络配置」）
 3. 确认 Windows hosts 无 `#S302` 条目将 github.com 指向 127.0.0.1
 4. `./gradlew assembleDebug` 验证构建
 
@@ -439,9 +440,13 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 
 **单字符噪声过滤：** `textBlocksToBubbleRegions` 过滤单字符纯标点（OTHER_PUNCTUATION、DASH_PUNCTUATION、START/END_PUNCTUATION、MATH_SYMBOL、OTHER_SYMBOL），避免标点符号被当作独立气泡翻译。
 
+**合并开关 `Manga_Text_Merge`**（个性化页，默认 true）：关闭时 `TextRegionMerger.merge` 每个 region 独立成组（表格/多栏场景），单测 `TextRegionMergerTest.mergeDisabled` 覆盖。调试合并问题时先确认此开关未关。
+
 **识别后合并（`TextRegionMerger`，V5/V6 独立路径 OCR 后调用，两阶段）：**
-- **阶段一 `canMergeRegion`（局部成对判定）**：AABB 间隙 < 1×字符宽 + 字号比/方向/对齐校验 → 构建相邻图 → 连通分量。判定参数可在调试面板滑块调（`merge_discard_gap` 粗筛 1.5×字号 / `merge_char_gap2`）
-- **阶段二 `splitTextRegion`（整体 MST 拆分）**：检测传递连接（A近B、B近C 但 A、C 是不同句首尾）造成的过度合并，按 MST 最长边切分。**2 元素组件直接信任 canMerge**——旧实现用中心距离 < 1.5×字号 重判，与阶段一 AABB 间隙指标矛盾，曾导致竖排相邻行（`[2][3]`/`[7][8]`）被错误拆开（`dd48f63` 修复）。给合并逻辑加/改判定时，必须保证两阶段指标一致
+- **阶段一 `canMergeRegion`（局部成对判定）**：字号比/方向/宽高比校验 → 三种对齐任一满足才连边 → 连通分量。判定参数可在调试面板滑块调（`merge_discard_gap` 粗筛 1.5×字号 / `merge_char_gap2`）
+- **对齐判定（三阈值分工，勿再改回投影重叠）**：间隔 gapTol 宽松 2×字号（管相邻，容纳行距 68-75px）、中心对齐 centerTol 宽松 2×字号（管同一句/列）、边缘对齐 edgeTol 严格 1×字号（管起始位置对齐，错位即分）。优先级：中心对齐(2D) > 边缘对齐 > Tilted，**错位绝不兜底合并**
+- **对齐轴**：横排（宽>高）多行上下堆叠 → 垂直行距小 &&（左对齐||右对齐||水平中心对齐）；竖排（高>宽）多段左右排列 → 水平列距小 &&（上边缘对齐||垂直中心对齐）。竖排无底部对齐
+- **阶段二 `splitTextRegion`（排序 + 相邻间隙跳变断点）**：按阅读顺序排序后，只在**相邻行/列间隙显著跳变**处切分（间隙 > 邻居中位数×1.6 且 > 1.2×字号）。**不用全对全 MST**（曾在不相邻行间连边导致交叉合并）；**不用全局 mean+std 阈值**（大间隙会被均值吞掉，日志 gaps=[67,64,129,70,71] threshold=129.3 放过 129）。**2 元素组件直接信任 canMerge**
 - **调试日志**：PP-OCRv5/v6 调试模式自动 `TextRegionMerger.enableDebugLogging(true)` → 逐对 `canMerge [i]"文本" + [j]"文本" → REJECT/ACCEPT 原因`（tag `TextRegionMerger`，`[i]` 对得上调试面板「原始识别」编号）。`enableDebugLogging` 默认关闭，只该在调试路径开启
 
 **翻译流程：** 截图 → 检测 → OCR → 气泡合并（按需）→ 翻译（每气泡并行）→ 覆盖渲染
@@ -490,7 +495,7 @@ PP-OCRv5 检测框可能倾斜（QuadBox 4 顶点非正交），全链路处理�
 - **角度检测**：`atan2(topDy, topDx)` 计算顶部边与水平线夹角，±3° 内视为正交（angle=0）
 - **方向判断**：用 QuadBox 真实边长（左高 vs 顶宽×1.5），不用 AABB（倾斜时 AABB 会误判）
 - **fontSize**：用真实边长（横排=leftLen，竖排=topLen），不用 AABB 短边（倾斜时 AABB 会放大）
-- **合并**：`TextRegionMerger.canMergeRegion` 两分支——**AA 分支**（正交框）AABB 间隙 < 1×字符宽 + 边/中心对齐；**Tilted 分支**（倾斜框）角度差 < 15°、字号差 < 0.25、AABB 距离 < 3×字号
+- **合并**：`TextRegionMerger.canMergeRegion` 两分支——**AA 分支**（正交框）中心对齐(2D) + 边缘对齐（三阈值分工）；**Tilted 分支**（倾斜框）角度差 < 15°、字号差 < 0.25、AABB 距离 < 1.5×字号（曾 3× 太宽误合远距倾斜气泡）
 - **渲染**：`canvas.rotate(angle, centerX, centerY)` 旋转背景+文字，正常 overlay 和调试 overlay 均支持
 - **增量路径**：`recResultsToTextLines` 只有 AABB（裁剪后），无角度信息，沿用 AABB 启发式
 
@@ -631,22 +636,40 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
 **所有日志必须通过 `LogCollector` 写入**，不能直接用 `Log.d/i/e`。
 
 **统一日志落盘（v0.10.x 新增，排查 native 闪退的关键）：**
-- `LogCollector` 除内存缓冲 + logcat 外，同时追加写入 `getExternalFilesDir/logs/starflow.log`
-- Hy-MT2 bridge（`hymt2_bridge.cpp`）的 native 日志通过 `nativeSetLogFile` 写**同一文件**；
-  SIGSEGV/SIGABRT/SIGBUS 崩溃时信号处理器把 backtrace + abort message 追加进同一文件后
-  **re-raise 信号**（绝不用 `_exit`——那会跳过 debuggerd，系统崩溃报告/tombstone/vivo·realme
-  "服务与反馈"就抓不到崩溃，用户无法上报）；`SA_ONSTACK` + 备用栈防栈溢出时处理器自身挂
-- 固定大小 ~2MB：超限保留尾部（截掉最旧一半），启动不清空
-- `StarFlowApplication.onCreate` 调用 `LogCollector.init(this)` 初始化 +
-  `Thread.setDefaultUncaughtExceptionHandler`（Java 未捕获异常写盘后交给原 handler）；
-  `HyMT2Translation.setupCrashDir()` 幂等调用 `nativeSetLogFile`（单测 JVM 无 .so 时静默跳过）
-- 用户获取：关于页 → 查看日志 → 导出，导出文件含完整 `starflow.log`（Java + native + 崩溃 backtrace）
-- ⚠️ native 崩溃日志只进 `starflow.log` 和 logcat，**不进** `LogCollector` 内存缓冲 —— 排查闪退
-  必须读导出文件，不能只看 app 内实时日志
+- `starflow.log`（`getExternalFilesDir/logs/`）持久化最近 **300 条**日志（所有级别），追加写入、
+  超 300 行自动换出最旧；**闪退/进程死亡后文件仍在**，重开 app 时 `init()` 载入缓冲，
+  日志查看器能看到上次（含多次）崩溃的记录；用户可在日志查看器手动清空（`clear()` 清缓冲+文件）
+- Hy-MT2 bridge（`hymt2_bridge.cpp`）的普通日志走 logcat（`bridge_log`，不写文件）；
+  SIGSEGV/SIGABRT/SIGBUS 崩溃时信号处理器把 backtrace + abort message **追加**写入同一文件
+  （不覆盖旧日志，多次崩溃都保留；300 行滚动由 Java 侧维护——crash_handler 只允许
+  async-signal-safe 操作）后 **re-raise 信号**（绝不用 `_exit`——那会跳过 debuggerd，系统
+  崩溃报告/tombstone/vivo·realme "服务与反馈"就抓不到崩溃，用户无法上报）；`SA_ONSTACK` +
+  备用栈防栈溢出时处理器自身挂
+- ⚠️ **崩溃后必须恢复 libc 原始信号处置再 re-raise**（`sigaction(sig, &g_old_sa[sig])`，安装时
+  用 `sigaction(sig, &sa, &g_old_sa[sig])` 保存）：Android 的 debuggerd/tombstone 依赖 libc 的
+  `debuggerd_signal_handler`（socket 通知 crash_dump），不是内核 core_pattern——直接 `SIG_DFL`
+  + raise 实测不产生 tombstone；re-raise 前还须 `sigprocmask(SIG_UNBLOCK)` 解除该信号阻塞
+  （处理器运行时被处理信号自动加入线程屏蔽集，否则 raise 后走 `_exit` 正常退出、无 tombstone）
+- `StarFlowApplication.onCreate` 顺序：`LogCollector.init(this)` →
+  `Thread.setDefaultUncaughtExceptionHandler`（Java 未捕获异常写入日志后交给原 handler）→
+  **`installNativeCrashHandler()`（直接调 `HyMt2Native.nativeSetLogFile`，不等 Hy-MT2 初始化，
+  覆盖 PP-OCR/ONNX/RT-DETR/sentencepiece 等所有 native 库的崩溃）** →
+  **`logPreviousExitReasons()`（Android 11+ `getHistoricalProcessExitReasons` 记录上次进程退出
+  原因：崩溃/ANR/被杀/内存不足 写 E 级，主动退出写 I 级；只引用 API 30 常量，高版本常量
+  统一走 else 防低版本 NoSuchFieldError）**；
+  `HyMT2Translation.setupCrashDir()` 幂等调用 `nativeSetLogFile`（fd 已开则跳过，单测 JVM
+  无 .so 时静默跳过）
+- 用户获取：关于页 → 查看日志 → 导出，导出文件即 `starflow.log` 内容（最近 300 行）
+- **崩溃日志测试（开发者选项页底部「崩溃日志测试」）**：测 Java 崩溃（后台线程抛异常 →
+  `UncaughtException` 落盘 + 系统 FATAL）；测 Native 崩溃（`HyMt2Native.nativeTriggerNativeCrash`
+  触发 SIGSEGV → crash_handler 写崩溃块 + 恢复 libc handler re-raise → 系统 tombstone + 崩溃对话框）。
+  小米 ROM 前台崩溃会 30ms 内自动重启 app（SmartPower），看到"没闪退"不代表崩溃没发生
+- ⚠️ 内存缓冲（查看器实时显示）在崩溃瞬间丢失，但文件持久化保留——排查闪退读文件/导出，
+  或看 app 内查看器（启动时已载入文件内容）
 
 logcat 过滤器：
 ```
-tag:OCRBridge | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils
+tag:OCRBridge | tag:DetectionBridge | tag:BubbleDetector | tag:OverlayRenderer | tag:MangaFloatingService | tag:MangaOcrBridge | tag:MangaOcrRecognizer | tag:PPOcrV5Engine | tag:OCRTextRecognizer | tag:TranslationCacheManager | tag:AutoTranslateEngine | tag:FloatingBallService | tag:GameOcrEngine | tag:Screenshot | tag:Shooter | tag:OpenAITranslation | tag:TranslateUtils | tag:ExitReason
 ```
 
 ## 安装规范（最高优先级）
@@ -856,6 +879,14 @@ AlertDialog.Builder(requireContext())
 - CLI 工具（gh/curl/npm）需设置 `http_proxy`/`https_proxy` 环境变量，或开启 TUN 模式
 - Windows hosts 文件可能有 `#S302` 条目将 github.com 指向 127.0.0.1，需清理
 - git 代理配置：`git config --global http.proxy http://127.0.0.1:7897`
+
+**两种外网方案（用户随时切换，GitHub 不通时主动轮流试）：**
+- **Clash TUN/代理**：本地 `127.0.0.1:7897`（HTTP/SOCKS），Clash Verge 提供
+- **Cloudflare WARP**：虚拟网卡接管系统路由，无需配置代理——`unset` 所有 proxy env 后
+  curl/gh/git 直接连公网 IP（如 api.github.com 的 `140.82.116.6`）即走 WARP 隧道
+- ⚠️ **切换关键**：Claude Code `settings.json` 硬编码 `HTTPS_PROXY/HTTP_PROXY/ALL_PROXY=127.0.0.1:7897`
+  注入所有子进程。Clash 失效时这些 env 会让 gh/curl/git 全卡 000——`unset` 后走 WARP 即通。
+  每次换路用 `curl -s -o /dev/null -w "%{http_code}" https://api.github.com` 验证，200 再继续
 
 ## 检查更新
 
