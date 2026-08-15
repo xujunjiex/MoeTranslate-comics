@@ -24,6 +24,11 @@
     <string name="go_to_download">去下载</string>
     <string name="nllb_not_download_title">未下载NLLB模型文件</string>
     <string name="user_cancel">取消</string>
+    <string name="crash_test_java_title">测试 Java 崩溃</string>
+    <string name="crash_test_java_message">点击「触发」后应用将立即闪退。预期：starflow.log 记录 UncaughtException 堆栈 + 系统弹出崩溃提示。</string>
+    <string name="crash_test_native_title">测试 Native 崩溃</string>
+    <string name="crash_test_native_message">点击「触发」后应用将立即闪退（SIGSEGV）。预期：starflow.log 记录 NATIVE CRASH + backtrace，且手机厂商的崩溃报告/服务与反馈能捕获到本次崩溃。</string>
+    <string name="crash_test_trigger">触发</string>
     <string name="api_not_config_content">看起来您选择了%s作为翻译API，但似乎还没有配置它，因此无法进行翻译。点击去配置即可进入API设置页面；当然，您也可以选择其他翻译API来使用翻译功能。</string>
     <string name="api_not_config_title">未配置翻译API</string>
     <string name="go_to_config">去配置</string>
@@ -446,6 +451,8 @@
     <string name="incremental_render_summary">气泡超过6个时分两批翻译，提前显示首批结果，但可能造成总翻译时长略微增加。仅对PP-OCRv5独立模式和RT-DETR-V2+MangaOcr组合生效。</string>
     <string name="manga_keep_text_free_title">识别自由文字</string>
     <string name="manga_keep_text_free_summary">开启后，RT-DETR-V2 检测到的自由文字（如旁白、音效）也会被识别和翻译</string>
+    <string name="manga_text_merge_title">文本合并</string>
+    <string name="manga_text_merge_summary">合并相邻文本行使翻译语义连贯；关闭后各行独立翻译，适合表格等场景</string>
     <string name="auto_translate_dismiss_delay">翻译结果消失后重新检测延迟（漫画翻译专用）</string>
     <string name="auto_translate_dismiss_delay_summary">当前延迟：%s ms\n漫画翻译自动翻译模式下，点击消除翻译结果后等待该时间再重新开始检测翻译</string>
     <string name="set_dismiss_delay">设置漫画翻译消除翻译结果后的重新检测延迟</string>

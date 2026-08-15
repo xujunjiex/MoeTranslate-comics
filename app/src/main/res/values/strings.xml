@@ -105,6 +105,11 @@
     <string name="resume">继续</string>
     <string name="cancel">取消</string>
     <string name="user_cancel">Cancel</string>
+    <string name="crash_test_java_title">Test Java Crash</string>
+    <string name="crash_test_java_message">App will crash immediately after triggering. Expected: UncaughtException stack written to starflow.log + system crash dialog.</string>
+    <string name="crash_test_native_title">Test Native Crash</string>
+    <string name="crash_test_native_message">App will crash immediately after triggering (SIGSEGV). Expected: NATIVE CRASH + backtrace in starflow.log + system crash report/tombstone captured by the ROM.</string>
+    <string name="crash_test_trigger">Trigger</string>
     <string name="api_not_config_content">It looks like you have selected %s as the translation API, but it seems that you have not configured it yet, so translation is not possible. Click Config to enter the API settings page; of course, you can also select other translation APIs to use the translation function.</string>
     <string name="api_not_config_title">Translation API not configured</string>
     <string name="go_to_config">Config</string>
@@ -532,6 +537,8 @@
     <string name="incremental_render_summary">When more than 6 bubbles detected, translate in two batches to show first results earlier, but total translation time may slightly increase. Only works with PP-OCRv5 standalone and RT-DETR-V2+MangaOcr combinations.</string>
     <string name="manga_keep_text_free_title">Recognize Free Text</string>
     <string name="manga_keep_text_free_summary">When enabled, free text (narration, sound effects) detected by RT-DETR-V2 will also be recognized and translated</string>
+    <string name="manga_text_merge_title">Merge Text Lines</string>
+    <string name="manga_text_merge_summary">Merge adjacent text lines into one for coherent translation. Turn off for tables or multi-column layouts</string>
     <string name="auto_translate_dismiss_delay">Re-detect Delay After Dismiss (Manga only)</string>
     <string name="auto_translate_dismiss_delay_summary">Current delay: %s ms\nIn manga auto-translate mode, after tapping to dismiss the result, wait this duration before resuming detection</string>
     <string name="set_dismiss_delay">Set manga re-detect delay after dismissing result</string>

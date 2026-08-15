@@ -12,6 +12,12 @@ object HyMt2Native {
      */
     external fun nativeSetLogFile(path: String)
 
+    /**
+     * 测试用：安装崩溃处理器 + 打开日志文件后触发 native SIGSEGV（验证崩溃日志/backtrace 捕获链路）。
+     * 空指针写触发崩溃，crash_handler 写 backtrace 后 re-raise 给 debuggerd。即使未初始化引擎也能独立工作。
+     */
+    external fun nativeTriggerNativeCrash(path: String)
+
     /** 加载模型 + 建 context。返回句柄，0 = 失败。 */
     external fun nativeInit(modelPath: String, nThreads: Int, nBatchThreads: Int, nCtx: Int): Long
 

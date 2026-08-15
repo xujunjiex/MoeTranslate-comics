@@ -346,6 +346,94 @@
                         android:layout_centerVertical="true" />
                 </RelativeLayout>
 
+                <!-- 崩溃日志测试一级标题 -->
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:paddingTop="10dp">
+
+                    <ImageView
+                        android:id="@+id/crashTestIcon"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
+                        android:layout_centerVertical="true"
+                        android:src="@drawable/develop" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:layout_marginStart="20dp"
+                        android:layout_toEndOf="@id/crashTestIcon"
+                        android:text="崩溃日志测试"
+                        android:textColor="#E05252"
+                        android:textSize="20sp"
+                        android:textStyle="bold" />
+                </RelativeLayout>
+
+                <!-- 分隔线 -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="5dp"
+                    android:layout_marginBottom="5dp"
+                    android:background="#E0E0E0" />
+
+                <!-- 测试 Java 崩溃 -->
+                <RelativeLayout
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:id="@+id/javaCrashTest"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
+
+                    <TextView
+                        android:id="@+id/javaCrashTestTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:text="测试 Java 崩溃"
+                        android:textColor="#6A6464"
+                        android:textSize="18sp" />
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true"
+                        android:src="@drawable/righticon" />
+                </RelativeLayout>
+
+                <!-- 测试 Native 崩溃 -->
+                <RelativeLayout
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:id="@+id/nativeCrashTest"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
+
+                    <TextView
+                        android:id="@+id/nativeCrashTestTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:text="测试 Native 崩溃"
+                        android:textColor="#6A6464"
+                        android:textSize="18sp" />
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true"
+                        android:src="@drawable/righticon" />
+                </RelativeLayout>
+
             </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>

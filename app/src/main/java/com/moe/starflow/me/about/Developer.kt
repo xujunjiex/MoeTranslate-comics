@@ -31,8 +31,10 @@ import android.view.ViewGroup
 import com.moe.starflow.R
 import com.moe.starflow.databinding.FragmentDeveloperBinding
 import com.moe.starflow.utils.CustomPreference
+import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.utils.UiUtils
 import com.moe.starflow.me.ManageActivity
+import translationapi.hymt2translation.HyMt2Native
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
 import nl.dionsegijn.konfetti.core.emitter.Emitter
@@ -152,6 +154,41 @@ class Developer : Fragment() {
             if (isChecked) {
                 UiUtils.showToast(requireContext(),"游戏翻译调试模式已开启，请在游戏翻译界面测试")
             }
+        }
+
+        // 测试 Java 崩溃：抛未捕获异常 → StarFlowApplication 的 handler 写 starflow.log 后交系统
+        binding.javaCrashTest.setOnClickListener {
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.crash_test_java_title)
+                .setMessage(R.string.crash_test_java_message)
+                .setPositiveButton(R.string.crash_test_trigger) { _, _ ->
+                    Thread {
+                        throw RuntimeException("【崩溃测试】Java 未捕获异常（验证日志落盘）")
+                    }.start()
+                }
+                .setNegativeButton(R.string.user_cancel, null)
+                .show()
+        }
+
+        // 测试 Native 崩溃：SIGSEGV → hymt2_bridge crash_handler 写 backtrace 后 re-raise → 系统崩溃报告
+        binding.nativeCrashTest.setOnClickListener {
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.crash_test_native_title)
+                .setMessage(R.string.crash_test_native_message)
+                .setPositiveButton(R.string.crash_test_trigger) { _, _ ->
+                    val path = LogCollector.logFilePath
+                    if (path == null) {
+                        UiUtils.showToast(requireContext(), "日志文件未初始化")
+                        return@setPositiveButton
+                    }
+                    try {
+                        HyMt2Native.nativeTriggerNativeCrash(path)
+                    } catch (e: Throwable) {
+                        UiUtils.showToast(requireContext(), "native 崩溃测试失败: ${e.message}")
+                    }
+                }
+                .setNegativeButton(R.string.user_cancel, null)
+                .show()
         }
     }
 

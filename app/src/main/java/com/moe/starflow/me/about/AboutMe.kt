@@ -222,8 +222,7 @@ class AboutMe : Fragment() {
      */
     private fun buildCrashHint(file: java.io.File?): String {
         val appLog = file?.takeIf { it.exists() && it.length() > 0 } ?: return ""
-        return "⚠️ 日志文件：${appLog.absolutePath} (${appLog.length() / 1024}KB)\n" +
-            "    包含全部日志（Java + Hy-MT2 native + 崩溃信息）\n\n"
+        return "⚠️ 日志文件：${appLog.absolutePath} (${appLog.length() / 1024}KB)\n\n"
     }
 
     /**

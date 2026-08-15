@@ -4,17 +4,21 @@ import com.moe.starflow.translate.widget.*
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * 统一日志收集器（内存缓冲 + 单文件落盘）
+ * 统一日志收集器（内存缓冲 + 文件持久化，固定 [MAX_ENTRIES] 条滚动）
  *
- * 所有日志（Java 层 + native 层 + 崩溃 backtrace）统一写入同一个文件：
- * `getExternalFilesDir/logs/starflow.log`。
+ * 日志文件 `getExternalFilesDir/logs/starflow.log` 持久化最近 [MAX_ENTRIES] 条日志
+ * （所有级别）：追加写入，超过 300 条自动换出最旧的；**闪退/进程死亡后文件仍保留**，
+ * 重开 app 时 init 载入缓冲，日志查看器能看到上次（含多次）崩溃的记录。用户可手动清理。
  *
- * - 内存缓冲：app 内日志查看器实时查看最近 500 条
- * - 文件落盘：统一格式追加写入，native 崩溃/进程死亡后日志仍保留
- * - 固定大小：超 2MB 时保留尾部（截掉最旧的一半），启动不清空
+ * - 内存缓冲：日志查看器实时查看最近 300 条（进程死亡即清空）
+ * - 文件落盘：所有级别追加写入，超 300 行丢最旧；native 崩溃块由 hymt2_bridge 信号
+ *   处理器追加写入同一文件（滚动由 Java 侧维护，处理器内不做读文件解析）
+ * - 启动时把文件内容（最近 300 行）载入内存缓冲，崩溃后重开 app 查看器也能看到
  *
  * ⚠️ 必须在 Application.onCreate 调用 [init] 后才能落盘（否则只有内存缓冲）。
  */
@@ -24,11 +28,14 @@ object LogCollector {
     const val TAG_OCR = "OCR"
     const val TAG_DETECTION = "DetectionBridge"
 
-    /** 日志文件最大字节数（超限保留尾部，滚动截断） */
-    const val MAX_LOG_BYTES = 2 * 1024 * 1024L
-
     /** 日志文件名（统一） */
     const val LOG_FILE_NAME = "starflow.log"
+
+    /** 日志条数上限：内存缓冲 + 文件行数，超过自动换出最旧（丢最旧保留最新） */
+    private const val MAX_ENTRIES = 300
+
+    /** 旧版全量日志残留检测阈值（300 条日志不可能超过此大小，超了判定为旧版 appendText 遗留） */
+    private const val MAX_ERROR_REPORT_BYTES = 256 * 1024L
 
     /** 日志文件目录（init 后可用） */
     @Volatile
@@ -37,6 +44,8 @@ object LogCollector {
     /** 当前日志文件（追加写入） */
     @Volatile
     private var logFile: File? = null
+
+    private val buffer = CopyOnWriteArrayList<LogEntry>()
 
     /**
      * 初始化文件落盘。幂等：重复调用只刷新路径。
@@ -49,9 +58,71 @@ object LogCollector {
             if (!dir.exists()) dir.mkdirs()
             logDir = dir
             logFile = File(dir, LOG_FILE_NAME)
-            // 追加写入，不截断（保留跨会话日志，崩溃后仍可读）
+            val file = logFile
+            if (file != null && file.exists() && file.length() > MAX_ERROR_REPORT_BYTES) {
+                file.writeText("")  // 旧版 MB 级全量日志残留清理（300 条日志不会这么大）
+            }
+            // 把文件内容（上次会话，含崩溃）载入缓冲，闪退后查看器仍能看到
+            loadTailFromFile()
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * 启动时把文件尾部日志载入内存缓冲。
+     * 文件最多 [MAX_ENTRIES] 行，上次会话/崩溃的内容都在里面。
+     */
+    private fun loadTailFromFile() {
+        val file = logFile ?: return
+        if (!file.exists() || file.length() == 0L) return
+        try {
+            var lastLevel = "I"
+            var lastTag = "History"
+            val lines = file.readText().split('\n').takeLast(MAX_ENTRIES)
+            for (line in lines) {
+                if (line.isBlank()) continue
+                val parsed = parseFileLine(line, lastLevel, lastTag)
+                lastLevel = parsed.level
+                lastTag = parsed.tag
+                buffer.add(parsed)
+            }
+            while (buffer.size > MAX_ENTRIES) buffer.removeAt(0)
+        } catch (_: Exception) {
+        }
+    }
+
+    // 文件行格式：[HH:mm:ss.SSS] L/TAG: msg
+    private val FILE_LINE_REGEX = Regex("""^\[(\d{2}:\d{2}:\d{2}\.\d{3})] ([VDIWE])/([^:]+): (.*)$""")
+
+    /**
+     * 把文件里的日志行解析回 [LogEntry]。带标准前缀的按级别还原（E 级继续红色高亮）；
+     * 无前缀的行（多行堆栈的后续行）**继承最近一条的级别/tag**，让 E 级报错堆栈整体保持红色；
+     * 无法识别的崩溃特征行（native 崩溃块）标 E 级醒目。
+     *
+     * @param lastLevel/lastTag 上一条已解析行的级别/tag，用于无前缀堆栈行的继承
+     */
+    private fun parseFileLine(line: String, lastLevel: String, lastTag: String): LogEntry {
+        val m = FILE_LINE_REGEX.matchEntire(line)
+        if (m != null) {
+            val level = m.groupValues[2]
+            val tag = m.groupValues[3]
+            val ts = try {
+                SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                    .parse(m.groupValues[1])?.time ?: System.currentTimeMillis()
+            } catch (_: Exception) {
+                System.currentTimeMillis()
+            }
+            return LogEntry(level, tag, m.groupValues[4], null, ts)
+        }
+        if (line.contains("NATIVE CRASH") || line.contains("END CRASH") ||
+            line.startsWith("sig=") || line.startsWith("#")) {
+            return LogEntry("E", "NativeCrash", line)
+        }
+        // 无前缀行（如 Java 异常堆栈的 \tat ... 后续行）：继承上一条级别，E 级堆栈保持红色
+        if (lastLevel == "E") {
+            return LogEntry("E", lastTag, line)
+        }
+        return LogEntry("I", "History", line)
     }
 
     /** 统一日志文件路径（Java + native 共用） */
@@ -79,7 +150,7 @@ object LogCollector {
         val timestamp: Long = System.currentTimeMillis()
     ) {
         fun format(): String {
-            val time = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault())
+            val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
                 .format(java.util.Date(timestamp))
             val sb = StringBuilder("[$time] $level/$tag: $message")
             if (throwable != null) {
@@ -88,9 +159,6 @@ object LogCollector {
             return sb.toString()
         }
     }
-
-    private const val MAX_ENTRIES = 500
-    private val buffer = CopyOnWriteArrayList<LogEntry>()
 
     fun v(tag: String, msg: String): Int {
         addEntry("V", tag, msg)
@@ -133,13 +201,14 @@ object LogCollector {
         while (buffer.size > MAX_ENTRIES) {
             buffer.removeAt(0)
         }
-        // 文件落盘：统一格式追加写入（尽力而为，失败不阻塞主流程）
+        // 文件持久化（所有级别）：追加写入，超 MAX_ENTRIES 行滚动丢最旧。
+        // 闪退/进程死亡后文件仍在，重开 app 时 init 载入缓冲。
         try {
             val file = logFile
             if (file != null) {
                 synchronized(file) {
                     file.appendText(entry.format() + "\n")
-                    rotateIfNeeded(file)
+                    trimFileToTail(file)
                 }
             }
         } catch (_: Exception) {
@@ -147,19 +216,16 @@ object LogCollector {
     }
 
     /**
-     * 固定大小滚动：文件超 [MAX_LOG_BYTES] 时保留尾部一半（截掉最旧的一半）。
-     * 启动不清空；超出固定大小才替换。截断只发生在整行边界，避免切断日志行。
+     * 文件滚动：行数超 [MAX_ENTRIES] 时保留最新 [MAX_ENTRIES] 行（丢最旧）。
+     * 只在超限时读+写，平时仅 appendText。
      */
-    private fun rotateIfNeeded(file: File) {
-        if (file.length() <= MAX_LOG_BYTES) return
+    private fun trimFileToTail(file: File) {
+        if (file.length() == 0L) return
         try {
-            val data = file.readText()
-            val keepChars = data.length / 2
-            // 从保留起点找下一个换行，避免截断一行
-            var start = data.length - keepChars
-            val nl = data.indexOf('\n', start)
-            if (nl in 0 until data.length) start = nl + 1
-            file.writeText("…（日志已滚动，截断最旧内容）…\n" + data.substring(start))
+            val lines = file.readLines()
+            if (lines.size > MAX_ENTRIES) {
+                file.writeText(lines.takeLast(MAX_ENTRIES).joinToString("\n") + "\n")
+            }
         } catch (_: Exception) {
         }
     }
@@ -179,9 +245,13 @@ object LogCollector {
     }
 
     /**
-     * 清空日志
+     * 清空日志（内存缓冲 + 文件）。用户手动清理入口。
      */
     fun clear() {
         buffer.clear()
+        try {
+            logFile?.writeText("")
+        } catch (_: Exception) {
+        }
     }
 }
