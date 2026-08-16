@@ -2509,7 +2509,8 @@ class MangaFloatingService : LifecycleService() {
                 textColor = config.textColor,
                 bgColor = config.bgColor,
                 verticalDirection = config.textDirection,
-                fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs)
+                fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs),
+                showCacheMarker = prefs.getBoolean(com.moe.starflow.data.TranslationCacheManager.KEY_CACHE_MARKER, false)
             )
         }
         withContext(Dispatchers.Main) {
@@ -2561,7 +2562,8 @@ class MangaFloatingService : LifecycleService() {
                 textColor = config.textColor,
                 bgColor = config.bgColor,
                 verticalDirection = config.textDirection,
-                fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs)
+                fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs),
+                showCacheMarker = prefs.getBoolean(com.moe.starflow.data.TranslationCacheManager.KEY_CACHE_MARKER, false)
             )
         }
 
@@ -3126,7 +3128,8 @@ class MangaFloatingService : LifecycleService() {
                     bgColor = config.bgColor,
                     useOriginalText = copyOriginalMode,
                     verticalDirection = config.textDirection,
-                    fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs)
+                    fontTypeface = OverlayRenderer.loadResultTypeface(this@MangaFloatingService, prefs),
+                    showCacheMarker = prefs.getBoolean(com.moe.starflow.data.TranslationCacheManager.KEY_CACHE_MARKER, false)
                 )
             }
             withContext(Dispatchers.Main) {

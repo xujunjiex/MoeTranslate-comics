@@ -56,7 +56,8 @@ class FAQPage : Fragment() {
             CustomCard(getText(R.string.faq_q8), getText(R.string.faq_a8)),
             CustomCard(getText(R.string.faq_q9), getText(R.string.faq_a9)),
             CustomCard(getText(R.string.faq_q10), getText(R.string.faq_a10)),
-            CustomCard(getText(R.string.faq_q11), getText(R.string.faq_a11))
+            CustomCard(getText(R.string.faq_q11), getText(R.string.faq_a11)),
+            CustomCard(getText(R.string.faq_q12), getText(R.string.faq_a12))
         )
 
         adapter = CardAdapter(faqs)

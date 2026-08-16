@@ -57,7 +57,11 @@ object TranslateTools {
                 Constants.TextApi.AI.id -> {
                     when (type){
                         1 -> R.raw.ocr_support_languages
-                        else -> R.raw.nllb_text_support_languages
+                        // Hy-MT2 用专用 38 种目标语言（含 zh-TW 中文台湾）；NLLB 用其 68 种
+                        else -> if (textAi == Constants.TextAI.HYMT2.id)
+                            R.raw.hy_mt2_text_support_languages
+                        else
+                            R.raw.nllb_text_support_languages
                     }
                 }
                 Constants.TextApi.BING.id -> {

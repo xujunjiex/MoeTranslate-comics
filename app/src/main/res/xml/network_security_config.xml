@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <!-- 全局允许明文 HTTP：用户自建 API 可能用本地/局域网 http 地址（如 http://127.0.0.1:21357），
+         否则 Android 9+ 默认拦截报 CLEARTEXT not permitted。https 仍走 TLS 不受影响。 -->
+    <base-config cleartextTrafficPermitted="true" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">api.minimaxi.com</domain>
     </domain-config>

@@ -326,6 +326,8 @@
     <string name="faq_a10">这个问题取决于你当前使用的截图方式，以下是可能的原因和解决方法：\n\n<b><u>录屏模式（MediaProjection）</u></b>\n• <b>受保护的应用无法截图</b>：部分应用（系统相册、私密相册、银行、支付等）使用 FLAG_SECURE 或 DRM 阻止录屏捕获，系统会返回空白画面，导致 OCR 检测不到文字。\n• <b>私密相册限制</b>：华为/荣耀/小米等品牌的系统相册内置了隐私保护功能，即使已授予录屏权限，相册内的图片内容仍然无法被截取。\n• <b>解决方法</b>：将图片保存到普通文件夹（如下载目录），使用第三方图片查看器打开，或使用浏览器在线查看内容。\n\n<b><u>无障碍模式（Accessibility）</u></b>\n• <b>同样受限</b>：无障碍截图在受保护的应用和私密相册中同样无法获取画面内容。\n• <b>未处于目标应用界面</b>：如果当前在桌面、通知栏等位置，无障碍服务可能捕获不到内容。请先打开目标应用，再触发翻译。\n• <b>解决方法</b>：同上，用第三方查看器打开。也可尝试在系统设置中关闭无障碍服务再重新开启。\n\n<b><u>其他常见原因</u></b>\n• <b>页面确实无可识别文字</b>：纯图片、装饰性文字、艺术字体等 OCR 引擎可能无法识别。\n• <b>框选区域不含文字</b>：检查框选范围是否包含文字区域，尝试扩大框选。\n• <b>OCR 引擎不匹配</b>：在漫画悬浮菜单中切换 OCR 引擎（PP-OCRv5 ↔ ML Kit ↔ manga-ocr），不同引擎对不同字体的识别效果不同。\n• <b>图片质量不佳</b>：模糊、分辨率低或压缩过度的文字难以被识别。\n\n如果以上都无法解决，尝试在「设置 → 关于 → 截图方式」中切换截图方式，不同设备和场景的兼容性可能不同。</string>
     <string name="faq_q11">录屏模式自动翻译卡死，翻页无变化，手动翻译始终显示同一页的缓存结果？</string>
     <string name="faq_a11">这是<b><u>录屏服务与系统录屏功能冲突</u></b>导致的截图通道失效。\n\n<b>症状表现：</b>\n• 自动翻译：翻页后始终检测不到页面变化，进度条一直显示"自动检测中"，或 30 秒后弹出超时提示\n• 手动翻译：每次点击翻译都提示"⚡ 缓存"（缓存命中），显示的始终是同一页的翻译结果，翻页后翻译内容不更新\n\n<b>原因：</b>\n系统录屏、投屏、或某些应用的屏幕录制功能会独占 MediaProjection 通道，导致本应用的 VirtualDisplay 无法获取新的屏幕画面。截图拿到的永远是卡死前最后一帧画面，所以 pHash 检测不到变化，翻译结果也始终不变。\n\n<b>解决方法：</b>\n• <b>关闭系统录屏</b>：下拉通知栏，关闭系统自带的屏幕录制\n• <b>关闭投屏</b>：断开手机投屏/镜像连接\n• <b>检查其他录屏应用</b>：关闭游戏助手、直播助手等可能占用录屏通道的应用\n• <b>重启翻译服务</b>：关闭所有可能的录屏后，重新开启漫画翻译\n• <b>切换到无障碍截图模式</b>：在「设置 → 关于 → 截图方式」中切换为无障碍服务，不受录屏冲突影响\n\n该问题在所有使用 MediaProjection 的应用中都存在，不是本应用独有的 bug。</string>
+    <string name="faq_q12">如何连接本地局域网/电脑上部署的翻译模型？</string>
+    <string name="faq_a12">软件支持通过<b><u>OpenAI 兼容接口</u></b>连接<b><u>同一局域网内电脑上部署的本地模型服务</u></b>（如 llama.cpp、LM Studio、Ollama 等），无需公网 API 密钥。\n\n<b><u>第一步：在电脑上启动本地模型服务</u></b>\n用你常用的工具加载模型并启动服务，记下端口号。<b>关键是让服务监听 0.0.0.0（允许局域网访问）</b>，否则手机连不上。各工具开启方式：\n• <b>llama-server</b>：--host 0.0.0.0\n• <b>LM Studio</b>：设置里开启「局域网/远程访问」\n• <b>Ollama</b>：默认监听 0.0.0.0，无需设置\n• <b>其他</b>：查文档「允许远程/局域网访问」\n\n<b><u>第二步：查询电脑局域网 IP</u></b>\n运行 ipconfig，记下 IPv4 地址（如 192.168.1.100）。\n\n<b><u>第三步：手机验证连通</u></b>\n手机浏览器打开 http://电脑IP:端口，能打开即网络通畅。打不开按顺序排查：\n1. 手机和电脑是否同一局域网\n2. 服务是否监听 0.0.0.0\n3. 电脑防火墙是否放行该端口（只有连不上才处理）\n\n<b><u>第四步：在软件中配置</u></b>\n设置 → API 配置 → 添加自定义 API：Base URL 填 http://电脑IP:端口/v1，API Key 和模型名任意填，测试连接通过即可使用。\n\n<b><u>其他注意</u></b>\n• 电脑的代理不影响手机直连（局域网直连不走代理）\n• 用明文 http 地址时，需软件版本已放行明文流量</string>
     <string name="github_repo_title">GitHub仓库</string>
     <string name="github_repo_content">本项目使用LGPL-3.0协议开源，您可以随时访问GitHub仓库，欢迎给项目点一个"Star🌟"。</string>
     <string name="have_look">去看看</string>
@@ -471,10 +473,13 @@
     <string name="manga_rec_model_title">文字识别模型</string>
     <string name="manga_rec_model_summary">当前：%s\n漫画文字识别有误时，可切换为 manga-ocr 获得更准确的识别结果，但翻译速度会大幅下降。</string>
     <string name="view_logs">查看日志</string>
+    <string name="cache_marker_title">缓存命中标记</string>
     <string name="log_viewer_title">应用日志</string>
     <string name="log_copy">复制日志</string>
     <string name="log_clear">清空日志</string>
     <string name="log_copied">日志已复制到剪贴板</string>
+    <string name="copy">复制</string>
+    <string name="copied">已复制到剪贴板</string>
     <string name="log_empty">暂无日志</string>
     <string name="log_count_format">共 %d 条日志</string>
     <string name="log_export">导出</string>

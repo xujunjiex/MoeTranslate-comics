@@ -25,6 +25,9 @@ class TranslationCacheManager(private val context: Context) {
         const val MODE_GAME = 0
         const val MODE_MANGA = 1
         private const val DEFAULT_CACHE_COUNT = 100
+
+        /** 缓存命中标记（⚡）开关 key，共享给 About 页与渲染配置 */
+        const val KEY_CACHE_MARKER = "cache_hit_marker"
         private const val SIMILARITY_THRESHOLD_MANGA = 0.95f  // 256-bit hash 相似度阈值（~13 bit 容差）
         private const val THUMBNAIL_SIZE = 200
         private const val AREA_RATIO_MIN = 0.8f   // 面积比下限（框选偏移面积变化 <1%，宽松允许 ±20%）
@@ -60,7 +63,8 @@ class TranslationCacheManager(private val context: Context) {
         val autoFit: Boolean = true,
         val textColor: Int = android.graphics.Color.BLACK,
         val bgColor: Int = android.graphics.Color.argb(200, 255, 255, 255),
-        val textDirection: com.moe.starflow.manga.types.TextDirection = com.moe.starflow.manga.types.TextDirection.VERTICAL_RL
+        val textDirection: com.moe.starflow.manga.types.TextDirection = com.moe.starflow.manga.types.TextDirection.VERTICAL_RL,
+        val showCacheMarker: Boolean = false  // 缓存命中标记（⚡，默认关闭）
     )
 
     /**
@@ -124,7 +128,8 @@ class TranslationCacheManager(private val context: Context) {
                         bgColor = config.bgColor,
                         useOriginalText = (mode == OverlayMode.ORIGINAL),
                         verticalDirection = config.textDirection,
-                        fontTypeface = fontTypeface
+                        fontTypeface = fontTypeface,
+                        showCacheMarker = config.showCacheMarker
                     )
                 } finally {
                     // fullBitmap 由 OverlayRenderer 内部 copy 后返回，需要 recycle 原图
@@ -159,7 +164,8 @@ class TranslationCacheManager(private val context: Context) {
                         bgColor = config.bgColor,
                         useOriginalText = (mode == OverlayMode.ORIGINAL),
                         verticalDirection = config.textDirection,
-                        fontTypeface = fontTypeface
+                        fontTypeface = fontTypeface,
+                        showCacheMarker = config.showCacheMarker
                     )
                 }
             } catch (e: Exception) {
@@ -179,7 +185,8 @@ class TranslationCacheManager(private val context: Context) {
         val bgColor = prefs.getInt("Manga_BG_Color", android.graphics.Color.argb(200, 255, 255, 255))
         val textDirection = if (prefs.getString("Manga_Text_Direction", "0") == "1")
             com.moe.starflow.manga.types.TextDirection.VERTICAL_LR else com.moe.starflow.manga.types.TextDirection.VERTICAL_RL
-        return OverlayConfig(fontSize, autoFit, textColor, bgColor, textDirection)
+        val showCacheMarker = prefs.getBoolean(KEY_CACHE_MARKER, false)
+        return OverlayConfig(fontSize, autoFit, textColor, bgColor, textDirection, showCacheMarker)
     }
 
     // ========== 缓存操作 ==========

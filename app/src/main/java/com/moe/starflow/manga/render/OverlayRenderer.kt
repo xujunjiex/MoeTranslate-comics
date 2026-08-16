@@ -107,7 +107,8 @@ object OverlayRenderer {
         bgColor: Int = Color.argb(200, 255, 255, 255),
         useOriginalText: Boolean = false,
         verticalDirection: TextDirection? = null,
-        fontTypeface: Typeface? = null
+        fontTypeface: Typeface? = null,
+        showCacheMarker: Boolean = false  // 缓存命中标记开关（⚡，默认关闭）
     ): Bitmap {
         val result = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
@@ -128,7 +129,7 @@ object OverlayRenderer {
             // 注意：⚡ 标志只用于翻译进程中的内存缓存命中（isInMemoryCache），数据库反序列化的 bubbles 永远不显示 ⚡
             val displayText = if (useOriginalText) {
                 region.originalText
-            } else if (region.isInMemoryCache) {
+            } else if (region.isInMemoryCache && showCacheMarker) {
                 "⚡${region.translatedText}"
             } else {
                 region.translatedText

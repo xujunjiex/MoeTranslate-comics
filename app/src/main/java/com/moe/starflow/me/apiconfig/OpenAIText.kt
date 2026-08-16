@@ -22,6 +22,9 @@ import com.moe.starflow.translate.screenshot.*
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
@@ -913,6 +916,12 @@ class OpenAIText :Fragment() {
             .setTitle(title)
             .setMessage(message ?: "")
             .setCancelable(isCancelable)
+            .setNeutralButton(R.string.copy) { _, _ ->
+                // 复制测试结果/错误信息到剪贴板，便于反馈给开发者
+                val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("test_result", message ?: ""))
+                UiUtils.showToast(requireContext(), getString(R.string.copied), isShort = true)
+            }
             .apply {
                 if (isCancelable) {
                     setPositiveButton(R.string.user_known, null)

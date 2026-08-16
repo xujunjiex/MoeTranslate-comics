@@ -434,6 +434,31 @@
                         android:src="@drawable/righticon" />
                 </RelativeLayout>
 
+                <!-- 缓存命中标记（⚡）开关 -->
+                <RelativeLayout
+                    android:id="@+id/cache_marker_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:paddingStart="15dp">
+
+                    <TextView
+                        android:id="@+id/cache_marker_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:text="@string/cache_marker_title"
+                        android:textColor="#6A6464"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/cache_marker_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true" />
+                </RelativeLayout>
+
             </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>

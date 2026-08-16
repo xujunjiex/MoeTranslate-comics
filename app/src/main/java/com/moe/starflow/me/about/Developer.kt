@@ -190,6 +190,13 @@ class Developer : Fragment() {
                 .setNegativeButton(R.string.user_cancel, null)
                 .show()
         }
+
+        // 缓存命中标记（⚡）开关：控制内存缓存命中的译文前是否显示 ⚡（默认关闭）
+        binding.cacheMarkerSwitch.isChecked =
+            prefs.getBoolean(com.moe.starflow.data.TranslationCacheManager.KEY_CACHE_MARKER, false)
+        binding.cacheMarkerSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setBoolean(com.moe.starflow.data.TranslationCacheManager.KEY_CACHE_MARKER, isChecked)
+        }
     }
 
 }
