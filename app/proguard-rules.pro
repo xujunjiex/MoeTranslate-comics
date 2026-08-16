@@ -27,6 +27,11 @@
     native <methods>;
 }
 
+# --- JNI 回调接口方法名（native 硬编码 GetMethodID 按名查找，混淆会导致 ART abort）---
+# HyMt2StreamCallback 的 onToken/onPhase 由 hymt2_bridge.cpp 通过 GetMethodID 查找，
+# R8 混淆改名后找不到 → art::ThrowNewExceptionF → abort（release-only 崩溃）
+-keep class translationapi.hymt2translation.HyMt2StreamCallback { *; }
+
 # --- Serializable / Parcelable ---
 -keepclassmembers class * implements java.io.Serializable {
     static final long serialVersionUID;
