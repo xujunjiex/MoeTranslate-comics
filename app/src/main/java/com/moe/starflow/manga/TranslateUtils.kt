@@ -61,7 +61,9 @@ object TranslateUtils {
         contextHistory: LinkedList<Pair<String, String>> = LinkedList(),
         forceContext: Boolean = false,
         onPhase: (String) -> Unit = {},
-        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
+        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {},
+        /** 用户停止翻译的检测回调：返回 true 时立即解除等待并中止翻译（修复网络 API cancel 后回调永不触发导致卡死） */
+        isCancelled: (() -> Boolean)? = null
     ): List<TranslatedBubble> {
         LogCollector.d(TAG, "translateBubbles: ${bubbles.size} bubbles, translator=${translator.javaClass.simpleName}")
 
@@ -101,7 +103,7 @@ object TranslateUtils {
 
         val translatedResults = if (isAI && (preparedBubbles.size > 1 || translator is HyMT2Translation)) {
             // Hy-MT2 即使只有 1 个气泡也走批量编号+流式路径：统一享受「30s 无输出卡死检测」，避免 sequential 的 30s 总时限误杀
-            translateBubblesBatch(translator, preparedBubbles, sourceLang, targetLang, prefs, contextHistory, forceContext, onPhase, onPartialBubbles)
+            translateBubblesBatch(translator, preparedBubbles, sourceLang, targetLang, prefs, contextHistory, forceContext, onPhase, onPartialBubbles, isCancelled)
         } else {
             translateBubblesSequential(translator, preparedBubbles, sourceLang, targetLang)
         }
@@ -123,7 +125,8 @@ object TranslateUtils {
         contextHistory: LinkedList<Pair<String, String>> = LinkedList(),
         forceContext: Boolean = false,
         onPhase: (String) -> Unit = {},
-        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
+        onPartialBubbles: (List<TranslatedBubble>) -> Unit = {},
+        isCancelled: (() -> Boolean)? = null
     ): List<TranslatedBubble> = withContext(Dispatchers.IO) {
         LogCollector.d(TAG, "translateBubblesBatch: ${bubbles.size} bubbles, forceContext=$forceContext")
 
@@ -154,13 +157,24 @@ object TranslateUtils {
         val isLocalEngine = translator is HyMT2Translation
         val lastProgressAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
+        val cancelledByUser = java.util.concurrent.atomic.AtomicBoolean(false)
         val translationFinished = java.util.concurrent.atomic.AtomicBoolean(false)
         val contRef = java.util.concurrent.atomic.AtomicReference<CancellableContinuation<Unit>?>(null)
 
-        val watchdogJob = if (isLocalEngine) launch {
+        // 看门狗：① 用户停止翻译（isCancelled）→ 立即解除等待，中止在途请求；
+        // ② 本地引擎 30s 无任何新输出 → 判卡死解除阻塞（网络引擎由 withTimeoutOrNull 兜底）
+        val watchdogJob = launch {
             while (!translationFinished.get()) {
-                delay(500)
-                if (System.currentTimeMillis() - lastProgressAt.get() > LOCAL_STALL_TIMEOUT_MS) {
+                delay(200)
+                if (isCancelled?.invoke() == true) {
+                    cancelledByUser.set(true)
+                    translationFinished.set(true)
+                    translator.cancelTranslation()  // 中止引擎 / 取消 HTTP
+                    // 强制结束等待：网络 API 取消后回调永不触发，必须主动 resume 才能解除 isProcessing 阻塞
+                    contRef.get()?.let { if (it.isActive) it.resume(Unit) }
+                    break
+                }
+                if (isLocalEngine && System.currentTimeMillis() - lastProgressAt.get() > LOCAL_STALL_TIMEOUT_MS) {
                     timedOut.set(true)
                     translationFinished.set(true)
                     translator.cancelTranslation()  // 中止引擎，释放 g_mutex
@@ -169,7 +183,7 @@ object TranslateUtils {
                     break
                 }
             }
-        } else null
+        }
 
         val waitForResult: suspend () -> Unit = {
             suspendCancellableCoroutine { cont ->
@@ -231,7 +245,12 @@ object TranslateUtils {
             }
         }
         val completed = if (isLocalEngine) waitForResult() else withTimeoutOrNull(API_TIMEOUT_MS) { waitForResult() }
-        watchdogJob?.cancel()
+        watchdogJob.cancel()
+        if (cancelledByUser.get()) {
+            // 用户停止翻译：抛专用异常向上（不能用 CancellationException，会取消整个 collector 协程）。
+            // 上层按类型识别「已取消」：不保存、不报错、isProcessing 复位
+            throw TranslationCancelledException()
+        }
         if (timedOut.get()) {
             translator.cancelTranslation()
             throw RuntimeException("本地翻译引擎无响应（${LOCAL_STALL_TIMEOUT_MS / 1000}s 无新输出）")
@@ -561,3 +580,10 @@ object TranslateUtils {
         return parts.joinToString(" | ")
     }
 }
+
+/**
+ * 用户主动停止翻译的专用异常。
+ * 用独立类型而非普通 RuntimeException：漫画 collector 据此可靠识别「已取消」，
+ * 不依赖 translationCancelled 标志（该标志可能被下一次翻译抢先重置导致竞态误报错）。
+ */
+class TranslationCancelledException : Exception("翻译已取消")

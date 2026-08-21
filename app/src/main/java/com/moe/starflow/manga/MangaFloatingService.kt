@@ -157,7 +157,9 @@ class MangaFloatingService : LifecycleService() {
     private var ballInitialTouchY = 0f
 
     private var isProcessing = false
-    private var translationCancelled = false  // 用户强制停止翻译：不保存结果
+    @Volatile private var translationCancelled = false  // 用户强制停止翻译：不保存结果；跨线程读（TranslateUtils 取消轮询）需 volatile
+    /** 本次翻译是否已有部分气泡渲染上屏（分批渲染首批 / 本地模型流式出字）：决定单击悬浮球是直接终止还是弹确认 */
+    private var partialRenderShown = false
     /** 流式渲染协程的 Job 跟踪：processMangaScreenshot 收尾 join 后再 recycle 截图，避免读取已回收 bitmap 崩溃 */
     private val streamingRenderJobs = java.util.Collections.synchronizedList(mutableListOf<kotlinx.coroutines.Job>())
     private var isResultShowing = false
@@ -1093,6 +1095,10 @@ class MangaFloatingService : LifecycleService() {
     private fun stopAutoTranslate() {
         consecutiveEmptyCount = 0
         autoTranslateEngine.stop()
+        // 自动翻译中强制关闭：若有翻译在途，同样丢弃部分结果不保存
+        if (isProcessing) {
+            cancelInFlightTranslation(showMessage = false)
+        }
     }
 
 
@@ -1190,7 +1196,16 @@ class MangaFloatingService : LifecycleService() {
         LogCollector.d(TAG, "========== triggerTranslation START ==========")
         if (isProcessing) {
             LogCollector.d(TAG, "triggerTranslation: already processing, skipping")
-            showToast(getString(R.string.is_translating), true)
+            if (autoTranslateEngine.isAutoTranslating) {
+                // 自动翻译中：只提示（取消翻译请双击悬浮球关闭自动翻译）
+                showToast(getString(R.string.is_translating_auto), true)
+            } else if (partialRenderShown) {
+                // 手动翻译中且已有部分结果上屏（分批渲染首批 / 本地流式出字）→ 确认后停止，避免误丢已出结果
+                showStopTranslationDialog()
+            } else {
+                // 手动翻译中且尚无任何结果上屏 → 直接终止 + 提示，不弹确认
+                stopTranslationNow()
+            }
             return
         }
         if (isCropActive) {
@@ -1216,6 +1231,7 @@ class MangaFloatingService : LifecycleService() {
 
         isProcessing = true
         translationCancelled = false  // 每次翻译开始重置取消标志
+        partialRenderShown = false    // 每次翻译开始重置部分结果标志
 
         // 先关闭所有overlay再截图，避免截到进度条/翻译结果
         dismissResultOverlay()
@@ -1527,6 +1543,12 @@ class MangaFloatingService : LifecycleService() {
                         }
                     }
                     LogCollector.d(TAG, "Screenshot collector: processMangaScreenshot completed normally")
+                } catch (e: TranslationCancelledException) {
+                    // 用户主动停止翻译：用专用异常可靠识别（不依赖 translationCancelled，
+                    // 避免被下一次翻译抢先重置导致竞态误报「翻译失败」）
+                    isProcessing = false
+                    dismissProgressOverlay()
+                    LogCollector.d(TAG, "Screenshot collector: 翻译已被用户停止")
                 } catch (e: java.io.FileNotFoundException) {
                     LogCollector.e(TAG, "Screenshot collector: 模型文件缺失", e)
                     isProcessing = false
@@ -1750,6 +1772,9 @@ class MangaFloatingService : LifecycleService() {
 
             finalizeIncremental(bitmap, firstTranslated)
             return true
+        } catch (e: TranslationCancelledException) {
+            // 用户停止翻译：重抛让 collector 识别为取消，绝不回退重新 OCR
+            throw e
         } catch (e: Exception) {
             LogCollector.e(TAG, "incrementalRTDetrMangaOcr: 失败", e)
             return false
@@ -1806,6 +1831,10 @@ class MangaFloatingService : LifecycleService() {
                 statusOverlay.showError("识别模型加载失败：${e.message}")
                 ballStateManager?.setState(BallStateManager.State.Error)
                 throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 协程取消（用户停止翻译 / 新任务取代第二批 OCR）：不是模型错误，直接重抛不显示错误
+                crops.forEach { it.recycle() }
+                throw e
             } catch (e: Exception) {
                 crops.forEach { it.recycle() }
                 statusOverlay.showError("识别模型异常：${e.message}")
@@ -1852,6 +1881,9 @@ class MangaFloatingService : LifecycleService() {
 
             finalizeIncremental(bitmap, firstTranslated)
             return true
+        } catch (e: TranslationCancelledException) {
+            // 用户停止翻译：重抛让 collector 识别为取消，绝不回退重新 OCR
+            throw e
         } catch (e: Exception) {
             LogCollector.e(TAG, "incrementalPPOcrV5: 失败", e)
             // 取消正在运行的 OCR 任务，避免 use-after-recycle
@@ -1899,6 +1931,10 @@ class MangaFloatingService : LifecycleService() {
                 statusOverlay.showError("识别模型加载失败：${e.message}")
                 ballStateManager?.setState(BallStateManager.State.Error)
                 throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 协程取消（用户停止翻译 / 新任务取代第二批 OCR）：不是模型错误，直接重抛不显示错误
+                crops.forEach { it.recycle() }
+                throw e
             } catch (e: Exception) {
                 crops.forEach { it.recycle() }
                 statusOverlay.showError("识别模型异常：${e.message}")
@@ -1942,6 +1978,10 @@ class MangaFloatingService : LifecycleService() {
 
             finalizeIncremental(bitmap, firstTranslated)
             return true
+        } catch (e: TranslationCancelledException) {
+            // 用户停止翻译：重抛让 collector 识别为取消，绝不回退重新 OCR
+            ocrJob?.cancel()
+            throw e
         } catch (e: Exception) {
             LogCollector.e(TAG, "incrementalPPOcrV6: 失败", e)
             ocrJob?.cancel()
@@ -2400,6 +2440,8 @@ class MangaFloatingService : LifecycleService() {
         onPartialBubbles: (List<TranslatedBubble>) -> Unit = {}
     ): List<TranslatedBubble> {
         if (bubbles.isEmpty()) return emptyList()
+        // 用户已停止翻译：OCR 等耗时段结束后立即终止，避免继续走翻译/渲染残留进度条
+        if (translationCancelled) throw TranslationCancelledException()
 
         LogCollector.d(TAG, "incrementalTranslateBubbles: ${bubbles.size} bubbles, forceContext=$forceContext, cacheSize=${regionCache.size()}")
 
@@ -2466,6 +2508,8 @@ class MangaFloatingService : LifecycleService() {
 
         LogCollector.d(TAG, "incrementalTranslateBubbles: ${fromCache.size} cached + ${needTranslation.size} need API")
         if (needTranslation.isNotEmpty()) {
+            // 用户已停止翻译：不重新显示「正在翻译」进度（避免取消后进度条残留/跳动）
+            if (translationCancelled) throw TranslationCancelledException()
             showProgressOverlay(getString(R.string.manga_translating))
         }
 
@@ -2569,6 +2613,8 @@ class MangaFloatingService : LifecycleService() {
 
         // 显示
         withContext(Dispatchers.Main) {
+            // 有任何气泡渲染上屏（首批/流式）即标记部分结果已显示 → 之后再单击悬浮球/浮层走确认弹窗
+            partialRenderShown = true
             showResultOverlay(resultBitmap, showCopyButton = showCopyButton)
             // 必须在 showResultOverlay 之后赋值，因为 dismissResultOverlay 会清空 currentShowBubbles
             currentShowBubbles = newBubbles
@@ -2664,7 +2710,8 @@ class MangaFloatingService : LifecycleService() {
                     "generate" -> showProgressOverlay(getString(R.string.manga_translating))
                 }
             },
-            onPartialBubbles = onPartialBubbles
+            onPartialBubbles = onPartialBubbles,
+            isCancelled = { translationCancelled }  // 用户停止翻译 → waitForResult 立即解除等待，不再卡 35s
         )
     }
 
@@ -3456,13 +3503,20 @@ class MangaFloatingService : LifecycleService() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
     }
 
-    private fun stopTranslationNow() {
+    private fun stopTranslationNow() = cancelInFlightTranslation()
+
+    /**
+     * 取消在途翻译并丢弃部分结果（不保存到数据库）。
+     * showMessage=false 用于强制关闭自动翻译时（由「自动翻译已停止」提示代替）。
+     */
+    private fun cancelInFlightTranslation(showMessage: Boolean = true) {
         translationCancelled = true
+        partialRenderShown = false  // 已停止：再点悬浮球不再弹确认，直接幂等终止
         translatorText?.cancelTranslation()
         dismissProgressOverlay()
         dismissResultOverlay()
         ballStateManager?.setState(BallStateManager.State.Idle)
-        statusOverlay.showImmediate("已停止翻译", autoDismiss = true)
+        if (showMessage) statusOverlay.showImmediate("已停止翻译", autoDismiss = true)
     }
 
     private fun dismissProgressOverlay() {

@@ -141,6 +141,11 @@ class FloatingBallService : LifecycleService() {
     // 是否正在翻译，默认false
     private val isTranslating = AtomicBoolean(false)
 
+    /** 用户主动停止翻译：忽略本次结果回调、不保存 */
+    @Volatile private var translationCancelled = false
+    /** 本次翻译是否已有部分结果上屏（本地模型流式出字）：决定单击悬浮球是直接终止还是弹确认 */
+    @Volatile private var partialResultShown = false
+
     // 配置
     private var floatingBallConfig = FloatingBallConfig()
     private var cropViewConfig = CropViewConfig()
@@ -650,7 +655,14 @@ class FloatingBallService : LifecycleService() {
             y = 0
         }
         translationResultView = TranslationResultView(this, windowManager, resultViewParams!!)
-        translationResultView.onClose = { removeResultView() }
+        translationResultView.onClose = {
+            // 翻译中且已有部分结果上屏 → 确认弹窗（避免误丢已出结果）；否则直接关闭
+            if (isTranslating.get() && partialResultShown) {
+                showStopTranslationDialog()
+            } else {
+                removeResultView()
+            }
+        }
         translationResultView.onRetranslate = { retranslateCurrentText() }
         translationResultView.applyStyle()  // 读取 text_shadow_enabled 覆盖 init 块中的硬编码 setShadowLayer
 
@@ -1209,6 +1221,10 @@ class FloatingBallService : LifecycleService() {
         autoTranslateEngine = null
         autoTranslateHandler.removeCallbacksAndMessages(null)
         hideDebugOverlay()
+        // 自动翻译中强制关闭：若有翻译在途，同样丢弃部分结果不保存
+        if (isTranslating.get()) {
+            cancelInFlightTranslation(showMessage = false)
+        }
         showToast(getString(R.string.auto_translate_stop))
     }
 
@@ -1321,6 +1337,40 @@ class FloatingBallService : LifecycleService() {
         isResultViewShowing = false
     }
 
+    /**
+     * 翻译进行中且已有部分结果上屏时，单击悬浮球/关闭结果浮层 → 弹确认。
+     * 停止 → 终止翻译且不保存结果；继续 → 保持现状。
+     */
+    private fun showStopTranslationDialog() {
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("翻译未完成")
+            .setMessage("当前翻译尚未完成，是否停止？停止后将不保存本次翻译结果。")
+            .setPositiveButton("停止") { _, _ -> stopTranslationNow() }
+            .setNegativeButton("继续", null)
+            .create()
+        // ⚠️ Service 无 Activity token：必须先把对话框窗口类型设为 OVERLAY，否则 show() 抛 BadTokenException
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+    }
+
+    /** 直接终止当前翻译：取消在途 API 调用、清状态、提示「已停止翻译」，不弹确认 */
+    private fun stopTranslationNow() = cancelInFlightTranslation()
+
+    /**
+     * 取消在途翻译并丢弃部分结果（不保存到数据库）。
+     * showMessage=false 用于强制关闭自动翻译时（由「自动翻译已停止」提示代替）。
+     */
+    private fun cancelInFlightTranslation(showMessage: Boolean = true) {
+        translationCancelled = true
+        partialResultShown = false  // 已停止：再点悬浮球不再弹确认，直接幂等终止
+        translatorText?.cancelTranslation()
+        translatorPic?.cancelTranslation()
+        isTranslating.set(false)
+        ballStateManager?.setState(BallStateManager.State.Idle)
+        if (showMessage) statusOverlay.showImmediate("已停止翻译", autoDismiss = true)
+    }
+
     private fun executeAction(action: Constants.BallAction) {
         when (action) {
             Constants.BallAction.TRANSLATE -> doTranslate()
@@ -1364,7 +1414,16 @@ class FloatingBallService : LifecycleService() {
                 }
 
                 if (isTranslating.get()) {
-                    showToast(getString(R.string.is_translating), true)
+                    if (isAutoTranslating) {
+                        // 自动翻译中：只提示（取消翻译请双击悬浮球关闭自动翻译）
+                        showToast(getString(R.string.is_translating_auto), true)
+                    } else if (partialResultShown) {
+                        // 手动翻译中且已有部分结果上屏（本地模型流式出字）→ 确认后停止，避免误丢已出结果
+                        showStopTranslationDialog()
+                    } else {
+                        // 手动翻译中且尚无任何结果上屏 → 直接终止 + 提示，不弹确认
+                        stopTranslationNow()
+                    }
                     return
                 }
 
@@ -1401,6 +1460,8 @@ class FloatingBallService : LifecycleService() {
                 if (data.croppedBitmap != null) data.fullBitmap.recycle()
                 try {
                     isTranslating.set(true)
+                    translationCancelled = false  // 每次新截图翻译重置取消标志
+                    partialResultShown = false    // 每次新截图翻译重置部分结果标志
                     processScreenshot(bitmap)
                 } catch (e: Exception) {
                     isTranslating.set(false)
@@ -1608,6 +1669,7 @@ class FloatingBallService : LifecycleService() {
             onPartial = { partial ->
                 // 流式显示：Hy-MT2 等本地引擎边生成边更新悬浮窗，不等翻译完成
                 lifecycleScope.launch(Dispatchers.Main) {
+                    if (partial.isNotBlank()) partialResultShown = true  // 已有部分结果上屏 → 再单击走确认弹窗
                     if (!isResultViewShowing) showResultView()
                     translationResultView.setText(partial)
                 }
@@ -1616,6 +1678,11 @@ class FloatingBallService : LifecycleService() {
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
+                        if (translationCancelled) {
+                            // 用户已停止翻译：忽略本次结果（stopTranslationNow 已提示）
+                            LogCollector.d(TAG, "translateByText: 用户已停止，忽略成功结果")
+                            return@launch
+                        }
                         val elapsed = System.currentTimeMillis() - translateStartTime
                         LogCollector.d(TAG, "文本翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】", elapsedMs = elapsed)
@@ -1655,6 +1722,11 @@ class FloatingBallService : LifecycleService() {
                         }
                     }
                     is TranslationResult.Error -> {
+                        if (translationCancelled) {
+                            // 用户已停止翻译：不按失败处理
+                            LogCollector.d(TAG, "translateByText: 用户已停止，忽略错误")
+                            return@launch
+                        }
                         LogCollector.e(TAG, "文本翻译失败", result.error)
                         updateDebugStatus("【错误】翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
@@ -1681,6 +1753,10 @@ class FloatingBallService : LifecycleService() {
             lifecycleScope.launch(Dispatchers.Main) {
                 when (result) {
                     is TranslationResult.Success -> {
+                        if (translationCancelled) {
+                            LogCollector.d(TAG, "translateByPic: 用户已停止，忽略成功结果")
+                            return@launch
+                        }
                         val elapsed = System.currentTimeMillis() - translateStartTime
                         LogCollector.d(TAG, "图片翻译成功: ${result.translatedText.take(50)}..., 耗时: ${elapsed}ms")
                         updateDebugStatus("【完成】图片翻译", elapsedMs = elapsed)
@@ -1693,6 +1769,10 @@ class FloatingBallService : LifecycleService() {
                         }
                     }
                     is TranslationResult.Error -> {
+                        if (translationCancelled) {
+                            LogCollector.d(TAG, "translateByPic: 用户已停止，忽略错误")
+                            return@launch
+                        }
                         LogCollector.e(TAG, "图片翻译失败", result.error)
                         updateDebugStatus("【错误】图片翻译失败")
                         statusOverlay.showError("翻译失败：${result.error.message ?: "未知错误"}")
@@ -1750,6 +1830,8 @@ class FloatingBallService : LifecycleService() {
             return
         }
         isTranslating.set(true)
+        translationCancelled = false  // 重新翻译：重置取消标志
+        partialResultShown = false    // 重新翻译：重置部分结果标志
         translateStartTime = System.currentTimeMillis()
         LogCollector.d(TAG, "重新翻译: ${sourceText.take(50)}...")
         statusOverlay.show("重新翻译中...")
