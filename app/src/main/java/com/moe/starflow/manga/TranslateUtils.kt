@@ -171,7 +171,7 @@ object TranslateUtils {
                     translationFinished.set(true)
                     translator.cancelTranslation()  // 中止引擎 / 取消 HTTP
                     // 强制结束等待：网络 API 取消后回调永不触发，必须主动 resume 才能解除 isProcessing 阻塞
-                    contRef.get()?.let { if (it.isActive) it.resume(Unit) }
+                    contRef.getAndSet(null)?.let { if (it.isActive) it.resume(Unit) }  // 原子取并置空：看门狗/回调竞争时只 resume 一次
                     break
                 }
                 if (isLocalEngine && System.currentTimeMillis() - lastProgressAt.get() > LOCAL_STALL_TIMEOUT_MS) {
@@ -179,7 +179,7 @@ object TranslateUtils {
                     translationFinished.set(true)
                     translator.cancelTranslation()  // 中止引擎，释放 g_mutex
                     // 强制结束等待：即使 native 彻底卡死不回调，也解除阻塞向上抛错
-                    contRef.get()?.let { if (it.isActive) it.resume(Unit) }
+                    contRef.getAndSet(null)?.let { if (it.isActive) it.resume(Unit) }  // 原子取并置空：看门狗/回调竞争时只 resume 一次
                     break
                 }
             }
@@ -230,7 +230,6 @@ object TranslateUtils {
                     callback = { result ->
                         translationFinished.set(true)
                         watchdogJob?.cancel()
-                        contRef.set(null)
                         when (result) {
                             is TranslationResult.Success -> {
                                 resultText = result.translatedText
@@ -239,7 +238,8 @@ object TranslateUtils {
                                 errorMsg = result.error.message ?: "Unknown error"
                             }
                         }
-                        if (cont.isActive) cont.resume(Unit)
+                        // 原子取并置空：与看门狗竞争时只 resume 一次（避免 Already resumed）
+                        contRef.getAndSet(null)?.let { if (it.isActive) it.resume(Unit) }
                     }
                 )
             }
