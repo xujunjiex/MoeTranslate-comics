@@ -92,7 +92,7 @@ adb devices
 - `ui/` — 历史记录 & 漫画查看器：
   - `history/` — `HistoryFragment`（双视图：默认/管理）+ 4 个 Adapter（`HistoryGameAdapter`/`HistoryMangaAdapter`/`HistoryGroupAdapter`/`HistoryMangaGroupAdapter`）
   - `viewer/` — `MangaViewerActivity`（全屏图片浏览+译文详情+重翻操作）、`ZoomableImageView`（缩放控件）、`CropFragment`（重翻裁剪界面）
-- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，11 条 FAQ），按 about/apiconfig/model/settings 4 子包组织
+- `me/` — 设置和 API 配置界面：`PersonalizationConfig`（个性化设置）、`APIConfig`（API 配置）、`TranslationMode`（翻译模式）、`AboutMe`（关于页面）、`Developer`（开发者选项）、`FAQPage`（常见问题，12 条 FAQ），按 about/apiconfig/model/settings 4 子包组织
 - `launch/` — 首次启动引导
 - `utils/` — 工具类：`Constants`（枚举定义）、`CustomPreference`（配置封装）、`LogCollector`（日志收集）、`PixelCompare`（像素比较）、`UiUtils`（Toast 统一）、`ServiceUtils`（服务状态检测）、`UpdateChecker`（检查更新）
 - `data/` — Room 数据库、`TranslationCacheManager`、`TranslationCacheUtils`（缓存工具：256-bit hash 守卫 + 气泡 JSON 解析）、`HistoryEntity`/`PageCacheEntity`
@@ -413,6 +413,7 @@ v6 medium 用 RadioButton 切档（det+rec 全部下载后才显示 medium Radio
 - **首页 top_bar 双行状态栏**：🔔通知 与 ❓帮助 之间两行——`OCR模型：xxx` + `翻译模型：xxx`（`refreshEngineStatusBar()`，OCR 组/翻译引擎变化实时刷新）
 - **源语言动态（首页/悬浮窗）**：30 种语言池按当前 OCR 组排序（支持在前），不支持的下移置灰，点击弹「该语言当前 OCR 模型不支持，请使用 X」；悬浮窗语言循环只循环组适配语言
 - **目标语言过滤（白名单）**：Hy-MT2 官方仅 38 种目标语言（`HyMt2Languages.supportedCodes`），游戏页/文本页目标语言按官方 38 种白名单置灰（旧 9 种黑名单已废）；NLLB/API 全支持
+- **目标语言列表资源按引擎区分**：`getLanguagesList` 在 TextApi=AI 时，Hy-MT2 用 `hy_mt2_text_support_languages.xml`（38 种，含 zh-TW 中文台湾），NLLB 用 `nllb_text_support_languages.xml`（68 种）。勿让 Hy-MT2 复用 NLLB 资源——否则选不到 zh-TW
 - **文本翻译源语言不受 OCR 影响**：`getLanguagesList(type=1, ocrGroup=null)` 全量 30 种
 
 **引擎切换架构（重要）：**
@@ -678,6 +679,9 @@ IDLE（等变化）──sim<0.95──→ MOTION（等稳定）──连续2次
   `UncaughtException` 落盘 + 系统 FATAL）；测 Native 崩溃（`HyMt2Native.nativeTriggerNativeCrash`
   触发 SIGSEGV → crash_handler 写崩溃块 + 恢复 libc handler re-raise → 系统 tombstone + 崩溃对话框）。
   小米 ROM 前台崩溃会 30ms 内自动重启 app（SmartPower），看到"没闪退"不代表崩溃没发生
+- **缓存命中标记开关（开发者选项页「缓存命中标记」）**：控制漫画内存缓存命中译文前的 ⚡ 显示
+  （`KEY_CACHE_MARKER`，默认关闭）。渲染统一走 `renderOverlay(showCacheMarker)`（OverlayConfig
+  字段），MangaFloatingService 直接渲染处从 prefs 读
 - ⚠️ 内存缓冲（查看器实时显示）在崩溃瞬间丢失，但文件持久化保留——排查闪退读文件/导出，
   或看 app 内查看器（启动时已载入文件内容）
 
@@ -791,6 +795,10 @@ MediaProjectionIntentHolder — 存储授权 Intent。
 - **`Bitmap.createBitmap(src, x, y, w, h)` 是子 bitmap**，共享原图底层数据。原图 `recycle()` 后子 bitmap 失效，再调用 `.copy()` 抛 `Can't copy a recycled bitmap`。**正确顺序：先渲染（产生独立副本），再 try/finally 中 recycle 源 bitmap。**（cache 实时渲染 + 下载修复踩过）
 
 - **`TranslationStatusOverlay` 窗口生命周期**：`TYPE_APPLICATION_OVERLAY` 窗口可能被系统移除而 `isShowing` 状态过期（MIUI 屏幕录制切换/窗口策略变化等）。**所有显示路径（`show`/`showImmediate`/`showError`/`update`）都必须确保窗口附着**——复用已有 chip 时也要调 `addToWindowIfNeeded()`；`updateViewLayout` 失败（窗口已脱）要自愈重新 `addView`。曾因 `showImmediate` 的"复用 chip"分支漏调 `addToWindowIfNeeded` 导致翻译过程状态条消失（初始化 `show()` 走 `addChip` 正常），根因是 `d7f4ce7` 重写弹窗时把旧版"每次 `displayMessage` 都确保窗口"的行为拆丢了。**给此组件加/改显示逻辑时，必须保证每个入口都触发窗口附着。**
+
+- **自建 API 明文 http 被拦截（`CLEARTEXT not permitted`）**：Android 9+ 默认禁明文，`network_security_config.xml` 已全局 `cleartextTrafficPermitted="true"` 放行——用户自建本地/局域网 API（如 `http://192.168.x.x:8081`、`http://127.0.0.1:21357`）可连。勿改回 false，否则所有自建 http API 全被拦
+
+- **debug 正常、release 闪退 = R8 混淆 JNI 回调接口**：`HyMt2StreamCallback` 的 `onToken`/`onPhase` 被 native `GetMethodID` 硬编码查找，release 混淆改名后 ART abort（backtrace 见 `art::FindMethodJNIE` + `ThrowNewExceptionF`）。`proguard-rules.pro` 必须 `-keep` 该接口。凡是"Java 对象传给 native、native 按名反查方法"的回调接口都要 keep（`-keepclasseswithmembernames native <methods>` 只保护 native 方法名，不保护这类回调）
 
 - **`libsentencepiece_train.so` 可安全排除**：NLLB 推理不需要 sentencepiece 训练库。在 `build.gradle` 的 `packaging { jniLibs { excludes += ['**/libsentencepiece_train.so'] } }` 中添加排除规则可节省 ~1.6MB APK 体积。不影响 NLLB 翻译功能。
 
