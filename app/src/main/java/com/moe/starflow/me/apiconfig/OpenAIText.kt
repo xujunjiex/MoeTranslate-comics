@@ -54,6 +54,7 @@ class OpenAIText :Fragment() {
     private var providerIndex: Int = 0
     private var isNew = false
     private var selectedModelIndex: Int = 0
+    private var selectedThinkingMode: Int = OpenAIProviderConfig.THINKING_DEFAULT
     private val defaultSystemPrompt = "你是专业翻译引擎。将用户提供的文本翻译为usetolang。\n规则：\n1. 只输出译文，不输出解释、标注或附加内容\n2. 保持原文格式（换行、标点风格等）\n3. 翻译应自然流畅，符合目标语言的表达习惯\n4. 专有名词（人名、地名、作品名）保留原文或使用通用译名\n5. 如果文本已经是目标语言，原样返回"
     private val defaultUserPrompt = "将以下文本从usefromlang翻译为usetolang：\n\nusesourcetext"
 
@@ -93,6 +94,7 @@ class OpenAIText :Fragment() {
         setupTabs()
         setupButtons()
         loadConfig()
+        setupThinkingModeSelector()
     }
 
     private fun setupButtons() {
@@ -212,7 +214,8 @@ class OpenAIText :Fragment() {
             mangaSystemPrompt = if (mangaSys != original.defaultMangaSystemPrompt) mangaSys else null,
             mangaUserPrompt = if (mangaUsr != original.defaultMangaUserPrompt) mangaUsr else null,
             selectedModelIndex = selectedModelIndex,
-            customModels = existingCustomModels
+            customModels = existingCustomModels,
+            thinkingMode = selectedThinkingMode
         )
         if (existingIndex >= 0) {
             mods[existingIndex] = mod
@@ -273,7 +276,8 @@ class OpenAIText :Fragment() {
             userPrompt = userPrompt,
             mangaSystemPrompt = mangaSys,
             mangaUserPrompt = mangaUsr,
-            autoAppendPath = binding.switchAutoAppendPath.isChecked
+            autoAppendPath = binding.switchAutoAppendPath.isChecked,
+            thinkingMode = selectedThinkingMode
         )
 
         lifecycleScope.launch {
@@ -295,6 +299,7 @@ class OpenAIText :Fragment() {
                 binding.editSystemPrompt.setText(provider.systemPrompt)
                 binding.editUserPrompt.setText(provider.userPrompt)
                 binding.switchAutoAppendPath.isChecked = provider.autoAppendPath
+                selectedThinkingMode = provider.thinkingMode
 
                 // 初始化游戏缓存（和编辑框同步）
                 gameSystemPromptCache = provider.systemPrompt
@@ -441,6 +446,34 @@ class OpenAIText :Fragment() {
         if (!isNew) {
             binding.btnDelete.visibility = View.VISIBLE
         }
+    }
+
+    private fun setupThinkingModeSelector() {
+        binding.thinkingModeSelector.text = thinkingModeLabel(selectedThinkingMode)
+        binding.thinkingModeSelector.setOnClickListener {
+            val options = arrayOf(
+                getString(R.string.thinking_mode_option_default),
+                getString(R.string.thinking_mode_option_disabled),
+                getString(R.string.thinking_mode_option_enabled)
+            )
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.thinking_mode_title)
+                .setSingleChoiceItems(options, selectedThinkingMode) { dialog, which ->
+                    selectedThinkingMode = which
+                    binding.thinkingModeSelector.text = options[which]
+                    dialog.dismiss()
+                }
+                .setNegativeButton(R.string.user_cancel, null)
+                .create()
+                .apply { window?.setBackgroundDrawableResource(R.drawable.dialog_background) }
+                .show()
+        }
+    }
+
+    private fun thinkingModeLabel(mode: Int): String = when (mode) {
+        OpenAIProviderConfig.THINKING_FORCE_DISABLED -> getString(R.string.thinking_mode_option_disabled)
+        OpenAIProviderConfig.THINKING_FORCE_ENABLED -> getString(R.string.thinking_mode_option_enabled)
+        else -> getString(R.string.thinking_mode_option_default)
     }
 
     private fun showModelPopup(provider: OpenAIProviderConfig, models: List<String>, anchor: View) {
@@ -788,9 +821,13 @@ class OpenAIText :Fragment() {
                     put("max_tokens", 300)
                     put("temperature", 0.3)
                     put("stream", false)
-                    put("thinking", org.json.JSONObject().apply {
-                        put("type", "disabled")
-                    })
+                    // 思考模式三态：0=不发送（兼容不支持思考参数的模型）/ 1=强制关闭 / 2=强制开启
+                    when (selectedThinkingMode) {
+                        OpenAIProviderConfig.THINKING_FORCE_DISABLED ->
+                            put("thinking", org.json.JSONObject().apply { put("type", "disabled") })
+                        OpenAIProviderConfig.THINKING_FORCE_ENABLED ->
+                            put("thinking", org.json.JSONObject().apply { put("type", "enabled") })
+                    }
                 }
 
                 val normalizedUrl = if (baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) {

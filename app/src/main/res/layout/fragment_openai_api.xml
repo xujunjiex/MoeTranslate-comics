@@ -229,6 +229,51 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- 思考模式（三态：跟随模型默认 / 强制关闭 / 强制开启） -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/thinking_mode_title"
+                    android:textColor="?android:textColorSecondary"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/thinkingModeSelector"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:paddingVertical="12dp"
+                    android:paddingHorizontal="4dp"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:background="?attr/selectableItemBackground"
+                    android:drawableEnd="@drawable/baseline_expand_more"
+                    android:drawableTint="#999999" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/thinking_mode_summary"
+                    android:textColor="#999999"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 模式切换 Tab -->
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/prompt_mode_tabs"

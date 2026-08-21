@@ -107,7 +107,9 @@ object BuiltinProviders {
             defaultMangaUserPrompt = DEFAULT_MANGA_USER_PROMPT,
             selectedModelIndex = 0,
             consoleUrl = "https://platform.deepseek.com/",
-            continuationType = OpenAIProviderConfig.CONTINUATION_PREFIX
+            continuationType = OpenAIProviderConfig.CONTINUATION_PREFIX,
+            // DeepSeek 推理模型默认会思考：默认强制关闭，保持翻译速度（原代码总是发 thinking:disabled）
+            thinkingMode = OpenAIProviderConfig.THINKING_FORCE_DISABLED
         ),
         OpenAIProviderConfig(
             name = "通义千问",

@@ -1,6 +1,7 @@
 package translationapi.doubaotranslation
 
 import android.util.Log
+import com.moe.starflow.me.apiconfig.OpenAIProviderConfig
 import com.moe.starflow.translate.CustomLocale
 import com.moe.starflow.translate.TranslationResult
 import com.moe.starflow.translate.TranslationTextAPI
@@ -27,7 +28,9 @@ class DoubaoTranslation(
     private val model: String,
     private val systemPrompt: String,
     private val userPrompt: String,
-    private val maxTokens: Int = 1000
+    private val maxTokens: Int = 1000,
+    /** 思考模式：0=跟随模型默认（不发送 thinking 参数）/ 1=强制关闭 / 2=强制开启 */
+    private val thinkingMode: Int = OpenAIProviderConfig.THINKING_DEFAULT
 ) : TranslationTextAPI {
 
     companion object {
@@ -87,9 +90,13 @@ class DoubaoTranslation(
             put("instructions", instructions)
             put("max_tokens", maxTokens)
             put("stream", false)
-            put("thinking", JSONObject().apply {
-                put("type", "disabled")
-            })
+            // 思考模式三态：0=不发送（兼容不支持的模型）/ 1=强制关闭 / 2=强制开启
+            when (thinkingMode) {
+                OpenAIProviderConfig.THINKING_FORCE_DISABLED ->
+                    put("thinking", JSONObject().apply { put("type", "disabled") })
+                OpenAIProviderConfig.THINKING_FORCE_ENABLED ->
+                    put("thinking", JSONObject().apply { put("type", "enabled") })
+            }
         }.toString()
 
         Log.d(TAG, "Request: $requestBody")

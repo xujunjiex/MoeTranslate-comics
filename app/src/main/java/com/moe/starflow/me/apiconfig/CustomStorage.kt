@@ -83,7 +83,9 @@ data class OpenAIProviderConfig(
     val mangaUserPrompt: String = "",
     val defaultMangaSystemPrompt: String = "",
     val defaultMangaUserPrompt: String = "",
-    val autoAppendPath: Boolean = true
+    val autoAppendPath: Boolean = true,
+    /** 思考模式：0=跟随模型默认（不发送 thinking 参数）/ 1=强制关闭 / 2=强制开启 */
+    val thinkingMode: Int = 0
 ) {
     companion object {
         const val PROVIDER_TYPE_BUILTIN = "builtin"
@@ -95,6 +97,9 @@ data class OpenAIProviderConfig(
         const val CONTINUATION_PARTIAL = "partial"
         const val CONTINUATION_PREFIX = "prefix"
         const val CONTINUATION_JSON = "json"
+        const val THINKING_DEFAULT = 0      // 跟随模型默认，不发送 thinking 参数
+        const val THINKING_FORCE_DISABLED = 1  // 强制关闭思考
+        const val THINKING_FORCE_ENABLED = 2   // 强制开启思考
     }
 
     val isBuiltin: Boolean get() = providerType == PROVIDER_TYPE_BUILTIN
@@ -111,7 +116,9 @@ data class BuiltInProviderMod(
     val mangaUserPrompt: String? = null,
     val selectedModelIndex: Int = 0,
     /** 用户自定义添加的模型名称列表（仅展示在 PopupWindow 中；预设模型不可加此处） */
-    val customModels: List<String> = emptyList()
+    val customModels: List<String> = emptyList(),
+    /** 思考模式 diff（null=沿用内置默认）；0=跟随模型默认 / 1=强制关闭 / 2=强制开启 */
+    val thinkingMode: Int? = null
 )
 
 // SharedPreferences存储
@@ -515,6 +522,7 @@ object ConfigurationStorage {
     private const val KEY_DEFAULT_USER_PROMPT = "defaultUserPrompt"
     private const val KEY_SELECTED_MODEL_INDEX = "selectedModelIndex"
     private const val KEY_CUSTOM_MODELS = "customModels"
+    private const val KEY_THINKING_MODE = "thinkingMode"
     private const val BUILTIN_MODS_KEY = "BuiltIn_Providers_Modifications"
 
     /** 自定义模型列表上限（防止 UI 列表过长 + 恶意填满） */
@@ -535,6 +543,7 @@ object ConfigurationStorage {
                     put(KEY_CUSTOM_MODELS, JSONArray().apply {
                         mod.customModels.forEach { put(it) }
                     })
+                    put(KEY_THINKING_MODE, mod.thinkingMode ?: JSONObject.NULL)
                 })
             }
             prefs.setString(BUILTIN_MODS_KEY, jsonArray.toString())
@@ -561,7 +570,8 @@ object ConfigurationStorage {
                     selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0),
                     customModels = obj.optJSONArray(KEY_CUSTOM_MODELS)?.let { arr ->
                         (0 until arr.length()).map { arr.getString(it) }
-                    } ?: emptyList()
+                    } ?: emptyList(),
+                    thinkingMode = if (obj.isNull(KEY_THINKING_MODE)) null else obj.optInt(KEY_THINKING_MODE, 0)
                 ))
             }
             list
@@ -592,6 +602,7 @@ object ConfigurationStorage {
             mangaSystemPrompt = mod.mangaSystemPrompt ?: builtin.defaultMangaSystemPrompt,
             mangaUserPrompt = mod.mangaUserPrompt ?: builtin.defaultMangaUserPrompt,
             selectedModelIndex = mod.selectedModelIndex,
+            thinkingMode = mod.thinkingMode ?: builtin.thinkingMode,
             modelName = displayModels.getOrElse(mod.selectedModelIndex) { displayModels[0] }
         )
     }
@@ -651,6 +662,7 @@ object ConfigurationStorage {
                     put(KEY_PROVIDER_TYPE, provider.providerType)
                     put(KEY_SELECTED_MODEL_INDEX, provider.selectedModelIndex)
                     put("autoAppendPath", provider.autoAppendPath)
+                    put(KEY_THINKING_MODE, provider.thinkingMode)
                 })
             }
             prefs.setString("OpenAI_Providers", jsonArray.toString())
@@ -678,7 +690,8 @@ object ConfigurationStorage {
                     mangaUserPrompt = obj.optString(KEY_MANGA_USER_PROMPT, ""),
                     providerType = obj.optString(KEY_PROVIDER_TYPE, OpenAIProviderConfig.PROVIDER_TYPE_USER),
                     selectedModelIndex = obj.optInt(KEY_SELECTED_MODEL_INDEX, 0),
-                    autoAppendPath = obj.optBoolean("autoAppendPath", true)
+                    autoAppendPath = obj.optBoolean("autoAppendPath", true),
+                    thinkingMode = obj.optInt(KEY_THINKING_MODE, OpenAIProviderConfig.THINKING_DEFAULT)
                 ))
             }
             list

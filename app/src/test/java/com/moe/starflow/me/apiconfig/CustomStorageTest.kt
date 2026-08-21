@@ -3,6 +3,7 @@ package com.moe.starflow.me.apiconfig
 import com.moe.starflow.utils.CustomPreference
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -193,5 +194,96 @@ class CustomStorageTest {
         assertEquals("old-key", loaded[0].apiKey)
         assertEquals(1, loaded[0].selectedModelIndex)
         assertEquals(emptyList<String>(), loaded[0].customModels) // 迁移默认空
+    }
+
+    // ============ 思考模式（thinkingMode） ============
+
+    @Test
+    fun roundtrip_builtInProviderMod_withThinkingMode() {
+        val mods = listOf(
+            BuiltInProviderMod(
+                name = "DeepSeek",
+                apiKey = "k1",
+                selectedModelIndex = 1,
+                thinkingMode = OpenAIProviderConfig.THINKING_DEFAULT
+            )
+        )
+        ConfigurationStorage.saveBuiltInProviderMods(prefs, mods)
+        val loaded = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+        assertEquals(1, loaded.size)
+        assertEquals(OpenAIProviderConfig.THINKING_DEFAULT, loaded[0].thinkingMode)
+    }
+
+    @Test
+    fun migration_oldBuiltinJson_withoutThinkingMode_returnsNull() {
+        // 老数据 JSON：无 thinkingMode 字段 → mod.thinkingMode = null → applyMod 回退内置默认
+        prefs.setString(
+            "BuiltIn_Providers_Modifications",
+            """[{"name":"DeepSeek","apiKey":"old-key","selectedModelIndex":1}]"""
+        )
+        val loaded = ConfigurationStorage.loadBuiltInProviderMods(prefs)
+        assertNull(loaded[0].thinkingMode)
+        // DeepSeek 内置默认强制关闭思考，老用户升级后行为不变
+        val providers = ConfigurationStorage.loadAllProviders(prefs)
+        val deepseek = providers.first { it.name == "DeepSeek" }
+        assertEquals(OpenAIProviderConfig.THINKING_FORCE_DISABLED, deepseek.thinkingMode)
+    }
+
+    @Test
+    fun builtInDefault_deepseekForceDisabled_othersFollowDefault() {
+        // 无 mod 时：DeepSeek 默认强制关闭思考（保持旧行为），其余内置跟随模型默认
+        val providers = ConfigurationStorage.loadAllProviders(prefs)
+        val deepseek = providers.first { it.name == "DeepSeek" }
+        assertEquals(OpenAIProviderConfig.THINKING_FORCE_DISABLED, deepseek.thinkingMode)
+        val volcano = providers.first { it.name == "火山引擎" }
+        assertEquals(OpenAIProviderConfig.THINKING_DEFAULT, volcano.thinkingMode)
+        val zhipu = providers.first { it.name == "智谱AI" }
+        assertEquals(OpenAIProviderConfig.THINKING_DEFAULT, zhipu.thinkingMode)
+        val qwen = providers.first { it.name == "通义千问" }
+        assertEquals(OpenAIProviderConfig.THINKING_DEFAULT, qwen.thinkingMode)
+    }
+
+    @Test
+    fun roundtrip_openAIProvider_withThinkingMode() {
+        // 用户自定义 provider 往返：硅基流动默认 0，本地推理模型强制开启 2
+        val providers = listOf(
+            OpenAIProviderConfig(
+                name = "硅基流动",
+                apiKey = "k1",
+                baseUrl = "https://api.siliconflow.cn/v1",
+                modelName = "tencent/Hunyuan-MT-7B",
+                systemPrompt = "s",
+                userPrompt = "u",
+                providerType = OpenAIProviderConfig.PROVIDER_TYPE_USER,
+                thinkingMode = OpenAIProviderConfig.THINKING_DEFAULT
+            ),
+            OpenAIProviderConfig(
+                name = "本地推理",
+                apiKey = "k2",
+                baseUrl = "http://localhost:8080/v1",
+                modelName = "qwen-r1",
+                systemPrompt = "s",
+                userPrompt = "u",
+                providerType = OpenAIProviderConfig.PROVIDER_TYPE_USER,
+                thinkingMode = OpenAIProviderConfig.THINKING_FORCE_ENABLED
+            )
+        )
+        ConfigurationStorage.saveOpenAIProviders(prefs, providers)
+        val loaded = ConfigurationStorage.loadOpenAIProviders(prefs)
+        assertEquals(2, loaded.size)
+        assertEquals(OpenAIProviderConfig.THINKING_DEFAULT, loaded[0].thinkingMode)
+        assertEquals(OpenAIProviderConfig.THINKING_FORCE_ENABLED, loaded[1].thinkingMode)
+    }
+
+    @Test
+    fun migration_oldOpenAIProviderJson_withoutThinkingMode_returnsDefault() {
+        // 老用户自定义 provider JSON：无 thinkingMode → 默认 0（跟随模型默认，兼容硅基流动）
+        prefs.setString(
+            "OpenAI_Providers",
+            """[{"name":"硅基流动","apiKey":"k","baseUrl":"https://api.siliconflow.cn/v1","modelName":"tencent/Hunyuan-MT-7B","systemPrompt":"s","userPrompt":"u","providerType":"user"}]"""
+        )
+        val loaded = ConfigurationStorage.loadOpenAIProviders(prefs)
+        assertEquals(1, loaded.size)
+        assertEquals(OpenAIProviderConfig.THINKING_DEFAULT, loaded[0].thinkingMode)
     }
 }

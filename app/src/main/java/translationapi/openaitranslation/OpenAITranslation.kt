@@ -17,6 +17,7 @@
 
 package translationapi.openaitranslation
 
+import com.moe.starflow.me.apiconfig.OpenAIProviderConfig
 import com.moe.starflow.utils.LogCollector
 import com.moe.starflow.translate.CustomLocale
 import com.moe.starflow.translate.TranslationResult
@@ -50,7 +51,9 @@ class OpenAITranslation(
     private val temperature: Float = 0.3f,
     private val continuationType: String = "none",
     private val prefillContent: String = "",
-    private val autoAppendPath: Boolean = true
+    private val autoAppendPath: Boolean = true,
+    /** 思考模式：0=跟随模型默认（不发送 thinking 参数）/ 1=强制关闭 / 2=强制开启（见 OpenAIProviderConfig.THINKING_*） */
+    private val thinkingMode: Int = OpenAIProviderConfig.THINKING_DEFAULT
 ) : TranslationTextAPI {
 
     override val modelName: String get() = model
@@ -120,8 +123,8 @@ class OpenAITranslation(
         val systemPrompt = buildSystemPrompt(toLang)
         val userPrompt = buildUserPrompt(text, from, to)
 
-        // 构建请求体，始终发送 thinking:disabled 禁用思考模式
-        val requestBody = buildRequestBody(systemPrompt, userPrompt, disableThinking = true)
+        // 构建请求体：按思考模式决定是否发送 thinking 参数（0=不发送，1=强制关闭，2=强制开启）
+        val requestBody = buildRequestBody(systemPrompt, userPrompt, thinkingMode)
         LogCollector.d(TAG, "Request: $requestBody")
 
         val endpoint = if (continuationType == "prefix") {
@@ -202,7 +205,11 @@ class OpenAITranslation(
         return fullUserPrompt
     }
 
-    private fun buildRequestBody(systemPrompt: String, userPrompt: String, disableThinking: Boolean = false): String {
+    private fun buildRequestBody(
+        systemPrompt: String,
+        userPrompt: String,
+        thinkingMode: Int = OpenAIProviderConfig.THINKING_DEFAULT
+    ): String {
         val messages = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
@@ -245,10 +252,13 @@ class OpenAITranslation(
             put("max_tokens", maxTokens)
             put("temperature", temperature)
             put("stream", false)
-            if (disableThinking) {
-                put("thinking", JSONObject().apply {
-                    put("type", "disabled")
-                })
+            // 思考模式三态：0=跟随模型默认（不发送参数，兼容不支持的模型如硅基流动 Hunyuan）；
+            // 1=强制关闭（发送 disabled，针对"默认会思考"的推理模型）；2=强制开启（发送 enabled）
+            when (thinkingMode) {
+                OpenAIProviderConfig.THINKING_FORCE_DISABLED ->
+                    put("thinking", JSONObject().apply { put("type", "disabled") })
+                OpenAIProviderConfig.THINKING_FORCE_ENABLED ->
+                    put("thinking", JSONObject().apply { put("type", "enabled") })
             }
             // 智谱AI结构化输出：强制JSON格式
             if (continuationType == "json") {

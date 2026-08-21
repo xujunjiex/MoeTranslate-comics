@@ -24,7 +24,8 @@ class OpenAIChatEngine(context: Context, prefs: CustomPreference) : ChatEngine {
             model = p.modelName,
             systemPrompt = ChatTemplates.DEFAULT_SYSTEM,
             userPrompt = "{usesourcetext}",
-            autoAppendPath = p.autoAppendPath
+            autoAppendPath = p.autoAppendPath,
+            thinkingMode = p.thinkingMode
         )
     }
 

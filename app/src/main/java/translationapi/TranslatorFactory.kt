@@ -119,7 +119,8 @@ object TranslatorFactory {
                 continuationType = effectiveContinuationType,
                 prefillContent = if (effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_NONE &&
                     effectiveContinuationType != OpenAIProviderConfig.CONTINUATION_JSON) "[1] " else "",
-                autoAppendPath = provider.autoAppendPath
+                autoAppendPath = provider.autoAppendPath,
+                thinkingMode = provider.thinkingMode
             )
         } else {
             // 游戏/文本：纯文本 prompt，无续写（与 FloatingBallService 原逻辑逐行一致）
@@ -135,7 +136,8 @@ object TranslatorFactory {
                 model = provider.modelName,
                 systemPrompt = effectiveSystemPrompt,
                 userPrompt = effectiveUserPrompt,
-                autoAppendPath = provider.autoAppendPath
+                autoAppendPath = provider.autoAppendPath,
+                thinkingMode = provider.thinkingMode
             )
         }
     }

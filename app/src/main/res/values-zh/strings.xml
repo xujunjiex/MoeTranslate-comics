@@ -161,6 +161,7 @@
     <string name="nllb_status_download">NLLB模型下载状态：已下载</string>
     <string name="nllb_status_not_download">NLLB模型下载状态：未下载</string>
     <string name="is_translating">上一个翻译任务还在进行中，请稍等......</string>
+    <string name="is_translating_auto">翻译中...，终止翻译请关闭自动翻译</string>
     <string name="translation_failed">翻译失败：%s</string>
     <string name="font_title">字体</string>
     <string name="font_summary">当前字体：%s\n选择一个你喜欢的字体吧</string>
@@ -404,6 +405,11 @@
     <string name="base_url_tips">无法使用？试试在基础URL最后加上"/v1"，"/chat/completions"会自动添加。</string>
     <string name="auto_append_path_title">自动追加 /chat/completions</string>
     <string name="auto_append_path_summary">开启时，系统会自动在基础URL末尾追加"/chat/completions"。如果你的URL已包含完整端点，请关闭此开关。</string>
+    <string name="thinking_mode_title">思考模式</string>
+    <string name="thinking_mode_option_default">跟随模型默认（不发送参数）</string>
+    <string name="thinking_mode_option_disabled">强制关闭思考</string>
+    <string name="thinking_mode_option_enabled">强制开启思考</string>
+    <string name="thinking_mode_summary">「跟随模型默认」不发送 thinking 参数，兼容所有模型；「强制关闭」适用于默认就会思考的推理模型，可加速翻译；「强制开启」为支持思考的模型启用思考链。</string>
     <string name="language_setting_title">语言设置</string>
     <string name="language_setting_summary">当前语言：%s \n重新设置语言后，应用会自动重启</string>
     <string name="language_change_title">更改语言</string>

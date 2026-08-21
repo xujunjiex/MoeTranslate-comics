@@ -155,6 +155,7 @@
     <string name="nllb_status_download">NLLB model download status: Downloaded</string>
     <string name="nllb_status_not_download">NLLB model download status: Not downloaded</string>
     <string name="is_translating">The last translation task is still in progress, please wait...</string>
+    <string name="is_translating_auto">Translating... Close auto-translate to stop.</string>
     <string name="translation_failed">Translation Failed：%s</string>
     <string name="font_title">Font</string>
     <string name="font_summary">Current font：%s\nChoose a font you like</string>
@@ -451,6 +452,11 @@ Threshold for the large box filter. Detection boxes whose width, height, or area
     <string name="base_url_tips">Not working? Try adding \"/v1\" to the end of the base URL; and \"/chat/completions\" will be added automatically.</string>
     <string name="auto_append_path_title">Auto-append /chat/completions</string>
     <string name="auto_append_path_summary">When enabled, /chat/completions is automatically appended to the base URL. Disable if your URL already includes the full endpoint.</string>
+    <string name="thinking_mode_title">Thinking Mode</string>
+    <string name="thinking_mode_option_default">Follow model default (no parameter)</string>
+    <string name="thinking_mode_option_disabled">Force disable thinking</string>
+    <string name="thinking_mode_option_enabled">Force enable thinking</string>
+    <string name="thinking_mode_summary">"Follow model default" sends no thinking parameter — compatible with all models. "Force disable" is for reasoning models that think by default (faster translation). "Force enable" enables thinking for reasoning-capable models.</string>
     <string name="language_setting_title">Language Setting</string>
     <string name="language_setting_summary">Current language: %s \nAfter resetting the language, the app will automatically restart</string>
     <string name="language_change_title">Change Language</string>
